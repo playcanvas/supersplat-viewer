@@ -445,7 +445,6 @@ class DesktopController {
     }
 }
 
-
 class AppController {
     constructor() {
         this.touch = new TouchController();
