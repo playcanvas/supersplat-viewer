@@ -356,18 +356,18 @@ class DesktopController {
         };
 
         const keys = {
-            w: 'forward',
-            a: 'left',
-            s: 'backward',
-            d: 'right',
-            q: 'up',
-            e: 'down',
+            keyw: 'forward',
+            keya: 'left',
+            keys: 'backward',
+            keyd: 'right',
+            keyq: 'up',
+            keye: 'down',
             arrowleft: 'lookleft',
             arrowright: 'lookright',
             arrowup: 'lookup',
             arrowdown: 'lookdown'
         };
-
+        
         const mouseInput = new MouseInput();
         const leftKeys = new DampedJoystick();
         const rightKeys = new DampedJoystick();
@@ -403,7 +403,7 @@ class DesktopController {
                 return;
             }
 
-            const key = event.key.toLowerCase();
+            const key = event.code.toLowerCase();
             if (keys.hasOwnProperty(key)) {
                 event.stopPropagation();
                 event.preventDefault();
@@ -444,6 +444,7 @@ class DesktopController {
         this.right = right;
     }
 }
+
 
 class AppController {
     constructor() {
