@@ -619,10 +619,10 @@ const loadContent = (appElement) => {
 
 document.addEventListener('DOMContentLoaded', async () => {
     const appElement = document.querySelector('pc-app');
+    const app = (await appElement.ready()).app;
 
     loadContent(appElement);
 
-    const app = (await appElement.ready()).app;
     const cameraElement = await document.querySelector('pc-entity[name="camera"]').ready();
     const camera = cameraElement.entity;
     const settings = migrateSettings(await window.sse?.settings);
