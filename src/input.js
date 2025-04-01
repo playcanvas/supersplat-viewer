@@ -367,7 +367,6 @@ class DesktopController {
             arrowup: 'lookup',
             arrowdown: 'lookdown'
         };
-        
         const mouseInput = new MouseInput();
         const leftKeys = new DampedJoystick();
         const rightKeys = new DampedJoystick();
