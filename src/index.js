@@ -542,6 +542,7 @@ const initXr = (app, cameraElement, state, events) => {
     const parentRotation = new Quat();
     const cameraPosition = new Vec3();
     const cameraRotation = new Quat();
+    const angles = new Vec3();
 
     parent.script.create(XrControllers);
     parent.script.create(XrNavigation);
@@ -555,9 +556,11 @@ const initXr = (app, cameraElement, state, events) => {
         cameraPosition.copy(camera.getPosition());
         cameraRotation.copy(camera.getRotation());
 
+        cameraRotation.getEulerAngles(angles);
+
         // copy transform to parent to XR/VR mode starts in the right place
         parent.setPosition(cameraPosition.x, 0, cameraPosition.z);
-        parent.setRotation(cameraRotation);
+        parent.setEulerAngles(0, angles.y, 0);
 
         if (app.xr.type === 'immersive-ar') {
             clearColor.copy(camera.camera.clearColor);
