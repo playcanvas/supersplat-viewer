@@ -6,6 +6,9 @@
   "description": "Viewer for https://superspl.at",
   "license": "MIT",
   "main": "index.js",
+  "files": [
+    "dist"
+  ],
   "keywords": [
     "playcanvas",
     "ply",

@@ -530,73 +530,71 @@ const initPoster = (url, events) => {
 // On entering/exiting AR, we need to set the camera clear color to transparent black
 const initXr = (app, cameraElement, state, events) => {
 
+    // initialize ar/vr
     state.hasAR = app.xr.isAvailable('immersive-ar');
     state.hasVR = app.xr.isAvailable('immersive-vr');
 
-    if (state.hasAR || state.hasVR) {
-        const parent = cameraElement.parentElement.entity;
-        const camera = cameraElement.entity;
-        const clearColor = new Color();
+    const parent = cameraElement.parentElement.entity;
+    const camera = cameraElement.entity;
+    const clearColor = new Color();
 
-        const parentPosition = new Vec3();
-        const parentRotation = new Quat();
-        const cameraPosition = new Vec3();
-        const cameraRotation = new Quat();
+    const parentPosition = new Vec3();
+    const parentRotation = new Quat();
+    const cameraPosition = new Vec3();
+    const cameraRotation = new Quat();
 
-        parent.script.create(XrControllers);
-        parent.script.create(XrNavigation);
+    parent.script.create(XrControllers);
+    parent.script.create(XrNavigation);
 
-        app.xr.on('start', () => {
-            app.autoRender = true;
+    app.xr.on('start', () => {
+        app.autoRender = true;
 
-            // cache original camera rig positions and rotations
-            parentPosition.copy(parent.getPosition());
-            parentRotation.copy(parent.getRotation());
-            cameraPosition.copy(camera.getPosition());
-            cameraRotation.copy(camera.getRotation());
+        // cache original camera rig positions and rotations
+        parentPosition.copy(parent.getPosition());
+        parentRotation.copy(parent.getRotation());
+        cameraPosition.copy(camera.getPosition());
+        cameraRotation.copy(camera.getRotation());
 
-            // copy transform to parent to XR/VR mode starts in the right place
-            parent.setPosition(cameraPosition.x, 0, cameraPosition.z);
-            parent.setRotation(cameraRotation);
+        // copy transform to parent to XR/VR mode starts in the right place
+        parent.setPosition(cameraPosition.x, 0, cameraPosition.z);
+        parent.setRotation(cameraRotation);
 
-            if (app.xr.type === 'immersive-ar') {
-                clearColor.copy(camera.camera.clearColor);
-                camera.camera.clearColor = new Color(0, 0, 0, 0);
-            }
-        });
+        if (app.xr.type === 'immersive-ar') {
+            clearColor.copy(camera.camera.clearColor);
+            camera.camera.clearColor = new Color(0, 0, 0, 0);
+        }
+    });
 
-        app.xr.on('end', () => {
-            app.autoRender = false;
+    app.xr.on('end', () => {
+        app.autoRender = false;
 
-            // restore camera to pre-XR state
-            parent.setPosition(parentPosition);
-            parent.setRotation(parentRotation);
-            camera.setPosition(cameraPosition);
-            camera.setRotation(cameraRotation);
+        // restore camera to pre-XR state
+        parent.setPosition(parentPosition);
+        parent.setRotation(parentRotation);
+        camera.setPosition(cameraPosition);
+        camera.setRotation(cameraRotation);
 
-            if (app.xr.type === 'immersive-ar') {
-                camera.camera.clearColor = clearColor;
-            }
-        });
+        if (app.xr.type === 'immersive-ar') {
+            camera.camera.clearColor = clearColor;
+        }
+    });
 
-        events.on('startAR', () => {
-            app.xr.start(app.root.findComponent('camera'), 'immersive-ar', 'local-floor');
-        });
+    events.on('startAR', () => {
+        app.xr.start(app.root.findComponent('camera'), 'immersive-ar', 'local-floor');
+    });
 
-        events.on('startVR', () => {
-            app.xr.start(app.root.findComponent('camera'), 'immersive-vr', 'local-floor');
-        });
+    events.on('startVR', () => {
+        app.xr.start(app.root.findComponent('camera'), 'immersive-vr', 'local-floor');
+    });
 
-        events.on('inputEvent', (event) => {
-            if (event === 'cancel' && app.xr.active) {
-                app.xr.end();
-            }
-        });
-    }
+    events.on('inputEvent', (event) => {
+        if (event === 'cancel' && app.xr.active) {
+            app.xr.end();
+        }
+    });
 };
 
-const loadContent = (appElement) => {
-    const { app } = appElement;
+const loadContent = (app) => {
     const { contentUrl } = window.sse;
 
     const asset = new Asset('scene.compressed.ply', 'gsplat', {
@@ -621,7 +619,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const appElement = document.querySelector('pc-app');
     const app = (await appElement.ready()).app;
 
-    loadContent(appElement);
+    loadContent(app);
 
     const cameraElement = await document.querySelector('pc-entity[name="camera"]').ready();
     const camera = cameraElement.entity;
@@ -796,17 +794,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     updateHQ();
 
-    // AR
-    if (state.hasAR) {
-        dom.arMode.classList.remove('hidden');
-        dom.arMode.addEventListener('click', () => events.fire('startAR'));
-    }
+    // AR/VR
+    const updateAR = () => dom.arMode.classList[state.hasAR ? 'remove' : 'add']('hidden');
+    const updateVR = () => dom.vrMode.classList[state.hasVR ? 'remove' : 'add']('hidden');
 
-    // VR
-    if (state.hasVR) {
-        dom.vrMode.classList.remove('hidden');
-        dom.vrMode.addEventListener('click', () => events.fire('startVR'));
-    }
+    events.on('hasAR:changed', updateAR);
+    events.on('hasVR:changed', updateVR);
+
+    dom.arMode.addEventListener('click', () => events.fire('startAR'));
+    dom.vrMode.addEventListener('click', () => events.fire('startVR'));
+
+    updateAR();
+    updateVR();
 
     // Info panel
     const updateInfoTab = (tab) => {
