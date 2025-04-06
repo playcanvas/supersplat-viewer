@@ -171,7 +171,11 @@ class Viewer {
             if (animTracks?.length > 0 && camera.startAnim === 'animTrack') {
                 const track = animTracks.find(track => track.name === camera.animTrack);
                 if (track) {
-                    return AnimCamera.fromTrack(track);
+                    const animCamera = AnimCamera.fromTrack(track);
+                    // If fromTrack returns null, this branch will be skipped
+                    if (animCamera) {
+                        return animCamera;
+                    }
                 }
             } else if (isObjectExperience) {
                 // create a slowly rotating animation around it

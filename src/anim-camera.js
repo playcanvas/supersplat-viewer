@@ -122,6 +122,11 @@ class AnimCamera {
         const { times, values } = keyframes;
         const { position, target } = values;
 
+        // Return null if there are no keyframes or invalid data
+        if (!times?.length || !position?.length || !target?.length) {
+            return null;
+        }
+
         // construct the points array containing position and target
         const points = [];
         for (let i = 0; i < times.length; i++) {
