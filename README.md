@@ -76,5 +76,19 @@ type ExperienceSettings = {
 };
 ```
 
+### Example settings.json
+
+```
+{
+  "background": {"color": [0,0,0,0]},
+  "camera": {
+    "fov": 1.0,
+    "position": [0,1,-1],
+    "target": [0,0,0],
+    "startAnim": "orbit"
+  }
+}
+```
+
 ## Notes
 - We plan to convert the source to typescript
