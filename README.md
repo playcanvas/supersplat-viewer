@@ -78,7 +78,7 @@ type ExperienceSettings = {
 
 ### Example settings.json
 
-```
+```json
 {
   "background": {"color": [0,0,0,0]},
   "camera": {
