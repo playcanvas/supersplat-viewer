@@ -531,8 +531,12 @@ const initPoster = (url, events) => {
 const initXr = (app, cameraElement, state, events) => {
 
     // initialize ar/vr
-    app.xr.on('available:immersive-ar', (available) => state.hasAR = available);
-    app.xr.on('available:immersize-xr', (available) => state.hasXR = available);
+    app.xr.on('available:immersive-ar', (available) => {
+        state.hasAR = available;
+    });
+    app.xr.on('available:immersize-xr', (available) => {
+        state.hasXR = available;
+    });
 
     const parent = cameraElement.parentElement.entity;
     const camera = cameraElement.entity;
