@@ -639,7 +639,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         animationTime: 0,
         animationPaused: params.noanim,
         hasAR: app.xr.isAvailable('immersive-ar'),
-        hasXR: app.xr.isAvailable('immersive-vr'),
+        hasVR: app.xr.isAvailable('immersive-vr'),
         isFullscreen: false,
         uiVisible: true
     });
