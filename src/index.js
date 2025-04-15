@@ -531,8 +531,8 @@ const initPoster = (url, events) => {
 const initXr = (app, cameraElement, state, events) => {
 
     // initialize ar/vr
-    state.hasAR = app.xr.isAvailable('immersive-ar');
-    state.hasVR = app.xr.isAvailable('immersive-vr');
+    app.xr.on('available:immersive-ar', (available) => state.hasAR = available);
+    app.xr.on('available:immersize-xr', (available) => state.hasXR = available);
 
     const parent = cameraElement.parentElement.entity;
     const camera = cameraElement.entity;
@@ -638,8 +638,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         animationDuration: 0,
         animationTime: 0,
         animationPaused: params.noanim,
-        hasAR: false,
-        hasVR: false,
+        hasAR: app.xr.isAvailable('immersive-ar'),
+        hasXR: app.xr.isAvailable('immersive-vr'),
         isFullscreen: false,
         uiVisible: true
     });
@@ -798,17 +798,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateHQ();
 
     // AR/VR
-    const updateAR = () => dom.arMode.classList[state.hasAR ? 'remove' : 'add']('hidden');
-    const updateVR = () => dom.vrMode.classList[state.hasVR ? 'remove' : 'add']('hidden');
-
-    events.on('hasAR:changed', updateAR);
-    events.on('hasVR:changed', updateVR);
+    const arChanged = () => dom.arMode.classList[state.hasAR ? 'remove' : 'add']('hidden');
+    const vrChanged = () => dom.vrMode.classList[state.hasVR ? 'remove' : 'add']('hidden');
 
     dom.arMode.addEventListener('click', () => events.fire('startAR'));
     dom.vrMode.addEventListener('click', () => events.fire('startVR'));
 
-    updateAR();
-    updateVR();
+    events.on('hasAR:changed', arChanged);
+    events.on('hasVR:changed', vrChanged);
+
+    arChanged();
+    vrChanged();
 
     // Info panel
     const updateInfoTab = (tab) => {
