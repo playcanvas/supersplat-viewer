@@ -13,6 +13,7 @@
             window.sse = {
                 settings: fetch(settingsUrl).then(response => response.json()),
                 contentUrl,
+                contents: fetch(contentUrl),
                 params: {}
             };
         </script>

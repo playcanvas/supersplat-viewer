@@ -602,11 +602,12 @@ const initXr = (app, cameraElement, state, events) => {
 };
 
 const loadContent = (app) => {
-    const { contentUrl } = window.sse;
+    const { contentUrl, contents } = window.sse;
 
     const asset = new Asset('scene.compressed.ply', 'gsplat', {
         url: contentUrl,
-        filename: 'scene.compressed.ply'
+        filename: 'scene.compressed.ply',
+        contents
     });
 
     asset.on('load', () => {

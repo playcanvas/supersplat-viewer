@@ -33,13 +33,13 @@
   },
   "devDependencies": {
     "@playcanvas/eslint-config": "^2.0.9",
-    "@playcanvas/web-components": "^0.2.5",
+    "@playcanvas/web-components": "^0.2.6",
     "@rollup/plugin-node-resolve": "^16.0.1",
     "concurrently": "^9.1.2",
-    "eslint": "^9.24.0",
+    "eslint": "^9.25.1",
     "globals": "^16.0.0",
-    "playcanvas": "^2.6.2",
-    "rollup": "^4.39.0",
+    "playcanvas": "^2.7.3",
+    "rollup": "^4.40.0",
     "rollup-plugin-copy": "^3.5.0",
     "serve": "^14.2.4"
   }
