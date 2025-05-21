@@ -10,11 +10,21 @@
             const url = new URL(location.href);
             const settingsUrl = url.searchParams.has('settings') ? url.searchParams.get('settings') : './settings.json';
             const contentUrl = url.searchParams.has('content') ? url.searchParams.get('content') : './scene.compressed.ply';
+            const params = {};
+
+            // apply url parameter overrides
+            if (url.searchParams.has('noui')) params.noui = true;
+            if (url.searchParams.has('noanim')) params.noanim = true;
+            if (url.searchParams.has('poster')) params.posterUrl = url.searchParams.get('poster');
+            if (url.searchParams.has('skybox')) params.skyboxUrl = url.searchParams.get('skybox');
+            if (url.searchParams.has('ministats')) params.ministats = true;
+
             window.sse = {
                 settings: fetch(settingsUrl).then(response => response.json()),
                 contentUrl,
                 contents: fetch(contentUrl),
-                params: {}
+                poster: params.posterUrl && fetch(params.posterUrl).then(response => response.blob()),
+                params
             };
         </script>
         <script type="module" src="./index.js"></script>
@@ -197,5 +207,17 @@
                 <div id="joystick"></div>
             </div>
         </div>
+        <script type="module">
+            const poster = window.sse?.poster;
+            if (poster) {
+                poster.then((blob) => {
+                    const url = URL.createObjectURL(blob);
+                    const element = document.getElementById('poster');
+                    element.style.backgroundImage = `url(${url})`;
+                    element.style.display = 'block';
+                    element.style.filter = blur(0);
+                });
+            }
+        </script>
     </body>
 </html>
