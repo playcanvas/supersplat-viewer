@@ -497,8 +497,8 @@ class Viewer {
 
 // displays a blurry poster image which resolves to sharp during loading
 const initPoster = (events) => {
-    const blur = progress => `blur(${Math.floor((100 - progress) * 0.4)}px)`;
     const element = document.getElementById('poster');
+    const blur = progress => `blur(${Math.floor((100 - progress) * 0.4)}px)`;
 
     events.on('progress:changed', (progress) => {
         element.style.filter = blur(progress);

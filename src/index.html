@@ -19,11 +19,17 @@
             if (url.searchParams.has('skybox')) params.skyboxUrl = url.searchParams.get('skybox');
             if (url.searchParams.has('ministats')) params.ministats = true;
 
+            const createImage = (url) => {
+                const img = new Image();
+                img.src = url;
+                return img;
+            };
+
             window.sse = {
+                poster: params.posterUrl && createImage(params.posterUrl),
                 settings: fetch(settingsUrl).then(response => response.json()),
                 contentUrl,
                 contents: fetch(contentUrl),
-                poster: params.posterUrl && fetch(params.posterUrl).then(response => response.blob()),
                 params
             };
         </script>
@@ -211,13 +217,10 @@
             // Load the poster image if available
             const poster = window.sse?.poster;
             if (poster) {
-                poster.then((blob) => {
-                    const url = URL.createObjectURL(blob);
-                    const element = document.getElementById('poster');
-                    element.style.backgroundImage = `url(${url})`;
-                    element.style.display = 'block';
-                    element.style.filter = 'blur(40px)';
-                });
+                const element = document.getElementById('poster');
+                element.style.backgroundImage = `url(${poster.src})`;
+                element.style.display = 'block';
+                element.style.filter = 'blur(40px)';
             }
         </script>
     </body>
