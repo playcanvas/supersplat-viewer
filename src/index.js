@@ -496,7 +496,7 @@ class Viewer {
 }
 
 // displays a blurry poster image which resolves to sharp during loading
-const initPoster = (url, events) => {
+const initPoster = (events) => {
     const blur = progress => `blur(${Math.floor((100 - progress) * 0.4)}px)`;
     const element = document.getElementById('poster');
 
@@ -632,8 +632,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // Initialize the load-time poster
-    if (params.posterUrl) {
-        initPoster(params.posterUrl, events);
+    if (window.sse?.poster) {
+        initPoster(events);
     }
 
     // Initialize skybox

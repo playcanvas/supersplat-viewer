@@ -208,6 +208,7 @@
             </div>
         </div>
         <script type="module">
+            // Load the poster image if available
             const poster = window.sse?.poster;
             if (poster) {
                 poster.then((blob) => {
@@ -215,7 +216,7 @@
                     const element = document.getElementById('poster');
                     element.style.backgroundImage = `url(${url})`;
                     element.style.display = 'block';
-                    element.style.filter = blur(0);
+                    element.style.filter = 'blur(0)';
                 });
             }
         </script>
