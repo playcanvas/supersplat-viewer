@@ -1,7 +1,7 @@
 import { Vec3 } from 'playcanvas';
 
-import { mod, MyQuat } from './math.js';
-import { CubicSpline } from './spline.js';
+import { mod, MyQuat } from './core/math.js';
+import { CubicSpline } from './core/spline.js';
 
 const q = new MyQuat();
 

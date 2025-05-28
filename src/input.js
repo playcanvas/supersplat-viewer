@@ -1,4 +1,4 @@
-import { lerp, damp } from './math.js';
+import { lerp, damp } from './core/math.js';
 
 // stores the input deltas for 3 axes (x, y, z)
 class Input {

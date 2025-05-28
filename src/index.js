@@ -4,6 +4,7 @@ import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
 import { AnimCamera } from './anim-camera.js';
+import { Pose } from './core/pose.js';
 import { migrateSettings } from './data-migrations.js';
 import { FlyCamera } from './fly-camera.js';
 import { AppController } from './input.js';
@@ -11,7 +12,6 @@ import { observe } from './observe.js';
 import { OrbitCamera } from './orbit-camera.js';
 import { Picker } from './picker.js';
 import { PointerDevice } from './pointer-device.js';
-import { Pose } from './pose.js';
 
 // get experience parameters
 const params = window.sse?.params ?? {};
