@@ -1,6 +1,6 @@
 import { Vec3 } from 'playcanvas';
 
-import { mod, MyQuat, SmoothDamp } from './core/math.js';
+import { mod, MyQuat, SmoothDamp } from '../core/math.js';
 
 const forward = new Vec3();
 const right = new Vec3();

@@ -3,13 +3,13 @@ import { shaderChunks, Asset, BoundingBox, Color, EventHandler, Mat4, MiniStats,
 import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
-import { AnimCamera } from './anim-camera.js';
+import { AnimCamera } from './cameras/anim-camera.js';
+import { FlyCamera } from './cameras/fly-camera.js';
+import { OrbitCamera } from './cameras/orbit-camera.js';
 import { Pose } from './core/pose.js';
 import { migrateSettings } from './data-migrations.js';
-import { FlyCamera } from './fly-camera.js';
 import { AppController } from './input.js';
 import { observe } from './observe.js';
-import { OrbitCamera } from './orbit-camera.js';
 import { Picker } from './picker.js';
 import { PointerDevice } from './pointer-device.js';
 
