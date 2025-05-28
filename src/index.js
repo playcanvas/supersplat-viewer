@@ -125,6 +125,27 @@ const loadContent = (app) => {
     app.assets.load(asset);
 };
 
+const waitForGsplat = (app, state) => {
+    return new Promise((resolve) => {
+        const assets = app.assets.filter(asset => asset.type === 'gsplat');
+        if (assets.length > 0) {
+            const asset = assets[0];
+
+            asset.on('progress', (received, length) => {
+                state.progress = (Math.min(1, received / length) * 100).toFixed(0);
+            });
+
+            if (asset.loaded) {
+                resolve(asset);
+            } else {
+                asset.on('load', () => {
+                    resolve(asset);
+                });
+            }
+        }
+    });
+};
+
 document.addEventListener('DOMContentLoaded', async () => {
     const appElement = document.querySelector('pc-app');
     const app = (await appElement.ready()).app;
@@ -184,26 +205,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize XR support
     initXr(app, cameraElement, state, events);
 
-    // eslint-disable-next-line no-unused-vars
+    // Initialize viewer
     const viewer = new Viewer(app, camera, events, state, settings, params);
 
-    // wait for gsplat asset to load before initializing the rest
-    const assets = app.assets.filter(asset => asset.type === 'gsplat');
-    if (assets.length > 0) {
-        const asset = assets[0];
-
-        asset.on('progress', (received, length) => {
-            state.progress = (Math.min(1, received / length) * 100).toFixed(0);
-        });
-
-        if (asset.loaded) {
-            events.fire('loaded', asset);
-        } else {
-            asset.on('load', () => {
-                events.fire('loaded', asset);
-            });
-        }
-    }
+    // wait for gsplat asset to load before initializing the viewer
+    waitForGsplat(app, state).then(() => viewer.initialize());
 
     // Get button and info panel elements
     const dom = [

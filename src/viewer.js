@@ -117,9 +117,6 @@ class Viewer {
             app.renderNextFrame = true;
         });
         graphicsDevice.maxPixelRatio = state.hqMode ? window.devicePixelRatio : 1;
-
-        // initialize the viewer after assets have finished loading
-        events.on('loaded', () => this.initialize());
     }
 
     // initialize the viewer once gsplat asset is finished loading (so we know its bound etc)
