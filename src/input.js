@@ -32,23 +32,42 @@ class AppController {
 
     _touches = 0;
 
-    desktopInput = new KeyboardMouseSource();
+    _desktopInput = new KeyboardMouseSource();
 
-    orbitInput = new MultiTouchSource();
+    _orbitInput = new MultiTouchSource();
 
-    flyInput = new DualGestureSource();
+    _flyInput = new DualGestureSource();
 
     left = new Input();
 
     right = new Input();
 
+    joystick = {
+        base: null,
+        stick: null
+    };
+
     /**
      * @param {HTMLElement} element - the element to attach the input to
      */
     constructor(element) {
-        this.desktopInput.attach(element);
-        this.orbitInput.attach(element);
-        this.flyInput.attach(element);
+        this._desktopInput.attach(element);
+        this._orbitInput.attach(element);
+        this._flyInput.attach(element);
+
+        // convert events to joystick state
+        this._flyInput.leftJoystick.on('position:base', (x, y) => {
+            this.joystick.base = [x, y];
+        });
+        this._flyInput.leftJoystick.on('position:stick', (x, y) => {
+            const dx = x - this.joystick.base[0];
+            const dy = y - this.joystick.base[1];
+            this.joystick.stick = [dx, dy];
+        });
+        this._flyInput.leftJoystick.on('reset', () => {
+            this.joystick.base = null;
+            this.joystick.stick = null;
+        });
     }
 
     /**
@@ -56,9 +75,9 @@ class AppController {
      * @param {'anim' | 'fly' | 'orbit'} mode - the camera mode
      */
     update(dt, mode) {
-        const { key, mouse, wheel } = this.desktopInput.frame();
-        const { touch, pinch, count } = this.orbitInput.frame();
-        const { left, right } = this.flyInput.frame();
+        const { key, mouse, wheel } = this._desktopInput.frame();
+        const { touch, pinch, count } = this._orbitInput.frame();
+        const { left, right } = this._flyInput.frame();
 
         // multipliers
         const fdt = 60 * dt;

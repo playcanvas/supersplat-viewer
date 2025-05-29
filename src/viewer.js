@@ -264,24 +264,6 @@ class Viewer {
         // create controller
         const controller = new AppController(app.graphicsDevice.canvas);
 
-        // setup joystick events
-        const joystick = {
-            base: null,
-            stick: null
-        };
-        controller.flyInput.leftJoystick.on('position:base', (x, y) => {
-            joystick.base = [x, y];
-        });
-        controller.flyInput.leftJoystick.on('position:stick', (x, y) => {
-            const dx = x - joystick.base[0];
-            const dy = y - joystick.base[1];
-            joystick.stick = [dx, dy];
-        });
-        controller.flyInput.leftJoystick.on('reset', () => {
-            joystick.base = null;
-            joystick.stick = null;
-        });
-
         // transition time between cameras
         let transitionTimer = 0;
 
@@ -333,7 +315,7 @@ class Viewer {
 
             // update touch joystick UI
             if (state.cameraMode === 'fly') {
-                events.fire('touchJoystickUpdate', joystick.base, joystick.stick);
+                events.fire('touchJoystickUpdate', controller.joystick.base, controller.joystick.stick);
             }
 
             // update the active camera
