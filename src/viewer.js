@@ -7,7 +7,6 @@ import { OrbitCamera } from './cameras/orbit-camera.js';
 import { Pose } from './core/pose.js';
 import { AppController } from './input.js';
 import { Picker } from './picker.js';
-import { PointerDevice } from './pointer-device.js';
 
 const gsplatFS = /* glsl */ `
 
@@ -262,9 +261,8 @@ class Viewer {
         orbitCamera.reset(activePose);
         flyCamera.reset(activePose);
 
-        // create the pointer device
-        const pointerDevice = new PointerDevice(app.graphicsDevice.canvas);
-        const controller = new AppController();
+        // create controller
+        const controller = new AppController(app.graphicsDevice.canvas);
 
         // transition time between cameras
         let transitionTimer = 0;
@@ -273,33 +271,6 @@ class Viewer {
         const prevPose = new Pose();
         let prevCamera = null;
         let prevCameraMode = 'orbit';
-
-        // update the currently active controller
-        const assignController = () => {
-            switch (state.cameraMode) {
-                case 'orbit':
-                    pointerDevice.target = state.inputMode === 'touch' ? controller.orbit : controller.desktop;
-                    break;
-                case 'anim':
-                    // for animated camera with lookaround, use the following:
-                    // pointerDevice.target = state.inputMode === 'touch' ? controller.orbit : controller.desktop;
-
-                    // no input to anim camera means no lookaround
-                    pointerDevice.target = null;
-                    break;
-                case 'fly':
-                    pointerDevice.target = state.inputMode === 'touch' ? controller.touch : controller.desktop;
-                    break;
-            }
-        };
-
-        assignController();
-
-        // handle input mode changing (once user interacts with the app input
-        // mode can switch to touch device)
-        events.on('inputMode:changed', (value, prev) => {
-            assignController();
-        });
 
         // handle input events
         events.on('inputEvent', (eventName, event) => {
@@ -340,25 +311,11 @@ class Viewer {
             }
 
             // update input controller
-            controller.update(deltaTime);
-
-            // remap some desktop inputs based on camera mode
-            if (state.cameraMode === 'orbit') {
-                const { value } = controller.desktop.left.inputs[1];
-                controller.left.value[0] -= value[0] * 2;
-                controller.left.value[1] -= value[1] * 2;
-            } else if (state.cameraMode === 'fly') {
-                const { value } = controller.desktop.left.inputs[0];
-                controller.left.value[1] -= value[1];
-                controller.left.value[2] += value[1];
-            }
+            controller.update(deltaTime, state.cameraMode);
 
             // update touch joystick UI
-            const touchJoystick = controller.touch.left;
-            if (touchJoystick.stick.every(v => v === 0)) {
-                events.fire('touchJoystickUpdate', null);
-            } else {
-                events.fire('touchJoystickUpdate', touchJoystick.base, touchJoystick.stick);
+            if (state.cameraMode === 'fly') {
+                events.fire('touchJoystickUpdate', controller.joystick.base, controller.joystick.stick);
             }
 
             // update the active camera
@@ -419,9 +376,6 @@ class Viewer {
 
             // reset camera transition timer
             transitionTimer = 0;
-
-            // reassign controller
-            assignController();
         });
 
         events.on('setAnimationTime', (time) => {
