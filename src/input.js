@@ -467,4 +467,4 @@ class AppController {
     }
 }
 
-export { AppController };
+export { Input, AppController };
