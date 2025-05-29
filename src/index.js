@@ -549,15 +549,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     // we must detect double taps manually because ios doesn't send dblclick events
     const lastTap = { time: 0, x: 0, y: 0 };
     device.canvas.addEventListener('pointerdown', (event) => {
-        const curTap = new Date().getTime();
-        const delay = Math.max(0, curTap - lastTap.time);
+        const now = Date.now();
+        const delay = Math.max(0, now - lastTap.time);
         if (delay < 300 &&
             Math.abs(event.clientX - lastTap.x) < 8 &&
             Math.abs(event.clientY - lastTap.y) < 8) {
             events.fire('inputEvent', 'dblclick', event);
             lastTap.time = 0;
         } else {
-            lastTap.time = curTap;
+            lastTap.time = now;
             lastTap.x = event.clientX;
             lastTap.y = event.clientY;
         }
