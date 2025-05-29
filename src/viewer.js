@@ -1,15 +1,12 @@
 import '@playcanvas/web-components';
-import { DualGestureSource, KeyboardMouseSource, MultiTouchSource } from 'camera-controls';
 import { BoundingBox, Color, Mat4, Vec3 } from 'playcanvas';
 
 import { AnimCamera } from './cameras/anim-camera.js';
 import { FlyCamera } from './cameras/fly-camera.js';
 import { OrbitCamera } from './cameras/orbit-camera.js';
 import { Pose } from './core/pose.js';
-import { Input } from './input.js';
+import { AppController } from './input.js';
 import { Picker } from './picker.js';
-
-const tmpV1 = new Vec3();
 
 const gsplatFS = /* glsl */ `
 
@@ -264,122 +261,23 @@ class Viewer {
         orbitCamera.reset(activePose);
         flyCamera.reset(activePose);
 
-        // create input sources
-        const desktopInput = new KeyboardMouseSource();
-        const orbitInput = new MultiTouchSource();
-        const flyInput = new DualGestureSource();
-
-        desktopInput.attach(app.graphicsDevice.canvas);
-        orbitInput.attach(app.graphicsDevice.canvas);
-        flyInput.attach(app.graphicsDevice.canvas);
-
         // create controller
-        const controller = {
-            _axis: new Vec3(),
-            _touches: 0,
-
-            left: new Input(),
-            right: new Input(),
-
-            update: (dt) => {
-                const { key, mouse, wheel } = desktopInput.frame();
-                const { touch, pinch, count } = orbitInput.frame();
-                const { left, right } = flyInput.frame();
-
-                // multipliers
-                const fdt = 60 * dt;
-                const moveMult = 5 * fdt;
-                const wheelMult = 0.05 * fdt;
-                const pinchMult = 0.5 * fdt;
-                const lookMult = 1 * fdt;
-
-                // update state
-                const [negz, posz, negx, posx, negy, posy] = key;
-                controller._axis.add(tmpV1.set(posx - negx, posy - negy, posz - negz));
-                controller._touches += count[0];
-
-                // update mobile input
-                switch (state.cameraMode) {
-                    case 'orbit': {
-                        // desktop
-                        tmpV1.copy(controller._axis).normalize();
-                        controller.left.add(
-                            -tmpV1.x * moveMult,
-                            tmpV1.y * moveMult,
-                            tmpV1.z * moveMult + wheel[0] * wheelMult
-                        );
-                        controller.right.add(
-                            mouse[0] * lookMult,
-                            mouse[1] * lookMult,
-                            0
-                        );
-
-                        // mobile
-                        if (controller._touches > 1) {
-                            controller.left.add(
-                                touch[0] * moveMult * 0.5,
-                                touch[1] * moveMult * 0.5,
-                                pinch[0] * pinchMult
-                            );
-                        } else {
-                            controller.right.add(
-                                touch[0] * lookMult,
-                                touch[1] * lookMult,
-                                pinch[0] * pinchMult
-                            );
-                        }
-                        break;
-                    }
-                    case 'fly': {
-                        // desktop
-                        tmpV1.copy(controller._axis).normalize();
-                        controller.left.add(
-                            tmpV1.x * moveMult,
-                            tmpV1.z * moveMult,
-                            -tmpV1.y * moveMult
-                        );
-                        controller.right.add(
-                            mouse[0] * lookMult,
-                            mouse[1] * lookMult,
-                            0
-                        );
-
-                        // mobile
-                        controller.left.add(
-                            left[0] * moveMult,
-                            left[1] * moveMult,
-                            0
-                        );
-                        controller.right.add(
-                            right[0] * lookMult,
-                            right[1] * lookMult,
-                            0
-                        );
-                        break;
-                    }
-                }
-            },
-
-            clear: () => {
-                controller.left.clear();
-                controller.right.clear();
-            }
-        };
+        const controller = new AppController(app.graphicsDevice.canvas);
 
         // setup joystick events
         const joystick = {
             base: null,
             stick: null
         };
-        flyInput.leftJoystick.on('position:base', (x, y) => {
+        controller.flyInput.leftJoystick.on('position:base', (x, y) => {
             joystick.base = [x, y];
         });
-        flyInput.leftJoystick.on('position:stick', (x, y) => {
+        controller.flyInput.leftJoystick.on('position:stick', (x, y) => {
             const dx = x - joystick.base[0];
             const dy = y - joystick.base[1];
             joystick.stick = [dx, dy];
         });
-        flyInput.leftJoystick.on('reset', () => {
+        controller.flyInput.leftJoystick.on('reset', () => {
             joystick.base = null;
             joystick.stick = null;
         });
@@ -431,7 +329,7 @@ class Viewer {
             }
 
             // update input controller
-            controller.update(deltaTime);
+            controller.update(deltaTime, state.cameraMode);
 
             // update touch joystick UI
             if (state.cameraMode === 'fly') {
