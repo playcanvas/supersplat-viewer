@@ -7,8 +7,6 @@ import { migrateSettings } from './data-migrations.js';
 import { observe } from './observe.js';
 import { Viewer } from './viewer.js';
 
-/** @import { AppBase } from 'playcanvas' */
-
 // temporary vector
 const v = new Vec3();
 
@@ -151,7 +149,7 @@ const waitForGsplat = (app, state) => {
 
 document.addEventListener('DOMContentLoaded', async () => {
     const appElement = document.querySelector('pc-app');
-    const app = /** @type {AppBase} */ ((await appElement.ready()).app);
+    const app = (await appElement.ready()).app;
     const { graphicsDevice } = app;
 
     loadContent(app);
