@@ -294,8 +294,8 @@ class Viewer {
                 const lookMult = 1 * fdt;
 
                 // update state
-                const [keyW, keyS, keyA, keyD, keyQ, keyE] = key;
-                controller._axis.add(tmpV1.set(keyD - keyA, keyE - keyQ, keyS - keyW));
+                const [negz, posz, negx, posx, negy, posy] = key;
+                controller._axis.add(tmpV1.set(posx - negx, posy - negy, posz - negz));
                 controller._touches += count[0];
 
                 // update mobile input
