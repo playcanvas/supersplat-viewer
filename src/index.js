@@ -7,6 +7,8 @@ import { migrateSettings } from './data-migrations.js';
 import { observe } from './observe.js';
 import { Viewer } from './viewer.js';
 
+/** @import { AppBase } from 'playcanvas' */
+
 // get experience parameters
 const params = window.sse?.params ?? {};
 
@@ -148,7 +150,8 @@ const waitForGsplat = (app, state) => {
 
 document.addEventListener('DOMContentLoaded', async () => {
     const appElement = document.querySelector('pc-app');
-    const app = (await appElement.ready()).app;
+    const app = /** @type {AppBase} */ ((await appElement.ready()).app);
+    const device = app.graphicsDevice;
 
     loadContent(app);
 
@@ -534,18 +537,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Generate input events
 
     ['wheel', 'pointerdown', 'contextmenu', 'keydown'].forEach((eventName) => {
-        app.graphicsDevice.canvas.addEventListener(eventName, (event) => {
+        device.canvas.addEventListener(eventName, (event) => {
             events.fire('inputEvent', 'interrupt', event);
         });
     });
 
-    app.graphicsDevice.canvas.addEventListener('pointermove', (event) => {
+    device.canvas.addEventListener('pointermove', (event) => {
         events.fire('inputEvent', 'interact', event);
     });
 
     // we must detect double taps manually because ios doesn't send dblclick events
     const lastTap = { time: 0, x: 0, y: 0 };
-    app.graphicsDevice.canvas.addEventListener('pointerdown', (event) => {
+    device.canvas.addEventListener('pointerdown', (event) => {
         const curTap = new Date().getTime();
         const delay = Math.max(0, curTap - lastTap.time);
         if (delay < 300 &&
