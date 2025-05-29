@@ -252,6 +252,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Fullscreen support
     const hasFullscreenAPI = docRoot.requestFullscreen && document.exitFullscreen;
+
     const requestFullscreen = () => {
         if (hasFullscreenAPI) {
             docRoot.requestFullscreen();
@@ -260,6 +261,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             state.isFullscreen = true;
         }
     };
+
     const exitFullscreen = () => {
         if (hasFullscreenAPI) {
             document.exitFullscreen();
@@ -268,11 +270,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             state.isFullscreen = false;
         }
     };
+
     if (hasFullscreenAPI) {
         document.addEventListener('fullscreenchange', () => {
             state.isFullscreen = !!document.fullscreenElement;
         });
     }
+
     dom.enterFullscreen.addEventListener('click', requestFullscreen);
     dom.exitFullscreen.addEventListener('click', exitFullscreen);
 
