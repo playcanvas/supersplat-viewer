@@ -9,13 +9,14 @@ import { Viewer } from './viewer.js';
 
 /** @import { AppBase } from 'playcanvas' */
 
+// temporary vector
+const v = new Vec3();
+
 // get experience parameters
 const params = window.sse?.params ?? {};
 
 // render skybox as plain equirect
 shaderChunks.skyboxPS = shaderChunks.skyboxPS.replace('mapRoughnessUv(uv, mipLevel)', 'uv');
-
-const v = new Vec3();
 
 // displays a blurry poster image which resolves to sharp during loading
 const initPoster = (events) => {
