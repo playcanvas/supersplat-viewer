@@ -127,8 +127,8 @@ class AppController {
                 tmpV1.copy(this._axis).normalize();
                 this.left.add(
                     tmpV1.x * moveMult,
-                    tmpV1.z * moveMult,
-                    -tmpV1.y * moveMult
+                    tmpV1.y * moveMult,
+                    -tmpV1.z * moveMult
                 );
                 this.right.add(
                     mouse[0] * lookMult,
