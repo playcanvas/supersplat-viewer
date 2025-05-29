@@ -1,5 +1,4 @@
-import { DualGestureSource, KeyboardMouseSource, MultiTouchSource } from 'camera-controls';
-import { Vec3 } from 'playcanvas';
+import { DualGestureSource, KeyboardMouseSource, MultiTouchSource, Vec3 } from 'playcanvas';
 
 const tmpV1 = new Vec3();
 

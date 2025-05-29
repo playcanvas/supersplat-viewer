@@ -1,5 +1,5 @@
 import '@playcanvas/web-components';
-import { shaderChunks, Asset, Color, EventHandler, MiniStats, Vec3, Quat } from 'playcanvas';
+import { Asset, Color, EventHandler, MiniStats, Vec3, Quat } from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
@@ -14,7 +14,8 @@ const v = new Vec3();
 const params = window.sse?.params ?? {};
 
 // render skybox as plain equirect
-shaderChunks.skyboxPS = shaderChunks.skyboxPS.replace('mapRoughnessUv(uv, mipLevel)', 'uv');
+// FIXME: Adjust for Engine 2.8.X
+// shaderChunks.skyboxPS = shaderChunks.skyboxPS.replace('mapRoughnessUv(uv, mipLevel)', 'uv');
 
 // displays a blurry poster image which resolves to sharp during loading
 const initPoster = (events) => {
