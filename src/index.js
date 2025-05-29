@@ -481,14 +481,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // Camera mode UI
-    const updateCameraMode = () => {
+    events.on('cameraMode:changed', () => {
         if (state.cameraMode === 'fly') {
             dom.cameraToggleHighlight.classList.add('right');
         } else {
             dom.cameraToggleHighlight.classList.remove('right');
         }
-    };
-    events.on('cameraMode:changed', updateCameraMode);
+    });
 
     dom.settings.addEventListener('click', () => {
         dom.settingsPanel.classList.toggle('hidden');
