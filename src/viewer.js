@@ -366,6 +366,24 @@ class Viewer {
             }
         };
 
+        // setup joystick events
+        const joystick = {
+            base: null,
+            stick: null
+        };
+        flyInput.leftJoystick.on('position:base', (x, y) => {
+            joystick.base = [x, y];
+        });
+        flyInput.leftJoystick.on('position:stick', (x, y) => {
+            const dx = x - joystick.base[0];
+            const dy = y - joystick.base[1];
+            joystick.stick = [dx, dy];
+        });
+        flyInput.leftJoystick.on('reset', () => {
+            joystick.base = null;
+            joystick.stick = null;
+        });
+
         // transition time between cameras
         let transitionTimer = 0;
 
@@ -415,13 +433,10 @@ class Viewer {
             // update input controller
             controller.update(deltaTime);
 
-            // // update touch joystick UI
-            // const touchJoystick = controller.touch.left;
-            // if (touchJoystick.stick.every(v => v === 0)) {
-            //     events.fire('touchJoystickUpdate', null);
-            // } else {
-            //     events.fire('touchJoystickUpdate', touchJoystick.base, touchJoystick.stick);
-            // }
+            // update touch joystick UI
+            if (state.cameraMode === 'fly') {
+                events.fire('touchJoystickUpdate', joystick.base, joystick.stick);
+            }
 
             // update the active camera
             const input = {
