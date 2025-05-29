@@ -152,7 +152,7 @@ const waitForGsplat = (app, state) => {
 document.addEventListener('DOMContentLoaded', async () => {
     const appElement = document.querySelector('pc-app');
     const app = /** @type {AppBase} */ ((await appElement.ready()).app);
-    const device = app.graphicsDevice;
+    const { graphicsDevice } = app;
 
     loadContent(app);
 
@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         app.assets.load(skyAsset);
     }
 
-    // construct ministats
+    // Construct ministats
     if (params.ministats) {
         const miniStats = new MiniStats(app);
         miniStats.position = 'topright';
@@ -212,10 +212,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize viewer
     const viewer = new Viewer(app, camera, events, state, settings, params);
 
-    // wait for gsplat asset to load before initializing the viewer
+    // Wait for gsplat asset to load before initializing the viewer
     waitForGsplat(app, state).then(() => viewer.initialize());
 
-    // Get button and info panel elements
+    // Acquire Elements
+    const docRoot = document.documentElement;
     const dom = [
         'ui',
         'controlsWrap',
@@ -252,9 +253,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // Fullscreen support
-    const docRoot = document.documentElement;
     const hasFullscreenAPI = docRoot.requestFullscreen && document.exitFullscreen;
-
     const requestFullscreen = () => {
         if (hasFullscreenAPI) {
             docRoot.requestFullscreen();
@@ -263,7 +262,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             state.isFullscreen = true;
         }
     };
-
     const exitFullscreen = () => {
         if (hasFullscreenAPI) {
             document.exitFullscreen();
@@ -272,13 +270,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             state.isFullscreen = false;
         }
     };
-
     if (hasFullscreenAPI) {
         document.addEventListener('fullscreenchange', () => {
             state.isFullscreen = !!document.fullscreenElement;
         });
     }
-
     dom.enterFullscreen.addEventListener('click', requestFullscreen);
     dom.exitFullscreen.addEventListener('click', exitFullscreen);
 
@@ -537,18 +533,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Generate input events
 
     ['wheel', 'pointerdown', 'contextmenu', 'keydown'].forEach((eventName) => {
-        device.canvas.addEventListener(eventName, (event) => {
+        graphicsDevice.canvas.addEventListener(eventName, (event) => {
             events.fire('inputEvent', 'interrupt', event);
         });
     });
 
-    device.canvas.addEventListener('pointermove', (event) => {
+    graphicsDevice.canvas.addEventListener('pointermove', (event) => {
         events.fire('inputEvent', 'interact', event);
     });
 
     // we must detect double taps manually because ios doesn't send dblclick events
     const lastTap = { time: 0, x: 0, y: 0 };
-    device.canvas.addEventListener('pointerdown', (event) => {
+    graphicsDevice.canvas.addEventListener('pointerdown', (event) => {
         const now = Date.now();
         const delay = Math.max(0, now - lastTap.time);
         if (delay < 300 &&
