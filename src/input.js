@@ -80,10 +80,14 @@ class AppController {
         const { touch, pinch, count } = this._orbitInput.frame();
         const { left, right } = this._flyInput.frame();
 
-        // multipliers
+        // base delta time
         const bdt = 60 * dt;
-        const moveDt = 5 * bdt;
-        const lookDt = 1 * bdt;
+
+        // multipliers
+        const moveMult = 5;
+        const lookMult = 1;
+        const pinchMult = 0.1;
+        const wheelMult = 0.01;
 
         // update state
         const [negz, posz, negx, posx, negy, posy] = key;
@@ -96,13 +100,13 @@ class AppController {
         // update desktop input
         const axis = tmpV1.copy(this._axis).normalize();
         this.left.add(
-            (-axis.x + this._mouse[2] * mouse[0] * 0.25) * moveDt,
-            (axis.y + this._mouse[2] * mouse[1] * 0.25) * moveDt,
-            (axis.z + wheel[0] * 0.01) * moveDt
+            (-axis.x + this._mouse[2] * mouse[0] * 0.25) * moveMult * bdt,
+            (axis.y + this._mouse[2] * mouse[1] * 0.25) * moveMult * bdt,
+            (axis.z + wheel[0] * wheelMult) * moveMult * bdt
         );
         this.right.add(
-            (1 - this._mouse[2]) * mouse[0] * lookDt,
-            (1 - this._mouse[2]) * mouse[1] * lookDt,
+            (1 - this._mouse[2]) * mouse[0] * lookMult * bdt,
+            (1 - this._mouse[2]) * mouse[1] * lookMult * bdt,
             0
         );
 
@@ -110,14 +114,14 @@ class AppController {
         const pan = +(this._touches > 1);
         const orbit = +(mode === 'orbit');
         this.left.add(
-            (orbit * (pan * touch[0] * 0.25) + (1 - orbit) * left[0]) * moveDt,
-            (orbit * (pan * touch[1] * 0.25) + (1 - orbit) * left[1]) * moveDt,
-            (orbit * (pan * pinch[0] * 0.1)) * moveDt
+            (orbit * (pan * touch[0] * 0.25) + (1 - orbit) * left[0]) * moveMult * bdt,
+            (orbit * (pan * touch[1] * 0.25) + (1 - orbit) * left[1]) * moveMult * bdt,
+            (orbit * (pan * pinch[0] * pinchMult)) * moveMult * bdt
         );
         this.right.add(
-            (orbit * ((1 - pan) * touch[0]) + (1 - orbit) * right[0]) * lookDt,
-            (orbit * ((1 - pan) * touch[1]) + (1 - orbit) * right[1]) * lookDt,
-            (orbit * ((1 - pan) * pinch[0] * 0.1)) * moveDt
+            (orbit * ((1 - pan) * touch[0]) + (1 - orbit) * right[0]) * lookMult * bdt,
+            (orbit * ((1 - pan) * touch[1]) + (1 - orbit) * right[1]) * lookMult * bdt,
+            (orbit * ((1 - pan) * pinch[0] * pinchMult)) * moveMult * bdt
         );
     }
 
