@@ -84,7 +84,7 @@ class AppController {
     update(dt, mode) {
         const { key, button, mouse, wheel } = this._desktopInput.frame();
         const { touch, pinch, count } = this._orbitInput.frame();
-        const { left, right } = this._flyInput.frame();
+        const { leftInput, rightInput } = this._flyInput.frame();
         const { leftStick, rightStick } = this._gamepadInput.frame();
 
         // multipliers
@@ -92,8 +92,8 @@ class AppController {
         const { moveMult, lookMult, panMult, pinchMult, wheelMult } = this;
 
         // update state
-        const [negz, posz, negx, posx, negy, posy] = key;
-        this._axis.add(tmpV1.set(posx - negx, posy - negy, posz - negz));
+        const [forward, back, left, right, down, up] = key;
+        this._axis.add(tmpV1.set(right - left, up - down, back - forward));
         this._touches += count[0];
         for (let i = 0; i < button.length; i++) {
             this._mouse[i] += button[i];
@@ -121,13 +121,13 @@ class AppController {
 
         // update mobile input
         this.left.add(
-            (orbit ? (pan * touch[0] * panMult) : left[0]) * moveMult * bdt,
-            (orbit ? (pan * touch[1] * panMult) : left[1]) * moveMult * bdt,
+            (orbit ? (pan * touch[0] * panMult) : leftInput[0]) * moveMult * bdt,
+            (orbit ? (pan * touch[1] * panMult) : leftInput[1]) * moveMult * bdt,
             (orbit * (pan * pinch[0] * pinchMult)) * moveMult * bdt
         );
         this.right.add(
-            (orbit ? ((1 - pan) * touch[0]) : right[0]) * lookMult * bdt,
-            (orbit ? ((1 - pan) * touch[1]) : right[1]) * lookMult * bdt,
+            (orbit ? ((1 - pan) * touch[0]) : rightInput[0]) * lookMult * bdt,
+            (orbit ? ((1 - pan) * touch[1]) : rightInput[1]) * lookMult * bdt,
             (orbit * ((1 - pan) * pinch[0] * pinchMult)) * moveMult * bdt
         );
 
