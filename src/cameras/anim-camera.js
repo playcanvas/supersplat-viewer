@@ -94,13 +94,8 @@ class AnimCamera {
 
         // rotate
         if (input?.rotate) {
-            if (input.rotate.events.indexOf('up') !== -1) {
-                // reset on up event`
-                rotation.set(0, 0, 0);
-            } else {
-                rotation.x = Math.max(-90, Math.min(90, rotation.x - input.rotate.value[1] * rotateSpeed));
-                rotation.y = Math.max(-180, Math.min(180, rotation.y - input.rotate.value[0] * rotateSpeed));
-            }
+            rotation.x = Math.max(-90, Math.min(90, rotation.x - input.rotate.value[1] * rotateSpeed));
+            rotation.y = Math.max(-180, Math.min(180, rotation.y - input.rotate.value[0] * rotateSpeed));
         }
     }
 
