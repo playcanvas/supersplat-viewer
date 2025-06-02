@@ -109,35 +109,18 @@ class AppController {
         );
 
         // update mobile input
-        switch (mode) {
-            case 'orbit': {
-                const pan = +(this._touches > 1);
-                this.left.add(
-                    pan * touch[0] * moveMult * 0.25,
-                    pan * touch[1] * moveMult * 0.25,
-                    pan * pinch[0] * pinchMult
-                );
-                this.right.add(
-                    (1 - pan) * touch[0] * lookMult,
-                    (1 - pan) * touch[1] * lookMult,
-                    (1 - pan) * pinch[0] * pinchMult
-                );
-                break;
-            }
-            case 'fly': {
-                this.left.add(
-                    left[0] * moveMult,
-                    left[1] * moveMult,
-                    0
-                );
-                this.right.add(
-                    right[0] * lookMult,
-                    right[1] * lookMult,
-                    0
-                );
-                break;
-            }
-        }
+        const pan = +(this._touches > 1);
+        const orbit = +(mode === 'orbit');
+        this.left.add(
+            orbit * (pan * touch[0] * moveMult * 0.25) + (1 - orbit) * left[0] * moveMult,
+            orbit * (pan * touch[1] * moveMult * 0.25) + (1 - orbit) * left[1] * moveMult,
+            orbit * (pan * pinch[0] * pinchMult)
+        );
+        this.right.add(
+            orbit * ((1 - pan) * touch[0] * lookMult) + (1 - orbit) * right[0] * lookMult,
+            orbit * ((1 - pan) * touch[1] * lookMult) + (1 - orbit) * right[1] * lookMult,
+            orbit * ((1 - pan) * pinch[0] * pinchMult)
+        );
     }
 
     clear() {
