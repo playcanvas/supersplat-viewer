@@ -31,6 +31,8 @@ class AppController {
 
     _touches = 0;
 
+    _mouse = [0, 0, 0];
+
     _desktopInput = new KeyboardMouseSource();
 
     _orbitInput = new MultiTouchSource();
@@ -74,7 +76,7 @@ class AppController {
      * @param {'anim' | 'fly' | 'orbit'} mode - the camera mode
      */
     update(dt, mode) {
-        const { key, mouse, wheel } = this._desktopInput.frame();
+        const { key, button, mouse, wheel } = this._desktopInput.frame();
         const { touch, pinch, count } = this._orbitInput.frame();
         const { left, right } = this._flyInput.frame();
 
@@ -89,54 +91,40 @@ class AppController {
         const [negz, posz, negx, posx, negy, posy] = key;
         this._axis.add(tmpV1.set(posx - negx, posy - negy, posz - negz));
         this._touches += count[0];
+        for (let i = 0; i < button.length; i++) {
+            this._mouse[i] += button[i];
+        }
+
+        // update desktop input
+        const axis = tmpV1.copy(this._axis).normalize();
+        this.left.add(
+            -axis.x * moveMult + this._mouse[2] * mouse[0] * moveMult * 0.25,
+            axis.y * moveMult + this._mouse[2] * mouse[1] * moveMult * 0.25,
+            axis.z * moveMult + wheel[0] * wheelMult
+        );
+        this.right.add(
+            (1 - this._mouse[2]) * mouse[0] * lookMult,
+            (1 - this._mouse[2]) * mouse[1] * lookMult,
+            0
+        );
 
         // update mobile input
         switch (mode) {
             case 'orbit': {
-                // desktop
-                tmpV1.copy(this._axis).normalize();
+                const pan = +(this._touches > 1);
                 this.left.add(
-                    -tmpV1.x * moveMult,
-                    tmpV1.y * moveMult,
-                    tmpV1.z * moveMult + wheel[0] * wheelMult
+                    pan * touch[0] * moveMult * 0.25,
+                    pan * touch[1] * moveMult * 0.25,
+                    pan * pinch[0] * pinchMult
                 );
                 this.right.add(
-                    mouse[0] * lookMult,
-                    mouse[1] * lookMult,
-                    0
+                    (1 - pan) * touch[0] * lookMult,
+                    (1 - pan) * touch[1] * lookMult,
+                    (1 - pan) * pinch[0] * pinchMult
                 );
-
-                // mobile
-                if (this._touches > 1) {
-                    this.left.add(
-                        touch[0] * moveMult * 0.5,
-                        touch[1] * moveMult * 0.5,
-                        pinch[0] * pinchMult
-                    );
-                } else {
-                    this.right.add(
-                        touch[0] * lookMult,
-                        touch[1] * lookMult,
-                        pinch[0] * pinchMult
-                    );
-                }
                 break;
             }
             case 'fly': {
-                // desktop
-                tmpV1.copy(this._axis).normalize();
-                this.left.add(
-                    tmpV1.x * moveMult,
-                    tmpV1.z * moveMult,
-                    -tmpV1.y * moveMult
-                );
-                this.right.add(
-                    mouse[0] * lookMult,
-                    mouse[1] * lookMult,
-                    0
-                );
-
-                // mobile
                 this.left.add(
                     left[0] * moveMult,
                     left[1] * moveMult,
