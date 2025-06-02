@@ -6,7 +6,6 @@ const tmpV1 = new Vec3();
 class Input {
     constructor() {
         this.value = [0, 0, 0];
-        this.events = [];
     }
 
     // helper to add to the input value
@@ -16,13 +15,8 @@ class Input {
         this.value[2] += z;
     }
 
-    update(dt) {
-
-    }
-
     clear() {
         this.value.fill(0);
-        this.events.splice(0);
     }
 }
 
