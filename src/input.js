@@ -50,6 +50,16 @@ class AppController {
         stick: null
     };
 
+    moveMult = 5;
+
+    lookMult = 1;
+
+    panMult = 0.25;
+
+    pinchMult = 0.1;
+
+    wheelMult = 0.01;
+
     /**
      * @param {HTMLElement} element - the element to attach the input to
      */
@@ -83,15 +93,9 @@ class AppController {
         const { left, right } = this._flyInput.frame();
         const { leftStick, rightStick } = this._gamepadInput.frame();
 
-        // base delta time
-        const bdt = 60 * dt;
-
         // multipliers
-        const moveMult = 5;
-        const lookMult = 1;
-        const panMult = 0.25;
-        const pinchMult = 0.1;
-        const wheelMult = 0.01;
+        const bdt = 60 * dt;
+        const { moveMult, lookMult, panMult, pinchMult, wheelMult } = this;
 
         // update state
         const [negz, posz, negx, posx, negy, posy] = key;
