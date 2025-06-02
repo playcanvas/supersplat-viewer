@@ -82,8 +82,8 @@ class AppController {
 
         // multipliers
         const bdt = 60 * dt;
-        const moveMult = 5 * bdt;
-        const lookMult = 1 * bdt;
+        const moveDt = 5 * bdt;
+        const lookDt = 1 * bdt;
 
         // update state
         const [negz, posz, negx, posx, negy, posy] = key;
@@ -96,13 +96,13 @@ class AppController {
         // update desktop input
         const axis = tmpV1.copy(this._axis).normalize();
         this.left.add(
-            -axis.x * moveMult + this._mouse[2] * mouse[0] * moveMult * 0.25,
-            axis.y * moveMult + this._mouse[2] * mouse[1] * moveMult * 0.25,
-            axis.z * moveMult + wheel[0] * moveMult * 0.01
+            (-axis.x + this._mouse[2] * mouse[0] * 0.25) * moveDt,
+            (axis.y + this._mouse[2] * mouse[1] * 0.25) * moveDt,
+            (axis.z + wheel[0] * 0.01) * moveDt
         );
         this.right.add(
-            (1 - this._mouse[2]) * mouse[0] * lookMult,
-            (1 - this._mouse[2]) * mouse[1] * lookMult,
+            (1 - this._mouse[2]) * mouse[0] * lookDt,
+            (1 - this._mouse[2]) * mouse[1] * lookDt,
             0
         );
 
@@ -110,14 +110,14 @@ class AppController {
         const pan = +(this._touches > 1);
         const orbit = +(mode === 'orbit');
         this.left.add(
-            orbit * (pan * touch[0] * moveMult * 0.25) + (1 - orbit) * left[0] * moveMult,
-            orbit * (pan * touch[1] * moveMult * 0.25) + (1 - orbit) * left[1] * moveMult,
-            orbit * (pan * pinch[0] * moveMult * 0.1)
+            (orbit * (pan * touch[0] * 0.25) + (1 - orbit) * left[0]) * moveDt,
+            (orbit * (pan * touch[1] * 0.25) + (1 - orbit) * left[1]) * moveDt,
+            (orbit * (pan * pinch[0] * 0.1)) * moveDt
         );
         this.right.add(
-            orbit * ((1 - pan) * touch[0] * lookMult) + (1 - orbit) * right[0] * lookMult,
-            orbit * ((1 - pan) * touch[1] * lookMult) + (1 - orbit) * right[1] * lookMult,
-            orbit * ((1 - pan) * pinch[0] * moveMult * 0.1)
+            (orbit * ((1 - pan) * touch[0]) + (1 - orbit) * right[0]) * lookDt,
+            (orbit * ((1 - pan) * touch[1]) + (1 - orbit) * right[1]) * lookDt,
+            (orbit * ((1 - pan) * pinch[0] * 0.1)) * moveDt
         );
     }
 
