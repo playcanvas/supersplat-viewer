@@ -1,4 +1,4 @@
-import { DualGestureSource, KeyboardMouseSource, MultiTouchSource, Vec3 } from 'playcanvas';
+import { DualGestureSource, GamepadSource, KeyboardMouseSource, MultiTouchSource, Vec3 } from 'playcanvas';
 
 const tmpV1 = new Vec3();
 
@@ -38,6 +38,8 @@ class AppController {
     _orbitInput = new MultiTouchSource();
 
     _flyInput = new DualGestureSource();
+
+    _gamepadInput = new GamepadSource();
 
     left = new Input();
 
@@ -79,6 +81,7 @@ class AppController {
         const { key, button, mouse, wheel } = this._desktopInput.frame();
         const { touch, pinch, count } = this._orbitInput.frame();
         const { left, right } = this._flyInput.frame();
+        const { leftStick, rightStick } = this._gamepadInput.frame();
 
         // base delta time
         const bdt = 60 * dt;
@@ -86,6 +89,7 @@ class AppController {
         // multipliers
         const moveMult = 5;
         const lookMult = 1;
+        const panMult = 0.25;
         const pinchMult = 0.1;
         const wheelMult = 0.01;
 
@@ -97,12 +101,19 @@ class AppController {
             this._mouse[i] += button[i];
         }
 
-        // update desktop input
+        const orbit = +(mode === 'orbit');
+        const pan = +(this._touches > 1);
         const axis = tmpV1.copy(this._axis).normalize();
+
+        // update desktop input
+        // FIXME: flip axis for fly
+        const dx = axis.x + (this._mouse[2] * -mouse[0] * panMult);
+        const dy = axis.y + (this._mouse[2] * mouse[1] * panMult);
+        const dz = axis.z + wheel[0] * wheelMult;
         this.left.add(
-            (-axis.x + this._mouse[2] * mouse[0] * 0.25) * moveMult * bdt,
-            (axis.y + this._mouse[2] * mouse[1] * 0.25) * moveMult * bdt,
-            (axis.z + wheel[0] * wheelMult) * moveMult * bdt
+            (orbit ? -dx : dx) * moveMult * bdt,
+            (orbit ? dy : dz) * moveMult * bdt,
+            (orbit ? dz : -dy) * moveMult * bdt
         );
         this.right.add(
             (1 - this._mouse[2]) * mouse[0] * lookMult * bdt,
@@ -111,17 +122,27 @@ class AppController {
         );
 
         // update mobile input
-        const pan = +(this._touches > 1);
-        const orbit = +(mode === 'orbit');
         this.left.add(
-            (orbit * (pan * touch[0] * 0.25) + (1 - orbit) * left[0]) * moveMult * bdt,
-            (orbit * (pan * touch[1] * 0.25) + (1 - orbit) * left[1]) * moveMult * bdt,
+            (orbit ? (pan * touch[0] * panMult) : left[0]) * moveMult * bdt,
+            (orbit ? (pan * touch[1] * panMult) : left[1]) * moveMult * bdt,
             (orbit * (pan * pinch[0] * pinchMult)) * moveMult * bdt
         );
         this.right.add(
-            (orbit * ((1 - pan) * touch[0]) + (1 - orbit) * right[0]) * lookMult * bdt,
-            (orbit * ((1 - pan) * touch[1]) + (1 - orbit) * right[1]) * lookMult * bdt,
+            (orbit ? ((1 - pan) * touch[0]) : right[0]) * lookMult * bdt,
+            (orbit ? ((1 - pan) * touch[1]) : right[1]) * lookMult * bdt,
             (orbit * ((1 - pan) * pinch[0] * pinchMult)) * moveMult * bdt
+        );
+
+        // update gamepad input
+        this.left.add(
+            leftStick[0] * moveMult * bdt,
+            leftStick[1] * moveMult * bdt,
+            0
+        );
+        this.right.add(
+            rightStick[0] * lookMult * bdt,
+            rightStick[1] * lookMult * bdt,
+            0
         );
     }
 
