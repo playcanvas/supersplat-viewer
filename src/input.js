@@ -81,11 +81,11 @@ class AppController {
         const { left, right } = this._flyInput.frame();
 
         // multipliers
-        const fdt = 60 * dt;
-        const moveMult = 5 * fdt;
-        const wheelMult = 0.05 * fdt;
-        const pinchMult = 0.5 * fdt;
-        const lookMult = 1 * fdt;
+        const bdt = 60 * dt;
+        const moveMult = 5 * bdt;
+        const wheelMult = 0.05 * bdt;
+        const pinchMult = 0.5 * bdt;
+        const lookMult = 1 * bdt;
 
         // update state
         const [negz, posz, negx, posx, negy, posy] = key;
