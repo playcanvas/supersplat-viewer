@@ -83,8 +83,6 @@ class AppController {
         // multipliers
         const bdt = 60 * dt;
         const moveMult = 5 * bdt;
-        const wheelMult = 0.05 * bdt;
-        const pinchMult = 0.5 * bdt;
         const lookMult = 1 * bdt;
 
         // update state
@@ -100,7 +98,7 @@ class AppController {
         this.left.add(
             -axis.x * moveMult + this._mouse[2] * mouse[0] * moveMult * 0.25,
             axis.y * moveMult + this._mouse[2] * mouse[1] * moveMult * 0.25,
-            axis.z * moveMult + wheel[0] * wheelMult
+            axis.z * moveMult + wheel[0] * moveMult * 0.01
         );
         this.right.add(
             (1 - this._mouse[2]) * mouse[0] * lookMult,
@@ -114,12 +112,12 @@ class AppController {
         this.left.add(
             orbit * (pan * touch[0] * moveMult * 0.25) + (1 - orbit) * left[0] * moveMult,
             orbit * (pan * touch[1] * moveMult * 0.25) + (1 - orbit) * left[1] * moveMult,
-            orbit * (pan * pinch[0] * pinchMult)
+            orbit * (pan * pinch[0] * moveMult * 0.1)
         );
         this.right.add(
             orbit * ((1 - pan) * touch[0] * lookMult) + (1 - orbit) * right[0] * lookMult,
             orbit * ((1 - pan) * touch[1] * lookMult) + (1 - orbit) * right[1] * lookMult,
-            orbit * ((1 - pan) * pinch[0] * pinchMult)
+            orbit * ((1 - pan) * pinch[0] * moveMult * 0.1)
         );
     }
 
