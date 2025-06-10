@@ -122,17 +122,19 @@ class Viewer {
     initialize() {
         const { app, entity, events, state, settings } = this;
 
-        // get the gsplat
-        const gsplat = app.root.findComponent('gsplat');
+        // FIXME: Enable once gsplat fixed
+        // // get the gsplat
+        // const gsplat = app.root.findComponent('gsplat');
 
-        // calculate scene bounding box
-        const bbox = gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
+        // // calculate scene bounding box
+        // const bbox = gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
 
-        // override gsplat shader for picking
-        const { instance } = gsplat;
-        instance.createMaterial({
-            fragment: gsplatFS
-        });
+        // // override gsplat shader for picking
+        // const { instance } = gsplat;
+        // instance.createMaterial({
+        //     fragment: gsplatFS
+        // });
+        const bbox  = app.root.findComponent('render').meshInstances[0].aabb ?? new BoundingBox();
 
         // create an anim camera
         const createAnimCamera = (initial, isObjectExperience) => {
@@ -222,7 +224,9 @@ class Viewer {
 
         // if camera doesn't intersect the scene, assume it's an object we're
         // viewing
-        const isObjectExperience = !bbox.containsPoint(userStart.position);
+        // FIXME: Enable once gsplat fixed
+        // const isObjectExperience = !bbox.containsPoint(userStart.position);
+        const isObjectExperience = true;
 
         // create the cameras
         const animCamera = createAnimCamera(userStart, isObjectExperience);
@@ -370,7 +374,7 @@ class Viewer {
             switch (value) {
                 case 'orbit':
                 case 'fly':
-                    getCamera(value).reset(pose);
+                    getCamera(value)?.reset?.(pose);
                     break;
             }
 
@@ -410,28 +414,46 @@ class Viewer {
         // first scene sort (which usually happens during render)
         entity.setPosition(activePose.position);
         entity.setRotation(activePose.rotation);
-        gsplat?.instance?.sort(entity);
+        // FIXME: Enable once gsplat fixed
+        // gsplat?.instance?.sort(entity);
 
-        // handle gsplat sort updates
-        gsplat?.instance?.sorter?.on('updated', () => {
-            // request frame render when sorting changes
-            app.renderNextFrame = true;
+        // // handle gsplat sort updates
+        // gsplat?.instance?.sorter?.on('updated', () => {
+        //     // request frame render when sorting changes
+        //     app.renderNextFrame = true;
 
-            if (!state.readyToRender) {
-                // we're ready to render once the first sort has completed
-                state.readyToRender = true;
+        //     if (!state.readyToRender) {
+        //         // we're ready to render once the first sort has completed
+        //         state.readyToRender = true;
 
-                // wait for the first valid frame to complete rendering
-                const frameHandle = app.on('frameend', () => {
-                    frameHandle.off();
+        //         // wait for the first valid frame to complete rendering
+        //         const frameHandle = app.on('frameend', () => {
+        //             frameHandle.off();
 
-                    events.fire('firstFrame');
+        //             events.fire('firstFrame');
 
-                    // emit first frame event on window
-                    window.firstFrame?.();
-                });
-            }
-        });
+        //             // emit first frame event on window
+        //             window.firstFrame?.();
+        //         });
+        //     }
+        // });
+        // request frame render when sorting changes
+        app.renderNextFrame = true;
+
+        if (!state.readyToRender) {
+            // we're ready to render once the first sort has completed
+            state.readyToRender = true;
+
+            // wait for the first valid frame to complete rendering
+            const frameHandle = app.on('frameend', () => {
+                frameHandle.off();
+
+                events.fire('firstFrame');
+
+                // emit first frame event on window
+                window.firstFrame?.();
+            });
+        }
     }
 }
 

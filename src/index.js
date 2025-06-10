@@ -1,11 +1,14 @@
 import '@playcanvas/web-components';
-import { Asset, Color, EventHandler, MiniStats, Vec3, Quat } from 'playcanvas';
+import { Asset, Color, EventHandler, MiniStats, Vec3, Quat, Entity, StandardMaterial } from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
 import { migrateSettings } from './data-migrations.js';
 import { observe } from './observe.js';
 import { Viewer } from './viewer.js';
+
+/** @import { AppElement, EntityElement } from '@playcanvas/web-components' */
+/** @import { Texture } from 'playcanvas' */
 
 // temporary vector
 const v = new Vec3();
@@ -115,7 +118,15 @@ const loadContent = (app) => {
     });
 
     asset.on('load', () => {
-        const entity = asset.resource.instantiate();
+        // FIXME: Disabled until gpsplat PR is fixed
+        // const entity = asset.resource.instantiate();
+        const material = new StandardMaterial();
+        material.diffuse = Color.RED;
+        const entity = new Entity();
+        entity.addComponent('render', {
+            type: 'box',
+            material
+        });
         app.root.addChild(entity);
     });
 
@@ -149,13 +160,13 @@ const waitForGsplat = (app, state) => {
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
-    const appElement = document.querySelector('pc-app');
+    const appElement = /** @type {AppElement} */ (document.querySelector('pc-app'));
     const app = (await appElement.ready()).app;
     const { graphicsDevice } = app;
 
     loadContent(app);
 
-    const cameraElement = await document.querySelector('pc-entity[name="camera"]').ready();
+    const cameraElement = await /** @type {EntityElement} */ (document.querySelector('pc-entity[name="camera"]')).ready();
     const camera = cameraElement.entity;
     const settings = migrateSettings(await window.sse?.settings);
     const events = new EventHandler();
@@ -192,7 +203,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         skyAsset.on('load', () => {
-            app.scene.envAtlas = skyAsset.resource;
+            app.scene.envAtlas = /** @type {Texture} */ (skyAsset.resource);
         });
 
         app.assets.add(skyAsset);
@@ -201,8 +212,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Construct ministats
     if (params.ministats) {
-        const miniStats = new MiniStats(app);
-        miniStats.position = 'topright';
+        // eslint-disable-next-line no-new
+        new MiniStats(app);
     }
 
     // Initialize XR support
@@ -234,7 +245,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     ].reduce((acc, id) => {
         acc[id] = document.getElementById(id);
         return acc;
-    }, {});
+    }, /** @type {Record<string, HTMLElement>} */ ({}));
 
     // Handle loading progress updates
     events.on('progress:changed', (progress) => {
@@ -564,7 +575,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // update input mode based on pointer event
     ['pointerdown', 'pointermove'].forEach((eventName) => {
-        window.addEventListener(eventName, (event) => {
+        window.addEventListener(eventName, (/** @type {PointerEvent} */ event) => {
             state.inputMode = event.pointerType === 'touch' ? 'touch' : 'desktop';
         });
     });
