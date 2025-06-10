@@ -78,6 +78,8 @@ class AnimCamera {
         this.update(0, null);
     }
 
+    reset() {}
+
     update(deltaTime, input) {
         const { cursor, result, spline, frameRate, position, target, rotateSpeed, rotation } = this;
 
