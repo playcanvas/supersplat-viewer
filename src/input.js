@@ -63,17 +63,14 @@ class AppController {
         this._flyInput.attach(element);
 
         // convert events to joystick state
-        this._flyInput.leftJoystick.on('position:base', (x, y) => {
-            this.joystick.base = [x, y];
-        });
-        this._flyInput.leftJoystick.on('position:stick', (x, y) => {
-            const dx = x - this.joystick.base[0];
-            const dy = y - this.joystick.base[1];
-            this.joystick.stick = [dx, dy];
-        });
-        this._flyInput.leftJoystick.on('reset', () => {
-            this.joystick.base = null;
-            this.joystick.stick = null;
+        this._flyInput.leftJoystick.on('position', (bx, by, sx, sy) => {
+            if (bx < 0 || by < 0 || sx < 0 || sy < 0) {
+                this.joystick.base = null;
+                this.joystick.stick = null;
+                return;
+            }
+            this.joystick.base = [bx, by];
+            this.joystick.stick = [sx - bx, sy - by];
         });
     }
 
@@ -82,10 +79,10 @@ class AppController {
      * @param {'anim' | 'fly' | 'orbit'} mode - the camera mode
      */
     update(dt, mode) {
-        const { key, button, mouse, wheel } = this._desktopInput.frame();
-        const { touch, pinch, count } = this._orbitInput.frame();
-        const { leftInput, rightInput } = this._flyInput.frame();
-        const { leftStick, rightStick } = this._gamepadInput.frame();
+        const { key, button, mouse, wheel } = this._desktopInput.read();
+        const { touch, pinch, count } = this._orbitInput.read();
+        const { leftInput, rightInput } = this._flyInput.read();
+        const { leftStick, rightStick } = this._gamepadInput.read();
 
         // multipliers
         const bdt = 60 * dt;
