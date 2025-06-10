@@ -6,5 +6,6 @@
         "module": "ESNext",
         "moduleResolution": "Node",
         "baseUrl": "./"
-    }
+    },
+    "includes": ["src", "types.d.ts"]
 }
