@@ -7,4 +7,6 @@ interface Window {
         contents: ArrayBuffer,
         params: Record<string, string>
     }
+
+    firstFrame?: () => void;
 }
