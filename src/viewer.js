@@ -263,14 +263,14 @@ class Viewer {
         // calculate the initial camera position, either userStart or animated
         // camera start position
         if (state.cameraMode === 'anim') {
-            animCamera.getPose(activePose);
+            animCamera.detach(activePose);
         } else {
             activePose.copy(userStart);
         }
 
         // place all user cameras at the start position
-        orbitCamera.reset(activePose);
-        flyCamera.reset(activePose);
+        orbitCamera.attach(activePose);
+        flyCamera.attach(activePose);
 
         // create controller
         const controller = new AppController(app.graphicsDevice.canvas);
@@ -291,9 +291,9 @@ class Viewer {
                 }
 
                 if (state.cameraMode === 'orbit') {
-                    orbitCamera.reset(pose, false);
+                    orbitCamera.attach(pose, false);
                 } else if (state.cameraMode === 'fly') {
-                    flyCamera.reset(pose, false);
+                    flyCamera.attach(pose, false);
                 }
             };
 
@@ -339,7 +339,7 @@ class Viewer {
 
             const activeCamera = getCamera(state.cameraMode);
             activeCamera.update(dt, state.cameraMode !== 'anim' && input);
-            activeCamera.getPose(pose);
+            activeCamera.detach(pose);
 
             if (state.cameraMode === 'anim') {
                 state.animationTime = animCamera.cursor.value;
@@ -370,12 +370,12 @@ class Viewer {
         events.on('cameraMode:changed', (value, prev) => {
             prevCameraMode = prev;
             prevCamera = getCamera(prev);
-            prevCamera.getPose(prevPose);
+            prevCamera.detach(prevPose);
 
             switch (value) {
                 case 'orbit':
                 case 'fly':
-                    getCamera(value).reset(pose);
+                    getCamera(value).attach(pose);
                     break;
             }
 
@@ -404,9 +404,9 @@ class Viewer {
                 const result = await picker.pick(event.clientX, event.clientY);
                 if (result) {
                     // get the current pose
-                    orbitCamera.getPose(pose);
+                    orbitCamera.detach(pose);
                     pose.fromLookAt(pose.position, result);
-                    orbitCamera.reset(pose, false);
+                    orbitCamera.attach(pose, false);
                 }
             }
         });

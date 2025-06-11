@@ -86,7 +86,7 @@ class OrbitCamera extends BaseCamera {
      * @param {boolean} snap - whether to snap the camera to the initial pose
      * @override
      */
-    reset(pose, snap = true) {
+    attach(pose, snap = true) {
         pose.rotation.transformVector(Vec3.FORWARD, v);
         v.normalize();
 
@@ -123,7 +123,7 @@ class OrbitCamera extends BaseCamera {
      * @param {Pose} pose - pose to update with the current camera state
      * @override
      */
-    getPose(pose) {
+    detach(pose) {
         const { smoothDamp } = this;
         const { value } = smoothDamp;
 

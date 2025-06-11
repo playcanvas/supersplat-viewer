@@ -5,7 +5,7 @@ class BaseCamera {
      * @param {Pose} pose - initial camera pose
      * @param {boolean} snap - whether to snap the camera to the initial pose
      */
-    reset(pose, snap = true) {
+    attach(pose, snap = true) {
     }
 
     /**
@@ -20,7 +20,7 @@ class BaseCamera {
     /**
      * @param {Pose} pose - pose to update with the current camera state
      */
-    getPose(pose) {
+    detach(pose) {
     }
 }
 

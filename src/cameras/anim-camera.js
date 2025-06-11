@@ -115,7 +115,7 @@ class AnimCamera extends BaseCamera {
      * @param {Pose} pose - pose to update with the current camera state
      * @override
      */
-    getPose(pose) {
+    detach(pose) {
         const { position, target, rotation } = this;
 
         pose.fromLookAt(position, target);

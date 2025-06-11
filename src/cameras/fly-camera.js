@@ -79,7 +79,7 @@ class FlyCamera extends BaseCamera {
      * @param {boolean} snap - whether to snap the camera to the initial pose
      * @override
      */
-    reset(pose, snap = true) {
+    attach(pose, snap = true) {
         this.position.copy(pose.position);
         this.rotation.copy(pose.rotation);
         this.distance = pose.distance;
@@ -107,7 +107,7 @@ class FlyCamera extends BaseCamera {
      * @param {Pose} pose - pose to update with the current camera state
      * @override
      */
-    getPose(pose) {
+    detach(pose) {
         const { smoothPosition, smoothRotation, distance } = this;
         pose.position.copy(smoothPosition);
         pose.rotation.copy(smoothRotation);
