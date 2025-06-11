@@ -1,7 +1,10 @@
 import { Vec3 } from 'playcanvas';
 
+import { BaseCamera } from './base-camera.js';
 import { mod, MyQuat } from '../core/math.js';
 import { CubicSpline } from '../core/spline.js';
+
+/** @import { Pose } from '../core/pose.js' */
 
 const q = new MyQuat();
 
@@ -52,7 +55,7 @@ class AnimCursor {
 }
 
 // Manage the state of a camera animation track
-class AnimCamera {
+class AnimCamera extends BaseCamera {
     spline;
 
     cursor = new AnimCursor();
@@ -70,6 +73,7 @@ class AnimCamera {
     rotation = new Vec3();
 
     constructor(spline, duration, loopMode, frameRate) {
+        super();
         this.spline = spline;
         this.cursor.reset(duration, loopMode);
         this.frameRate = frameRate;
@@ -78,11 +82,19 @@ class AnimCamera {
         this.update(0, null);
     }
 
-    update(deltaTime, input) {
+    /**
+     * @param {number} dt - delta time in seconds
+     * @param {object} input - input data for camera movement
+     * @param {number[]} input.move - [x, y, z] movement vector
+     * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
+     * @override
+     */
+    update(dt, input) {
         const { cursor, result, spline, frameRate, position, target, rotateSpeed, rotation } = this;
+        const { rotate } = input || {};
 
         // update the animation cursor
-        cursor.update(deltaTime);
+        cursor.update(dt);
 
         // evaluate the spline
         spline.evaluate(cursor.value * frameRate, result);
@@ -93,18 +105,17 @@ class AnimCamera {
         }
 
         // rotate
-        if (input?.rotate) {
-            if (input.rotate.events.indexOf('up') !== -1) {
-                // reset on up event`
-                rotation.set(0, 0, 0);
-            } else {
-                rotation.x = Math.max(-90, Math.min(90, rotation.x - input.rotate.value[1] * rotateSpeed));
-                rotation.y = Math.max(-180, Math.min(180, rotation.y - input.rotate.value[0] * rotateSpeed));
-            }
+        if (rotate) {
+            rotation.x = Math.max(-90, Math.min(90, rotation.x - rotate[1] * rotateSpeed));
+            rotation.y = Math.max(-180, Math.min(180, rotation.y - rotate[0] * rotateSpeed));
         }
     }
 
-    getPose(pose) {
+    /**
+     * @param {Pose} pose - pose to update with the current camera state
+     * @override
+     */
+    detach(pose) {
         const { position, target, rotation } = this;
 
         pose.fromLookAt(position, target);

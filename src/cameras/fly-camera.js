@@ -1,6 +1,9 @@
 import { Vec3 } from 'playcanvas';
 
+import { BaseCamera } from './base-camera.js';
 import { damp, MyQuat } from '../core/math.js';
+
+/** @import { Pose } from '../core/pose.js' */
 
 const forward = new Vec3();
 const right = new Vec3();
@@ -8,7 +11,7 @@ const up = new Vec3();
 const v = new Vec3();
 const q = new MyQuat();
 
-class FlyCamera {
+class FlyCamera extends BaseCamera {
     position = new Vec3();
 
     rotation = new MyQuat();
@@ -23,7 +26,60 @@ class FlyCamera {
 
     rotateSpeed = 0.2;
 
-    reset(pose, snap = true) {
+    /**
+     * @param {object} input - input data for camera movement
+     * @param {number[]} input.move - [x, y, z] movement vector
+     * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
+     * @private
+     */
+    _move(input) {
+        const { position, rotation, moveSpeed, rotateSpeed } = this;
+        const { move, rotate } = input;
+
+        // get camera vectors
+        rotation.transformVector(Vec3.FORWARD, forward);
+        rotation.transformVector(Vec3.RIGHT, right);
+        rotation.transformVector(Vec3.UP, up);
+
+        // move
+        v.copy(right).mulScalar(move[0] * moveSpeed);
+        position.add(v);
+
+        v.copy(up).mulScalar(move[2] * -moveSpeed);
+        position.add(v);
+
+        v.copy(forward).mulScalar(move[1] * -moveSpeed);
+        position.add(v);
+
+        // rotate
+        q.setFromAxisAngle(right, -rotate[1] * rotateSpeed);
+        rotation.mul2(q, rotation);
+
+        q.setFromAxisAngle(Vec3.UP, -rotate[0] * rotateSpeed);
+        rotation.mul2(q, rotation);
+
+        q.setFromAxisAngle(forward, -rotate[2] * rotateSpeed);
+        rotation.mul2(q, rotation);
+
+        rotation.normalize();
+    }
+
+    /**
+     * @param {number} dt - delta time in seconds
+     * @private
+     */
+    _smooth(dt) {
+        const weight = damp(0.98, dt);
+        this.smoothPosition.lerp(this.smoothPosition, this.position, weight);
+        this.smoothRotation.lerp(this.smoothRotation, this.rotation, weight);
+    }
+
+    /**
+     * @param {Pose} pose - initial camera pose
+     * @param {boolean} snap - whether to snap the camera to the initial pose
+     * @override
+     */
+    attach(pose, snap = true) {
         this.position.copy(pose.position);
         this.rotation.copy(pose.rotation);
         this.distance = pose.distance;
@@ -33,51 +89,25 @@ class FlyCamera {
         }
     }
 
+    /**
+     * @param {number} dt - delta time in seconds
+     * @param {object} input - input data for camera movement
+     * @param {number[]} input.move - [x, y, z] movement vector
+     * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
+     * @override
+     */
     update(dt, input) {
         if (input) {
-            this.move(input);
+            this._move(input);
         }
-        this.smooth(dt);
+        this._smooth(dt);
     }
 
-    move(input) {
-        const { position, rotation, moveSpeed, rotateSpeed } = this;
-
-        // get camera vectors
-        rotation.transformVector(Vec3.FORWARD, forward);
-        rotation.transformVector(Vec3.RIGHT, right);
-        rotation.transformVector(Vec3.UP, up);
-
-        // move
-        v.copy(right).mulScalar(input.move.value[0] * moveSpeed);
-        position.add(v);
-
-        v.copy(up).mulScalar(input.move.value[2] * -moveSpeed);
-        position.add(v);
-
-        v.copy(forward).mulScalar(input.move.value[1] * -moveSpeed);
-        position.add(v);
-
-        // rotate
-        q.setFromAxisAngle(right, -input.rotate.value[1] * rotateSpeed);
-        rotation.mul2(q, rotation);
-
-        q.setFromAxisAngle(Vec3.UP, -input.rotate.value[0] * rotateSpeed);
-        rotation.mul2(q, rotation);
-
-        q.setFromAxisAngle(forward, -input.rotate.value[2] * rotateSpeed);
-        rotation.mul(q, rotation);
-
-        rotation.normalize();
-    }
-
-    smooth(dt) {
-        const weight = damp(0.98, dt);
-        this.smoothPosition.lerp(this.smoothPosition, this.position, weight);
-        this.smoothRotation.lerp(this.smoothRotation, this.rotation, weight);
-    }
-
-    getPose(pose) {
+    /**
+     * @param {Pose} pose - pose to update with the current camera state
+     * @override
+     */
+    detach(pose) {
         const { smoothPosition, smoothRotation, distance } = this;
         pose.position.copy(smoothPosition);
         pose.rotation.copy(smoothRotation);

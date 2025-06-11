@@ -7,47 +7,49 @@ import { OrbitCamera } from './cameras/orbit-camera.js';
 import { Pose } from './core/pose.js';
 import { AppController } from './input.js';
 import { Picker } from './picker.js';
-import { PointerDevice } from './pointer-device.js';
 
-const gsplatFS = /* glsl */ `
+/** @import { BaseCamera } from './cameras/base-camera.js' */
 
-#ifdef PICK_PASS
-vec4 packFloat(float depth) {
-    uvec4 u = (uvec4(floatBitsToUint(depth)) >> uvec4(0u, 8u, 16u, 24u)) & 0xffu;
-    return vec4(u) / 255.0;
-}
-#endif
+// FIXME: Enable once gsplat fixed
+// const gsplatFS = /* glsl */ `
 
-varying mediump vec2 gaussianUV;
-varying mediump vec4 gaussianColor;
+// #ifdef PICK_PASS
+// vec4 packFloat(float depth) {
+//     uvec4 u = (uvec4(floatBitsToUint(depth)) >> uvec4(0u, 8u, 16u, 24u)) & 0xffu;
+//     return vec4(u) / 255.0;
+// }
+// #endif
 
-void main(void) {
-    mediump float A = dot(gaussianUV, gaussianUV);
-    if (A > 1.0) {
-        discard;
-    }
+// varying mediump vec2 gaussianUV;
+// varying mediump vec4 gaussianColor;
 
-    // evaluate alpha
-    mediump float alpha = exp(-A * 4.0) * gaussianColor.a;
+// void main(void) {
+//     mediump float A = dot(gaussianUV, gaussianUV);
+//     if (A > 1.0) {
+//         discard;
+//     }
 
-    #ifdef PICK_PASS
-        if (alpha < 0.1) {
-            discard;
-        }
-        gl_FragColor = packFloat(gl_FragCoord.z);
-    #else
-        if (alpha < 1.0 / 255.0) {
-            discard;
-        }
+//     // evaluate alpha
+//     mediump float alpha = exp(-A * 4.0) * gaussianColor.a;
 
-        #ifndef DITHER_NONE
-            opacityDither(alpha, id * 0.013);
-        #endif
+//     #ifdef PICK_PASS
+//         if (alpha < 0.1) {
+//             discard;
+//         }
+//         gl_FragColor = packFloat(gl_FragCoord.z);
+//     #else
+//         if (alpha < 1.0 / 255.0) {
+//             discard;
+//         }
 
-        gl_FragColor = vec4(gaussianColor.xyz * alpha, alpha);
-    #endif
-}
-`;
+//         #ifndef DITHER_NONE
+//             opacityDither(alpha, id * 0.013);
+//         #endif
+
+//         gl_FragColor = vec4(gaussianColor.xyz * alpha, alpha);
+//     #endif
+// }
+// `;
 
 const pose = new Pose();
 
@@ -123,17 +125,19 @@ class Viewer {
     initialize() {
         const { app, entity, events, state, settings } = this;
 
-        // get the gsplat
-        const gsplat = app.root.findComponent('gsplat');
+        // FIXME: Enable once gsplat fixed
+        // // get the gsplat
+        // const gsplat = app.root.findComponent('gsplat');
 
-        // calculate scene bounding box
-        const bbox = gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
+        // // calculate scene bounding box
+        // const bbox = gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
 
-        // override gsplat shader for picking
-        const { instance } = gsplat;
-        instance.createMaterial({
-            fragment: gsplatFS
-        });
+        // // override gsplat shader for picking
+        // const { instance } = gsplat;
+        // instance.createMaterial({
+        //     fragment: gsplatFS
+        // });
+        const bbox  = app.root.findComponent('render').meshInstances[0].aabb ?? new BoundingBox();
 
         // create an anim camera
         const createAnimCamera = (initial, isObjectExperience) => {
@@ -223,13 +227,19 @@ class Viewer {
 
         // if camera doesn't intersect the scene, assume it's an object we're
         // viewing
-        const isObjectExperience = !bbox.containsPoint(userStart.position);
+        // FIXME: Enable once gsplat fixed
+        // const isObjectExperience = !bbox.containsPoint(userStart.position);
+        const isObjectExperience = true;
 
         // create the cameras
         const animCamera = createAnimCamera(userStart, isObjectExperience);
         const orbitCamera = new OrbitCamera();
         const flyCamera = new FlyCamera();
 
+        /**
+         * @param {'orbit' | 'anim' | 'fly'} cameraMode - the camera mode to get
+         * @returns {BaseCamera} the camera instance for the given mode
+         */
         const getCamera = (cameraMode) => {
             switch (cameraMode) {
                 case 'orbit': return orbitCamera;
@@ -253,18 +263,17 @@ class Viewer {
         // calculate the initial camera position, either userStart or animated
         // camera start position
         if (state.cameraMode === 'anim') {
-            animCamera.getPose(activePose);
+            animCamera.detach(activePose);
         } else {
             activePose.copy(userStart);
         }
 
         // place all user cameras at the start position
-        orbitCamera.reset(activePose);
-        flyCamera.reset(activePose);
+        orbitCamera.attach(activePose);
+        flyCamera.attach(activePose);
 
-        // create the pointer device
-        const pointerDevice = new PointerDevice(app.graphicsDevice.canvas);
-        const controller = new AppController();
+        // create controller
+        const controller = new AppController(app.graphicsDevice.canvas);
 
         // transition time between cameras
         let transitionTimer = 0;
@@ -274,33 +283,6 @@ class Viewer {
         let prevCamera = null;
         let prevCameraMode = 'orbit';
 
-        // update the currently active controller
-        const assignController = () => {
-            switch (state.cameraMode) {
-                case 'orbit':
-                    pointerDevice.target = state.inputMode === 'touch' ? controller.orbit : controller.desktop;
-                    break;
-                case 'anim':
-                    // for animated camera with lookaround, use the following:
-                    // pointerDevice.target = state.inputMode === 'touch' ? controller.orbit : controller.desktop;
-
-                    // no input to anim camera means no lookaround
-                    pointerDevice.target = null;
-                    break;
-                case 'fly':
-                    pointerDevice.target = state.inputMode === 'touch' ? controller.touch : controller.desktop;
-                    break;
-            }
-        };
-
-        assignController();
-
-        // handle input mode changing (once user interacts with the app input
-        // mode can switch to touch device)
-        events.on('inputMode:changed', (value, prev) => {
-            assignController();
-        });
-
         // handle input events
         events.on('inputEvent', (eventName, event) => {
             const doReset = (pose) => {
@@ -309,9 +291,9 @@ class Viewer {
                 }
 
                 if (state.cameraMode === 'orbit') {
-                    orbitCamera.reset(pose, false);
+                    orbitCamera.attach(pose, false);
                 } else if (state.cameraMode === 'fly') {
-                    flyCamera.reset(pose, false);
+                    flyCamera.attach(pose, false);
                 }
             };
 
@@ -340,32 +322,15 @@ class Viewer {
             }
 
             // update input controller
-            controller.update(deltaTime);
-
-            // remap some desktop inputs based on camera mode
-            if (state.cameraMode === 'orbit') {
-                const { value } = controller.desktop.left.inputs[1];
-                controller.left.value[0] -= value[0] * 2;
-                controller.left.value[1] -= value[1] * 2;
-            } else if (state.cameraMode === 'fly') {
-                const { value } = controller.desktop.left.inputs[0];
-                controller.left.value[1] -= value[1];
-                controller.left.value[2] += value[1];
-            }
+            controller.update(deltaTime, state.cameraMode);
 
             // update touch joystick UI
-            const touchJoystick = controller.touch.left;
-            if (touchJoystick.stick.every(v => v === 0)) {
-                events.fire('touchJoystickUpdate', null);
-            } else {
-                events.fire('touchJoystickUpdate', touchJoystick.base, touchJoystick.stick);
+            if (state.cameraMode === 'fly') {
+                events.fire('touchJoystickUpdate', controller.joystick.base, controller.joystick.stick);
             }
 
-            // update the active camera
-            const input = {
-                move: controller.left,
-                rotate: controller.right
-            };
+            // read inputs from controller (resets frame)
+            const input = controller.read();
 
             // use dt of 0 if animation is paused
             const dt = state.cameraMode === 'anim' ?
@@ -374,10 +339,7 @@ class Viewer {
 
             const activeCamera = getCamera(state.cameraMode);
             activeCamera.update(dt, state.cameraMode !== 'anim' && input);
-            activeCamera.getPose(pose);
-
-            // controls have been consumed
-            controller.clear();
+            activeCamera.detach(pose);
 
             if (state.cameraMode === 'anim') {
                 state.animationTime = animCamera.cursor.value;
@@ -408,20 +370,17 @@ class Viewer {
         events.on('cameraMode:changed', (value, prev) => {
             prevCameraMode = prev;
             prevCamera = getCamera(prev);
-            prevCamera.getPose(prevPose);
+            prevCamera.detach(prevPose);
 
             switch (value) {
                 case 'orbit':
                 case 'fly':
-                    getCamera(value).reset(pose);
+                    getCamera(value).attach(pose);
                     break;
             }
 
             // reset camera transition timer
             transitionTimer = 0;
-
-            // reassign controller
-            assignController();
         });
 
         events.on('setAnimationTime', (time) => {
@@ -445,9 +404,9 @@ class Viewer {
                 const result = await picker.pick(event.clientX, event.clientY);
                 if (result) {
                     // get the current pose
-                    orbitCamera.getPose(pose);
+                    orbitCamera.detach(pose);
                     pose.fromLookAt(pose.position, result);
-                    orbitCamera.reset(pose, false);
+                    orbitCamera.attach(pose, false);
                 }
             }
         });
@@ -456,28 +415,46 @@ class Viewer {
         // first scene sort (which usually happens during render)
         entity.setPosition(activePose.position);
         entity.setRotation(activePose.rotation);
-        gsplat?.instance?.sort(entity);
+        // FIXME: Enable once gsplat fixed
+        // gsplat?.instance?.sort(entity);
 
-        // handle gsplat sort updates
-        gsplat?.instance?.sorter?.on('updated', () => {
-            // request frame render when sorting changes
-            app.renderNextFrame = true;
+        // // handle gsplat sort updates
+        // gsplat?.instance?.sorter?.on('updated', () => {
+        //     // request frame render when sorting changes
+        //     app.renderNextFrame = true;
 
-            if (!state.readyToRender) {
-                // we're ready to render once the first sort has completed
-                state.readyToRender = true;
+        //     if (!state.readyToRender) {
+        //         // we're ready to render once the first sort has completed
+        //         state.readyToRender = true;
 
-                // wait for the first valid frame to complete rendering
-                const frameHandle = app.on('frameend', () => {
-                    frameHandle.off();
+        //         // wait for the first valid frame to complete rendering
+        //         const frameHandle = app.on('frameend', () => {
+        //             frameHandle.off();
 
-                    events.fire('firstFrame');
+        //             events.fire('firstFrame');
 
-                    // emit first frame event on window
-                    window.firstFrame?.();
-                });
-            }
-        });
+        //             // emit first frame event on window
+        //             window.firstFrame?.();
+        //         });
+        //     }
+        // });
+        // request frame render when sorting changes
+        app.renderNextFrame = true;
+
+        if (!state.readyToRender) {
+            // we're ready to render once the first sort has completed
+            state.readyToRender = true;
+
+            // wait for the first valid frame to complete rendering
+            const frameHandle = app.on('frameend', () => {
+                frameHandle.off();
+
+                events.fire('firstFrame');
+
+                // emit first frame event on window
+                window.firstFrame?.();
+            });
+        }
     }
 }
 
