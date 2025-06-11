@@ -10,45 +10,46 @@ import { Picker } from './picker.js';
 
 /** @import { BaseCamera } from './cameras/base-camera.js' */
 
-const gsplatFS = /* glsl */ `
+// FIXME: Enable once gsplat fixed
+// const gsplatFS = /* glsl */ `
 
-#ifdef PICK_PASS
-vec4 packFloat(float depth) {
-    uvec4 u = (uvec4(floatBitsToUint(depth)) >> uvec4(0u, 8u, 16u, 24u)) & 0xffu;
-    return vec4(u) / 255.0;
-}
-#endif
+// #ifdef PICK_PASS
+// vec4 packFloat(float depth) {
+//     uvec4 u = (uvec4(floatBitsToUint(depth)) >> uvec4(0u, 8u, 16u, 24u)) & 0xffu;
+//     return vec4(u) / 255.0;
+// }
+// #endif
 
-varying mediump vec2 gaussianUV;
-varying mediump vec4 gaussianColor;
+// varying mediump vec2 gaussianUV;
+// varying mediump vec4 gaussianColor;
 
-void main(void) {
-    mediump float A = dot(gaussianUV, gaussianUV);
-    if (A > 1.0) {
-        discard;
-    }
+// void main(void) {
+//     mediump float A = dot(gaussianUV, gaussianUV);
+//     if (A > 1.0) {
+//         discard;
+//     }
 
-    // evaluate alpha
-    mediump float alpha = exp(-A * 4.0) * gaussianColor.a;
+//     // evaluate alpha
+//     mediump float alpha = exp(-A * 4.0) * gaussianColor.a;
 
-    #ifdef PICK_PASS
-        if (alpha < 0.1) {
-            discard;
-        }
-        gl_FragColor = packFloat(gl_FragCoord.z);
-    #else
-        if (alpha < 1.0 / 255.0) {
-            discard;
-        }
+//     #ifdef PICK_PASS
+//         if (alpha < 0.1) {
+//             discard;
+//         }
+//         gl_FragColor = packFloat(gl_FragCoord.z);
+//     #else
+//         if (alpha < 1.0 / 255.0) {
+//             discard;
+//         }
 
-        #ifndef DITHER_NONE
-            opacityDither(alpha, id * 0.013);
-        #endif
+//         #ifndef DITHER_NONE
+//             opacityDither(alpha, id * 0.013);
+//         #endif
 
-        gl_FragColor = vec4(gaussianColor.xyz * alpha, alpha);
-    #endif
-}
-`;
+//         gl_FragColor = vec4(gaussianColor.xyz * alpha, alpha);
+//     #endif
+// }
+// `;
 
 const pose = new Pose();
 
