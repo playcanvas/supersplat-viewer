@@ -1,6 +1,9 @@
 import { Vec3 } from 'playcanvas';
 
+import { BaseCamera } from './base-camera.js';
 import { damp, MyQuat } from '../core/math.js';
+
+/** @import { Pose } from '../core/pose.js' */
 
 const forward = new Vec3();
 const right = new Vec3();
@@ -8,7 +11,7 @@ const up = new Vec3();
 const v = new Vec3();
 const q = new MyQuat();
 
-class FlyCamera {
+class FlyCamera extends BaseCamera {
     position = new Vec3();
 
     rotation = new MyQuat();
@@ -23,6 +26,11 @@ class FlyCamera {
 
     rotateSpeed = 0.2;
 
+    /**
+     * @param {Pose} pose - initial camera pose
+     * @param {boolean} snap - whether to snap the camera to the initial pose
+     * @override
+     */
     reset(pose, snap = true) {
         this.position.copy(pose.position);
         this.rotation.copy(pose.rotation);
@@ -33,6 +41,13 @@ class FlyCamera {
         }
     }
 
+    /**
+     * @param {number} dt - delta time in seconds
+     * @param {object} input - input data for camera movement
+     * @param {number[]} input.move - [x, y, z] movement vector
+     * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
+     * @override
+     */
     update(dt, input) {
         if (input) {
             this.move(input);
@@ -78,6 +93,10 @@ class FlyCamera {
         this.smoothRotation.lerp(this.smoothRotation, this.rotation, weight);
     }
 
+    /**
+     * @param {Pose} pose - pose to update with the current camera state
+     * @override
+     */
     getPose(pose) {
         const { smoothPosition, smoothRotation, distance } = this;
         pose.position.copy(smoothPosition);

@@ -1,6 +1,9 @@
 import { Vec3 } from 'playcanvas';
 
+import { BaseCamera } from './base-camera.js';
 import { mod, MyQuat, SmoothDamp } from '../core/math.js';
+
+/** @import { Pose } from '../core/pose.js' */
 
 const forward = new Vec3();
 const right = new Vec3();
@@ -10,7 +13,7 @@ const q = new MyQuat();
 
 const radToDeg = 180 / Math.PI;
 
-class OrbitCamera {
+class OrbitCamera extends BaseCamera {
     focus = new Vec3();
 
     rotation = new Vec3();
@@ -25,6 +28,11 @@ class OrbitCamera {
 
     distanceSpeed = 0.01;
 
+    /**
+     * @param {Pose} pose - initial camera pose
+     * @param {boolean} snap - whether to snap the camera to the initial pose
+     * @override
+     */
     reset(pose, snap = true) {
         pose.rotation.transformVector(Vec3.FORWARD, v);
         v.normalize();
@@ -44,6 +52,13 @@ class OrbitCamera {
         }
     }
 
+    /**
+     * @param {number} dt - delta time in seconds
+     * @param {object} input - input data for camera movement
+     * @param {number[]} input.move - [x, y, z] movement vector
+     * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
+     * @override
+     */
     update(dt, input) {
         if (input) {
             this.move(input);
@@ -94,6 +109,10 @@ class OrbitCamera {
         smoothDamp.update(dt);
     }
 
+    /**
+     * @param {Pose} pose - pose to update with the current camera state
+     * @override
+     */
     getPose(pose) {
         const { smoothDamp } = this;
         const { value } = smoothDamp;
