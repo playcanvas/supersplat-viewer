@@ -8,6 +8,8 @@ import { Pose } from './core/pose.js';
 import { AppController } from './input.js';
 import { Picker } from './picker.js';
 
+/** @import { BaseCamera } from './cameras/base-camera.js' */
+
 const gsplatFS = /* glsl */ `
 
 #ifdef PICK_PASS
@@ -233,6 +235,10 @@ class Viewer {
         const orbitCamera = new OrbitCamera();
         const flyCamera = new FlyCamera();
 
+        /**
+         * @param {'orbit' | 'anim' | 'fly'} cameraMode - the camera mode to get
+         * @returns {BaseCamera} the camera instance for the given mode
+         */
         const getCamera = (cameraMode) => {
             switch (cameraMode) {
                 case 'orbit': return orbitCamera;
@@ -368,7 +374,7 @@ class Viewer {
             switch (value) {
                 case 'orbit':
                 case 'fly':
-                    getCamera(value)?.reset?.(pose);
+                    getCamera(value).reset(pose);
                     break;
             }
 
