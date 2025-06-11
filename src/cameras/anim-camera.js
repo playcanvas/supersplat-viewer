@@ -82,6 +82,7 @@ class AnimCamera {
 
     update(deltaTime, input) {
         const { cursor, result, spline, frameRate, position, target, rotateSpeed, rotation } = this;
+        const { rotate } = input || {};
 
         // update the animation cursor
         cursor.update(deltaTime);
@@ -95,9 +96,9 @@ class AnimCamera {
         }
 
         // rotate
-        if (input?.rotate) {
-            rotation.x = Math.max(-90, Math.min(90, rotation.x - input.rotate.value[1] * rotateSpeed));
-            rotation.y = Math.max(-180, Math.min(180, rotation.y - input.rotate.value[0] * rotateSpeed));
+        if (rotate) {
+            rotation.x = Math.max(-90, Math.min(90, rotation.x - rotate[1] * rotateSpeed));
+            rotation.y = Math.max(-180, Math.min(180, rotation.y - rotate[0] * rotateSpeed));
         }
     }
 

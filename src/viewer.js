@@ -322,11 +322,8 @@ class Viewer {
                 events.fire('touchJoystickUpdate', controller.joystick.base, controller.joystick.stick);
             }
 
-            // update the active camera
-            const input = {
-                move: controller.left,
-                rotate: controller.right
-            };
+            // read inputs from controller (resets frame)
+            const input = controller.read();
 
             // use dt of 0 if animation is paused
             const dt = state.cameraMode === 'anim' ?
@@ -336,9 +333,6 @@ class Viewer {
             const activeCamera = getCamera(state.cameraMode);
             activeCamera.update(dt, state.cameraMode !== 'anim' && input);
             activeCamera.getPose(pose);
-
-            // controls have been consumed
-            controller.clear();
 
             if (state.cameraMode === 'anim') {
                 state.animationTime = animCamera.cursor.value;

@@ -42,6 +42,7 @@ class FlyCamera {
 
     move(input) {
         const { position, rotation, moveSpeed, rotateSpeed } = this;
+        const { move, rotate } = input;
 
         // get camera vectors
         rotation.transformVector(Vec3.FORWARD, forward);
@@ -49,24 +50,24 @@ class FlyCamera {
         rotation.transformVector(Vec3.UP, up);
 
         // move
-        v.copy(right).mulScalar(input.move.value[0] * moveSpeed);
+        v.copy(right).mulScalar(move[0] * moveSpeed);
         position.add(v);
 
-        v.copy(up).mulScalar(input.move.value[2] * -moveSpeed);
+        v.copy(up).mulScalar(move[2] * -moveSpeed);
         position.add(v);
 
-        v.copy(forward).mulScalar(input.move.value[1] * -moveSpeed);
+        v.copy(forward).mulScalar(move[1] * -moveSpeed);
         position.add(v);
 
         // rotate
-        q.setFromAxisAngle(right, -input.rotate.value[1] * rotateSpeed);
+        q.setFromAxisAngle(right, -rotate[1] * rotateSpeed);
         rotation.mul2(q, rotation);
 
-        q.setFromAxisAngle(Vec3.UP, -input.rotate.value[0] * rotateSpeed);
+        q.setFromAxisAngle(Vec3.UP, -rotate[0] * rotateSpeed);
         rotation.mul2(q, rotation);
 
-        q.setFromAxisAngle(forward, -input.rotate.value[2] * rotateSpeed);
-        rotation.mul(q, rotation);
+        q.setFromAxisAngle(forward, -rotate[2] * rotateSpeed);
+        rotation.mul2(q, rotation);
 
         rotation.normalize();
     }

@@ -1,24 +1,13 @@
-import { DualGestureSource, GamepadSource, KeyboardMouseSource, MultiTouchSource, Vec3 } from 'playcanvas';
+import {
+    DualGestureSource,
+    GamepadSource,
+    InputFrame,
+    KeyboardMouseSource,
+    MultiTouchSource,
+    Vec3
+} from 'playcanvas';
 
 const tmpV1 = new Vec3();
-
-// stores the input deltas for 3 axes (x, y, z)
-class Input {
-    constructor() {
-        this.value = [0, 0, 0];
-    }
-
-    // helper to add to the input value
-    add(x, y, z) {
-        this.value[0] += x;
-        this.value[1] += y;
-        this.value[2] += z;
-    }
-
-    clear() {
-        this.value.fill(0);
-    }
-}
 
 class AppController {
     _axis = new Vec3();
@@ -35,9 +24,10 @@ class AppController {
 
     _gamepadInput = new GamepadSource();
 
-    left = new Input();
-
-    right = new Input();
+    _frame = new InputFrame({
+        move: [0, 0, 0],
+        rotate: [0, 0, 0]
+    });
 
     joystick = {
         base: null,
@@ -99,51 +89,51 @@ class AppController {
         const orbit = +(mode === 'orbit');
         const pan = +(this._touches > 1);
         const axis = tmpV1.copy(this._axis).normalize();
+        const { deltas } = this._frame;
 
         // update desktop input
         // FIXME: flip axis for fly
         const dx = axis.x + (this._mouse[2] * -mouse[0] * panMult);
         const dy = axis.y + (this._mouse[2] * mouse[1] * panMult);
         const dz = axis.z + wheel[0] * wheelMult;
-        this.left.add(
+        deltas.move.append([
             (orbit ? -dx : dx) * moveMult * bdt,
             (orbit ? dy : dz) * moveMult * bdt,
             (orbit ? dz : -dy) * moveMult * bdt
-        );
-        this.right.add(
+        ]);
+        deltas.rotate.append([
             (1 - this._mouse[2]) * mouse[0] * lookMult * bdt,
             (1 - this._mouse[2]) * mouse[1] * lookMult * bdt,
             0
-        );
+        ]);
 
         // update mobile input
-        this.left.add(
+        deltas.move.append([
             (orbit ? (pan * touch[0] * panMult) : leftInput[0]) * moveMult * bdt,
             (orbit ? (pan * touch[1] * panMult) : leftInput[1]) * moveMult * bdt,
             (orbit * (pan * pinch[0] * pinchMult)) * moveMult * bdt
-        );
-        this.right.add(
+        ]);
+        deltas.rotate.append([
             (orbit ? ((1 - pan) * touch[0]) : rightInput[0]) * lookMult * bdt,
             (orbit ? ((1 - pan) * touch[1]) : rightInput[1]) * lookMult * bdt,
             (orbit * ((1 - pan) * pinch[0] * pinchMult)) * moveMult * bdt
-        );
+        ]);
 
         // update gamepad input
-        this.left.add(
+        deltas.move.append([
             leftStick[0] * moveMult * bdt,
             leftStick[1] * moveMult * bdt,
             0
-        );
-        this.right.add(
+        ]);
+        deltas.rotate.append([
             rightStick[0] * lookMult * bdt,
             rightStick[1] * lookMult * bdt,
             0
-        );
+        ]);
     }
 
-    clear() {
-        this.left.clear();
-        this.right.clear();
+    read() {
+        return this._frame.read();
     }
 }
 

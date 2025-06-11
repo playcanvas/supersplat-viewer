@@ -53,6 +53,7 @@ class OrbitCamera {
 
     move(input) {
         const { focus, rotation, moveSpeed, distanceSpeed, rotateSpeed } = this;
+        const { move, rotate } = input;
 
         q.setFromEulerAngles(rotation);
 
@@ -62,18 +63,18 @@ class OrbitCamera {
         q.transformVector(Vec3.UP, up);
 
         // focus point
-        v.copy(right).mulScalar(input.move.value[0] * -moveSpeed * this.distance);
+        v.copy(right).mulScalar(move[0] * -moveSpeed * this.distance);
         focus.add(v);
 
-        v.copy(up).mulScalar(input.move.value[1] * moveSpeed * this.distance);
+        v.copy(up).mulScalar(move[1] * moveSpeed * this.distance);
         focus.add(v);
 
         // distance
-        this.distance = Math.max(0.01, this.distance * (1 + input.move.value[2] * distanceSpeed));
+        this.distance = Math.max(0.01, this.distance * (1 + move[2] * distanceSpeed));
 
         // rotate
-        rotation.x = Math.max(-90, Math.min(90, rotation.x - input.rotate.value[1] * rotateSpeed));
-        rotation.y = mod(rotation.y - input.rotate.value[0] * rotateSpeed, 360);
+        rotation.x = Math.max(-90, Math.min(90, rotation.x - rotate[1] * rotateSpeed));
+        rotation.y = mod(rotation.y - rotate[0] * rotateSpeed, 360);
     }
 
     smooth(dt) {
