@@ -29,6 +29,59 @@ class OrbitCamera extends BaseCamera {
     distanceSpeed = 0.01;
 
     /**
+     * @param {object} input - input data for camera movement
+     * @param {number[]} input.move - [x, y, z] movement vector
+     * @param {number[]} input.rotate - [yaw, pitch] rotation vector
+     * @private
+     */
+    _move(input) {
+        const { focus, rotation, moveSpeed, distanceSpeed, rotateSpeed } = this;
+        const { move, rotate } = input;
+
+        q.setFromEulerAngles(rotation);
+
+        // get camera vectors
+        q.transformVector(Vec3.FORWARD, forward);
+        q.transformVector(Vec3.RIGHT, right);
+        q.transformVector(Vec3.UP, up);
+
+        // focus point
+        v.copy(right).mulScalar(move[0] * -moveSpeed * this.distance);
+        focus.add(v);
+
+        v.copy(up).mulScalar(move[1] * moveSpeed * this.distance);
+        focus.add(v);
+
+        // distance
+        this.distance = Math.max(0.01, this.distance * (1 + move[2] * distanceSpeed));
+
+        // rotate
+        rotation.x = Math.max(-90, Math.min(90, rotation.x - rotate[1] * rotateSpeed));
+        rotation.y = mod(rotation.y - rotate[0] * rotateSpeed, 360);
+    }
+
+    /**
+     * @param {number} dt - delta time in seconds
+     * @private
+     */
+    _smooth(dt) {
+        const { focus, rotation, smoothDamp } = this;
+        const { value, target } = smoothDamp;
+
+        // package latest target values
+        focus.toArray(target, 0);
+        rotation.toArray(target, 3);
+        target[6] = this.distance;
+
+        // ensure rotations wrap around correctly
+        value[3] = target[3] + mod((value[3] - target[3]) + 90, 180) - 90;
+        value[4] = target[4] + mod((value[4] - target[4]) + 180, 360) - 180;
+
+        // update
+        smoothDamp.update(dt);
+    }
+
+    /**
      * @param {Pose} pose - initial camera pose
      * @param {boolean} snap - whether to snap the camera to the initial pose
      * @override
@@ -61,52 +114,9 @@ class OrbitCamera extends BaseCamera {
      */
     update(dt, input) {
         if (input) {
-            this.move(input);
+            this._move(input);
         }
-        this.smooth(dt);
-    }
-
-    move(input) {
-        const { focus, rotation, moveSpeed, distanceSpeed, rotateSpeed } = this;
-        const { move, rotate } = input;
-
-        q.setFromEulerAngles(rotation);
-
-        // get camera vectors
-        q.transformVector(Vec3.FORWARD, forward);
-        q.transformVector(Vec3.RIGHT, right);
-        q.transformVector(Vec3.UP, up);
-
-        // focus point
-        v.copy(right).mulScalar(move[0] * -moveSpeed * this.distance);
-        focus.add(v);
-
-        v.copy(up).mulScalar(move[1] * moveSpeed * this.distance);
-        focus.add(v);
-
-        // distance
-        this.distance = Math.max(0.01, this.distance * (1 + move[2] * distanceSpeed));
-
-        // rotate
-        rotation.x = Math.max(-90, Math.min(90, rotation.x - rotate[1] * rotateSpeed));
-        rotation.y = mod(rotation.y - rotate[0] * rotateSpeed, 360);
-    }
-
-    smooth(dt) {
-        const { focus, rotation, smoothDamp } = this;
-        const { value, target } = smoothDamp;
-
-        // package latest target values
-        focus.toArray(target, 0);
-        rotation.toArray(target, 3);
-        target[6] = this.distance;
-
-        // ensure rotations wrap around correctly
-        value[3] = target[3] + mod((value[3] - target[3]) + 90, 180) - 90;
-        value[4] = target[4] + mod((value[4] - target[4]) + 180, 360) - 180;
-
-        // update
-        smoothDamp.update(dt);
+        this._smooth(dt);
     }
 
     /**

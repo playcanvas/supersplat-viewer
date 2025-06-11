@@ -27,35 +27,12 @@ class FlyCamera extends BaseCamera {
     rotateSpeed = 0.2;
 
     /**
-     * @param {Pose} pose - initial camera pose
-     * @param {boolean} snap - whether to snap the camera to the initial pose
-     * @override
-     */
-    reset(pose, snap = true) {
-        this.position.copy(pose.position);
-        this.rotation.copy(pose.rotation);
-        this.distance = pose.distance;
-        if (snap) {
-            this.smoothPosition.copy(pose.position);
-            this.smoothRotation.copy(pose.rotation);
-        }
-    }
-
-    /**
-     * @param {number} dt - delta time in seconds
      * @param {object} input - input data for camera movement
      * @param {number[]} input.move - [x, y, z] movement vector
      * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
-     * @override
+     * @private
      */
-    update(dt, input) {
-        if (input) {
-            this.move(input);
-        }
-        this.smooth(dt);
-    }
-
-    move(input) {
+    _move(input) {
         const { position, rotation, moveSpeed, rotateSpeed } = this;
         const { move, rotate } = input;
 
@@ -87,10 +64,43 @@ class FlyCamera extends BaseCamera {
         rotation.normalize();
     }
 
-    smooth(dt) {
+    /**
+     * @param {number} dt - delta time in seconds
+     * @private
+     */
+    _smooth(dt) {
         const weight = damp(0.98, dt);
         this.smoothPosition.lerp(this.smoothPosition, this.position, weight);
         this.smoothRotation.lerp(this.smoothRotation, this.rotation, weight);
+    }
+
+    /**
+     * @param {Pose} pose - initial camera pose
+     * @param {boolean} snap - whether to snap the camera to the initial pose
+     * @override
+     */
+    reset(pose, snap = true) {
+        this.position.copy(pose.position);
+        this.rotation.copy(pose.rotation);
+        this.distance = pose.distance;
+        if (snap) {
+            this.smoothPosition.copy(pose.position);
+            this.smoothRotation.copy(pose.rotation);
+        }
+    }
+
+    /**
+     * @param {number} dt - delta time in seconds
+     * @param {object} input - input data for camera movement
+     * @param {number[]} input.move - [x, y, z] movement vector
+     * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
+     * @override
+     */
+    update(dt, input) {
+        if (input) {
+            this._move(input);
+        }
+        this._smooth(dt);
     }
 
     /**
