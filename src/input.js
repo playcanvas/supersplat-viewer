@@ -175,8 +175,8 @@ class AppController {
 
         // mobile move
         v.set(0, 0, 0);
-        const touchPan = this._screenToWorld(-touch[0], touch[1], distance);
-        v.add(touchPan.mulScalar(orbit * pan * bdt));
+        const orbitMove = this._screenToWorld(-touch[0], touch[1], distance);
+        v.add(orbitMove.mulScalar(orbit * pan * bdt));
         const flyMove = new Vec3(leftInput[0], leftInput[1], 0);
         v.add(flyMove.mulScalar(fly * this.moveMult * bdt));
         const pinchMove = new Vec3(0, 0, pinch[0]);
@@ -185,8 +185,8 @@ class AppController {
 
         // mobile rotate
         v.set(0, 0, 0);
-        const touchRotate = new Vec3(touch[0], touch[1], 0);
-        v.add(touchRotate.mulScalar(orbit * (1 - pan) * this.lookMult * bdt));
+        const orbitRotate = new Vec3(touch[0], touch[1], 0);
+        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.lookMult * bdt));
         const flyRotate = new Vec3(rightInput[0], rightInput[1], 0);
         v.add(flyRotate.mulScalar(fly * this.lookMult * bdt));
         deltas.rotate.append([v.x, v.y, v.z]);
