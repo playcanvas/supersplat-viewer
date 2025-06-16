@@ -22,10 +22,6 @@ class FlyCamera extends BaseCamera {
 
     smoothRotation = new MyQuat();
 
-    moveSpeed = 0.1;
-
-    rotateSpeed = 0.2;
-
     /**
      * @param {object} input - input data for camera movement
      * @param {number[]} input.move - [x, y, z] movement vector
@@ -33,7 +29,7 @@ class FlyCamera extends BaseCamera {
      * @private
      */
     _move(input) {
-        const { position, rotation, moveSpeed, rotateSpeed } = this;
+        const { position, rotation } = this;
         const { move, rotate } = input;
 
         // get camera vectors
@@ -42,23 +38,23 @@ class FlyCamera extends BaseCamera {
         rotation.transformVector(Vec3.UP, up);
 
         // move
-        v.copy(right).mulScalar(move[0] * moveSpeed);
+        v.copy(right).mulScalar(move[0]);
         position.add(v);
 
-        v.copy(up).mulScalar(move[2] * -moveSpeed);
+        v.copy(up).mulScalar(-move[2]);
         position.add(v);
 
-        v.copy(forward).mulScalar(move[1] * -moveSpeed);
+        v.copy(forward).mulScalar(-move[1]);
         position.add(v);
 
         // rotate
-        q.setFromAxisAngle(right, -rotate[1] * rotateSpeed);
+        q.setFromAxisAngle(right, -rotate[1]);
         rotation.mul2(q, rotation);
 
-        q.setFromAxisAngle(Vec3.UP, -rotate[0] * rotateSpeed);
+        q.setFromAxisAngle(Vec3.UP, -rotate[0]);
         rotation.mul2(q, rotation);
 
-        q.setFromAxisAngle(forward, -rotate[2] * rotateSpeed);
+        q.setFromAxisAngle(forward, -rotate[2]);
         rotation.mul2(q, rotation);
 
         rotation.normalize();

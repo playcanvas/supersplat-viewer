@@ -66,11 +66,11 @@ class AppController {
 
         // multipliers
         const bdt = 60 * dt;
-        const moveMult = 5;
-        const lookMult = 1;
-        const panMult = 1.25;
+        const moveMult = 0.5;
+        const lookMult = 0.2;
+        const panMult = 0.01;
         const pinchMult = 0.5;
-        const wheelMult = 0.05;
+        const wheelMult = 0.005;
 
         // update state
         const [forward, back, left, right, down, up] = key;
