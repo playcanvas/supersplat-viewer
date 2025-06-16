@@ -1,7 +1,7 @@
-import { Vec3 } from 'playcanvas';
+import { math, Vec3 } from 'playcanvas';
 
 import { BaseCamera } from './base-camera.js';
-import { mod, MyQuat, SmoothDamp } from '../core/math.js';
+import { damp, mod, MyQuat } from '../core/math.js';
 
 /** @import { Pose } from '../core/pose.js' */
 
@@ -20,7 +20,11 @@ class OrbitCamera extends BaseCamera {
 
     distance = 1;
 
-    smoothDamp = new SmoothDamp([0, 0, 0, 0, 0, 0, 1]);
+    smoothFocus = new Vec3();
+
+    smoothRotation = new Vec3();
+
+    smoothDistance = 1;
 
     /**
      * @param {object} input - input data for camera movement
@@ -50,8 +54,9 @@ class OrbitCamera extends BaseCamera {
         this.distance = Math.max(0.01, this.distance * (1 + move[2]));
 
         // rotate
-        rotation.x = Math.max(-90, Math.min(90, rotation.x - rotate[1]));
-        rotation.y = mod(rotation.y - rotate[0], 360);
+        rotation.x = Math.max(-90, Math.min(90, (rotation.x - rotate[1]) % 360));
+        rotation.y = (rotation.y - rotate[0]) % 360;
+
     }
 
     /**
@@ -59,20 +64,12 @@ class OrbitCamera extends BaseCamera {
      * @private
      */
     _smooth(dt) {
-        const { focus, rotation, smoothDamp } = this;
-        const { value, target } = smoothDamp;
-
-        // package latest target values
-        focus.toArray(target, 0);
-        rotation.toArray(target, 3);
-        target[6] = this.distance;
-
-        // ensure rotations wrap around correctly
-        value[3] = target[3] + mod((value[3] - target[3]) + 90, 180) - 90;
-        value[4] = target[4] + mod((value[4] - target[4]) + 180, 360) - 180;
-
-        // update
-        smoothDamp.update(dt);
+        const weight = damp(0.98, dt);
+        this.smoothFocus.lerp(this.smoothFocus, this.focus, weight);
+        this.smoothRotation.x = math.lerpAngle(this.smoothRotation.x, this.rotation.x, weight) % 360;
+        this.smoothRotation.y = math.lerpAngle(this.smoothRotation.y, this.rotation.y, weight) % 360;
+        this.smoothRotation.z = math.lerpAngle(this.smoothRotation.z, this.rotation.z, weight) % 360;
+        this.smoothDistance = math.lerp(this.smoothDistance, this.distance, weight);
     }
 
     /**
@@ -93,9 +90,9 @@ class OrbitCamera extends BaseCamera {
         this.distance = pose.distance;
 
         if (snap) {
-            this.focus.toArray(this.smoothDamp.value, 0);
-            this.rotation.toArray(this.smoothDamp.value, 3);
-            this.smoothDamp.value[6] = pose.distance;
+            this.smoothFocus.copy(this.focus);
+            this.smoothRotation.copy(this.rotation);
+            this.smoothDistance = this.distance;
         }
     }
 
@@ -118,15 +115,11 @@ class OrbitCamera extends BaseCamera {
      * @override
      */
     detach(pose) {
-        const { smoothDamp } = this;
-        const { value } = smoothDamp;
-
-        v.fromArray(value, 3);
-        pose.rotation.setFromEulerAngles(v);
+        pose.rotation.setFromEulerAngles(this.smoothRotation);
         pose.rotation.transformVector(Vec3.FORWARD, v);
-        pose.distance = value[6];
-        v.mulScalar(-pose.distance);
-        pose.position.fromArray(value).add(v);
+        v.normalize();
+        pose.position.copy(this.smoothFocus).sub(v.mulScalar(this.smoothDistance));
+        pose.distance = this.smoothDistance;
     }
 }
 
