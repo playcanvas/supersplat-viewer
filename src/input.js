@@ -68,9 +68,9 @@ class AppController {
         const bdt = 60 * dt;
         const moveMult = 5;
         const lookMult = 1;
-        const panMult = 0.25;
-        const pinchMult = 0.1;
-        const wheelMult = 0.01;
+        const panMult = 1.25;
+        const pinchMult = 0.5;
+        const wheelMult = 0.05;
 
         // update state
         const [forward, back, left, right, down, up] = key;
@@ -90,9 +90,9 @@ class AppController {
         const keyMove = this._axis.clone().normalize();
         v.add(keyMove.mulScalar(moveMult * bdt));
         const panMove = new Vec3(-mouse[0], mouse[1], 0);
-        v.add(panMove.mulScalar(this._mouse[2] * panMult * moveMult * bdt));
+        v.add(panMove.mulScalar(this._mouse[2] * panMult * bdt));
         const wheelMove = new Vec3(0, 0, wheel[0]);
-        v.add(wheelMove.mulScalar(wheelMult * moveMult * bdt));
+        v.add(wheelMove.mulScalar(wheelMult * bdt));
         // FIXME: flip axis for fly
         if (orbit) {
             deltas.move.append([-v.x, v.y, v.z]);
@@ -109,11 +109,11 @@ class AppController {
         // mobile move
         v.set(0, 0, 0);
         const touchPan = new Vec3(touch[0], touch[1], 0);
-        v.add(touchPan.mulScalar(orbit * pan * panMult * moveMult * bdt));
+        v.add(touchPan.mulScalar(orbit * pan * panMult * bdt));
         const flyMove = new Vec3(leftInput[0], leftInput[1], 0);
         v.add(flyMove.mulScalar(fly * moveMult * bdt));
         const pinchMove = new Vec3(0, 0, pinch[0]);
-        v.add(pinchMove.mulScalar(orbit * pan * pinchMult * moveMult * bdt));
+        v.add(pinchMove.mulScalar(orbit * pan * pinchMult * bdt));
         deltas.move.append([v.x, v.y, v.z]);
 
         // mobile rotate
