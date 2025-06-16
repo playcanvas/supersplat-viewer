@@ -82,7 +82,7 @@ class AppController {
      */
     _screenToWorld(dx, dy, dz, out = new Vec3()) {
         const { fov, aspectRatio, horizontalFov, projection, orthoHeight } = this._camera;
-        const { width, height } = this._camera.system.app.graphicsDevice;
+        const { width, height } = this._camera.system.app.graphicsDevice.clientRect;
 
         // normalize deltas to device coord space
         out.set(
@@ -115,9 +115,6 @@ class AppController {
                 0
             );
         }
-
-        // convert half size to full size
-        size.mulScalar(2);
 
         // scale by device coord space
         out.mul(size);
@@ -169,8 +166,7 @@ class AppController {
         // mobile move
         v.set(0, 0, 0);
         const orbitMove = this._screenToWorld(touch[0], touch[1], distance);
-        // FIXME: figure out why this 1.5x multiplier is needed for mobile panning
-        v.add(orbitMove.mulScalar(orbit * pan * 1.5));
+        v.add(orbitMove.mulScalar(orbit * pan));
         const flyMove = new Vec3(leftInput[0], 0, -leftInput[1]);
         v.add(flyMove.mulScalar(fly * this.moveMult));
         const pinchMove = new Vec3(0, 0, pinch[0]);
