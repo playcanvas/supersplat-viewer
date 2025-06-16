@@ -159,7 +159,7 @@ class AppController {
         v.add(wheelMove.mulScalar(this.wheelMult));
         // FIXME: flip axis for fly
         if (orbit) {
-            deltas.move.append([-v.x, v.y, v.z]);
+            deltas.move.append([v.x, v.y, v.z]);
         } else {
             deltas.move.append([v.x, v.z, -v.y]);
         }
@@ -172,7 +172,7 @@ class AppController {
 
         // mobile move
         v.set(0, 0, 0);
-        const orbitMove = this._screenToWorld(-touch[0], touch[1], distance);
+        const orbitMove = this._screenToWorld(touch[0], touch[1], distance);
         v.add(orbitMove.mulScalar(orbit * pan));
         const flyMove = new Vec3(leftInput[0], leftInput[1], 0);
         v.add(flyMove.mulScalar(fly * this.moveMult));
