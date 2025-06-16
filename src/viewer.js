@@ -4,10 +4,10 @@ import { BoundingBox, Color, Mat4, Vec3 } from 'playcanvas';
 import { AnimCamera } from './cameras/anim-camera.js';
 import { FlyCamera } from './cameras/fly-camera.js';
 import { OrbitCamera } from './cameras/orbit-camera.js';
+import { easeOut } from './core/math.js';
 import { Pose } from './core/pose.js';
 import { AppController } from './input.js';
 import { Picker } from './picker.js';
-import { easeOut } from './core/math.js';
 
 /** @import { BaseCamera } from './cameras/base-camera.js' */
 
@@ -53,6 +53,61 @@ import { easeOut } from './core/math.js';
 // `;
 
 const pose = new Pose();
+
+/**
+ * Creates a rotation animation around an object.
+ *
+ * @param {Pose} initial - The initial pose of the camera.
+ * @param {number} [keys] - The number of keys in the animation.
+ * @param {number} [duration] - The duration of the animation in seconds.
+ * @returns {AnimCamera} - The created rotation animation.
+ */
+const createRotateAnim = (initial, keys = 12, duration = 20) => {
+    const times = new Array(keys).fill(0).map((_, i) => i / keys * duration);
+    const position = [];
+    const target = [];
+
+    const initialTarget = new Vec3();
+    initial.calcTarget(initialTarget);
+
+    const mat = new Mat4();
+    const vec = new Vec3();
+    const dif = new Vec3(
+        initial.position.x - initialTarget.x,
+        initial.position.y - initialTarget.y,
+        initial.position.z - initialTarget.z
+    );
+
+    for (let i = 0; i < keys; ++i) {
+        mat.setFromEulerAngles(0, -i / keys * 360, 0);
+        mat.transformPoint(dif, vec);
+
+        position.push(initialTarget.x + vec.x);
+        position.push(initialTarget.y + vec.y);
+        position.push(initialTarget.z + vec.z);
+
+        target.push(initialTarget.x);
+        target.push(initialTarget.y);
+        target.push(initialTarget.z);
+    }
+
+    // construct a simple rotation animation around an object
+    return AnimCamera.fromTrack({
+        name: 'rotate',
+        duration,
+        frameRate: 1,
+        target: 'camera',
+        loopMode: 'repeat',
+        interpolation: 'spline',
+        keyframes: {
+            times,
+            values: {
+                position,
+                target
+            }
+        }
+    });
+};
 
 class Viewer {
     constructor(app, entity, events, state, settings, params) {
@@ -151,53 +206,8 @@ class Viewer {
                     return AnimCamera.fromTrack(track);
                 }
             } else if (isObjectExperience) {
-                // create a slowly rotating animation around it
-                const keys = 12;
-                const duration = 20;
-                const times = new Array(keys).fill(0).map((_, i) => i / keys * duration);
-                const position = [];
-                const target = [];
-
-                const initialTarget = new Vec3();
-                initial.calcTarget(initialTarget);
-
-                const mat = new Mat4();
-                const vec = new Vec3();
-                const dif = new Vec3(
-                    initial.position.x - initialTarget.x,
-                    initial.position.y - initialTarget.y,
-                    initial.position.z - initialTarget.z
-                );
-
-                for (let i = 0; i < keys; ++i) {
-                    mat.setFromEulerAngles(0, -i / keys * 360, 0);
-                    mat.transformPoint(dif, vec);
-
-                    position.push(initialTarget.x + vec.x);
-                    position.push(initialTarget.y + vec.y);
-                    position.push(initialTarget.z + vec.z);
-
-                    target.push(initialTarget.x);
-                    target.push(initialTarget.y);
-                    target.push(initialTarget.z);
-                }
-
-                // construct a simple rotation animation around an object
-                return AnimCamera.fromTrack({
-                    name: 'rotate',
-                    duration,
-                    frameRate: 1,
-                    target: 'camera',
-                    loopMode: 'repeat',
-                    interpolation: 'spline',
-                    keyframes: {
-                        times,
-                        values: {
-                            position,
-                            target
-                        }
-                    }
-                });
+                // create basic rotation animation if no anim track is specified
+                return createRotateAnim(initial);
             }
 
             return null;
