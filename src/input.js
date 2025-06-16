@@ -136,9 +136,6 @@ class AppController {
         const { leftInput, rightInput } = this._flyInput.read();
         const { leftStick, rightStick } = this._gamepadInput.read();
 
-        // multipliers
-        const bdt = 60 * dt;
-
         // update state
         const [forward, back, left, right, down, up] = key;
         this._axis.add(tmpV1.set(right - left, up - down, back - forward));
@@ -155,11 +152,11 @@ class AppController {
         // desktop move
         const v = tmpV1.set(0, 0, 0);
         const keyMove = this._axis.clone().normalize();
-        v.add(keyMove.mulScalar(this.moveMult * bdt));
+        v.add(keyMove.mulScalar(this.moveMult));
         const panMove = this._screenToWorld(mouse[0], mouse[1], distance);
-        v.add(panMove.mulScalar(this._mouse[2] * bdt));
+        v.add(panMove.mulScalar(this._mouse[2]));
         const wheelMove = new Vec3(0, 0, wheel[0]);
-        v.add(wheelMove.mulScalar(this.wheelMult * bdt));
+        v.add(wheelMove.mulScalar(this.wheelMult));
         // FIXME: flip axis for fly
         if (orbit) {
             deltas.move.append([-v.x, v.y, v.z]);
@@ -170,37 +167,37 @@ class AppController {
         // desktop rotate
         v.set(0, 0, 0);
         const mouseRotate = new Vec3(mouse[0], mouse[1], 0);
-        v.add(mouseRotate.mulScalar((1 - this._mouse[2]) * this.lookMult * bdt));
+        v.add(mouseRotate.mulScalar((1 - this._mouse[2]) * this.lookMult));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // mobile move
         v.set(0, 0, 0);
         const orbitMove = this._screenToWorld(-touch[0], touch[1], distance);
-        v.add(orbitMove.mulScalar(orbit * pan * bdt));
+        v.add(orbitMove.mulScalar(orbit * pan));
         const flyMove = new Vec3(leftInput[0], leftInput[1], 0);
-        v.add(flyMove.mulScalar(fly * this.moveMult * bdt));
+        v.add(flyMove.mulScalar(fly * this.moveMult));
         const pinchMove = new Vec3(0, 0, pinch[0]);
-        v.add(pinchMove.mulScalar(orbit * pan * this.pinchMult * bdt));
+        v.add(pinchMove.mulScalar(orbit * pan * this.pinchMult));
         deltas.move.append([v.x, v.y, v.z]);
 
         // mobile rotate
         v.set(0, 0, 0);
         const orbitRotate = new Vec3(touch[0], touch[1], 0);
-        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.lookMult * bdt));
+        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.lookMult));
         const flyRotate = new Vec3(rightInput[0], rightInput[1], 0);
-        v.add(flyRotate.mulScalar(fly * this.lookMult * bdt));
+        v.add(flyRotate.mulScalar(fly * this.lookMult));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // gamepad move
         v.set(0, 0, 0);
         const stickMove = new Vec3(leftStick[0], leftStick[1], 0);
-        v.add(stickMove.mulScalar(this.moveMult * bdt));
+        v.add(stickMove.mulScalar(this.moveMult));
         deltas.move.append([v.x, v.y, v.z]);
 
         // gamepad rotate
         v.set(0, 0, 0);
         const stickRotate = new Vec3(rightStick[0], rightStick[1], 0);
-        v.add(stickRotate.mulScalar(this.lookMult * bdt));
+        v.add(stickRotate.mulScalar(this.lookMult));
         deltas.rotate.append([v.x, v.y, v.z]);
     }
 
