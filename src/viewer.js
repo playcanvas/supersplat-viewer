@@ -248,9 +248,6 @@ class Viewer {
             }
         };
 
-        // set fly speed based on scene size, within reason
-        flyCamera.moveSpeed = Math.max(0.05, Math.min(1, bbox.halfExtents.length() * 0.0001));
-
         // set the global animation flag
         state.hasAnimation = !!animCamera;
         state.animationDuration = animCamera ? animCamera.cursor.duration : 0;
@@ -274,6 +271,9 @@ class Viewer {
 
         // create controller
         const controller = new AppController(app.graphicsDevice.canvas);
+
+        // set move speed based on scene size, within reason
+        controller.moveMult = Math.max(0.05, Math.min(1, bbox.halfExtents.length() * 0.0001));
 
         // transition time between cameras
         let transitionTimer = 0;

@@ -34,6 +34,16 @@ class AppController {
         stick: null
     };
 
+    moveMult = 0.5;
+
+    lookMult = 0.2;
+
+    panMult = 0.01;
+
+    pinchMult = 0.5;
+
+    wheelMult = 0.001;
+
     /**
      * @param {HTMLElement} element - the element to attach the input to
      */
@@ -66,11 +76,7 @@ class AppController {
 
         // multipliers
         const bdt = 60 * dt;
-        const moveMult = 0.5;
-        const lookMult = 0.2;
-        const panMult = 0.01;
-        const pinchMult = 0.5;
-        const wheelMult = 0.001;
+        const { moveMult, lookMult, panMult, pinchMult, wheelMult } = this;
 
         // update state
         const [forward, back, left, right, down, up] = key;
