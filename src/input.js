@@ -169,7 +169,8 @@ class AppController {
         // mobile move
         v.set(0, 0, 0);
         const orbitMove = this._screenToWorld(touch[0], touch[1], distance);
-        v.add(orbitMove.mulScalar(orbit * pan));
+        // FIXME: figure out why this 1.5x multiplier is needed for mobile panning
+        v.add(orbitMove.mulScalar(orbit * pan * 1.5));
         const flyMove = new Vec3(leftInput[0], 0, -leftInput[1]);
         v.add(flyMove.mulScalar(fly * this.moveMult));
         const pinchMove = new Vec3(0, 0, pinch[0]);
