@@ -270,7 +270,7 @@ class Viewer {
         flyCamera.attach(activePose);
 
         // create controller
-        const controller = new AppController(app.graphicsDevice.canvas);
+        const controller = new AppController(app.graphicsDevice.canvas, entity.camera);
 
         // set move speed based on scene size, within reason
         controller.moveMult = Math.max(0.05, Math.min(1, bbox.halfExtents.length() * 0.0001));
@@ -322,7 +322,7 @@ class Viewer {
             }
 
             // update input controller
-            controller.update(deltaTime, state.cameraMode);
+            controller.update(deltaTime, state.cameraMode, activePose.distance);
 
             // update touch joystick UI
             if (state.cameraMode === 'fly') {

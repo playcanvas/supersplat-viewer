@@ -40,10 +40,10 @@ class OrbitCamera extends BaseCamera {
         q.transformVector(Vec3.UP, up);
 
         // focus point
-        v.copy(right).mulScalar(-move[0] * this.distance);
+        v.copy(right).mulScalar(-move[0]);
         focus.add(v);
 
-        v.copy(up).mulScalar(move[1] * this.distance);
+        v.copy(up).mulScalar(move[1]);
         focus.add(v);
 
         // distance
