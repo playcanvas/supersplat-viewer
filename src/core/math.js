@@ -57,37 +57,4 @@ class MyQuat extends Quat {
     }
 }
 
-class SmoothDamp {
-    constructor(value, smoothTime = 0.05) {
-        this.dims = value.length;
-        this.value = value;
-        this.target = value.slice();
-        this.velocity = value.slice().fill(0);
-        this.smoothTime = smoothTime;
-    }
-
-    reset(newValue) {
-        const { dims, value, velocity } = this;
-        for (let i = 0; i < dims; i++) {
-            value[i] = newValue[i];
-            velocity[i] = 0;
-        }
-    }
-
-    update(dt) {
-        const { dims, value, target, velocity, smoothTime } = this;
-
-        const omega = 2 / smoothTime;
-        const x = omega * dt;
-        const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
-
-        for (let i = 0; i < dims; i++) {
-            const change = value[i] - target[i];
-            const temp = (velocity[i] + omega * change) * dt;
-            velocity[i] = (velocity[i] - omega * temp) * exp;
-            value[i] = target[i] + (change + temp) * exp;
-        }
-    }
-}
-
-export { lerp, damp, mod, MyQuat, SmoothDamp };
+export { lerp, damp, mod, MyQuat };
