@@ -70,7 +70,7 @@ class AppController {
         const lookMult = 0.2;
         const panMult = 0.01;
         const pinchMult = 0.5;
-        const wheelMult = 0.005;
+        const wheelMult = 0.001;
 
         // update state
         const [forward, back, left, right, down, up] = key;
