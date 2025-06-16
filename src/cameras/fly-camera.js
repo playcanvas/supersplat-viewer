@@ -41,10 +41,10 @@ class FlyCamera extends BaseCamera {
         v.copy(right).mulScalar(move[0]);
         position.add(v);
 
-        v.copy(up).mulScalar(-move[2]);
+        v.copy(up).mulScalar(move[1]);
         position.add(v);
 
-        v.copy(forward).mulScalar(-move[1]);
+        v.copy(forward).mulScalar(move[2]);
         position.add(v);
 
         // rotate

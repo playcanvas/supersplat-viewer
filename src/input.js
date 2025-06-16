@@ -138,7 +138,7 @@ class AppController {
 
         // update state
         const [forward, back, left, right, down, up] = key;
-        this._axis.add(tmpV1.set(right - left, up - down, back - forward));
+        this._axis.add(tmpV1.set(right - left, up - down, forward - back));
         this._touches += count[0];
         for (let i = 0; i < button.length; i++) {
             this._mouse[i] += button[i];
@@ -155,14 +155,9 @@ class AppController {
         v.add(keyMove.mulScalar(this.moveMult));
         const panMove = this._screenToWorld(mouse[0], mouse[1], distance);
         v.add(panMove.mulScalar(this._mouse[2]));
-        const wheelMove = new Vec3(0, 0, wheel[0]);
+        const wheelMove = new Vec3(0, 0, -wheel[0]);
         v.add(wheelMove.mulScalar(this.wheelMult));
-        // FIXME: flip axis for fly
-        if (orbit) {
-            deltas.move.append([v.x, v.y, v.z]);
-        } else {
-            deltas.move.append([v.x, v.z, -v.y]);
-        }
+        deltas.move.append([v.x, v.y, orbit ? -v.z : v.z]);
 
         // desktop rotate
         v.set(0, 0, 0);
@@ -174,7 +169,7 @@ class AppController {
         v.set(0, 0, 0);
         const orbitMove = this._screenToWorld(touch[0], touch[1], distance);
         v.add(orbitMove.mulScalar(orbit * pan));
-        const flyMove = new Vec3(leftInput[0], leftInput[1], 0);
+        const flyMove = new Vec3(leftInput[0], 0, -leftInput[1]);
         v.add(flyMove.mulScalar(fly * this.moveMult));
         const pinchMove = new Vec3(0, 0, pinch[0]);
         v.add(pinchMove.mulScalar(orbit * pan * this.pinchMult));
@@ -190,7 +185,7 @@ class AppController {
 
         // gamepad move
         v.set(0, 0, 0);
-        const stickMove = new Vec3(leftStick[0], leftStick[1], 0);
+        const stickMove = new Vec3(leftStick[0], 0, -leftStick[1]);
         v.add(stickMove.mulScalar(this.moveMult));
         deltas.move.append([v.x, v.y, v.z]);
 
