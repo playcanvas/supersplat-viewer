@@ -81,8 +81,8 @@ class AppController {
      * @private
      */
     _screenToWorld(dx, dy, dz, out = new Vec3()) {
-        const { fov, aspectRatio, horizontalFov, projection, orthoHeight } = this._camera;
-        const { width, height } = this._camera.system.app.graphicsDevice.clientRect;
+        const { system, fov, aspectRatio, horizontalFov, projection, orthoHeight } = this._camera;
+        const { width, height } = system.app.graphicsDevice.clientRect;
 
         // normalize deltas to device coord space
         out.set(
@@ -91,25 +91,25 @@ class AppController {
             0
         );
 
-        // calculate size of the view frustum at the current distance
-        const size = tmpV2.set(0, 0, 0);
+        // calculate half size of the view frustum at the current distance
+        const halfSize = tmpV2.set(0, 0, 0);
         if (projection === PROJECTION_PERSPECTIVE) {
             const halfSlice = dz * Math.tan(0.5 * fov * math.DEG_TO_RAD);
             if (horizontalFov) {
-                size.set(
+                halfSize.set(
                     halfSlice,
                     halfSlice / aspectRatio,
                     0
                 );
             } else {
-                size.set(
+                halfSize.set(
                     halfSlice * aspectRatio,
                     halfSlice,
                     0
                 );
             }
         } else {
-            size.set(
+            halfSize.set(
                 orthoHeight * aspectRatio,
                 orthoHeight,
                 0
@@ -117,7 +117,7 @@ class AppController {
         }
 
         // scale by device coord space
-        out.mul(size);
+        out.mul(halfSize);
 
         return out;
     }
