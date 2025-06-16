@@ -77,19 +77,15 @@ class AnimCamera extends BaseCamera {
         this.frameRate = frameRate;
 
         // initialize the camera to the start frame
-        this.update(0, null);
+        this.update(0);
     }
 
     /**
      * @param {number} dt - delta time in seconds
-     * @param {object} input - input data for camera movement
-     * @param {number[]} input.move - [x, y, z] movement vector
-     * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
      * @override
      */
-    update(dt, input) {
-        const { cursor, result, spline, frameRate, position, target, rotation } = this;
-        const { rotate } = input || {};
+    update(dt) {
+        const { cursor, result, spline, frameRate, position, target } = this;
 
         // update the animation cursor
         cursor.update(dt);
@@ -100,12 +96,6 @@ class AnimCamera extends BaseCamera {
         if (result.every(isFinite)) {
             position.set(result[0], result[1], result[2]);
             target.set(result[3], result[4], result[5]);
-        }
-
-        // rotate
-        if (rotate) {
-            rotation.x = Math.max(-90, Math.min(90, rotation.x - rotate[1]));
-            rotation.y = Math.max(-180, Math.min(180, rotation.y - rotate[0]));
         }
     }
 
