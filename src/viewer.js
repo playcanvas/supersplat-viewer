@@ -7,6 +7,7 @@ import { OrbitCamera } from './cameras/orbit-camera.js';
 import { Pose } from './core/pose.js';
 import { AppController } from './input.js';
 import { Picker } from './picker.js';
+import { easeOut } from './core/math.js';
 
 /** @import { BaseCamera } from './cameras/base-camera.js' */
 
@@ -348,13 +349,8 @@ class Viewer {
             // blend camera smoothly during transitions
             if (transitionTimer < 1) {
                 transitionTimer = Math.min(1, transitionTimer + deltaTime);
-
                 if (transitionTimer < 1 && prevCamera) {
-                    const x = transitionTimer;
-                    // ease out exponential
-                    const norm = 1 - (2 ** -10);
-                    const weight = (1 - (2 ** (-10 * x))) / norm;
-                    pose.lerp(prevPose, pose, weight);
+                    pose.lerp(prevPose, pose, easeOut(transitionTimer));
                 }
             }
 

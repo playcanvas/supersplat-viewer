@@ -1,6 +1,6 @@
-import { Vec3 } from 'playcanvas';
+import { math, Vec3 } from 'playcanvas';
 
-import { lerp, MyQuat } from './math.js';
+import { MyQuat } from './math.js';
 
 const v = new Vec3();
 
@@ -25,7 +25,7 @@ class Pose {
     lerp(a, b, t) {
         this.position.lerp(a.position, b.position, t);
         this.rotation.lerp(a.rotation, b.rotation, t);
-        this.distance = lerp(a.distance, b.distance, t);
+        this.distance = math.lerp(a.distance, b.distance, t);
         return this;
     }
 

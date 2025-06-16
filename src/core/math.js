@@ -1,8 +1,8 @@
 import { Quat, Vec3 } from 'playcanvas';
 
-const lerp = (a, b, t) => a * (1 - t) + b * t;
-
 const damp = (damping, dt) => 1 - Math.pow(damping, dt * 1000);
+
+const easeOut = x => (1 - (2 ** (-10 * x))) / (1 - (2 ** -10));
 
 // modulo including negative numbers
 const mod = (n, m) => ((n % m) + m) % m;
@@ -57,4 +57,4 @@ class MyQuat extends Quat {
     }
 }
 
-export { lerp, damp, mod, MyQuat };
+export { easeOut, damp, mod, MyQuat };
