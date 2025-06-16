@@ -287,14 +287,18 @@ class Viewer {
         // handle input events
         events.on('inputEvent', (eventName, event) => {
             const doReset = (pose) => {
-                if (state.cameraMode === 'anim') {
-                    state.cameraMode = prevCameraMode;
-                }
-
-                if (state.cameraMode === 'orbit') {
-                    orbitCamera.attach(pose, false);
-                } else if (state.cameraMode === 'fly') {
-                    flyCamera.attach(pose, false);
+                switch (state.cameraMode) {
+                    case 'orbit': {
+                        orbitCamera.attach(pose, false);
+                        break;
+                    }
+                    case 'fly': {
+                        flyCamera.attach(pose, false);
+                        break;
+                    }
+                    case 'anim': {
+                        state.cameraMode = prevCameraMode;
+                    }
                 }
             };
 
