@@ -11,8 +11,6 @@ const up = new Vec3();
 const v = new Vec3();
 const q = new MyQuat();
 
-const radToDeg = 180 / Math.PI;
-
 class OrbitCamera extends BaseCamera {
     focus = new Vec3();
 
@@ -83,8 +81,8 @@ class OrbitCamera extends BaseCamera {
 
         this.focus.copy(v).mulScalar(pose.distance).add(pose.position);
 
-        this.rotation.x = Math.asin(v.y) * radToDeg;
-        this.rotation.y = mod(Math.atan2(-v.x, -v.z) * radToDeg, 360);
+        this.rotation.x = Math.asin(v.y) * math.RAD_TO_DEG;
+        this.rotation.y = mod(Math.atan2(-v.x, -v.z) * math.RAD_TO_DEG, 360);
         this.rotation.z = 0;
 
         this.distance = pose.distance;
