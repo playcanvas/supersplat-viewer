@@ -68,8 +68,6 @@ class AnimCamera extends BaseCamera {
 
     target = new Vec3();
 
-    rotateSpeed = 0.2;
-
     rotation = new Vec3();
 
     constructor(spline, duration, loopMode, frameRate) {
@@ -90,7 +88,7 @@ class AnimCamera extends BaseCamera {
      * @override
      */
     update(dt, input) {
-        const { cursor, result, spline, frameRate, position, target, rotateSpeed, rotation } = this;
+        const { cursor, result, spline, frameRate, position, target, rotation } = this;
         const { rotate } = input || {};
 
         // update the animation cursor
@@ -106,8 +104,8 @@ class AnimCamera extends BaseCamera {
 
         // rotate
         if (rotate) {
-            rotation.x = Math.max(-90, Math.min(90, rotation.x - rotate[1] * rotateSpeed));
-            rotation.y = Math.max(-180, Math.min(180, rotation.y - rotate[0] * rotateSpeed));
+            rotation.x = Math.max(-90, Math.min(90, rotation.x - rotate[1]));
+            rotation.y = Math.max(-180, Math.min(180, rotation.y - rotate[0]));
         }
     }
 
