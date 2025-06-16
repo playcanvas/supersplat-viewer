@@ -157,6 +157,7 @@ class AppController {
         v.add(panMove.mulScalar(this._mouse[2]));
         const wheelMove = new Vec3(0, 0, -wheel[0]);
         v.add(wheelMove.mulScalar(this.wheelMult));
+        // FIXME: need to flip z axis for orbit camera
         deltas.move.append([v.x, v.y, orbit ? -v.z : v.z]);
 
         // desktop rotate
