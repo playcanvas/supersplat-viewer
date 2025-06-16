@@ -298,6 +298,7 @@ class Viewer {
                     }
                     case 'anim': {
                         state.cameraMode = prevCameraMode;
+                        break;
                     }
                 }
             };
