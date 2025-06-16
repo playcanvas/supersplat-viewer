@@ -22,12 +22,6 @@ class OrbitCamera extends BaseCamera {
 
     smoothDamp = new SmoothDamp([0, 0, 0, 0, 0, 0, 1]);
 
-    moveSpeed = 0.001;
-
-    rotateSpeed = 0.16;
-
-    distanceSpeed = 0.01;
-
     /**
      * @param {object} input - input data for camera movement
      * @param {number[]} input.move - [x, y, z] movement vector
@@ -35,7 +29,7 @@ class OrbitCamera extends BaseCamera {
      * @private
      */
     _move(input) {
-        const { focus, rotation, moveSpeed, distanceSpeed, rotateSpeed } = this;
+        const { focus, rotation } = this;
         const { move, rotate } = input;
 
         q.setFromEulerAngles(rotation);
@@ -46,18 +40,18 @@ class OrbitCamera extends BaseCamera {
         q.transformVector(Vec3.UP, up);
 
         // focus point
-        v.copy(right).mulScalar(move[0] * -moveSpeed * this.distance);
+        v.copy(right).mulScalar(-move[0] * this.distance);
         focus.add(v);
 
-        v.copy(up).mulScalar(move[1] * moveSpeed * this.distance);
+        v.copy(up).mulScalar(move[1] * this.distance);
         focus.add(v);
 
         // distance
-        this.distance = Math.max(0.01, this.distance * (1 + move[2] * distanceSpeed));
+        this.distance = Math.max(0.01, this.distance * (1 + move[2]));
 
         // rotate
-        rotation.x = Math.max(-90, Math.min(90, rotation.x - rotate[1] * rotateSpeed));
-        rotation.y = mod(rotation.y - rotate[0] * rotateSpeed, 360);
+        rotation.x = Math.max(-90, Math.min(90, rotation.x - rotate[1]));
+        rotation.y = mod(rotation.y - rotate[0], 360);
     }
 
     /**
