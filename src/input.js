@@ -14,6 +14,59 @@ import {
 const tmpV1 = new Vec3();
 const tmpV2 = new Vec3();
 
+/**
+ * Converts screen space mouse deltas to world space pan vector.
+ *
+ * @param {CameraComponent} camera - The camera component.
+ * @param {number} dx - The mouse delta x value.
+ * @param {number} dy - The mouse delta y value.
+ * @param {number} dz - The world space zoom delta value.
+ * @param {Vec3} [out] - The output vector to store the pan result.
+ * @returns {Vec3} - The pan vector in world space.
+ * @private
+ */
+const screenToWorld = (camera, dx, dy, dz, out = new Vec3()) => {
+    const { system, fov, aspectRatio, horizontalFov, projection, orthoHeight } = camera;
+    const { width, height } = system.app.graphicsDevice.clientRect;
+
+    // normalize deltas to device coord space
+    out.set(
+        -(dx / width) * 2,
+        (dy / height) * 2,
+        0
+    );
+
+    // calculate half size of the view frustum at the current distance
+    const halfSize = tmpV2.set(0, 0, 0);
+    if (projection === PROJECTION_PERSPECTIVE) {
+        const halfSlice = dz * Math.tan(0.5 * fov * math.DEG_TO_RAD);
+        if (horizontalFov) {
+            halfSize.set(
+                halfSlice,
+                halfSlice / aspectRatio,
+                0
+            );
+        } else {
+            halfSize.set(
+                halfSlice * aspectRatio,
+                halfSlice,
+                0
+            );
+        }
+    } else {
+        halfSize.set(
+            orthoHeight * aspectRatio,
+            orthoHeight,
+            0
+        );
+    }
+
+    // scale by device coord space
+    out.mul(halfSize);
+
+    return out;
+};
+
 class AppController {
     _camera;
 
@@ -73,56 +126,6 @@ class AppController {
     }
 
     /**
-     * @param {number} dx - The mouse delta x value.
-     * @param {number} dy - The mouse delta y value.
-     * @param {number} dz - The world space zoom delta value.
-     * @param {Vec3} [out] - The output vector to store the pan result.
-     * @returns {Vec3} - The pan vector in world space.
-     * @private
-     */
-    _screenToWorld(dx, dy, dz, out = new Vec3()) {
-        const { system, fov, aspectRatio, horizontalFov, projection, orthoHeight } = this._camera;
-        const { width, height } = system.app.graphicsDevice.clientRect;
-
-        // normalize deltas to device coord space
-        out.set(
-            -(dx / width) * 2,
-            (dy / height) * 2,
-            0
-        );
-
-        // calculate half size of the view frustum at the current distance
-        const halfSize = tmpV2.set(0, 0, 0);
-        if (projection === PROJECTION_PERSPECTIVE) {
-            const halfSlice = dz * Math.tan(0.5 * fov * math.DEG_TO_RAD);
-            if (horizontalFov) {
-                halfSize.set(
-                    halfSlice,
-                    halfSlice / aspectRatio,
-                    0
-                );
-            } else {
-                halfSize.set(
-                    halfSlice * aspectRatio,
-                    halfSlice,
-                    0
-                );
-            }
-        } else {
-            halfSize.set(
-                orthoHeight * aspectRatio,
-                orthoHeight,
-                0
-            );
-        }
-
-        // scale by device coord space
-        out.mul(halfSize);
-
-        return out;
-    }
-
-    /**
      * @param {number} dt - delta time in seconds
      * @param {'anim' | 'fly' | 'orbit'} mode - the camera mode
      * @param {number} distance - the distance to the camera target
@@ -150,7 +153,7 @@ class AppController {
         const v = tmpV1.set(0, 0, 0);
         const keyMove = this._axis.clone().normalize();
         v.add(keyMove.mulScalar(this.moveMult));
-        const panMove = this._screenToWorld(mouse[0], mouse[1], distance);
+        const panMove = screenToWorld(this._camera, mouse[0], mouse[1], distance);
         v.add(panMove.mulScalar(this._mouse[2]));
         const wheelMove = new Vec3(0, 0, -wheel[0]);
         v.add(wheelMove.mulScalar(this.wheelMult));
@@ -165,7 +168,7 @@ class AppController {
 
         // mobile move
         v.set(0, 0, 0);
-        const orbitMove = this._screenToWorld(touch[0], touch[1], distance);
+        const orbitMove = screenToWorld(this._camera, touch[0], touch[1], distance);
         v.add(orbitMove.mulScalar(orbit * pan));
         const flyMove = new Vec3(leftInput[0], 0, -leftInput[1]);
         v.add(flyMove.mulScalar(fly * this.moveMult));
