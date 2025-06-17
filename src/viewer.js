@@ -1,4 +1,3 @@
-import '@playcanvas/web-components';
 import { BoundingBox, Color, Mat4, Vec3 } from 'playcanvas';
 
 import { AnimCamera } from './cameras/anim-camera.js';
