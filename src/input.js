@@ -147,6 +147,7 @@ class AppController {
         const orbit = +(mode === 'orbit');
         const fly = +(mode === 'fly');
         const pan = +(this._touches > 1);
+
         const { deltas } = this._frame;
 
         // desktop move
