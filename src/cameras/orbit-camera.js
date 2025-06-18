@@ -3,7 +3,7 @@ import { math, Vec3 } from 'playcanvas';
 import { BaseCamera } from './base-camera.js';
 import { damp, mod, MyQuat } from '../core/math.js';
 
-/** @import { Pose } from '../core/pose.js' */
+/** @import { Pose } from 'playcanvas' */
 
 const forward = new Vec3();
 const right = new Vec3();
@@ -76,9 +76,8 @@ class OrbitCamera extends BaseCamera {
      * @override
      */
     attach(pose, snap = true) {
-        pose.rotation.transformVector(Vec3.FORWARD, v);
+        q.setFromEulerAngles(pose.angles).transformVector(Vec3.FORWARD, v);
         v.normalize();
-
         this.focus.copy(v).mulScalar(pose.distance).add(pose.position);
 
         this.rotation.x = Math.asin(v.y) * math.RAD_TO_DEG;
@@ -109,10 +108,10 @@ class OrbitCamera extends BaseCamera {
         this._smooth(dt);
 
         // update pose
-        this._pose.rotation.setFromEulerAngles(this.smoothRotation);
-        this._pose.rotation.transformVector(Vec3.FORWARD, v);
+        q.setFromEulerAngles(this.smoothRotation).transformVector(Vec3.FORWARD, v);
         v.normalize();
         this._pose.position.copy(this.smoothFocus).sub(v.mulScalar(this.smoothDistance));
+        this._pose.angles.copy(this.smoothRotation);
         this._pose.distance = this.smoothDistance;
         return this._pose;
     }

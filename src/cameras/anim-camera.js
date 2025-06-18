@@ -1,12 +1,10 @@
 import { Vec3 } from 'playcanvas';
 
 import { BaseCamera } from './base-camera.js';
-import { mod, MyQuat } from '../core/math.js';
+import { mod } from '../core/math.js';
 import { CubicSpline } from '../core/spline.js';
 
-/** @import { Pose } from '../core/pose.js' */
-
-const q = new MyQuat();
+/** @import { Pose } from 'playcanvas' */
 
 // track an animation cursor with support for looping and ping-pong modes
 class AnimCursor {
@@ -68,8 +66,6 @@ class AnimCamera extends BaseCamera {
 
     target = new Vec3();
 
-    rotation = new Vec3();
-
     constructor(spline, duration, loopMode, frameRate) {
         super();
         this.spline = spline;
@@ -83,7 +79,7 @@ class AnimCamera extends BaseCamera {
      * @override
      */
     update(dt) {
-        const { cursor, result, spline, frameRate, position, target, rotation } = this;
+        const { cursor, result, spline, frameRate, position, target } = this;
 
         // update the animation cursor
         cursor.update(dt);
@@ -97,14 +93,7 @@ class AnimCamera extends BaseCamera {
         }
 
         // update pose
-        this._pose.fromLookAt(position, target);
-
-        q.setFromAxisAngle(Vec3.RIGHT, rotation.x);
-        this._pose.rotation.mul2(this._pose.rotation, q);
-
-        q.setFromAxisAngle(Vec3.UP, rotation.y);
-        this._pose.rotation.mul2(q, this._pose.rotation);
-        return this._pose;
+        return this._pose.look(position, target);
     }
 
     // construct an animation from a settings track

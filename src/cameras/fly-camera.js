@@ -1,9 +1,9 @@
-import { Vec3 } from 'playcanvas';
+import { math, Vec3 } from 'playcanvas';
 
 import { BaseCamera } from './base-camera.js';
 import { damp, MyQuat } from '../core/math.js';
 
-/** @import { Pose } from '../core/pose.js' */
+/** @import { Pose } from 'playcanvas' */
 
 const forward = new Vec3();
 const right = new Vec3();
@@ -14,13 +14,13 @@ const q = new MyQuat();
 class FlyCamera extends BaseCamera {
     position = new Vec3();
 
-    rotation = new MyQuat();
+    rotation = new Vec3();
 
     distance = 1;
 
     smoothPosition = new Vec3();
 
-    smoothRotation = new MyQuat();
+    smoothRotation = new Vec3();
 
     /**
      * @param {object} input - input data for camera movement
@@ -32,10 +32,12 @@ class FlyCamera extends BaseCamera {
         const { position, rotation } = this;
         const { move, rotate } = input;
 
+        q.setFromEulerAngles(rotation);
+
         // get camera vectors
-        rotation.transformVector(Vec3.FORWARD, forward);
-        rotation.transformVector(Vec3.RIGHT, right);
-        rotation.transformVector(Vec3.UP, up);
+        q.transformVector(Vec3.FORWARD, forward);
+        q.transformVector(Vec3.RIGHT, right);
+        q.transformVector(Vec3.UP, up);
 
         // move
         v.copy(right).mulScalar(move[0]);
@@ -48,16 +50,8 @@ class FlyCamera extends BaseCamera {
         position.add(v);
 
         // rotate
-        q.setFromAxisAngle(right, -rotate[1]);
-        rotation.mul2(q, rotation);
-
-        q.setFromAxisAngle(Vec3.UP, -rotate[0]);
-        rotation.mul2(q, rotation);
-
-        q.setFromAxisAngle(forward, -rotate[2]);
-        rotation.mul2(q, rotation);
-
-        rotation.normalize();
+        rotation.x = (rotation.x - rotate[1]) % 360;
+        rotation.y = (rotation.y - rotate[0]) % 360;
     }
 
     /**
@@ -67,7 +61,9 @@ class FlyCamera extends BaseCamera {
     _smooth(dt) {
         const weight = damp(0.98, dt);
         this.smoothPosition.lerp(this.smoothPosition, this.position, weight);
-        this.smoothRotation.lerp(this.smoothRotation, this.rotation, weight);
+        this.smoothRotation.x = math.lerpAngle(this.smoothRotation.x, this.rotation.x, weight) % 360;
+        this.smoothRotation.y = math.lerpAngle(this.smoothRotation.y, this.rotation.y, weight) % 360;
+        this.smoothRotation.z = math.lerpAngle(this.smoothRotation.z, this.rotation.z, weight) % 360;
     }
 
     /**
@@ -77,11 +73,11 @@ class FlyCamera extends BaseCamera {
      */
     attach(pose, snap = true) {
         this.position.copy(pose.position);
-        this.rotation.copy(pose.rotation);
+        this.rotation.copy(pose.angles);
         this.distance = pose.distance;
         if (snap) {
             this.smoothPosition.copy(pose.position);
-            this.smoothRotation.copy(pose.rotation);
+            this.smoothRotation.copy(pose.angles);
         }
     }
 
@@ -101,7 +97,7 @@ class FlyCamera extends BaseCamera {
 
         // update pose
         this._pose.position.copy(this.smoothPosition);
-        this._pose.rotation.copy(this.smoothRotation);
+        this._pose.angles.copy(this.smoothRotation);
         this._pose.distance = this.distance;
         return this._pose;
     }

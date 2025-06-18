@@ -1,10 +1,9 @@
-import { BoundingBox, Color, Mat4, Vec3 } from 'playcanvas';
+import { BoundingBox, Color, Pose, Mat4, Vec3 } from 'playcanvas';
 
 import { AnimCamera } from './cameras/anim-camera.js';
 import { FlyCamera } from './cameras/fly-camera.js';
 import { OrbitCamera } from './cameras/orbit-camera.js';
 import { easeOut } from './core/math.js';
-import { Pose } from './core/pose.js';
 import { AppController } from './input.js';
 import { Picker } from './picker.js';
 
@@ -67,7 +66,7 @@ const createRotateTrack = (initial, keys = 12, duration = 20) => {
     const target = [];
 
     const initialTarget = new Vec3();
-    initial.calcTarget(initialTarget);
+    initial.getFocus(initialTarget);
 
     const mat = new Mat4();
     const vec = new Vec3();
@@ -214,7 +213,7 @@ class Viewer {
         const framePose = (() => {
             const sceneSize = bbox.halfExtents.length();
             const distance = sceneSize / Math.sin(entity.camera.fov / 180 * Math.PI * 0.5);
-            return new Pose().fromLookAt(
+            return new Pose().look(
                 new Vec3(2, 1, 2).normalize().mulScalar(distance).add(bbox.center),
                 bbox.center
             );
@@ -223,7 +222,7 @@ class Viewer {
         // calculate the orbit camera reset position
         const resetPose = (() => {
             const { position, target } = settings.camera;
-            return new Pose().fromLookAt(
+            return new Pose().look(
                 new Vec3(position ?? [2, 1, 2]),
                 new Vec3(target ?? [0, 0, 0])
             );
@@ -231,7 +230,7 @@ class Viewer {
 
         // calculate the user camera start position (the pose we'll use if there is no animation)
         const useReset = settings.camera.position || settings.camera.target || bbox.halfExtents.length() > 100;
-        const userStart = new Pose(useReset ? resetPose : framePose);
+        const userStart = (useReset ? resetPose : framePose).clone();
 
         // if camera doesn't intersect the scene, assume it's an object we're
         // viewing
@@ -367,7 +366,7 @@ class Viewer {
 
             // apply to camera
             entity.setPosition(activePose.position);
-            entity.setRotation(activePose.rotation);
+            entity.setEulerAngles(activePose.angles);
 
             // update animation timeline
             if (state.cameraMode === 'anim') {
@@ -413,7 +412,7 @@ class Viewer {
                 }
                 const result = await picker.pick(event.clientX, event.clientY);
                 if (result) {
-                    orbitCamera.attach(pose.fromLookAt(activePose.position, result), false);
+                    orbitCamera.attach(pose.look(activePose.position, result), false);
                 }
             }
         });
@@ -421,7 +420,7 @@ class Viewer {
         // initialize the camera entity to initial position and kick off the
         // first scene sort (which usually happens during render)
         entity.setPosition(activePose.position);
-        entity.setRotation(activePose.rotation);
+        entity.setEulerAngles(activePose.angles);
         // FIXME: Enable once gsplat fixed
         // gsplat?.instance?.sort(entity);
 

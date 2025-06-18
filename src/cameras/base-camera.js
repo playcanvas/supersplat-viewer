@@ -1,4 +1,4 @@
-import { Pose } from '../core/pose.js';
+import { Pose } from 'playcanvas';
 
 class BaseCamera {
     /**
