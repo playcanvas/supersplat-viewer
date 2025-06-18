@@ -25,11 +25,7 @@ class BaseCamera {
         return this._pose;
     }
 
-    /**
-     * @param {Pose} pose - pose to update with the current camera state
-     */
-    detach(pose) {
-        pose.copy(this._pose);
+    detach() {
     }
 }
 

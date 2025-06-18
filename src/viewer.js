@@ -380,6 +380,7 @@ class Viewer {
             prevCameraMode = prev;
             prevPose.copy(activePose);
             prevCamera = getCamera(prev);
+            prevCamera.detach();
 
             switch (value) {
                 case 'orbit':

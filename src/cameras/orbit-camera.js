@@ -118,11 +118,12 @@ class OrbitCamera extends BaseCamera {
     }
 
     /**
-     * @param {Pose} pose - pose to update with the current camera state
      * @override
      */
-    detach(pose) {
-        pose.copy(this._pose);
+    detach() {
+        this.smoothFocus.copy(this.focus);
+        this.smoothRotation.copy(this.rotation);
+        this.smoothDistance = this.distance;
     }
 }
 

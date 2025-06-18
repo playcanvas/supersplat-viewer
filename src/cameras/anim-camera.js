@@ -107,14 +107,6 @@ class AnimCamera extends BaseCamera {
         return this._pose;
     }
 
-    /**
-     * @param {Pose} pose - pose to update with the current camera state
-     * @override
-     */
-    detach(pose) {
-        pose.copy(this._pose);
-    }
-
     // construct an animation from a settings track
     static fromTrack(track) {
         const { keyframes, duration, frameRate, loopMode } = track;

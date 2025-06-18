@@ -107,11 +107,11 @@ class FlyCamera extends BaseCamera {
     }
 
     /**
-     * @param {Pose} pose - pose to update with the current camera state
      * @override
      */
-    detach(pose) {
-        pose.copy(this._pose);
+    detach() {
+        this.smoothPosition.copy(this.position);
+        this.smoothRotation.copy(this.rotation);
     }
 }
 
