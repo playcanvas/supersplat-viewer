@@ -378,8 +378,8 @@ class Viewer {
         // handle camera mode switching
         events.on('cameraMode:changed', (value, prev) => {
             prevCameraMode = prev;
+            prevPose.copy(activePose);
             prevCamera = getCamera(prev);
-            prevCamera.detach(prevPose);
 
             switch (value) {
                 case 'orbit':
