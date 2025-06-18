@@ -375,10 +375,8 @@ class Viewer {
                 }
             }
 
-            // snap camera
-            activePose.copy(pose);
-
             // apply to camera
+            activePose.copy(pose);
             entity.setPosition(activePose.position);
             entity.setEulerAngles(activePose.angles);
 
