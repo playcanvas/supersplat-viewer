@@ -1,6 +1,5 @@
-import { Vec3 } from 'playcanvas';
+import { InputController, Vec3 } from 'playcanvas';
 
-import { BaseCamera } from './base-camera.js';
 import { mod } from '../core/math.js';
 import { CubicSpline } from '../core/spline.js';
 
@@ -53,7 +52,7 @@ class AnimCursor {
 }
 
 // Manage the state of a camera animation track
-class AnimCamera extends BaseCamera {
+class AnimCamera extends InputController {
     spline;
 
     cursor = new AnimCursor();

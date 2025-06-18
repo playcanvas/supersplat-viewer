@@ -1,6 +1,5 @@
-import { math, Quat, Vec3 } from 'playcanvas';
+import { math, InputController, Quat, Vec3 } from 'playcanvas';
 
-import { BaseCamera } from './base-camera.js';
 import { damp } from '../core/math.js';
 
 /** @import { InputFrame, Pose } from 'playcanvas' */
@@ -11,7 +10,7 @@ const up = new Vec3();
 const v = new Vec3();
 const q = new Quat();
 
-class FlyCamera extends BaseCamera {
+class FlyCamera extends InputController {
     position = new Vec3();
 
     rotation = new Vec3();
@@ -24,14 +23,14 @@ class FlyCamera extends BaseCamera {
 
     /**
      * @param {Pose} pose - initial camera pose
-     * @param {boolean} snap - whether to snap the camera to the initial pose
+     * @param {boolean} [smooth] - whether to smooth the camera movement
      * @override
      */
-    attach(pose, snap = true) {
+    attach(pose, smooth = true) {
         this.position.copy(pose.position);
         this.rotation.copy(pose.angles);
         this.distance = pose.distance;
-        if (snap) {
+        if (!smooth) {
             this.smoothPosition.copy(pose.position);
             this.smoothRotation.copy(pose.angles);
         }

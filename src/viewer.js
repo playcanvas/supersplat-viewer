@@ -1,4 +1,10 @@
-import { BoundingBox, Color, Pose, Mat4, Vec3 } from 'playcanvas';
+import {
+    BoundingBox,
+    Color,
+    Pose,
+    Mat4,
+    Vec3
+} from 'playcanvas';
 
 import { AnimCamera } from './cameras/anim-camera.js';
 import { FlyCamera } from './cameras/fly-camera.js';
@@ -7,7 +13,7 @@ import { easeOut } from './core/math.js';
 import { AppController } from './input.js';
 import { Picker } from './picker.js';
 
-/** @import { BaseCamera } from './cameras/base-camera.js' */
+/** @import { InputController } from 'playcanvas' */
 
 // FIXME: Enable once gsplat fixed
 // const gsplatFS = /* glsl */ `
@@ -245,7 +251,7 @@ class Viewer {
 
         /**
          * @param {'orbit' | 'anim' | 'fly'} cameraMode - the camera mode to get
-         * @returns {BaseCamera} the camera instance for the given mode
+         * @returns {InputController} the camera instance for the given mode
          */
         const getCamera = (cameraMode) => {
             switch (cameraMode) {
@@ -280,8 +286,8 @@ class Viewer {
         }
 
         // place all user cameras at the start position
-        orbitCamera.attach(activePose);
-        flyCamera.attach(activePose);
+        orbitCamera.attach(activePose, false);
+        flyCamera.attach(activePose, false);
 
         // transition time between cameras
         let transitionTimer = 0;
@@ -296,11 +302,11 @@ class Viewer {
             const doReset = (pose) => {
                 switch (state.cameraMode) {
                     case 'orbit': {
-                        orbitCamera.attach(pose, false);
+                        orbitCamera.attach(pose, true);
                         break;
                     }
                     case 'fly': {
-                        flyCamera.attach(pose, false);
+                        flyCamera.attach(pose, true);
                         break;
                     }
                     case 'anim': {
@@ -381,7 +387,7 @@ class Viewer {
             switch (value) {
                 case 'orbit':
                 case 'fly':
-                    getCamera(value).attach(pose);
+                    getCamera(value).attach(pose, false);
                     break;
             }
 
@@ -409,7 +415,7 @@ class Viewer {
                 }
                 const result = await picker.pick(event.clientX, event.clientY);
                 if (result) {
-                    orbitCamera.attach(pose.look(activePose.position, result), false);
+                    orbitCamera.attach(pose.look(activePose.position, result), true);
                 }
             }
         });

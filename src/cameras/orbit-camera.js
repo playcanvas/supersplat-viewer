@@ -1,6 +1,5 @@
-import { math, Quat, Vec3 } from 'playcanvas';
+import { math, InputController, Quat, Vec3 } from 'playcanvas';
 
-import { BaseCamera } from './base-camera.js';
 import { damp, mod } from '../core/math.js';
 
 /** @import { InputFrame, Pose } from 'playcanvas' */
@@ -11,7 +10,7 @@ const up = new Vec3();
 const v = new Vec3();
 const q = new Quat();
 
-class OrbitCamera extends BaseCamera {
+class OrbitCamera extends InputController {
     focus = new Vec3();
 
     rotation = new Vec3();
@@ -26,10 +25,10 @@ class OrbitCamera extends BaseCamera {
 
     /**
      * @param {Pose} pose - initial camera pose
-     * @param {boolean} snap - whether to snap the camera to the initial pose
+     * @param {boolean} [smooth] - whether to smooth the camera movement
      * @override
      */
-    attach(pose, snap = true) {
+    attach(pose, smooth = true) {
         q.setFromEulerAngles(pose.angles).transformVector(Vec3.FORWARD, v);
         v.normalize();
         this.focus.copy(v).mulScalar(pose.distance).add(pose.position);
@@ -40,7 +39,7 @@ class OrbitCamera extends BaseCamera {
 
         this.distance = pose.distance;
 
-        if (snap) {
+        if (!smooth) {
             this.smoothFocus.copy(this.focus);
             this.smoothRotation.copy(this.rotation);
             this.smoothDistance = this.distance;
