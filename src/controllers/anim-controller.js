@@ -52,7 +52,7 @@ class AnimCursor {
 }
 
 // Manage the state of a camera animation track
-class AnimCamera extends InputController {
+class AnimController extends InputController {
     spline;
 
     cursor = new AnimCursor();
@@ -115,8 +115,8 @@ class AnimCamera extends InputController {
 
         const spline = CubicSpline.fromPointsLooping((duration + extra) * frameRate, times, points, -1);
 
-        return new AnimCamera(spline, duration, loopMode, frameRate);
+        return new AnimController(spline, duration, loopMode, frameRate);
     }
 }
 
-export { AnimCamera };
+export { AnimController };

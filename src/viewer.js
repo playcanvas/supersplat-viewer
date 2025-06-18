@@ -9,7 +9,7 @@ import {
     Vec3
 } from 'playcanvas';
 
-import { AnimCamera } from './cameras/anim-camera.js';
+import { AnimController } from './controllers/anim-controller.js';
 import { easeOut } from './core/math.js';
 import { AppController } from './input.js';
 import { Picker } from './picker.js';
@@ -239,11 +239,11 @@ class Viewer {
             if (animTracks?.length > 0 && camera.startAnim === 'animTrack') {
                 const track = animTracks.find(track => track.name === camera.animTrack);
                 if (track) {
-                    return AnimCamera.fromTrack(track);
+                    return AnimController.fromTrack(track);
                 }
             } else if (isObjectExperience) {
                 // create basic rotation animation if no anim track is specified
-                return AnimCamera.fromTrack(createRotateTrack(initial));
+                return AnimController.fromTrack(createRotateTrack(initial));
             }
             return null;
         })(userStart, isObjectExperience);
