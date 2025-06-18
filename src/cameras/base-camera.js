@@ -1,5 +1,7 @@
 import { Pose } from 'playcanvas';
 
+/** @import { InputFrame } from 'playcanvas' */
+
 class BaseCamera {
     /**
      * @type {Pose}
@@ -15,13 +17,11 @@ class BaseCamera {
     }
 
     /**
-     * @param {number} dt - delta time in seconds
-     * @param {object} input - input data for camera movement
-     * @param {number[]} input.move - [x, y, z] movement vector
-     * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
-     * @returns {Pose} - updated camera pose
+     * @param {InputFrame<{ move: number[], rotate: number[] }>} frame - The input frame.
+     * @param {number} dt - The delta time.
+     * @returns {Pose} - The controller pose.
      */
-    update(dt, input) {
+    update(frame, dt) {
         return this._pose;
     }
 

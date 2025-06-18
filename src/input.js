@@ -84,7 +84,7 @@ class AppController {
 
     _gamepadInput = new GamepadSource();
 
-    _frame = new InputFrame({
+    frame = new InputFrame({
         move: [0, 0, 0],
         rotate: [0, 0, 0]
     });
@@ -148,7 +148,7 @@ class AppController {
         const fly = +(mode === 'fly');
         const pan = +(this._touches > 1);
 
-        const { deltas } = this._frame;
+        const { deltas } = this.frame;
 
         // desktop move
         const v = tmpV1.set(0, 0, 0);
@@ -196,10 +196,6 @@ class AppController {
         const stickRotate = new Vec3(rightStick[0], rightStick[1], 0);
         v.add(stickRotate.mulScalar(this.lookMult));
         deltas.rotate.append([v.x, v.y, v.z]);
-    }
-
-    read() {
-        return this._frame.read();
     }
 }
 

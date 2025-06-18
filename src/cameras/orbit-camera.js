@@ -3,7 +3,7 @@ import { math, Quat, Vec3 } from 'playcanvas';
 import { BaseCamera } from './base-camera.js';
 import { damp, mod } from '../core/math.js';
 
-/** @import { Pose } from 'playcanvas' */
+/** @import { InputFrame, Pose } from 'playcanvas' */
 
 const forward = new Vec3();
 const right = new Vec3();
@@ -23,52 +23,6 @@ class OrbitCamera extends BaseCamera {
     smoothRotation = new Vec3();
 
     smoothDistance = 1;
-
-    /**
-     * @param {object} input - input data for camera movement
-     * @param {number[]} input.move - [x, y, z] movement vector
-     * @param {number[]} input.rotate - [yaw, pitch] rotation vector
-     * @private
-     */
-    _move(input) {
-        const { focus, rotation } = this;
-        const { move, rotate } = input;
-
-        q.setFromEulerAngles(rotation);
-
-        // get camera vectors
-        q.transformVector(Vec3.FORWARD, forward);
-        q.transformVector(Vec3.RIGHT, right);
-        q.transformVector(Vec3.UP, up);
-
-        // focus point
-        v.copy(right).mulScalar(move[0]);
-        focus.add(v);
-
-        v.copy(up).mulScalar(move[1]);
-        focus.add(v);
-
-        // distance
-        this.distance = Math.max(0.01, this.distance * (1 + move[2]));
-
-        // rotate
-        rotation.x = Math.max(-90, Math.min(90, (rotation.x - rotate[1]) % 360));
-        rotation.y = (rotation.y - rotate[0]) % 360;
-
-    }
-
-    /**
-     * @param {number} dt - delta time in seconds
-     * @private
-     */
-    _smooth(dt) {
-        const weight = damp(0.98, dt);
-        this.smoothFocus.lerp(this.smoothFocus, this.focus, weight);
-        this.smoothRotation.x = math.lerpAngle(this.smoothRotation.x, this.rotation.x, weight) % 360;
-        this.smoothRotation.y = math.lerpAngle(this.smoothRotation.y, this.rotation.y, weight) % 360;
-        this.smoothRotation.z = math.lerpAngle(this.smoothRotation.z, this.rotation.z, weight) % 360;
-        this.smoothDistance = math.lerp(this.smoothDistance, this.distance, weight);
-    }
 
     /**
      * @param {Pose} pose - initial camera pose
@@ -94,18 +48,45 @@ class OrbitCamera extends BaseCamera {
     }
 
     /**
-     * @param {number} dt - delta time in seconds
-     * @param {object} input - input data for camera movement
-     * @param {number[]} input.move - [x, y, z] movement vector
-     * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
-     * @returns {Pose} - the updated camera pose
+     * @param {InputFrame<{ move: number[], rotate: number[] }>} frame - The input frame.
+     * @param {number} dt - The delta time.
+     * @returns {Pose} - The controller pose.
      * @override
      */
-    update(dt, input) {
-        if (input) {
-            this._move(input);
-        }
-        this._smooth(dt);
+    update(frame, dt) {
+        const { move, rotate } = frame.read();
+
+        // update focus and rotation
+        const { focus, rotation } = this;
+
+        q.setFromEulerAngles(rotation);
+
+        // get camera vectors
+        q.transformVector(Vec3.FORWARD, forward);
+        q.transformVector(Vec3.RIGHT, right);
+        q.transformVector(Vec3.UP, up);
+
+        // focus point
+        v.copy(right).mulScalar(move[0]);
+        focus.add(v);
+
+        v.copy(up).mulScalar(move[1]);
+        focus.add(v);
+
+        // distance
+        this.distance = Math.max(0.01, this.distance * (1 + move[2]));
+
+        // rotate
+        rotation.x = Math.max(-90, Math.min(90, (rotation.x - rotate[1]) % 360));
+        rotation.y = (rotation.y - rotate[0]) % 360;
+
+        // smooth
+        const weight = damp(0.98, dt);
+        this.smoothFocus.lerp(this.smoothFocus, this.focus, weight);
+        this.smoothRotation.x = math.lerpAngle(this.smoothRotation.x, this.rotation.x, weight) % 360;
+        this.smoothRotation.y = math.lerpAngle(this.smoothRotation.y, this.rotation.y, weight) % 360;
+        this.smoothRotation.z = math.lerpAngle(this.smoothRotation.z, this.rotation.z, weight) % 360;
+        this.smoothDistance = math.lerp(this.smoothDistance, this.distance, weight);
 
         // update pose
         q.setFromEulerAngles(this.smoothRotation).transformVector(Vec3.FORWARD, v);

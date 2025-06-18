@@ -264,11 +264,17 @@ class Viewer {
         // toward the current active camera
         const activePose = new Pose();
 
+        // create controller
+        const controller = new AppController(app.graphicsDevice.canvas, entity.camera);
+
+        // set move speed based on scene size, within reason
+        controller.moveMult = Math.max(0.05, Math.min(1, bbox.halfExtents.length() * 0.0001));
+
         // calculate the initial camera position, either userStart or animated
         // camera start position
         if (state.cameraMode === 'anim') {
             // set pose to be first frame of the animation
-            activePose.copy(animCamera.update(0));
+            activePose.copy(animCamera.update(controller.frame, 0));
         } else {
             activePose.copy(userStart);
         }
@@ -276,12 +282,6 @@ class Viewer {
         // place all user cameras at the start position
         orbitCamera.attach(activePose);
         flyCamera.attach(activePose);
-
-        // create controller
-        const controller = new AppController(app.graphicsDevice.canvas, entity.camera);
-
-        // set move speed based on scene size, within reason
-        controller.moveMult = Math.max(0.05, Math.min(1, bbox.halfExtents.length() * 0.0001));
 
         // transition time between cameras
         let transitionTimer = 0;
@@ -342,16 +342,13 @@ class Viewer {
                 events.fire('touchJoystickUpdate', controller.joystick.base, controller.joystick.stick);
             }
 
-            // read inputs from controller (resets frame)
-            const input = controller.read();
-
             // use dt of 0 if animation is paused
             const dt = state.cameraMode === 'anim' ?
                 (state.animationPaused ? 0 : deltaTime * transitionTimer) :
                 deltaTime;
 
             // update camera
-            pose.copy(getCamera(state.cameraMode).update(dt, state.cameraMode !== 'anim' && input));
+            pose.copy(getCamera(state.cameraMode).update(controller.frame, dt));
 
             // blend camera smoothly during transitions
             if (transitionTimer < 1) {

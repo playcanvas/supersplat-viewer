@@ -3,7 +3,7 @@ import { math, Quat, Vec3 } from 'playcanvas';
 import { BaseCamera } from './base-camera.js';
 import { damp } from '../core/math.js';
 
-/** @import { Pose } from 'playcanvas' */
+/** @import { InputFrame, Pose } from 'playcanvas' */
 
 const forward = new Vec3();
 const right = new Vec3();
@@ -23,14 +23,30 @@ class FlyCamera extends BaseCamera {
     smoothRotation = new Vec3();
 
     /**
-     * @param {object} input - input data for camera movement
-     * @param {number[]} input.move - [x, y, z] movement vector
-     * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
-     * @private
+     * @param {Pose} pose - initial camera pose
+     * @param {boolean} snap - whether to snap the camera to the initial pose
+     * @override
      */
-    _move(input) {
+    attach(pose, snap = true) {
+        this.position.copy(pose.position);
+        this.rotation.copy(pose.angles);
+        this.distance = pose.distance;
+        if (snap) {
+            this.smoothPosition.copy(pose.position);
+            this.smoothRotation.copy(pose.angles);
+        }
+    }
+
+    /**
+     * @param {InputFrame<{ move: number[], rotate: number[] }>} frame - The input frame.
+     * @param {number} dt - The delta time.
+     * @returns {Pose} - The controller pose.
+     */
+    update(frame, dt) {
+        const { move, rotate } = frame.read();
+
+        // move
         const { position, rotation } = this;
-        const { move, rotate } = input;
 
         q.setFromEulerAngles(rotation);
 
@@ -52,48 +68,13 @@ class FlyCamera extends BaseCamera {
         // rotate
         rotation.x = (rotation.x - rotate[1]) % 360;
         rotation.y = (rotation.y - rotate[0]) % 360;
-    }
 
-    /**
-     * @param {number} dt - delta time in seconds
-     * @private
-     */
-    _smooth(dt) {
+        // smooth
         const weight = damp(0.98, dt);
         this.smoothPosition.lerp(this.smoothPosition, this.position, weight);
         this.smoothRotation.x = math.lerpAngle(this.smoothRotation.x, this.rotation.x, weight) % 360;
         this.smoothRotation.y = math.lerpAngle(this.smoothRotation.y, this.rotation.y, weight) % 360;
         this.smoothRotation.z = math.lerpAngle(this.smoothRotation.z, this.rotation.z, weight) % 360;
-    }
-
-    /**
-     * @param {Pose} pose - initial camera pose
-     * @param {boolean} snap - whether to snap the camera to the initial pose
-     * @override
-     */
-    attach(pose, snap = true) {
-        this.position.copy(pose.position);
-        this.rotation.copy(pose.angles);
-        this.distance = pose.distance;
-        if (snap) {
-            this.smoothPosition.copy(pose.position);
-            this.smoothRotation.copy(pose.angles);
-        }
-    }
-
-    /**
-     * @param {number} dt - delta time in seconds
-     * @param {object} input - input data for camera movement
-     * @param {number[]} input.move - [x, y, z] movement vector
-     * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
-     * @returns {Pose} - updated camera pose
-     * @override
-     */
-    update(dt, input) {
-        if (input) {
-            this._move(input);
-        }
-        this._smooth(dt);
 
         // update pose
         this._pose.position.copy(this.smoothPosition);

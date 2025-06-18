@@ -4,7 +4,7 @@ import { BaseCamera } from './base-camera.js';
 import { mod } from '../core/math.js';
 import { CubicSpline } from '../core/spline.js';
 
-/** @import { Pose } from 'playcanvas' */
+/** @import { InputFrame, Pose } from 'playcanvas' */
 
 // track an animation cursor with support for looping and ping-pong modes
 class AnimCursor {
@@ -74,11 +74,14 @@ class AnimCamera extends BaseCamera {
     }
 
     /**
-     * @param {number} dt - delta time in seconds
-     * @returns {Pose} - updated camera pose
-     * @override
+     * @param {InputFrame<{ move: number[], rotate: number[] }>} frame - The input frame.
+     * @param {number} dt - The delta time.
+     * @returns {Pose} - The controller pose.
      */
-    update(dt) {
+    update(frame, dt) {
+        // discard frame
+        frame.read();
+
         const { cursor, result, spline, frameRate, position, target } = this;
 
         // update the animation cursor
