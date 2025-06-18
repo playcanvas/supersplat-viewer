@@ -1,7 +1,7 @@
-import { math, Vec3 } from 'playcanvas';
+import { math, Quat, Vec3 } from 'playcanvas';
 
 import { BaseCamera } from './base-camera.js';
-import { damp, MyQuat } from '../core/math.js';
+import { damp } from '../core/math.js';
 
 /** @import { Pose } from 'playcanvas' */
 
@@ -9,7 +9,7 @@ const forward = new Vec3();
 const right = new Vec3();
 const up = new Vec3();
 const v = new Vec3();
-const q = new MyQuat();
+const q = new Quat();
 
 class FlyCamera extends BaseCamera {
     position = new Vec3();
