@@ -268,7 +268,8 @@ class Viewer {
         // calculate the initial camera position, either userStart or animated
         // camera start position
         if (state.cameraMode === 'anim') {
-            animCamera.detach(activePose);
+            // set pose to be first frame of the animation
+            activePose.copy(animCamera.update(0));
         } else {
             activePose.copy(userStart);
         }
@@ -351,8 +352,7 @@ class Viewer {
                 deltaTime;
 
             const activeCamera = getCamera(state.cameraMode);
-            activeCamera.update(dt, state.cameraMode !== 'anim' && input);
-            activeCamera.detach(pose);
+            pose.copy(activeCamera.update(dt, state.cameraMode !== 'anim' && input));
 
             if (state.cameraMode === 'anim') {
                 state.animationTime = animCamera.cursor.value;
@@ -411,10 +411,7 @@ class Viewer {
                 }
                 const result = await picker.pick(event.clientX, event.clientY);
                 if (result) {
-                    // get the current pose
-                    orbitCamera.detach(pose);
-                    pose.fromLookAt(pose.position, result);
-                    orbitCamera.attach(pose, false);
+                    orbitCamera.attach(pose.fromLookAt(activePose.position, result), false);
                 }
             }
         });

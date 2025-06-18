@@ -75,9 +75,6 @@ class AnimCamera extends BaseCamera {
         this.spline = spline;
         this.cursor.reset(duration, loopMode);
         this.frameRate = frameRate;
-
-        // initialize the camera to the start frame
-        this.update(0);
     }
 
     /**
