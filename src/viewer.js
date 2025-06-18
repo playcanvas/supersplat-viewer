@@ -351,8 +351,8 @@ class Viewer {
                 (state.animationPaused ? 0 : deltaTime * transitionTimer) :
                 deltaTime;
 
-            const activeCamera = getCamera(state.cameraMode);
-            pose.copy(activeCamera.update(dt, state.cameraMode !== 'anim' && input));
+            // update camera
+            pose.copy(getCamera(state.cameraMode).update(dt, state.cameraMode !== 'anim' && input));
 
             // blend camera smoothly during transitions
             if (transitionTimer < 1) {
