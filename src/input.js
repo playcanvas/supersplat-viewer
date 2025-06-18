@@ -150,21 +150,26 @@ class AppController {
 
         const { deltas } = this.frame;
 
+        const moveMult = this.moveMult * 60 * dt;
+        const lookMult = this.lookMult * 60 * dt;
+        const pinchMult = this.pinchMult * 60 * dt;
+        const wheelMult = this.wheelMult * 60 * dt;
+
         // desktop move
         const v = tmpV1.set(0, 0, 0);
         const keyMove = this._axis.clone().normalize();
-        v.add(keyMove.mulScalar(this.moveMult));
+        v.add(keyMove.mulScalar(moveMult));
         const panMove = screenToWorld(this._camera, mouse[0], mouse[1], distance);
         v.add(panMove.mulScalar(this._mouse[2]));
         const wheelMove = new Vec3(0, 0, -wheel[0]);
-        v.add(wheelMove.mulScalar(this.wheelMult));
+        v.add(wheelMove.mulScalar(wheelMult));
         // FIXME: need to flip z axis for orbit camera
         deltas.move.append([v.x, v.y, orbit ? -v.z : v.z]);
 
         // desktop rotate
         v.set(0, 0, 0);
         const mouseRotate = new Vec3(mouse[0], mouse[1], 0);
-        v.add(mouseRotate.mulScalar((1 - this._mouse[2]) * this.lookMult));
+        v.add(mouseRotate.mulScalar((1 - this._mouse[2]) * lookMult));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // mobile move
@@ -172,29 +177,29 @@ class AppController {
         const orbitMove = screenToWorld(this._camera, touch[0], touch[1], distance);
         v.add(orbitMove.mulScalar(orbit * pan));
         const flyMove = new Vec3(leftInput[0], 0, -leftInput[1]);
-        v.add(flyMove.mulScalar(fly * this.moveMult));
+        v.add(flyMove.mulScalar(fly * moveMult));
         const pinchMove = new Vec3(0, 0, pinch[0]);
-        v.add(pinchMove.mulScalar(orbit * pan * this.pinchMult));
+        v.add(pinchMove.mulScalar(orbit * pan * pinchMult));
         deltas.move.append([v.x, v.y, v.z]);
 
         // mobile rotate
         v.set(0, 0, 0);
         const orbitRotate = new Vec3(touch[0], touch[1], 0);
-        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.lookMult));
+        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * lookMult));
         const flyRotate = new Vec3(rightInput[0], rightInput[1], 0);
-        v.add(flyRotate.mulScalar(fly * this.lookMult));
+        v.add(flyRotate.mulScalar(fly * lookMult));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // gamepad move
         v.set(0, 0, 0);
         const stickMove = new Vec3(leftStick[0], 0, -leftStick[1]);
-        v.add(stickMove.mulScalar(this.moveMult));
+        v.add(stickMove.mulScalar(moveMult));
         deltas.move.append([v.x, v.y, v.z]);
 
         // gamepad rotate
         v.set(0, 0, 0);
         const stickRotate = new Vec3(rightStick[0], rightStick[1], 0);
-        v.add(stickRotate.mulScalar(this.lookMult));
+        v.add(stickRotate.mulScalar(lookMult));
         deltas.rotate.append([v.x, v.y, v.z]);
     }
 }

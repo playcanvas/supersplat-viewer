@@ -1,14 +1,15 @@
 import {
     BoundingBox,
     Color,
+    FlyController,
     Pose,
     Mat4,
+    OrbitController,
+    Vec2,
     Vec3
 } from 'playcanvas';
 
 import { AnimCamera } from './cameras/anim-camera.js';
-import { FlyCamera } from './cameras/fly-camera.js';
-import { OrbitCamera } from './cameras/orbit-camera.js';
 import { easeOut } from './core/math.js';
 import { AppController } from './input.js';
 import { Picker } from './picker.js';
@@ -55,6 +56,8 @@ import { Picker } from './picker.js';
 //     #endif
 // }
 // `;
+
+const PITCH_RANGE = new Vec2(-90, 90);
 
 const pose = new Pose();
 
@@ -199,22 +202,6 @@ class Viewer {
         const bbox  = app.root.findComponent('render').meshInstances[0].aabb ?? new BoundingBox();
 
         // create an anim camera
-        const createAnimCamera = (initial, isObjectExperience) => {
-            const { animTracks, camera } = settings;
-
-            // extract the camera animation track from settings
-            if (animTracks?.length > 0 && camera.startAnim === 'animTrack') {
-                const track = animTracks.find(track => track.name === camera.animTrack);
-                if (track) {
-                    return AnimCamera.fromTrack(track);
-                }
-            } else if (isObjectExperience) {
-                // create basic rotation animation if no anim track is specified
-                return AnimCamera.fromTrack(createRotateTrack(initial));
-            }
-            return null;
-        };
-
         // calculate the orbit camera frame position
         const framePose = (() => {
             const sceneSize = bbox.halfExtents.length();
@@ -245,9 +232,35 @@ class Viewer {
         const isObjectExperience = true;
 
         // create the cameras
-        const animCamera = createAnimCamera(userStart, isObjectExperience);
-        const orbitCamera = new OrbitCamera();
-        const flyCamera = new FlyCamera();
+        const animCamera = ((initial, isObjectExperience) => {
+            const { animTracks, camera } = settings;
+
+            // extract the camera animation track from settings
+            if (animTracks?.length > 0 && camera.startAnim === 'animTrack') {
+                const track = animTracks.find(track => track.name === camera.animTrack);
+                if (track) {
+                    return AnimCamera.fromTrack(track);
+                }
+            } else if (isObjectExperience) {
+                // create basic rotation animation if no anim track is specified
+                return AnimCamera.fromTrack(createRotateTrack(initial));
+            }
+            return null;
+        })(userStart, isObjectExperience);
+        const orbitCamera = (() => {
+            const orbitCamera = new OrbitController();
+
+            orbitCamera.pitchRange = PITCH_RANGE;
+
+            return orbitCamera;
+        })();
+        const flyCamera = (() => {
+            const flyCamera = new FlyController();
+
+            flyCamera.pitchRange = PITCH_RANGE;
+
+            return flyCamera;
+        })();
 
         /**
          * @param {'orbit' | 'anim' | 'fly'} cameraMode - the camera mode to get
@@ -271,17 +284,15 @@ class Viewer {
         const activePose = new Pose();
 
         // create controller
-        const controller = new AppController(app.graphicsDevice.canvas, entity.camera);
-
         // set move speed based on scene size, within reason
+        const controller = new AppController(app.graphicsDevice.canvas, entity.camera);
         controller.moveMult = Math.max(0.05, Math.min(1, bbox.halfExtents.length() * 0.0001));
 
-        // calculate the initial camera position, either userStart or animated
-        // camera start position
         if (state.cameraMode === 'anim') {
-            // set pose to be first frame of the animation
+            //  first frame of the animation
             activePose.copy(animCamera.update(controller.frame, 0));
         } else {
+            // user start position
             activePose.copy(userStart);
         }
 

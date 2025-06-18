@@ -7,7 +7,6 @@ import { damp } from '../core/math.js';
 const forward = new Vec3();
 const right = new Vec3();
 const up = new Vec3();
-const v = new Vec3();
 const q = new Quat();
 
 class FlyCamera extends InputController {
@@ -55,14 +54,9 @@ class FlyCamera extends InputController {
         q.transformVector(Vec3.UP, up);
 
         // move
-        v.copy(right).mulScalar(move[0]);
-        position.add(v);
-
-        v.copy(up).mulScalar(move[1]);
-        position.add(v);
-
-        v.copy(forward).mulScalar(move[2]);
-        position.add(v);
+        position.add(right.mulScalar(move[0]));
+        position.add(up.mulScalar(move[1]));
+        position.add(forward.mulScalar(move[2]));
 
         // rotate
         rotation.x = (rotation.x - rotate[1]) % 360;
