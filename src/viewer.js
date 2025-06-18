@@ -54,14 +54,14 @@ import { Picker } from './picker.js';
 const pose = new Pose();
 
 /**
- * Creates a rotation animation around an object.
+ * Creates a rotation animation track
  *
  * @param {Pose} initial - The initial pose of the camera.
  * @param {number} [keys] - The number of keys in the animation.
  * @param {number} [duration] - The duration of the animation in seconds.
- * @returns {AnimCamera} - The created rotation animation.
+ * @returns {object} - The animation track object containing position and target keyframes.
  */
-const createRotateAnim = (initial, keys = 12, duration = 20) => {
+const createRotateTrack = (initial, keys = 12, duration = 20) => {
     const times = new Array(keys).fill(0).map((_, i) => i / keys * duration);
     const position = [];
     const target = [];
@@ -90,8 +90,7 @@ const createRotateAnim = (initial, keys = 12, duration = 20) => {
         target.push(initialTarget.z);
     }
 
-    // construct a simple rotation animation around an object
-    return AnimCamera.fromTrack({
+    return {
         name: 'rotate',
         duration,
         frameRate: 1,
@@ -105,7 +104,7 @@ const createRotateAnim = (initial, keys = 12, duration = 20) => {
                 target
             }
         }
-    });
+    };
 };
 
 class Viewer {
@@ -206,9 +205,8 @@ class Viewer {
                 }
             } else if (isObjectExperience) {
                 // create basic rotation animation if no anim track is specified
-                return createRotateAnim(initial);
+                return AnimCamera.fromTrack(createRotateTrack(initial));
             }
-
             return null;
         };
 
@@ -224,7 +222,7 @@ class Viewer {
 
         // calculate the orbit camera reset position
         const resetPose = (() => {
-            const { position, target } = this.settings.camera;
+            const { position, target } = settings.camera;
             return new Pose().fromLookAt(
                 new Vec3(position ?? [2, 1, 2]),
                 new Vec3(target ?? [0, 0, 0])
