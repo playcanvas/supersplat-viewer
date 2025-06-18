@@ -354,10 +354,6 @@ class Viewer {
             const activeCamera = getCamera(state.cameraMode);
             pose.copy(activeCamera.update(dt, state.cameraMode !== 'anim' && input));
 
-            if (state.cameraMode === 'anim') {
-                state.animationTime = animCamera.cursor.value;
-            }
-
             // blend camera smoothly during transitions
             if (transitionTimer < 1) {
                 transitionTimer = Math.min(1, transitionTimer + deltaTime);
@@ -372,6 +368,11 @@ class Viewer {
             // apply to camera
             entity.setPosition(activePose.position);
             entity.setRotation(activePose.rotation);
+
+            // update animation timeline
+            if (state.cameraMode === 'anim') {
+                state.animationTime = animCamera.cursor.value;
+            }
         });
 
         // handle camera mode switching
