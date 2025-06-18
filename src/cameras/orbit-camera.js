@@ -99,6 +99,7 @@ class OrbitCamera extends BaseCamera {
      * @param {object} input - input data for camera movement
      * @param {number[]} input.move - [x, y, z] movement vector
      * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
+     * @returns {Pose} - the updated camera pose
      * @override
      */
     update(dt, input) {
@@ -106,6 +107,14 @@ class OrbitCamera extends BaseCamera {
             this._move(input);
         }
         this._smooth(dt);
+
+        // update pose
+        this._pose.rotation.setFromEulerAngles(this.smoothRotation);
+        this._pose.rotation.transformVector(Vec3.FORWARD, v);
+        v.normalize();
+        this._pose.position.copy(this.smoothFocus).sub(v.mulScalar(this.smoothDistance));
+        this._pose.distance = this.smoothDistance;
+        return this._pose;
     }
 
     /**
@@ -113,11 +122,7 @@ class OrbitCamera extends BaseCamera {
      * @override
      */
     detach(pose) {
-        pose.rotation.setFromEulerAngles(this.smoothRotation);
-        pose.rotation.transformVector(Vec3.FORWARD, v);
-        v.normalize();
-        pose.position.copy(this.smoothFocus).sub(v.mulScalar(this.smoothDistance));
-        pose.distance = this.smoothDistance;
+        pose.copy(this._pose);
     }
 }
 

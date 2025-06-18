@@ -82,10 +82,11 @@ class AnimCamera extends BaseCamera {
 
     /**
      * @param {number} dt - delta time in seconds
+     * @returns {Pose} - updated camera pose
      * @override
      */
     update(dt) {
-        const { cursor, result, spline, frameRate, position, target } = this;
+        const { cursor, result, spline, frameRate, position, target, rotation } = this;
 
         // update the animation cursor
         cursor.update(dt);
@@ -97,6 +98,16 @@ class AnimCamera extends BaseCamera {
             position.set(result[0], result[1], result[2]);
             target.set(result[3], result[4], result[5]);
         }
+
+        // update pose
+        this._pose.fromLookAt(position, target);
+
+        q.setFromAxisAngle(Vec3.RIGHT, rotation.x);
+        this._pose.rotation.mul2(this._pose.rotation, q);
+
+        q.setFromAxisAngle(Vec3.UP, rotation.y);
+        this._pose.rotation.mul2(q, this._pose.rotation);
+        return this._pose;
     }
 
     /**
@@ -104,15 +115,7 @@ class AnimCamera extends BaseCamera {
      * @override
      */
     detach(pose) {
-        const { position, target, rotation } = this;
-
-        pose.fromLookAt(position, target);
-
-        q.setFromAxisAngle(Vec3.RIGHT, rotation.x);
-        pose.rotation.mul2(pose.rotation, q);
-
-        q.setFromAxisAngle(Vec3.UP, rotation.y);
-        pose.rotation.mul2(q, pose.rotation);
+        pose.copy(this._pose);
     }
 
     // construct an animation from a settings track

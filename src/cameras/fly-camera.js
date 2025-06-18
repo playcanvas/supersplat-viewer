@@ -90,6 +90,7 @@ class FlyCamera extends BaseCamera {
      * @param {object} input - input data for camera movement
      * @param {number[]} input.move - [x, y, z] movement vector
      * @param {number[]} input.rotate - [yaw, pitch, roll] rotation vector
+     * @returns {Pose} - updated camera pose
      * @override
      */
     update(dt, input) {
@@ -97,6 +98,12 @@ class FlyCamera extends BaseCamera {
             this._move(input);
         }
         this._smooth(dt);
+
+        // update pose
+        this._pose.position.copy(this.smoothPosition);
+        this._pose.rotation.copy(this.smoothRotation);
+        this._pose.distance = this.distance;
+        return this._pose;
     }
 
     /**
@@ -104,10 +111,7 @@ class FlyCamera extends BaseCamera {
      * @override
      */
     detach(pose) {
-        const { smoothPosition, smoothRotation, distance } = this;
-        pose.position.copy(smoothPosition);
-        pose.rotation.copy(smoothRotation);
-        pose.distance = distance;
+        pose.copy(this._pose);
     }
 }
 
