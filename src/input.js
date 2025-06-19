@@ -114,7 +114,7 @@ class AppController {
         this._camera = camera;
 
         // convert events to joystick state
-        this._flyInput.leftJoystick.on('position', (bx, by, sx, sy) => {
+        this._flyInput.on('joystick:position:left', ([bx, by, sx, sy]) => {
             if (bx < 0 || by < 0 || sx < 0 || sy < 0) {
                 this.joystick.base = null;
                 this.joystick.stick = null;
