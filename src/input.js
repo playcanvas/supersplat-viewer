@@ -131,14 +131,19 @@ class AppController {
      * @param {number} distance - the distance to the camera target
      */
     update(dt, mode, distance) {
+        const { keycode } = KeyboardMouseSource;
+
         const { key, button, mouse, wheel } = this._desktopInput.read();
         const { touch, pinch, count } = this._orbitInput.read();
         const { leftInput, rightInput } = this._flyInput.read();
         const { leftStick, rightStick } = this._gamepadInput.read();
 
         // update state
-        const [forward, back, left, right, down, up] = key;
-        this._axis.add(tmpV1.set(right - left, up - down, forward - back));
+        this._axis.add(tmpV1.set(
+            (key[keycode.D] - key[keycode.A]) + (key[keycode.RIGHT] - key[keycode.LEFT]),
+            (key[keycode.E] - key[keycode.Q]),
+            (key[keycode.W] - key[keycode.S]) + (key[keycode.UP] - key[keycode.DOWN])
+        ));
         this._touches += count[0];
         for (let i = 0; i < button.length; i++) {
             this._mouse[i] += button[i];
