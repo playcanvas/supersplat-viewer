@@ -1,5 +1,5 @@
 import '@playcanvas/web-components';
-import { BoundingBox, Color, Mat4, Vec3 } from 'playcanvas';
+import { BoundingBox, Color, Mat4, ShaderChunks, Vec3 } from 'playcanvas';
 
 import { AnimCamera } from './cameras/anim-camera.js';
 import { FlyCamera } from './cameras/fly-camera.js';
@@ -8,46 +8,6 @@ import { Pose } from './core/pose.js';
 import { AppController } from './input.js';
 import { Picker } from './picker.js';
 import { PointerDevice } from './pointer-device.js';
-
-const gsplatFS = /* glsl */ `
-
-#ifdef PICK_PASS
-vec4 packFloat(float depth) {
-    uvec4 u = (uvec4(floatBitsToUint(depth)) >> uvec4(0u, 8u, 16u, 24u)) & 0xffu;
-    return vec4(u) / 255.0;
-}
-#endif
-
-varying mediump vec2 gaussianUV;
-varying mediump vec4 gaussianColor;
-
-void main(void) {
-    mediump float A = dot(gaussianUV, gaussianUV);
-    if (A > 1.0) {
-        discard;
-    }
-
-    // evaluate alpha
-    mediump float alpha = exp(-A * 4.0) * gaussianColor.a;
-
-    #ifdef PICK_PASS
-        if (alpha < 0.1) {
-            discard;
-        }
-        gl_FragColor = packFloat(gl_FragCoord.z);
-    #else
-        if (alpha < 1.0 / 255.0) {
-            discard;
-        }
-
-        #ifndef DITHER_NONE
-            opacityDither(alpha, id * 0.013);
-        #endif
-
-        gl_FragColor = vec4(gaussianColor.xyz * alpha, alpha);
-    #endif
-}
-`;
 
 const pose = new Pose();
 
@@ -128,12 +88,6 @@ class Viewer {
 
         // calculate scene bounding box
         const bbox = gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
-
-        // override gsplat shader for picking
-        const { instance } = gsplat;
-        instance.createMaterial({
-            fragment: gsplatFS
-        });
 
         // create an anim camera
         const createAnimCamera = (initial, isObjectExperience) => {
@@ -442,7 +396,7 @@ class Viewer {
                 if (!picker) {
                     picker = new Picker(app, entity);
                 }
-                const result = await picker.pick(event.clientX, event.clientY);
+                const result = await picker.pick(event.offsetX, event.offsetY);
                 if (result) {
                     // get the current pose
                     orbitCamera.getPose(pose);

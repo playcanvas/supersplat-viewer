@@ -1,5 +1,5 @@
 import '@playcanvas/web-components';
-import { shaderChunks, Asset, Color, EventHandler, MiniStats, Vec3, Quat } from 'playcanvas';
+import { Asset, Color, Entity, EventHandler, MiniStats, Quat, ShaderChunks, Vec3 } from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
@@ -7,14 +7,33 @@ import { migrateSettings } from './data-migrations.js';
 import { observe } from './observe.js';
 import { Viewer } from './viewer.js';
 
+// override global pick to pack depth instead of meshInstance id
+const pickDepthGlsl = /* glsl */ `
+vec4 packFloat(float depth) {
+    uvec4 u = (uvec4(floatBitsToUint(depth)) >> uvec4(0u, 8u, 16u, 24u)) & 0xffu;
+    return vec4(u) / 255.0;
+}
+vec4 getPickOutput() {
+    return packFloat(gl_FragCoord.z);
+}
+`;
+
+const pickDepthWgsl = /* wgsl */ `
+    fn packFloat(depth: f32) -> vec4f {
+        let u: vec4<u32> = (vec4<u32>(bitcast<u32>(depth)) >> vec4<u32>(0u, 8u, 16u, 24u)) & vec4<u32>(0xffu);
+        return vec4f(u) / 255.0;
+    }
+
+    fn getPickOutput() -> vec4f {
+        return packFloat(pcPosition.z);
+    }
+`;
+
 // temporary vector
 const v = new Vec3();
 
 // get experience parameters
 const params = window.sse?.params ?? {};
-
-// render skybox as plain equirect
-shaderChunks.skyboxPS = shaderChunks.skyboxPS.replace('mapRoughnessUv(uv, mipLevel)', 'uv');
 
 // displays a blurry poster image which resolves to sharp during loading
 const initPoster = (events) => {
@@ -114,7 +133,9 @@ const loadContent = (app) => {
     });
 
     asset.on('load', () => {
-        const entity = asset.resource.instantiate();
+        const entity = new Entity('gsplat');
+        entity.setLocalEulerAngles(0, 0, 180);
+        entity.addComponent('gsplat', { asset });
         app.root.addChild(entity);
     });
 
@@ -151,6 +172,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const appElement = document.querySelector('pc-app');
     const app = (await appElement.ready()).app;
     const { graphicsDevice } = app;
+
+    // render skybox as plain equirect
+    const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
+    glsl.set('skyboxPS', glsl.get('skyboxPS').replace('mapRoughnessUv(uv, mipLevel)', 'uv'));
+    glsl.set('pickPS', pickDepthGlsl);
+
+    const wgsl = ShaderChunks.get(graphicsDevice, 'wgsl');
+    wgsl.set('skyboxPS', wgsl.get('skyboxPS').replace('mapRoughnessUv(uv, uniform.mipLevel)', 'uv'));
+    wgsl.set('pickPS', pickDepthWgsl);
 
     loadContent(app);
 
