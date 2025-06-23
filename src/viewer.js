@@ -382,7 +382,6 @@ class Viewer {
         // first scene sort (which usually happens during render)
         entity.setPosition(activePose.position);
         entity.setEulerAngles(activePose.angles);
-
         gsplat?.instance?.sort(entity);
 
         // handle gsplat sort updates
