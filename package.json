@@ -1,6 +1,6 @@
 {
   "name": "supersplat-viewer",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "author": "PlayCanvas <support@playcanvas.com>",
   "homepage": "https://github.com/playcanvas/supersplat-viewer#readme",
   "description": "Viewer for https://superspl.at",
@@ -36,10 +36,10 @@
     "@playcanvas/web-components": "^0.2.6",
     "@rollup/plugin-node-resolve": "^16.0.1",
     "concurrently": "^9.1.2",
-    "eslint": "^9.27.0",
-    "globals": "^16.1.0",
-    "playcanvas": "^2.7.7",
-    "rollup": "^4.41.0",
+    "eslint": "^9.29.0",
+    "globals": "^16.2.0",
+    "playcanvas": "^2.8.1",
+    "rollup": "^4.44.0",
     "rollup-plugin-copy": "^3.5.0",
     "serve": "^14.2.4"
   }

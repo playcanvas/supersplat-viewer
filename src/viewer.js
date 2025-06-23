@@ -16,47 +16,6 @@ import { Picker } from './picker.js';
 
 /** @import { InputController } from 'playcanvas' */
 
-// FIXME: Enable once gsplat fixed
-// const gsplatFS = /* glsl */ `
-
-// #ifdef PICK_PASS
-// vec4 packFloat(float depth) {
-//     uvec4 u = (uvec4(floatBitsToUint(depth)) >> uvec4(0u, 8u, 16u, 24u)) & 0xffu;
-//     return vec4(u) / 255.0;
-// }
-// #endif
-
-// varying mediump vec2 gaussianUV;
-// varying mediump vec4 gaussianColor;
-
-// void main(void) {
-//     mediump float A = dot(gaussianUV, gaussianUV);
-//     if (A > 1.0) {
-//         discard;
-//     }
-
-//     // evaluate alpha
-//     mediump float alpha = exp(-A * 4.0) * gaussianColor.a;
-
-//     #ifdef PICK_PASS
-//         if (alpha < 0.1) {
-//             discard;
-//         }
-//         gl_FragColor = packFloat(gl_FragCoord.z);
-//     #else
-//         if (alpha < 1.0 / 255.0) {
-//             discard;
-//         }
-
-//         #ifndef DITHER_NONE
-//             opacityDither(alpha, id * 0.013);
-//         #endif
-
-//         gl_FragColor = vec4(gaussianColor.xyz * alpha, alpha);
-//     #endif
-// }
-// `;
-
 const PITCH_RANGE = new Vec2(-90, 90);
 
 const pose = new Pose();
@@ -187,19 +146,11 @@ class Viewer {
     initialize() {
         const { app, entity, events, state, settings } = this;
 
-        // FIXME: Enable once gsplat fixed
-        // // get the gsplat
-        // const gsplat = app.root.findComponent('gsplat');
+        // get the gsplat
+        const gsplat = app.root.findComponent('gsplat');
 
-        // // calculate scene bounding box
-        // const bbox = gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
-
-        // // override gsplat shader for picking
-        // const { instance } = gsplat;
-        // instance.createMaterial({
-        //     fragment: gsplatFS
-        // });
-        const bbox  = app.root.findComponent('render').meshInstances[0].aabb ?? new BoundingBox();
+        // calculate scene bounding box
+        const bbox = gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
 
         // create an anim camera
         // calculate the orbit camera frame position
@@ -422,7 +373,7 @@ class Viewer {
                 if (!picker) {
                     picker = new Picker(app, entity);
                 }
-                const result = await picker.pick(event.clientX, event.clientY);
+                const result = await picker.pick(event.offsetX, event.offsetY);
                 if (result) {
                     orbitCamera.attach(pose.look(activePose.position, result), true);
                 }
@@ -433,46 +384,29 @@ class Viewer {
         // first scene sort (which usually happens during render)
         entity.setPosition(activePose.position);
         entity.setEulerAngles(activePose.angles);
-        // FIXME: Enable once gsplat fixed
-        // gsplat?.instance?.sort(entity);
 
-        // // handle gsplat sort updates
-        // gsplat?.instance?.sorter?.on('updated', () => {
-        //     // request frame render when sorting changes
-        //     app.renderNextFrame = true;
+        gsplat?.instance?.sort(entity);
 
-        //     if (!state.readyToRender) {
-        //         // we're ready to render once the first sort has completed
-        //         state.readyToRender = true;
+        // handle gsplat sort updates
+        gsplat?.instance?.sorter?.on('updated', () => {
+            // request frame render when sorting changes
+            app.renderNextFrame = true;
 
-        //         // wait for the first valid frame to complete rendering
-        //         const frameHandle = app.on('frameend', () => {
-        //             frameHandle.off();
+            if (!state.readyToRender) {
+                // we're ready to render once the first sort has completed
+                state.readyToRender = true;
 
-        //             events.fire('firstFrame');
+                // wait for the first valid frame to complete rendering
+                const frameHandle = app.on('frameend', () => {
+                    frameHandle.off();
 
-        //             // emit first frame event on window
-        //             window.firstFrame?.();
-        //         });
-        //     }
-        // });
-        // request frame render when sorting changes
-        app.renderNextFrame = true;
+                    events.fire('firstFrame');
 
-        if (!state.readyToRender) {
-            // we're ready to render once the first sort has completed
-            state.readyToRender = true;
-
-            // wait for the first valid frame to complete rendering
-            const frameHandle = app.on('frameend', () => {
-                frameHandle.off();
-
-                events.fire('firstFrame');
-
-                // emit first frame event on window
-                window.firstFrame?.();
-            });
-        }
+                    // emit first frame event on window
+                    window.firstFrame?.();
+                });
+            }
+        });
     }
 }
 
