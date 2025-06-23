@@ -178,9 +178,7 @@ class Viewer {
 
         // if camera doesn't intersect the scene, assume it's an object we're
         // viewing
-        // FIXME: Enable once gsplat fixed
-        // const isObjectExperience = !bbox.containsPoint(userStart.position);
-        const isObjectExperience = true;
+        const isObjectExperience = !bbox.containsPoint(userStart.position);
 
         // create the cameras
         const animCamera = ((initial, isObjectExperience) => {
