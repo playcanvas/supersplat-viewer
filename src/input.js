@@ -1,469 +1,206 @@
-import { lerp, damp } from './core/math.js';
+import {
+    math,
+    DualGestureSource,
+    GamepadSource,
+    InputFrame,
+    KeyboardMouseSource,
+    MultiTouchSource,
+    PROJECTION_PERSPECTIVE,
+    Vec3
+} from 'playcanvas';
 
-// stores the input deltas for 3 axes (x, y, z)
-class Input {
-    constructor() {
-        this.value = [0, 0, 0];
-        this.events = [];
+/** @import { CameraComponent } from 'playcanvas' */
+
+const tmpV1 = new Vec3();
+const tmpV2 = new Vec3();
+
+/**
+ * Converts screen space mouse deltas to world space pan vector.
+ *
+ * @param {CameraComponent} camera - The camera component.
+ * @param {number} dx - The mouse delta x value.
+ * @param {number} dy - The mouse delta y value.
+ * @param {number} dz - The world space zoom delta value.
+ * @param {Vec3} [out] - The output vector to store the pan result.
+ * @returns {Vec3} - The pan vector in world space.
+ * @private
+ */
+const screenToWorld = (camera, dx, dy, dz, out = new Vec3()) => {
+    const { system, fov, aspectRatio, horizontalFov, projection, orthoHeight } = camera;
+    const { width, height } = system.app.graphicsDevice.clientRect;
+
+    // normalize deltas to device coord space
+    out.set(
+        -(dx / width) * 2,
+        (dy / height) * 2,
+        0
+    );
+
+    // calculate half size of the view frustum at the current distance
+    const halfSize = tmpV2.set(0, 0, 0);
+    if (projection === PROJECTION_PERSPECTIVE) {
+        const halfSlice = dz * Math.tan(0.5 * fov * math.DEG_TO_RAD);
+        if (horizontalFov) {
+            halfSize.set(
+                halfSlice,
+                halfSlice / aspectRatio,
+                0
+            );
+        } else {
+            halfSize.set(
+                halfSlice * aspectRatio,
+                halfSlice,
+                0
+            );
+        }
+    } else {
+        halfSize.set(
+            orthoHeight * aspectRatio,
+            orthoHeight,
+            0
+        );
     }
 
-    // helper to add to the input value
-    add(x, y, z) {
-        this.value[0] += x;
-        this.value[1] += y;
-        this.value[2] += z;
-    }
+    // scale by device coord space
+    out.mul(halfSize);
 
-    update(dt) {
+    return out;
+};
 
-    }
+class AppController {
+    _camera;
 
-    clear() {
-        this.value.fill(0);
-        this.events.splice(0);
-    }
-}
+    _axis = new Vec3();
 
-// additive input sums child inputs
-class AdditiveInput extends Input {
-    constructor(...args) {
-        super();
-        this.inputs = args;
-    }
+    _touches = 0;
 
-    update(dt) {
-        const { inputs, value, events } = this;
-        inputs.forEach((input) => {
-            input.update?.(dt);
-            value[0] += input.value[0];
-            value[1] += input.value[1];
-            value[2] += input.value[2];
+    _mouse = [0, 0, 0];
 
-            // sum events
-            events.push(...input.events);
+    _desktopInput = new KeyboardMouseSource();
+
+    _orbitInput = new MultiTouchSource();
+
+    _flyInput = new DualGestureSource();
+
+    _gamepadInput = new GamepadSource();
+
+    frame = new InputFrame({
+        move: [0, 0, 0],
+        rotate: [0, 0, 0]
+    });
+
+    joystick = {
+        base: null,
+        stick: null
+    };
+
+    moveMult = 30;
+
+    lookMult = 12;
+
+    pinchMult = 0.3;
+
+    wheelMult = 0.06;
+
+    /**
+     * @param {HTMLElement} element - the element to attach the input to
+     * @param {CameraComponent} camera - the camera component to control
+     */
+    constructor(element, camera) {
+        this._desktopInput.attach(element);
+        this._orbitInput.attach(element);
+        this._flyInput.attach(element);
+
+        this._camera = camera;
+
+        // convert events to joystick state
+        this._flyInput.on('joystick:position:left', ([bx, by, sx, sy]) => {
+            if (bx < 0 || by < 0 || sx < 0 || sy < 0) {
+                this.joystick.base = null;
+                this.joystick.stick = null;
+                return;
+            }
+            this.joystick.base = [bx, by];
+            this.joystick.stick = [sx - bx, sy - by];
         });
     }
 
-    clear() {
-        super.clear();
+    /**
+     * @param {number} dt - delta time in seconds
+     * @param {'anim' | 'fly' | 'orbit'} mode - the camera mode
+     * @param {number} distance - the distance to the camera target
+     */
+    update(dt, mode, distance) {
+        const { keyCode } = KeyboardMouseSource;
 
-        this.inputs.forEach(input => input.clear());
-    }
-}
+        const { key, button, mouse, wheel } = this._desktopInput.read();
+        const { touch, pinch, count } = this._orbitInput.read();
+        const { leftInput, rightInput } = this._flyInput.read();
+        const { leftStick, rightStick } = this._gamepadInput.read();
 
-// joystick sums input deltas based on stick position
-class Joystick extends Input {
-    constructor() {
-        super();
-        this.stick = [0, 0, 0];
-    }
-
-    update(dt) {
-        const { value, stick } = this;
-        for (let i = 0; i < 3; ++i) {
-            value[i] += stick[i] * dt;
+        // update state
+        this._axis.add(tmpV1.set(
+            (key[keyCode.D] - key[keyCode.A]) + (key[keyCode.RIGHT] - key[keyCode.LEFT]),
+            (key[keyCode.E] - key[keyCode.Q]),
+            (key[keyCode.W] - key[keyCode.S]) + (key[keyCode.UP] - key[keyCode.DOWN])
+        ));
+        this._touches += count[0];
+        for (let i = 0; i < button.length; i++) {
+            this._mouse[i] += button[i];
         }
-    }
-}
 
-// dampens a target value (usually a toggle value based on buttons) and maps it to a joystick axis
-class DampedJoystick extends Joystick {
-    constructor() {
-        super();
-        this.target = [0, 0, 0];
-    }
+        const orbit = +(mode === 'orbit');
+        const fly = +(mode === 'fly');
+        const pan = +(this._touches > 1);
 
-    update(dt) {
-        const { stick, target } = this;
-        const t = damp(0.98, dt);
-        for (let i = 0; i < 3; ++i) {
-            stick[i] = lerp(stick[i], target[i], t);
-            if (Math.abs(stick[i]) < 1e-3) {
-                stick[i] = 0;
-            }
-        }
-        super.update(dt);
-    }
-}
+        const { deltas } = this.frame;
 
-// tracks a touch input and adds to the input value
-class TouchInput extends Input {
-    constructor() {
-        super();
-        this.id = null;
-        this.prev = [0, 0, 0];
-    }
+        // desktop move
+        const v = tmpV1.set(0, 0, 0);
+        const keyMove = this._axis.clone().normalize();
+        v.add(keyMove.mulScalar(this.moveMult * dt));
+        const panMove = screenToWorld(this._camera, mouse[0], mouse[1], distance);
+        v.add(panMove.mulScalar(this._mouse[2]));
+        const wheelMove = new Vec3(0, 0, -wheel[0]);
+        v.add(wheelMove.mulScalar(this.wheelMult * dt));
+        // FIXME: need to flip z axis for orbit camera
+        deltas.move.append([v.x, v.y, orbit ? -v.z : v.z]);
 
-    down(id, x, y, z = 0) {
-        const { prev } = this;
-        this.id = id;
-        prev[0] = x;
-        prev[1] = y;
-        prev[2] = z;
-    }
+        // desktop rotate
+        v.set(0, 0, 0);
+        const mouseRotate = new Vec3(mouse[0], mouse[1], 0);
+        v.add(mouseRotate.mulScalar((1 - this._mouse[2]) * this.lookMult * dt));
+        deltas.rotate.append([v.x, v.y, v.z]);
 
-    move(x, y, z = 0) {
-        const { value, prev } = this;
-        value[0] += x - prev[0];
-        value[1] += y - prev[1];
-        value[2] += z - prev[2];
-        prev[0] = x;
-        prev[1] = y;
-        prev[2] = z;
-    }
+        // mobile move
+        v.set(0, 0, 0);
+        const orbitMove = screenToWorld(this._camera, touch[0], touch[1], distance);
+        v.add(orbitMove.mulScalar(orbit * pan));
+        const flyMove = new Vec3(leftInput[0], 0, -leftInput[1]);
+        v.add(flyMove.mulScalar(fly * this.moveMult * dt));
+        const pinchMove = new Vec3(0, 0, pinch[0]);
+        v.add(pinchMove.mulScalar(orbit * pan * this.pinchMult * dt));
+        deltas.move.append([v.x, v.y, v.z]);
 
-    up() {
-        this.id = null;
-    }
-}
+        // mobile rotate
+        v.set(0, 0, 0);
+        const orbitRotate = new Vec3(touch[0], touch[1], 0);
+        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.lookMult * dt));
+        const flyRotate = new Vec3(rightInput[0], rightInput[1], 0);
+        v.add(flyRotate.mulScalar(fly * this.lookMult * dt));
+        deltas.rotate.append([v.x, v.y, v.z]);
 
-// tracks a touch input and converts it to a joystick input
-class TouchJoystick extends Joystick {
-    constructor() {
-        super();
-        this.id = null;
-        this.base = [0, 0, 0];
-    }
+        // gamepad move
+        v.set(0, 0, 0);
+        const stickMove = new Vec3(leftStick[0], 0, -leftStick[1]);
+        v.add(stickMove.mulScalar(this.moveMult * dt));
+        deltas.move.append([v.x, v.y, v.z]);
 
-    down(id, x, y, z = 0) {
-        const { base } = this;
-        this.id = id;
-        base[0] = x;
-        base[1] = y;
-        base[2] = z;
-    }
-
-    move(x, y, z = 0) {
-        const { base, stick } = this;
-        stick[0] = x - base[0];
-        stick[1] = y - base[1];
-        stick[2] = z - base[2];
-    }
-
-    up() {
-        const { stick } = this;
-        this.id = null;
-        stick[0] = 0;
-        stick[1] = 0;
-        stick[2] = 0;
-    }
-}
-
-// track two touch inputs and convert them into 2 inputs
-class TouchController {
-    constructor() {
-        const left = new TouchJoystick();
-        const right = new TouchInput();
-
-        const get = (id) => {
-            return id === left.id ? left : (id === right.id ? right : null);
-        };
-
-        this.pointerDown = (event, element) => {
-            const isLeft = event.clientX < element.getBoundingClientRect().width / 2;
-            const joy = isLeft ? (left.id === null && left) : (right.id === null && right);
-
-            if (joy) {
-                joy.down(event.pointerId, event.clientX, event.clientY);
-            }
-
-            if (isLeft) {
-                element.setPointerCapture(event.pointerId);
-            }
-        };
-
-        this.pointerMove = (event) => {
-            const joy = get(event.pointerId);
-            if (joy) {
-                joy.move(event.clientX, event.clientY);
-            }
-        };
-
-        this.pointerUp = (event, element) => {
-            const joy = get(event.pointerId);
-            if (joy) {
-                joy.up();
-                if (joy === left) {
-                    element.releasePointerCapture(event.pointerId);
-                }
-            }
-        };
-
-        // public interface
-        this.left = left;
-        this.right = right;
-    }
-}
-
-// track two touch inputs and convert into 3d input when both are active
-// x and y axis is two-touch translation
-// z axis is two-touch distance
-class TwoTouchInput extends Input {
-    constructor(a, b) {
-        super();
-
-        this.a = a;
-        this.b = b;
-
-        this.active = false;
-        this.prev = [0, 0, 0];
-    }
-
-    update(dt) {
-        const { a, b } = this;
-
-        a.update(dt);
-        b.update(dt);
-
-        if (a.id && b.id) {
-            const { value, prev } = this;
-            const aprev = a.prev;
-            const bprev = b.prev;
-
-            const curX = (aprev[0] + bprev[0]) * 0.5;
-            const curY = (aprev[1] + bprev[1]) * 0.5;
-            const curZ = Math.sqrt(((aprev[0] - bprev[0]) ** 2) + ((aprev[1] - bprev[1]) ** 2));
-
-            if (!this.active) {
-                this.active = true;
-                prev[0] = curX;
-                prev[1] = curY;
-                prev[2] = curZ;
-            }
-
-            value[0] = curX - prev[0];
-            value[1] = curY - prev[1];
-            value[2] = -(curZ - prev[2]);
-
-            prev[0] = curX;
-            prev[1] = curY;
-            prev[2] = curZ;
-
-            // we've consumed the invividual inputs so clear them
-            a.clear();
-            b.clear();
-        } else {
-            this.active = false;
-        }
-    }
-
-    clear() {
-        super.clear();
-
-        const { a, b } = this;
-        a.clear();
-        b.clear();
-    }
-}
-
-class OrbitTouchController {
-    constructor() {
-        const first = new TouchInput();
-        const second = new TouchInput();
-        const twoTouch = new TwoTouchInput(first, second);
-
-        this.pointerDown = (event, element) => {
-            if (first.id === null) {
-                first.down(event.pointerId, event.clientX, event.clientY);
-                element.setPointerCapture(event.pointerId);
-            } else if (second.id === null) {
-                second.down(event.pointerId, event.clientX, event.clientY);
-                element.setPointerCapture(event.pointerId);
-            }
-        };
-
-        this.pointerMove = (event) => {
-            if (event.pointerId === first.id) {
-                first.move(event.clientX, event.clientY);
-            } else if (event.pointerId === second.id) {
-                second.move(event.clientX, event.clientY);
-            }
-        };
-
-        this.pointerUp = (event, element) => {
-            if (event.pointerId === first.id) {
-                first.up();
-                element.releasePointerCapture(event.pointerId);
-            } else if (event.pointerId === second.id) {
-                second.up();
-                element.releasePointerCapture(event.pointerId);
-            }
-        };
-
-        this.pointerCancel = this.pointerUp;
-
-        // public interface
-        this.left = twoTouch;
-        this.right = first;
-    }
-}
-
-class MouseInput {
-    constructor() {
-        this.prev = [0, 0, 0];
-        this.left = new Input();
-        this.middle = new Input();
-        this.right = new Input();
-    }
-
-    down(x, y, z = 0) {
-        const { prev } = this;
-        prev[0] = x;
-        prev[1] = y;
-        prev[2] = z;
-    }
-
-    move(buttons, x, y, z = 0) {
-        const { prev } = this;
-        const dx = x - prev[0];
-        const dy = y - prev[1];
-        const dz = z - prev[2];
-        prev[0] = x;
-        prev[1] = y;
-        prev[2] = z;
-
-        if (buttons === 1) this.left.add(dx, dy, dz);
-        else if (buttons === 2) this.right.add(dx, dy, dz);
-        else if (buttons === 4) this.middle.add(dx, dy, dz);
-    }
-
-    up() {
-        this.left.events.push('up');
-    }
-
-    clear() {
-        const { left, right, middle } = this;
-        left.clear();
-        right.clear();
-        middle.clear();
-    }
-}
-
-// keyboard and mouse controller
-class DesktopController {
-    constructor() {
-        const controls = {
-            left: false,
-            right: false,
-            forward: false,
-            backward: false,
-            up: false,
-            down: false,
-            lookleft: false,
-            lookright: false,
-            lookup: false,
-            lookdown: false
-        };
-
-        const keys = {
-            keyw: 'forward',
-            keya: 'left',
-            keys: 'backward',
-            keyd: 'right',
-            keyq: 'up',
-            keye: 'down',
-            arrowleft: 'lookleft',
-            arrowright: 'lookright',
-            arrowup: 'lookup',
-            arrowdown: 'lookdown'
-        };
-
-        const mouseInput = new MouseInput();
-        const leftKeys = new DampedJoystick();
-        const rightKeys = new DampedJoystick();
-        const left = new AdditiveInput(mouseInput.right, leftKeys);
-        const right = new AdditiveInput(mouseInput.left, rightKeys);
-
-        this.wheel = (event) => {
-            mouseInput.right.value[2] += event.deltaY * 0.1;
-            mouseInput.left.value[0] += event.deltaX;
-            event.preventDefault();
-        };
-
-        this.pointerDown = (event, element) => {
-            mouseInput.down(event.clientX, event.clientY);
-            element.setPointerCapture(event.pointerId);
-        };
-
-        this.pointerMove = (event) => {
-            mouseInput.move(event.buttons, event.clientX, event.clientY);
-        };
-
-        this.pointerUp = (event, element) => {
-            mouseInput.up();
-            element.releasePointerCapture(event.pointerId);
-        };
-
-        this.contextMenu = event => event.preventDefault();
-
-        const handleKey = (event, state) => {
-
-            // ignore all keys in combination with meta
-            if (event.metaKey && state) {
-                return;
-            }
-
-            const key = event.code.toLowerCase();
-            if (keys.hasOwnProperty(key)) {
-                event.stopPropagation();
-                event.preventDefault();
-
-                controls[keys[key]] = state;
-
-                const s = 300;
-
-                switch (keys[key]) {
-                    case 'left':
-                    case 'right':
-                        leftKeys.target[0] = (controls.left ? -s : 0) + (controls.right ? s : 0);
-                        break;
-                    case 'forward':
-                    case 'backward':
-                        leftKeys.target[1] = (controls.forward ? -s : 0) + (controls.backward ? s : 0);
-                        break;
-                    case 'up':
-                    case 'down':
-                        leftKeys.target[2] = (controls.up ? s : 0) + (controls.down ? -s : 0);
-                        break;
-                    case 'lookleft':
-                    case 'lookright':
-                        rightKeys.target[0] = (controls.lookleft ? -s : 0) + (controls.lookright ? s : 0);
-                        break;
-                    case 'lookup':
-                    case 'lookdown':
-                        rightKeys.target[1] = (controls.lookup ? -s : 0) + (controls.lookdown ? s : 0);
-                        break;
-                }
-            }
-        };
-
-        this.keyDown = event => handleKey(event, true);
-        this.keyUp = event => handleKey(event, false);
-
-        this.left = left;
-        this.right = right;
-    }
-}
-
-class AppController {
-    constructor() {
-        this.touch = new TouchController();
-        this.orbit = new OrbitTouchController();
-        this.desktop = new DesktopController();
-
-        // final left and right inputs are the sum of supported possible inputs
-        this.left = new AdditiveInput(this.touch.left, this.orbit.left, this.desktop.left);
-        this.right = new AdditiveInput(this.touch.right, this.orbit.right, this.desktop.right);
-
-        this.update = (dt) => {
-            this.left.update(dt);
-            this.right.update(dt);
-        };
-
-        this.clear = () => {
-            this.left.clear();
-            this.right.clear();
-        };
+        // gamepad rotate
+        v.set(0, 0, 0);
+        const stickRotate = new Vec3(rightStick[0], rightStick[1], 0);
+        v.add(stickRotate.mulScalar(this.lookMult * dt));
+        deltas.rotate.append([v.x, v.y, v.z]);
     }
 }
 
