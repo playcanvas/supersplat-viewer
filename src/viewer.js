@@ -226,7 +226,9 @@ class Viewer {
         // set the global animation flag
         state.hasAnimation = !!animCamera;
         state.animationDuration = animCamera ? animCamera.cursor.duration : 0;
-        state.cameraMode = animCamera ? 'anim' : 'orbit';
+        if (animCamera) {
+            state.cameraMode = 'anim';
+        }
 
         // this pose stores the current camera position. it will be blended/smoothed
         // toward the current active camera
