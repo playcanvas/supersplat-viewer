@@ -7,6 +7,9 @@ import { migrateSettings } from './data-migrations.js';
 import { observe } from './observe.js';
 import { Viewer } from './viewer.js';
 
+/** @import { AppElement, EntityElement } from '@playcanvas/web-components' */
+/** @import { Texture } from 'playcanvas' */
+
 // override global pick to pack depth instead of meshInstance id
 const pickDepthGlsl = /* glsl */ `
 vec4 packFloat(float depth) {
@@ -169,7 +172,7 @@ const waitForGsplat = (app, state) => {
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
-    const appElement = document.querySelector('pc-app');
+    const appElement = /** @type {AppElement} */ (document.querySelector('pc-app'));
     const app = (await appElement.ready()).app;
     const { graphicsDevice } = app;
 
@@ -184,7 +187,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     loadContent(app);
 
-    const cameraElement = await document.querySelector('pc-entity[name="camera"]').ready();
+    const cameraElement = await /** @type {EntityElement} */ (document.querySelector('pc-entity[name="camera"]')).ready();
     const camera = cameraElement.entity;
     const settings = migrateSettings(await window.sse?.settings);
     const events = new EventHandler();
@@ -221,7 +224,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         skyAsset.on('load', () => {
-            app.scene.envAtlas = skyAsset.resource;
+            app.scene.envAtlas = /** @type {Texture} */ (skyAsset.resource);
         });
 
         app.assets.add(skyAsset);
@@ -230,8 +233,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Construct ministats
     if (params.ministats) {
-        const miniStats = new MiniStats(app);
-        miniStats.position = 'topright';
+        // eslint-disable-next-line no-new
+        new MiniStats(app);
     }
 
     // Initialize XR support
@@ -263,7 +266,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     ].reduce((acc, id) => {
         acc[id] = document.getElementById(id);
         return acc;
-    }, {});
+    }, /** @type {Record<string, HTMLElement>} */ ({}));
 
     // Handle loading progress updates
     events.on('progress:changed', (progress) => {
@@ -593,7 +596,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // update input mode based on pointer event
     ['pointerdown', 'pointermove'].forEach((eventName) => {
-        window.addEventListener(eventName, (event) => {
+        window.addEventListener(eventName, (/** @type {PointerEvent} */ event) => {
             state.inputMode = event.pointerType === 'touch' ? 'touch' : 'desktop';
         });
     });

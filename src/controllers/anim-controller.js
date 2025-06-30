@@ -1,9 +1,9 @@
-import { Vec3 } from 'playcanvas';
+import { InputController, Vec3 } from 'playcanvas';
 
-import { mod, MyQuat } from '../core/math.js';
+import { mod } from '../core/math.js';
 import { CubicSpline } from '../core/spline.js';
 
-const q = new MyQuat();
+/** @import { InputFrame, Pose } from 'playcanvas' */
 
 // track an animation cursor with support for looping and ping-pong modes
 class AnimCursor {
@@ -52,7 +52,7 @@ class AnimCursor {
 }
 
 // Manage the state of a camera animation track
-class AnimCamera {
+class AnimController extends InputController {
     spline;
 
     cursor = new AnimCursor();
@@ -65,24 +65,26 @@ class AnimCamera {
 
     target = new Vec3();
 
-    rotateSpeed = 0.2;
-
-    rotation = new Vec3();
-
     constructor(spline, duration, loopMode, frameRate) {
+        super();
         this.spline = spline;
         this.cursor.reset(duration, loopMode);
         this.frameRate = frameRate;
-
-        // initialize the camera to the start frame
-        this.update(0, null);
     }
 
-    update(deltaTime, input) {
-        const { cursor, result, spline, frameRate, position, target, rotateSpeed, rotation } = this;
+    /**
+     * @param {InputFrame<{ move: number[], rotate: number[] }>} frame - The input frame.
+     * @param {number} dt - The delta time.
+     * @returns {Pose} - The controller pose.
+     */
+    update(frame, dt) {
+        // discard frame
+        frame.read();
+
+        const { cursor, result, spline, frameRate, position, target } = this;
 
         // update the animation cursor
-        cursor.update(deltaTime);
+        cursor.update(dt);
 
         // evaluate the spline
         spline.evaluate(cursor.value * frameRate, result);
@@ -92,28 +94,8 @@ class AnimCamera {
             target.set(result[3], result[4], result[5]);
         }
 
-        // rotate
-        if (input?.rotate) {
-            if (input.rotate.events.indexOf('up') !== -1) {
-                // reset on up event`
-                rotation.set(0, 0, 0);
-            } else {
-                rotation.x = Math.max(-90, Math.min(90, rotation.x - input.rotate.value[1] * rotateSpeed));
-                rotation.y = Math.max(-180, Math.min(180, rotation.y - input.rotate.value[0] * rotateSpeed));
-            }
-        }
-    }
-
-    getPose(pose) {
-        const { position, target, rotation } = this;
-
-        pose.fromLookAt(position, target);
-
-        q.setFromAxisAngle(Vec3.RIGHT, rotation.x);
-        pose.rotation.mul2(pose.rotation, q);
-
-        q.setFromAxisAngle(Vec3.UP, rotation.y);
-        pose.rotation.mul2(q, pose.rotation);
+        // update pose
+        return this._pose.look(position, target);
     }
 
     // construct an animation from a settings track
@@ -133,8 +115,8 @@ class AnimCamera {
 
         const spline = CubicSpline.fromPointsLooping((duration + extra) * frameRate, times, points, -1);
 
-        return new AnimCamera(spline, duration, loopMode, frameRate);
+        return new AnimController(spline, duration, loopMode, frameRate);
     }
 }
 
-export { AnimCamera };
+export { AnimController };
