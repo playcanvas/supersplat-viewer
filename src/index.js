@@ -129,9 +129,11 @@ const initXr = (app, cameraElement, state, events) => {
 const loadContent = (app) => {
     const { contentUrl, contents } = window.sse;
 
-    const asset = new Asset('scene.compressed.ply', 'gsplat', {
+    const filename = new URL(contentUrl, location.href).pathname.split('/').pop();
+
+    const asset = new Asset(filename, 'gsplat', {
         url: contentUrl,
-        filename: 'scene.compressed.ply',
+        filename,
         contents
     });
 
