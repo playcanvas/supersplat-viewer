@@ -237,7 +237,7 @@ class Viewer {
         // create controller
         // set move speed based on scene size, within reason
         const controller = new AppController(app.graphicsDevice.canvas, entity.camera);
-        controller.moveMult = Math.max(0.05, Math.min(1, bbox.halfExtents.length() * 0.0001)) * 60;
+        controller.moveSpeed = Math.max(0.05, Math.min(1, bbox.halfExtents.length() * 0.0001)) * 60;
 
         if (state.cameraMode === 'anim') {
             //  first frame of the animation
