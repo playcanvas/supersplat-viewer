@@ -16,8 +16,6 @@ import { Picker } from './picker.js';
 
 /** @import { InputController } from 'playcanvas' */
 
-const PITCH_RANGE = new Vec2(-90, 90);
-
 const pose = new Pose();
 
 /**
@@ -199,14 +197,19 @@ class Viewer {
         const orbitCamera = (() => {
             const orbitCamera = new OrbitController();
 
-            orbitCamera.pitchRange = PITCH_RANGE;
+            orbitCamera.zoomRange = new Vec2(0.01, Infinity);
+            orbitCamera.pitchRange = new Vec2(-90, 90);
+            orbitCamera.rotateDamping = 0.97;
+            orbitCamera.moveDamping = 0.97;
 
             return orbitCamera;
         })();
         const flyCamera = (() => {
             const flyCamera = new FlyController();
 
-            flyCamera.pitchRange = PITCH_RANGE;
+            flyCamera.pitchRange = new Vec2(-90, 90);
+            flyCamera.rotateDamping = 0.97;
+            flyCamera.moveDamping = 0.97;
 
             return flyCamera;
         })();
