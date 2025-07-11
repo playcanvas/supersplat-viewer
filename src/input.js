@@ -94,13 +94,13 @@ class AppController {
         stick: null
     };
 
-    moveSpeed = 60;
+    moveSpeed = 0.001 * 60;
 
-    orbitSpeed = 30;
+    orbitSpeed = 0.16 * 60;
 
     pinchSpeed = 0.4;
 
-    wheelSpeed = 0.8;
+    wheelSpeed = 0.01 * 0.1 * 60;
 
     /**
      * @param {HTMLElement} element - the element to attach the input to
