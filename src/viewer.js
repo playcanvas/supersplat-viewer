@@ -6,7 +6,8 @@ import {
     Mat4,
     OrbitController,
     Vec2,
-    Vec3
+    Vec3,
+    math
 } from 'playcanvas';
 
 import { AnimController } from './controllers/anim-controller.js';
@@ -74,8 +75,60 @@ const createRotateTrack = (initial, keys = 12, duration = 20) => {
     };
 };
 
+// ------------------------------------------------------------------
+// Utilities (file-scope – reused by every Viewer instance)
+// ------------------------------------------------------------------
+
+/**
+ * Returns shortest signed difference from a → b in **degrees**,
+ * wrapped to −180 … +180. Uses PlayCanvas constants for clarity.
+ */
+const angleDiffDeg = (a, b) => {
+    // convert to radians, subtract, wrap with modulo, convert back
+    const diffRad = ((b - a) * math.DEG_TO_RAD + Math.PI) % (2 * Math.PI) - Math.PI;
+    return diffRad * math.RAD_TO_DEG;   // back to degrees
+};
+
+const MOVE_EPS = 0.05;  // metres
+const YAW_EPS  = 5;     // degrees
+
+
 class Viewer {
     constructor(app, entity, events, state, settings, params) {
+
+        // ------------------------------------------------------------------
+        //  ►►►  Non-blocking GSplat sort helper  ◄◄◄
+        // ------------------------------------------------------------------
+
+        // Fallback for browsers that lack requestIdleCallback
+        const ric = window.requestIdleCallback ?? ((fn) => setTimeout(fn, 0));
+
+        this._sortBusy = false;
+        this._lastPos  = new Vec3().copy(entity.getPosition());
+        this._lastYaw  = entity.getEulerAngles().y;
+
+        /**
+         * Queue a GSplat depth-sort during idle time so it never
+         * blocks the XR frame-render path.
+         */
+        this.scheduleSort = () => {
+            if (this._sortBusy) return;
+
+            const gsplat = this.app.root.findComponent('gsplat');
+            if (!gsplat) return;              // initialize() hasn’t run yet
+
+            this._sortBusy = true;
+            ric(() => {
+                gsplat.instance.sort(this.entity);
+
+                // cache pose used for this sort
+                this._lastPos.copy(this.entity.getPosition());
+                this._lastYaw = this.entity.getEulerAngles().y;
+
+                this._sortBusy = false;
+            }, { timeout: 30 });
+        };
+
         const { background, camera } = settings;
         const { graphicsDevice } = app;
 
@@ -129,10 +182,18 @@ class Viewer {
                 prevProj.copy(proj);
             }
 
-            // suppress rendering till we're ready
-            if (!state.readyToRender) {
-                app.renderNextFrame = false;
+            //  XR-specific: if the camera has moved far enough, queue a sort
+            if (app.xr.active) {
+                const movedFar   = entity.getPosition().distance(this._lastPos) > MOVE_EPS;
+                const yawChanged = Math.abs(angleDiffDeg(this._lastYaw, entity.getEulerAngles().y)) > YAW_EPS;
+
+                if (movedFar || yawChanged) this.scheduleSort();
+
             }
+
+            // suppress rendering until first sort completes
+            if (!state.readyToRender) app.renderNextFrame = false;
+
         });
 
         events.on('hqMode:changed', (value) => {
@@ -384,7 +445,7 @@ class Viewer {
         // first scene sort (which usually happens during render)
         entity.setPosition(activePose.position);
         entity.setEulerAngles(activePose.angles);
-        gsplat?.instance?.sort(entity);
+        this.scheduleSort();          // kick off first order but non-blocking
 
         // handle gsplat sort updates
         gsplat?.instance?.sorter?.on('updated', () => {
