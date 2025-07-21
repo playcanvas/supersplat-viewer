@@ -306,7 +306,7 @@ class Viewer {
             }
 
             // update input controller
-            controller.update(deltaTime, state.cameraMode, activePose.distance);
+            controller.update(deltaTime, state, activePose.distance);
 
             // update touch joystick UI
             if (state.cameraMode === 'fly') {

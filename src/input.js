@@ -131,10 +131,10 @@ class AppController {
 
     /**
      * @param {number} dt - delta time in seconds
-     * @param {'anim' | 'fly' | 'orbit'} mode - the camera mode
+     * @param {{ cameraMode: 'anim' | 'fly' | 'orbit' }} state - the current state of the app
      * @param {number} distance - the distance to the camera target
      */
-    update(dt, mode, distance) {
+    update(dt, state, distance) {
         const { keyCode } = KeyboardMouseSource;
 
         const { key, button, mouse, wheel } = this._desktopInput.read();
@@ -155,8 +155,8 @@ class AppController {
         this._shift += key[keyCode.SHIFT];
         this._ctrl += key[keyCode.CTRL];
 
-        const orbit = +(mode === 'orbit');
-        const fly = +(mode === 'fly');
+        const orbit = +(state.cameraMode === 'orbit');
+        const fly = +(state.cameraMode === 'fly');
         const pan = +(this._touches > 1);
 
         const { deltas } = this.frame;
