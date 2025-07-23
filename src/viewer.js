@@ -387,8 +387,11 @@ class Viewer {
                             state.snap = true;
                             state.cameraMode = 'orbit';
                         }
+
+                        // snap distance of focus to picked point to interpolate rotation only
                         activePose.distance = activePose.position.distance(result);
                         orbitCamera.attach(activePose, false);
+
                         orbitCamera.attach(pose.look(activePose.position, result), true);
                     }
                     break;
