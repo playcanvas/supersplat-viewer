@@ -169,7 +169,7 @@ class AppController {
         // desktop rotate
         v.set(0, 0, 0);
         const mouseRotate = new Vec3(mouse[0], mouse[1], 0);
-        v.add(mouseRotate.mulScalar((1 - this._mouse[2]) * this.orbitSpeed * dt));
+        v.add(mouseRotate.mulScalar(this._mouse[0] * (1 - this._mouse[2]) * this.orbitSpeed * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // mobile move
