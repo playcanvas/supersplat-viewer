@@ -201,6 +201,7 @@ class Viewer {
             orbitCamera.pitchRange = new Vec2(-90, 90);
             orbitCamera.rotateDamping = 0.97;
             orbitCamera.moveDamping = 0.97;
+            orbitCamera.zoomDamping = 0.97;
 
             return orbitCamera;
         })();
@@ -350,12 +351,15 @@ class Viewer {
             switch (value) {
                 case 'orbit':
                 case 'fly':
-                    getCamera(value).attach(pose, false);
+                    getCamera(value).attach(activePose, false);
                     break;
             }
 
             // reset camera transition timer
-            transitionTimer = 0;
+            if (!state.snap) {
+                transitionTimer = 0;
+            }
+            state.snap = false;
         });
 
         events.on('setAnimationTime', (time) => {
@@ -372,13 +376,22 @@ class Viewer {
         // pick orbit camera focus point on double click
         let picker = null;
         events.on('inputEvent', async (eventName, event) => {
-            if (state.cameraMode === 'orbit' && eventName === 'dblclick') {
-                if (!picker) {
-                    picker = new Picker(app, entity);
-                }
-                const result = await picker.pick(event.offsetX, event.offsetY);
-                if (result) {
-                    orbitCamera.attach(pose.look(activePose.position, result), true);
+            switch (eventName) {
+                case 'dblclick': {
+                    if (!picker) {
+                        picker = new Picker(app, entity);
+                    }
+                    const result = await picker.pick(event.offsetX, event.offsetY);
+                    if (result) {
+                        if (state.cameraMode !== 'orbit') {
+                            state.snap = true;
+                            state.cameraMode = 'orbit';
+                        }
+                        activePose.distance = activePose.position.distance(result);
+                        orbitCamera.attach(activePose, false);
+                        orbitCamera.attach(pose.look(activePose.position, result), true);
+                    }
+                    break;
                 }
             }
         });

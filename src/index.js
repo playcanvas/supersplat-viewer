@@ -199,6 +199,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         progress: 0,
         inputMode: 'desktop',       // desktop, touch
         cameraMode: 'orbit',        // orbit, anim, fly
+        snap: false,                // snap to camera target
         hasAnimation: false,
         animationDuration: 0,
         animationTime: 0,

@@ -131,7 +131,7 @@ class AppController {
 
     /**
      * @param {number} dt - delta time in seconds
-     * @param {{ cameraMode: 'anim' | 'fly' | 'orbit' }} state - the current state of the app
+     * @param {{ cameraMode: 'anim' | 'fly' | 'orbit', snap: boolean }} state - the current state of the app
      * @param {number} distance - the distance to the camera target
      */
     update(dt, state, distance) {
@@ -155,6 +155,11 @@ class AppController {
         this._shift += key[keyCode.SHIFT];
         this._ctrl += key[keyCode.CTRL];
 
+        if (this._axis.length() > 0) {
+            state.snap = true;
+            state.cameraMode = 'fly';
+        }
+
         const orbit = +(state.cameraMode === 'orbit');
         const fly = +(state.cameraMode === 'fly');
         const pan = +(this._touches > 1);
@@ -164,7 +169,7 @@ class AppController {
         // desktop move
         const v = tmpV1.set(0, 0, 0);
         const keyMove = this._axis.clone().normalize();
-        v.add(keyMove.mulScalar(this.moveSpeed * (this._shift ? 2 : this._ctrl ? 0.5 : 1) * dt));
+        v.add(keyMove.mulScalar(fly * this.moveSpeed * (this._shift ? 2 : this._ctrl ? 0.5 : 1) * dt));
         const panMove = screenToWorld(this._camera, mouse[0], mouse[1], distance);
         v.add(panMove.mulScalar(this._mouse[2]));
         const wheelMove = new Vec3(0, 0, -wheel[0]);
