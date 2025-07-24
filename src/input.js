@@ -98,13 +98,14 @@ class AppController {
         stick: null
     };
 
-    moveSpeed = 0.001 * 60;
+    // this gets overridden by the viewer based on scene size
+    moveSpeed = 1;
 
-    orbitSpeed = 0.16 * 60;
+    orbitSpeed = 18;
 
     pinchSpeed = 0.4;
 
-    wheelSpeed = 0.01 * 0.1 * 60;
+    wheelSpeed = 0.06;
 
     /**
      * @param {HTMLElement} element - the element to attach the input to
