@@ -261,6 +261,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         'buttonContainer',
         'play', 'pause',
         'settings', 'settingsPanel',
+        'orbitSettings', 'flySettings',
         'fly', 'orbit', 'cameraToggleHighlight',
         'high', 'low', 'qualityToggleHighlight',
         'reset', 'frame',
@@ -522,9 +523,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else {
             dom.cameraToggleHighlight.classList.remove('right');
         }
+
+        dom.orbitSettings.classList[state.cameraMode === 'orbit' ? 'remove' : 'add']('hidden');
+        dom.flySettings.classList[state.cameraMode === 'fly' ? 'remove' : 'add']('hidden');
     });
 
-    dom.settings.addEventListener('click', () => {
+    dom.orbitSettings.addEventListener('click', () => {
+        dom.settingsPanel.classList.toggle('hidden');
+    });
+
+    dom.flySettings.addEventListener('click', () => {
         dom.settingsPanel.classList.toggle('hidden');
     });
 
