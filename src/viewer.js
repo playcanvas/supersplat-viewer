@@ -272,7 +272,11 @@ class Viewer {
                         break;
                     }
                     case 'fly': {
-                        flyCamera.attach(pose, true);
+                        if (state.cameraMode !== 'orbit') {
+                            state.snap = true;
+                            state.cameraMode = 'orbit';
+                        }
+                        orbitCamera.attach(pose, true);
                         break;
                     }
                     case 'anim': {
