@@ -156,7 +156,7 @@ class AppController {
         this._shift += key[keyCode.SHIFT];
         this._ctrl += key[keyCode.CTRL];
 
-        if (this._axis.length() > 0 && state.cameraMode !== 'fly') {
+        if (state.cameraMode !== 'fly' && this._axis.length() > 0) {
             state.snap = true;
             state.cameraMode = 'fly';
         }
