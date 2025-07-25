@@ -201,6 +201,7 @@ class Viewer {
             orbitCamera.pitchRange = new Vec2(-90, 90);
             orbitCamera.rotateDamping = 0.97;
             orbitCamera.moveDamping = 0.97;
+            orbitCamera.zoomDamping = 0.97;
 
             return orbitCamera;
         })();
@@ -240,7 +241,7 @@ class Viewer {
         // create controller
         // set move speed based on scene size, within reason
         const controller = new AppController(app.graphicsDevice.canvas, entity.camera);
-        controller.moveSpeed = Math.max(0.05, Math.min(1, bbox.halfExtents.length() * 0.0001)) * 60;
+        controller.moveSpeed = Math.max(0.05, Math.min(1, bbox.halfExtents.length() * 0.0001)) * 200;
 
         if (state.cameraMode === 'anim') {
             //  first frame of the animation
@@ -271,7 +272,11 @@ class Viewer {
                         break;
                     }
                     case 'fly': {
-                        flyCamera.attach(pose, true);
+                        if (state.cameraMode !== 'orbit') {
+                            state.snap = true;
+                            state.cameraMode = 'orbit';
+                        }
+                        orbitCamera.attach(pose, true);
                         break;
                     }
                     case 'anim': {
@@ -306,7 +311,7 @@ class Viewer {
             }
 
             // update input controller
-            controller.update(deltaTime, state.cameraMode, activePose.distance);
+            controller.update(deltaTime, state, activePose.distance);
 
             // update touch joystick UI
             if (state.cameraMode === 'fly') {
@@ -350,12 +355,15 @@ class Viewer {
             switch (value) {
                 case 'orbit':
                 case 'fly':
-                    getCamera(value).attach(pose, false);
+                    getCamera(value).attach(activePose, false);
                     break;
             }
 
             // reset camera transition timer
-            transitionTimer = 0;
+            if (!state.snap) {
+                transitionTimer = 0;
+            }
+            state.snap = false;
         });
 
         events.on('setAnimationTime', (time) => {
@@ -372,13 +380,25 @@ class Viewer {
         // pick orbit camera focus point on double click
         let picker = null;
         events.on('inputEvent', async (eventName, event) => {
-            if (state.cameraMode === 'orbit' && eventName === 'dblclick') {
-                if (!picker) {
-                    picker = new Picker(app, entity);
-                }
-                const result = await picker.pick(event.offsetX, event.offsetY);
-                if (result) {
-                    orbitCamera.attach(pose.look(activePose.position, result), true);
+            switch (eventName) {
+                case 'dblclick': {
+                    if (!picker) {
+                        picker = new Picker(app, entity);
+                    }
+                    const result = await picker.pick(event.offsetX, event.offsetY);
+                    if (result) {
+                        if (state.cameraMode !== 'orbit') {
+                            state.snap = true;
+                            state.cameraMode = 'orbit';
+                        }
+
+                        // snap distance of focus to picked point to interpolate rotation only
+                        activePose.distance = activePose.position.distance(result);
+                        orbitCamera.attach(activePose, false);
+
+                        orbitCamera.attach(pose.look(activePose.position, result), true);
+                    }
+                    break;
                 }
             }
         });

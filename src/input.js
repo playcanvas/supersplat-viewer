@@ -76,6 +76,10 @@ class AppController {
 
     _mouse = [0, 0, 0];
 
+    _shift = 0;
+
+    _ctrl = 0;
+
     _desktopInput = new KeyboardMouseSource();
 
     _orbitInput = new MultiTouchSource();
@@ -94,13 +98,14 @@ class AppController {
         stick: null
     };
 
-    moveSpeed = 0.001 * 60;
+    // this gets overridden by the viewer based on scene size
+    moveSpeed = 1;
 
-    orbitSpeed = 0.16 * 60;
+    orbitSpeed = 18;
 
     pinchSpeed = 0.4;
 
-    wheelSpeed = 0.01 * 0.1 * 60;
+    wheelSpeed = 0.06;
 
     /**
      * @param {HTMLElement} element - the element to attach the input to
@@ -127,10 +132,10 @@ class AppController {
 
     /**
      * @param {number} dt - delta time in seconds
-     * @param {'anim' | 'fly' | 'orbit'} mode - the camera mode
+     * @param {{ cameraMode: 'anim' | 'fly' | 'orbit', snap: boolean }} state - the current state of the app
      * @param {number} distance - the distance to the camera target
      */
-    update(dt, mode, distance) {
+    update(dt, state, distance) {
         const { keyCode } = KeyboardMouseSource;
 
         const { key, button, mouse, wheel } = this._desktopInput.read();
@@ -148,9 +153,16 @@ class AppController {
         for (let i = 0; i < button.length; i++) {
             this._mouse[i] += button[i];
         }
+        this._shift += key[keyCode.SHIFT];
+        this._ctrl += key[keyCode.CTRL];
 
-        const orbit = +(mode === 'orbit');
-        const fly = +(mode === 'fly');
+        if (state.cameraMode !== 'fly' && this._axis.length() > 0) {
+            state.snap = true;
+            state.cameraMode = 'fly';
+        }
+
+        const orbit = +(state.cameraMode === 'orbit');
+        const fly = +(state.cameraMode === 'fly');
         const pan = +(this._touches > 1);
 
         const { deltas } = this.frame;
@@ -158,7 +170,7 @@ class AppController {
         // desktop move
         const v = tmpV1.set(0, 0, 0);
         const keyMove = this._axis.clone().normalize();
-        v.add(keyMove.mulScalar(this.moveSpeed * dt));
+        v.add(keyMove.mulScalar(fly * this.moveSpeed * (this._shift ? 2 : this._ctrl ? 0.5 : 1) * dt));
         const panMove = screenToWorld(this._camera, mouse[0], mouse[1], distance);
         v.add(panMove.mulScalar(this._mouse[2]));
         const wheelMove = new Vec3(0, 0, -wheel[0]);
