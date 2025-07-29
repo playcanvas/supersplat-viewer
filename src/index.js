@@ -184,7 +184,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const app = (await appElement.ready()).app;
     const { graphicsDevice } = app;
 
-    // specify cross-origin for image loads on safari
+    // enable anonymous CORS for image loading in safari
     app.loader.getHandler('texture').imgParser.crossOrigin = 'anonymous';
 
     // render skybox as plain equirect
