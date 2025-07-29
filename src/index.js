@@ -43,8 +43,13 @@ const initPoster = (events) => {
     const element = document.getElementById('poster');
     const blur = progress => `blur(${Math.floor((100 - progress) * 0.4)}px)`;
 
+    let watermark = 0;
+
     events.on('progress:changed', (progress) => {
-        element.style.filter = blur(progress);
+        if (progress > watermark) {
+            watermark = progress;
+            element.style.filter = blur(progress);
+        }
     });
 
     events.on('firstFrame', () => {
