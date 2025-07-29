@@ -184,6 +184,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const app = (await appElement.ready()).app;
     const { graphicsDevice } = app;
 
+    // specify cross-origin for image loads on safari
+    app.loader.getHandler('texture').imgParser.crossOrigin = 'anonymous';
+
     // render skybox as plain equirect
     const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
     glsl.set('skyboxPS', glsl.get('skyboxPS').replace('mapRoughnessUv(uv, mipLevel)', 'uv'));
