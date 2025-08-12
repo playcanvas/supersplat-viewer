@@ -70,15 +70,13 @@ const screenToWorld = (camera, dx, dy, dz, out = new Vec3()) => {
 class AppController {
     _camera;
 
-    _axis = new Vec3();
-
-    _touches = 0;
-
-    _mouse = [0, 0, 0];
-
-    _shift = 0;
-
-    _ctrl = 0;
+    _state = {
+        axis: new Vec3(),
+        mouse: [0, 0, 0],
+        shift: 0,
+        ctrl: 0,
+        touches: 0
+    };
 
     _desktopInput = new KeyboardMouseSource();
 
@@ -146,35 +144,36 @@ class AppController {
         const { leftStick, rightStick } = this._gamepadInput.read();
 
         // update state
-        this._axis.add(tmpV1.set(
+        this._state.axis.add(tmpV1.set(
             (key[keyCode.D] - key[keyCode.A]) + (key[keyCode.RIGHT] - key[keyCode.LEFT]),
             (key[keyCode.E] - key[keyCode.Q]),
             (key[keyCode.W] - key[keyCode.S]) + (key[keyCode.UP] - key[keyCode.DOWN])
         ));
-        this._touches += count[0];
+        this._state.touches += count[0];
         for (let i = 0; i < button.length; i++) {
-            this._mouse[i] += button[i];
+            this._state.mouse[i] += button[i];
         }
-        this._shift += key[keyCode.SHIFT];
-        this._ctrl += key[keyCode.CTRL];
+        this._state.shift += key[keyCode.SHIFT];
+        this._state.ctrl += key[keyCode.CTRL];
 
-        if (state.cameraMode !== 'fly' && this._axis.length() > 0) {
+        if (state.cameraMode !== 'fly' && this._state.axis.length() > 0) {
             state.snap = true;
             state.cameraMode = 'fly';
         }
 
         const orbit = +(state.cameraMode === 'orbit');
         const fly = +(state.cameraMode === 'fly');
-        const pan = +(this._touches > 1);
+        const double = +(this._state.touches > 1);
+        const pan = this._state.mouse[2] || +(button[2] === -1) || double;
 
         const { deltas } = this.frame;
 
         // desktop move
         const v = tmpV1.set(0, 0, 0);
-        const keyMove = this._axis.clone().normalize();
-        v.add(keyMove.mulScalar(fly * this.moveSpeed * (this._shift ? 2 : this._ctrl ? 0.5 : 1) * dt));
+        const keyMove = this._state.axis.clone().normalize();
+        v.add(keyMove.mulScalar(fly * this.moveSpeed * (this._state.shift ? 2 : this._state.ctrl ? 0.5 : 1) * dt));
         const panMove = screenToWorld(this._camera, mouse[0], mouse[1], distance);
-        v.add(panMove.mulScalar(this._mouse[2]));
+        v.add(panMove.mulScalar(pan));
         const wheelMove = new Vec3(0, 0, -wheel[0]);
         v.add(wheelMove.mulScalar(this.wheelSpeed * dt));
         // FIXME: need to flip z axis for orbit camera
@@ -183,7 +182,7 @@ class AppController {
         // desktop rotate
         v.set(0, 0, 0);
         const mouseRotate = new Vec3(mouse[0], mouse[1], 0);
-        v.add(mouseRotate.mulScalar((1 - this._mouse[2]) * this.orbitSpeed * dt));
+        v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // mobile move
@@ -193,7 +192,7 @@ class AppController {
         const flyMove = new Vec3(leftInput[0], 0, -leftInput[1]);
         v.add(flyMove.mulScalar(fly * this.moveSpeed * this.touchSensitivity * dt));
         const pinchMove = new Vec3(0, 0, pinch[0]);
-        v.add(pinchMove.mulScalar(orbit * pan * this.pinchSpeed * dt));
+        v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * dt));
         deltas.move.append([v.x, v.y, v.z]);
 
         // mobile rotate
