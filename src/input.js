@@ -105,8 +105,6 @@ class AppController {
 
     wheelSpeed = 0.06;
 
-    touchSensitivity = 0.5;
-
     /**
      * @param {HTMLElement} element - the element to attach the input to
      * @param {CameraComponent} camera - the camera component to control
@@ -192,7 +190,7 @@ class AppController {
         const orbitMove = screenToWorld(this._camera, touch[0], touch[1], distance);
         v.add(orbitMove.mulScalar(orbit * pan));
         const flyMove = new Vec3(leftInput[0], 0, -leftInput[1]);
-        v.add(flyMove.mulScalar(fly * this.moveSpeed * this.touchSensitivity * dt));
+        v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
         const pinchMove = new Vec3(0, 0, pinch[0]);
         v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * dt));
         deltas.move.append([v.x, v.y, v.z]);
@@ -200,9 +198,9 @@ class AppController {
         // mobile rotate
         v.set(0, 0, 0);
         const orbitRotate = new Vec3(touch[0], touch[1], 0);
-        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * this.touchSensitivity * dt));
+        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * dt));
         const flyRotate = new Vec3(rightInput[0], rightInput[1], 0);
-        v.add(flyRotate.mulScalar(fly * this.orbitSpeed * this.touchSensitivity * orbitFactor * dt));
+        v.add(flyRotate.mulScalar(fly * this.orbitSpeed * orbitFactor * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // gamepad move
