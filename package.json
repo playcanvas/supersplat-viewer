@@ -38,7 +38,7 @@
     "concurrently": "^9.2.0",
     "eslint": "^9.32.0",
     "globals": "^16.3.0",
-    "playcanvas": "^2.10.3",
+    "playcanvas": "^2.10.6",
     "rollup": "^4.46.2",
     "rollup-plugin-copy": "^3.5.0",
     "serve": "^14.2.4"
