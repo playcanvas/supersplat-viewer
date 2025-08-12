@@ -168,6 +168,8 @@ class AppController {
         const fly = +(state.cameraMode === 'fly');
         const pan = +(this._touches > 1);
 
+        const orbitSpeed = this.orbitSpeed * this._camera.fov / 180;
+
         const { deltas } = this.frame;
 
         // desktop move
@@ -184,7 +186,7 @@ class AppController {
         // desktop rotate
         v.set(0, 0, 0);
         const mouseRotate = new Vec3(mouse[0], mouse[1], 0);
-        v.add(mouseRotate.mulScalar((1 - this._mouse[2]) * this.orbitSpeed * dt));
+        v.add(mouseRotate.mulScalar((1 - this._mouse[2]) * orbitSpeed * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // mobile move
@@ -201,9 +203,9 @@ class AppController {
         // mobile rotate
         v.set(0, 0, 0);
         const orbitRotate = new Vec3(touch[0], touch[1], 0);
-        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * dt));
+        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * orbitSpeed * dt));
         const flyRotate = new Vec3(rightInput[0], rightInput[1], 0);
-        v.add(flyRotate.mulScalar(fly * this.orbitSpeed * dt));
+        v.add(flyRotate.mulScalar(fly * orbitSpeed * dt));
         v.mulScalar(touchSensitivity);
         deltas.rotate.append([v.x, v.y, v.z]);
 
@@ -216,7 +218,7 @@ class AppController {
         // gamepad rotate
         v.set(0, 0, 0);
         const stickRotate = new Vec3(rightStick[0], rightStick[1], 0);
-        v.add(stickRotate.mulScalar(this.orbitSpeed * dt));
+        v.add(stickRotate.mulScalar(orbitSpeed * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
     }
 }
