@@ -38,6 +38,173 @@ const v = new Vec3();
 // get experience parameters
 const params = window.sse?.params ?? {};
 
+// IndexedDB工具函数
+const dbName = 'ply_cache_db';
+const storeName = 'ply_cache';
+const CACHE_EXPIRY_DAYS = 7; // 缓存过期时间：7天
+
+/**
+ * 获取缓存过期时间戳
+ * @returns {number} 过期时间戳
+ */
+const getExpiryTimestamp = () => {
+    const now = Date.now();
+    const expiryMs = CACHE_EXPIRY_DAYS * 24 * 60 * 60 * 1000; // 7天的毫秒数
+    return now + expiryMs;
+};
+
+/**
+ * 检查缓存是否过期
+ * @param {number} timestamp - 缓存时间戳
+ * @returns {boolean} 是否过期
+ */
+const isCacheExpired = (timestamp) => {
+    return Date.now() > timestamp;
+};
+
+/**
+ * 按需清理过期缓存（仅在读取缓存时发现过期才清理）
+ * @param {string} key - 缓存键
+ */
+const cleanupExpiredCacheOnDemand = async (key) => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const request = store.delete(key);
+        request.onsuccess = () => {
+            resolve();
+        };
+        request.onerror = () => reject(request.error);
+    });
+};
+
+/**
+ * 定期清理过期缓存（可选，可在空闲时调用）
+ * @returns {Promise<number>} 清理的缓存数量
+ */
+const cleanupExpiredCache = async () => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const index = store.index('timestamp');
+        const request = index.openCursor();
+
+        let deletedCount = 0;
+
+        request.onsuccess = (event) => {
+            const cursor = event.target.result;
+            if (cursor) {
+                const record = cursor.value;
+                if (isCacheExpired(record.expiry)) {
+                    cursor.delete();
+                    deletedCount++;
+                }
+                cursor.continue();
+            } else {
+                if (deletedCount > 0) {
+                    console.log(`定期清理了 ${deletedCount} 个过期缓存`);
+                }
+                resolve(deletedCount);
+            }
+        };
+
+        request.onerror = () => reject(request.error);
+    });
+};
+
+const getCachedData = async (key) => {
+    const db = await openDB();
+    return new Promise((resolve) => {
+        const tx = db.transaction(storeName, 'readonly');
+        const store = tx.objectStore(storeName);
+        const request = store.get(key);
+        request.onsuccess = () => {
+            const result = request.result;
+            if (result && !isCacheExpired(result.expiry)) {
+                resolve(result.data);
+            } else {
+                // 缓存不存在或已过期，按需清理过期缓存
+                if (result && isCacheExpired(result.expiry)) {
+                    cleanupExpiredCacheOnDemand(key).catch(console.warn);
+                }
+                resolve(null);
+            }
+        };
+    });
+};
+
+const cacheData = async (key, data) => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const record = {
+            key,
+            data,
+            timestamp: Date.now(),
+            expiry: getExpiryTimestamp()
+        };
+        store.put(record);
+        tx.oncomplete = resolve;
+        tx.onerror = reject;
+    });
+};
+
+const openDB = async () => {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(dbName, 1);
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(storeName)) {
+                const store = db.createObjectStore(storeName, { keyPath: 'key' });
+                store.createIndex('timestamp', 'timestamp');
+                store.createIndex('expiry', 'expiry');
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+};
+
+/**
+ * 手动清理所有缓存
+ */
+const clearAllCache = async () => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const request = store.clear();
+        request.onsuccess = () => {
+            resolve();
+        };
+        request.onerror = () => reject(request.error);
+    });
+};
+
+/**
+ * 序列化 GSplatCompressedData 对象
+ * @param {object} obj - GSplatCompressedData 对象
+ * @returns {object} 可序列化的对象
+ */
+const serializeGSplatCompressedData = (obj) => {
+    return {
+        comments: obj.comments,
+        chunkData: obj.chunkData,
+        numSplats: obj.numSplats,
+        shBands: obj.shBands,
+        shData0: obj.shData0,
+        shData1: obj.shData1,
+        shData2: obj.shData2,
+        vertexData: obj.vertexData,
+        numChunks: obj.numChunks,
+        isCompressed: obj.isCompressed,
+        elements: obj.elements
+    };
+};
+
 // displays a blurry poster image which resolves to sharp during loading
 const initPoster = (events) => {
     const element = document.getElementById('poster');
@@ -126,22 +293,39 @@ const initXr = (app, cameraElement, state, events) => {
     });
 };
 
-const loadContent = (app) => {
-    const { contentUrl, contents } = window.sse;
+const loadContent = (app, cachedData) => {
+    const { contentUrl, settings } = window.sse;
 
     const filename = new URL(contentUrl, location.href).pathname.split('/').pop();
+    const cacheKey = `${contentUrl}_true`; // 使用URL作为缓存键
 
     const asset = new Asset(filename, 'gsplat', {
         url: contentUrl,
-        filename,
-        contents
+        filename
     });
+
+    // 如果有缓存，直接用缓存数据
+    if (cachedData) {
+        asset.cachedData = cachedData;
+        setTimeout(() => {
+            asset.fire('progress', 50, 100);
+        }, 10);
+    }
 
     asset.on('load', () => {
         const entity = new Entity('gsplat');
         entity.setLocalEulerAngles(0, 0, 180);
         entity.addComponent('gsplat', { asset });
+
         app.root.addChild(entity);
+    });
+    asset.on('load:data', (data) => {
+        if (!cachedData) {
+            const serializable = serializeGSplatCompressedData(data);
+            cacheData(cacheKey, serializable);
+        } else {
+            asset.fire('progress', 100, 100);
+        }
     });
 
     asset.on('error', (err) => {
@@ -180,12 +364,45 @@ const waitForGsplat = (app, state) => {
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // 立即显示加载状态，避免白屏
+    const loadingWrap = document.getElementById('loadingWrap');
+    const loadingText = document.getElementById('loadingText');
+    const loadingBar = document.getElementById('loadingBar');
+
+    if (loadingWrap) {
+        loadingWrap.classList.remove('hidden');
+        // 立即显示0%进度
+        if (loadingText) loadingText.textContent = '0%';
+        if (loadingBar) loadingBar.style.backgroundImage = 'linear-gradient(90deg, #F60 0%, #F60 0%, white 0%, white 100%)';
+    }
+
     const appElement = /** @type {AppElement} */ (document.querySelector('pc-app'));
+
+    // 显示PlayCanvas初始化进度
+    if (loadingText) loadingText.textContent = '初始化引擎...';
+    if (loadingBar) loadingBar.style.backgroundImage = 'linear-gradient(90deg, #F60 0%, #F60 10%, white 10%, white 100%)';
+
     const app = (await appElement.ready()).app;
     const { graphicsDevice } = app;
 
     // enable anonymous CORS for image loading in safari
     app.loader.getHandler('texture').imgParser.crossOrigin = 'anonymous';
+
+    // 显示图形设备初始化进度
+    if (loadingText) loadingText.textContent = '初始化图形设备...';
+    if (loadingBar) loadingBar.style.backgroundImage = 'linear-gradient(90deg, #F60 0%, #F60 15%, white 15%, white 100%)';
+
+    // 可选：在页面空闲时进行定期清理（不影响加载速度）
+    // 使用 requestIdleCallback 在浏览器空闲时执行
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(async () => {
+            try {
+                await cleanupExpiredCache();
+            } catch (error) {
+                console.warn('定期缓存清理失败:', error);
+            }
+        }, { timeout: 10000 }); // 10秒超时
+    }
 
     // render skybox as plain equirect
     const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
@@ -196,7 +413,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     wgsl.set('skyboxPS', wgsl.get('skyboxPS').replace('mapRoughnessUv(uv, uniform.mipLevel)', 'uv'));
     wgsl.set('pickPS', pickDepthWgsl);
 
-    loadContent(app);
+    const { contentUrl } = window.sse;
+
+    const cacheKey = `${contentUrl}_true`; // 使用URL作为缓存键
+    // 尝试从IndexedDB读取缓存
+    let cachedData = null;
+    try {
+        // 显示缓存读取进度
+        if (loadingText) loadingText.textContent = '读取缓存...';
+        if (loadingBar) loadingBar.style.backgroundImage = 'linear-gradient(90deg, #F60 0%, #F60 20%, white 20%, white 100%)';
+
+        cachedData = await getCachedData(cacheKey);
+
+        // 缓存读取完成
+        if (loadingText) loadingText.textContent = cachedData ? '缓存命中' : '缓存未命中';
+        if (loadingBar) loadingBar.style.backgroundImage = 'linear-gradient(90deg, #F60 0%, #F60 40%, white 40%, white 100%)';
+    } catch (error) {
+        console.warn('Cache read error:', error);
+        if (loadingText) loadingText.textContent = '缓存读取失败';
+    }
+
+    loadContent(app, cachedData);
 
     const cameraElement = await /** @type {EntityElement} */ (document.querySelector('pc-entity[name="camera"]')).ready();
     const camera = cameraElement.entity;
