@@ -5,7 +5,7 @@ import { string } from 'rollup-plugin-string';
 export default [{
     input: 'src/index.js',
     output: {
-        dir: 'dist',
+        dir: 'public',
         format: 'esm',
         sourcemap: true
     },
@@ -14,21 +14,22 @@ export default [{
         copy({
             targets: [{
                 src: 'src/index.html',
-                dest: 'dist',
+                dest: 'public',
                 transform: (contents) => {
                     return contents.toString().replace('<base href="">', `<base href="${process.env.BASE_HREF ?? ''}">`);
                 }
             }, {
                 src: 'src/index.css',
-                dest: 'dist'
+                dest: 'public'
             }]
         })
     ]
 }, {
-    input: 'src/source.js',
+    input: 'src/module.js',
     output: {
-        file: 'dist/source.js',
-        format: 'esm'
+        dir: 'dist',
+        format: 'esm',
+        sourcemap: true
     },
     plugins: [
         string({

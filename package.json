@@ -10,7 +10,8 @@
     "import": "./dist/source.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "public"
   ],
   "keywords": [
     "playcanvas",
@@ -29,7 +30,7 @@
   "scripts": {
     "build": "rollup -c",
     "watch": "rollup -c -w",
-    "serve": "serve dist -C",
+    "serve": "serve public -C",
     "develop": "concurrently --kill-others \"npm run watch\" \"npm run serve\"",
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint src"
