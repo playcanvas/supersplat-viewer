@@ -3,16 +3,15 @@ import { InputController, Vec3, type InputFrame } from 'playcanvas';
 import { mod } from '../core/math.js';
 import { CubicSpline } from '../core/spline.js';
 
-
 // track an animation cursor with support for looping and ping-pong modes
 class AnimCursor {
-    duration = 0;
+    duration: number = 0;
 
     loopMode: 'none' | 'repeat' | 'pingpong' = 'none';
 
-    timer = 0;
+    timer: number = 0;
 
-    cursor = 0;
+    cursor: number = 0;
 
     constructor(duration: number, loopMode: 'none' | 'repeat' | 'pingpong') {
         this.reset(duration, loopMode);
@@ -34,14 +33,14 @@ class AnimCursor {
         }
     }
 
-    reset(duration, loopMode) {
+    reset(duration: number, loopMode: 'none' | 'repeat' | 'pingpong') {
         this.duration = duration;
         this.loopMode = loopMode;
         this.timer = 0;
         this.cursor = 0;
     }
 
-    set value(value) {
+    set value(value: number) {
         this.cursor = mod(value, this.duration);
     }
 
@@ -52,19 +51,19 @@ class AnimCursor {
 
 // Manage the state of a camera animation track
 class AnimController extends InputController {
-    spline;
+    spline: CubicSpline;
 
-    cursor = new AnimCursor(0, 'none');
+    cursor: AnimCursor = new AnimCursor(0, 'none');
 
-    frameRate;
+    frameRate: number;
 
-    result = [];
+    result: number[] = [];
 
-    position = new Vec3();
+    position: Vec3 = new Vec3();
 
-    target = new Vec3();
+    target: Vec3 = new Vec3();
 
-    constructor(spline, duration, loopMode, frameRate) {
+    constructor(spline: CubicSpline, duration: number, loopMode: 'none' | 'repeat' | 'pingpong', frameRate: number) {
         super();
         this.spline = spline;
         this.cursor.reset(duration, loopMode);
@@ -98,7 +97,18 @@ class AnimController extends InputController {
     }
 
     // construct an animation from a settings track
-    static fromTrack(track) {
+    static fromTrack(track: {
+        keyframes: {
+            times: number[];
+            values: {
+                position: number[];
+                target: number[];
+            };
+        };
+        duration: number;
+        frameRate: number;
+        loopMode: 'none' | 'repeat' | 'pingpong';
+    }) {
         const { keyframes, duration, frameRate, loopMode } = track;
         const { times, values } = keyframes;
         const { position, target } = values;
