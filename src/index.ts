@@ -179,7 +179,7 @@ const waitForGsplat = (app, state) => {
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
-    const appElement = /** @type {AppElement} */ (document.querySelector('pc-app'));
+    const appElement: AppElement = document.querySelector('pc-app');
     const app = (await appElement.ready()).app;
     const { graphicsDevice } = app;
 
@@ -197,7 +197,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     loadContent(app);
 
-    const cameraElement = await /** @type {EntityElement} */ (document.querySelector('pc-entity[name="camera"]')).ready();
+    const cameraElement = await (document.querySelector('pc-entity[name="camera"]') as EntityElement).ready();
     const camera = cameraElement.entity;
     const settings = migrateSettings(await window.sse?.settings);
     const events = new EventHandler();
