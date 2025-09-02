@@ -12,13 +12,13 @@ class Picker {
 
     picker: Picker_;
 
-    constructor(app, camera) {
+    constructor(app: AppBase, camera: Entity) {
         this.app = app;
         this.camera = camera;
         this.picker = null;
     }
 
-    async pick(x, y) {
+    async pick(x: number, y: number) {
         const { app, camera } = this;
         const { graphicsDevice } = app;
         const { canvas } = graphicsDevice;

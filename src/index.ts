@@ -1,12 +1,25 @@
 import '@playcanvas/web-components';
 import type { AppElement, EntityElement } from '@playcanvas/web-components';
-import { Asset, Color, Entity, EventHandler, MiniStats, Quat, ShaderChunks, type TextureHandler, Vec3, type Texture } from 'playcanvas';
+import {
+    Asset,
+    Color,
+    Entity,
+    EventHandler,
+    MiniStats,
+    Quat,
+    ShaderChunks,
+    Vec3,
+    type TextureHandler,
+    type Texture,
+    type AppBase,
+    type CameraComponent
+} from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
-import { migrateSettings } from './data-migrations.js';
-import { observe } from './observe.js';
-import { Viewer } from './viewer.js';
+import { migrateSettings } from './data-migrations';
+import { observe } from './observe';
+import { Viewer } from './viewer';
 
 
 // override global pick to pack depth instead of meshInstance id
@@ -38,11 +51,11 @@ const v = new Vec3();
 const params = window.sse?.params ?? {};
 
 // displays a blurry poster image which resolves to sharp during loading
-const initPoster = (events) => {
+const initPoster = (events: EventHandler) => {
     const element = document.getElementById('poster');
-    const blur = progress => `blur(${Math.floor((100 - progress) * 0.4)}px)`;
+    const blur = (progress: number) => `blur(${Math.floor((100 - progress) * 0.4)}px)`;
 
-    events.on('progress:changed', (progress) => {
+    events.on('progress:changed', (progress: number) => {
         element.style.filter = blur(progress);
     });
 
@@ -52,7 +65,7 @@ const initPoster = (events) => {
 };
 
 // On entering/exiting AR, we need to set the camera clear color to transparent black
-const initXr = (app, cameraElement, state, events) => {
+const initXr = (app: AppBase, cameraElement: EntityElement, state: any, events: EventHandler) => {
 
     // initialize ar/vr
     app.xr.on('available:immersive-ar', (available) => {
@@ -62,7 +75,7 @@ const initXr = (app, cameraElement, state, events) => {
         state.hasVR = available;
     });
 
-    const parent = cameraElement.parentElement.entity;
+    const parent = (cameraElement.parentElement as EntityElement).entity;
     const camera = cameraElement.entity;
     const clearColor = new Color();
 
@@ -111,11 +124,11 @@ const initXr = (app, cameraElement, state, events) => {
     });
 
     events.on('startAR', () => {
-        app.xr.start(app.root.findComponent('camera'), 'immersive-ar', 'local-floor');
+        app.xr.start(app.root.findComponent('camera') as CameraComponent, 'immersive-ar', 'local-floor');
     });
 
     events.on('startVR', () => {
-        app.xr.start(app.root.findComponent('camera'), 'immersive-vr', 'local-floor');
+        app.xr.start(app.root.findComponent('camera') as CameraComponent, 'immersive-vr', 'local-floor');
     });
 
     events.on('inputEvent', (event) => {
@@ -125,7 +138,7 @@ const initXr = (app, cameraElement, state, events) => {
     });
 };
 
-const loadContent = (app) => {
+const loadContent = (app: AppBase) => {
     const { contentUrl, contents } = window.sse;
 
     const filename = new URL(contentUrl, location.href).pathname.split('/').pop();
@@ -151,7 +164,7 @@ const loadContent = (app) => {
     app.assets.load(asset);
 };
 
-const waitForGsplat = (app, state) => {
+const waitForGsplat = (app: AppBase, state: any) => {
     return new Promise((resolve) => {
         const assets = app.assets.filter(asset => asset.type === 'gsplat');
         if (assets.length > 0) {
@@ -371,7 +384,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     vrChanged();
 
     // Info panel
-    const updateInfoTab = (tab) => {
+    const updateInfoTab = (tab: 'desktop' | 'touch') => {
         if (tab === 'desktop') {
             dom.desktopTab.classList.add('active');
             dom.touchTab.classList.remove('active');
@@ -423,7 +436,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // show the ui and start a timer to hide it again
-    let uiTimeout = null;
+    let uiTimeout: ReturnType<typeof setTimeout> | null = null;
     const showUI = () => {
         if (uiTimeout) {
             clearTimeout(uiTimeout);
@@ -488,7 +501,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         events.on('animationTime:changed', updateSlider);
         events.on('animationLength:changed', updateSlider);
 
-        const handleScrub = (event) => {
+        const handleScrub = (event: PointerEvent) => {
             const rect = dom.timelineContainer.getBoundingClientRect();
             const t = Math.max(0, Math.min(rect.width - 1, event.clientX - rect.left)) / rect.width;
             events.fire('setAnimationTime', state.animationDuration * t);
@@ -497,7 +510,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         let paused = false;
         let captured = false;
 
-        dom.timelineContainer.addEventListener('pointerdown', (event) => {
+        dom.timelineContainer.addEventListener('pointerdown', (event: PointerEvent) => {
             if (!captured) {
                 handleScrub(event);
                 dom.timelineContainer.setPointerCapture(event.pointerId);
@@ -508,7 +521,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
 
-        dom.timelineContainer.addEventListener('pointermove', (event) => {
+        dom.timelineContainer.addEventListener('pointermove', (event: PointerEvent) => {
             if (captured) {
                 handleScrub(event);
             }

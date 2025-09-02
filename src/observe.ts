@@ -1,5 +1,7 @@
+import { type EventHandler } from 'playcanvas';
+
 // creates an observer proxy object to wrap some target object. fires events when properties change.
-const observe = (events, target) => {
+const observe = (events: EventHandler, target: any) => {
     const members = new Set(Object.keys(target));
 
     return new Proxy(target, {

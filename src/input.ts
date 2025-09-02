@@ -90,10 +90,10 @@ class AppController {
         rotate: [0, 0, 0]
     });
 
-    joystick = {
-        base: null,
-        stick: null
-    };
+    joystick: {
+        base: [number, number] | null,
+        stick: [number, number] | null
+    } = { base: null, stick: null };
 
     // this gets overridden by the viewer based on scene size
     moveSpeed: number = 1;

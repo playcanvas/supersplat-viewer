@@ -1,9 +1,10 @@
 import { InputController, Vec3, type InputFrame } from 'playcanvas';
 
-import { mod } from '../core/math.js';
-import { CubicSpline } from '../core/spline.js';
+import { mod } from '../core/math';
+import { CubicSpline } from '../core/spline';
 
 export type AnimTrack = {
+    name: string;
     keyframes: {
         times: number[];
         values: {
@@ -13,6 +14,8 @@ export type AnimTrack = {
     };
     duration: number;
     frameRate: number;
+    target: 'camera';
+    interpolation: 'spline';
     loopMode: 'none' | 'repeat' | 'pingpong';
 }
 

@@ -18,6 +18,7 @@ export default [
         },
         rules: {
             'import/default': 'off',
+            'import/extensions': 'off',
             'import/no-unresolved': 'off',
             'jsdoc/require-param-type': 'off',
             'jsdoc/require-returns-type': 'off',

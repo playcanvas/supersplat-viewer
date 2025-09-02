@@ -10,10 +10,10 @@ import {
 } from 'playcanvas';
 import type { AppBase, Entity, EventHandler, GSplatComponent, InputController } from 'playcanvas';
 
-import { AnimController, AnimTrack } from './controllers/anim-controller.js';
-import { easeOut } from './core/math.js';
-import { AppController } from './input.js';
-import { Picker } from './picker.js';
+import { AnimController, AnimTrack } from './controllers/anim-controller';
+import { easeOut } from './core/math';
+import { AppController } from './input';
+import { Picker } from './picker';
 
 
 const pose = new Pose();
@@ -56,9 +56,12 @@ const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 
     }
 
     return {
+        name: 'rotate',
         duration,
         frameRate: 1,
+        target: 'camera',
         loopMode: 'repeat',
+        interpolation: 'spline',
         keyframes: {
             times,
             values: {
@@ -80,7 +83,7 @@ class Viewer {
 
     settings: any;
 
-    constructor(app, entity, events, state, settings, params) {
+    constructor(app: AppBase, entity: Entity, events: EventHandler, state: any, settings: any, params: any) {
         const { background, camera } = settings;
         const { graphicsDevice } = app;
 
@@ -114,7 +117,7 @@ class Viewer {
         app.on('framerender', () => {
             const world = this.entity.getWorldTransform();
             const proj = this.entity.camera.projectionMatrix;
-            const nearlyEquals = (a, b, epsilon = 1e-4) => {
+            const nearlyEquals = (a: Float32Array<ArrayBufferLike>, b: Float32Array<ArrayBufferLike>, epsilon = 1e-4) => {
                 return !a.some((v, i) => Math.abs(v - b[i]) >= epsilon);
             };
 
@@ -191,7 +194,7 @@ class Viewer {
 
             // extract the camera animation track from settings
             if (animTracks?.length > 0 && camera.startAnim === 'animTrack') {
-                const track = animTracks.find(track => track.name === camera.animTrack);
+                const track = animTracks.find((track: AnimTrack) => track.name === camera.animTrack);
                 if (track) {
                     return AnimController.fromTrack(track);
                 }
@@ -263,12 +266,12 @@ class Viewer {
 
         // the previous camera we're transitioning away from
         const prevPose = new Pose();
-        let prevCamera = null;
+        let prevCamera: InputController | null = null;
         let prevCameraMode = 'orbit';
 
         // handle input events
         events.on('inputEvent', (eventName, event) => {
-            const doReset = (pose) => {
+            const doReset = (pose: Pose) => {
                 switch (state.cameraMode) {
                     case 'orbit': {
                         orbitCamera.attach(pose, true);
@@ -381,7 +384,7 @@ class Viewer {
         });
 
         // pick orbit camera focus point on double click
-        let picker = null;
+        let picker: Picker | null = null;
         events.on('inputEvent', async (eventName, event) => {
             switch (eventName) {
                 case 'dblclick': {
