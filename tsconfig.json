@@ -1,0 +1,13 @@
+{
+    "compilerOptions": {
+        "allowJs": true,
+        "checkJs": true,
+        "declaration": true,
+        "emitDeclarationOnly": true,
+
+        "target": "es2022",
+        "module": "es2020",
+        "moduleResolution": "bundler"
+    },
+    "includes": ["src", "types.d.ts"]
+}
