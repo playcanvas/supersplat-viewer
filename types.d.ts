@@ -1,4 +1,4 @@
-
+/* eslint-disable no-unused-vars */
 interface Window {
     sse: {
         poster?: HTMLImageElement,
@@ -17,6 +17,11 @@ declare module '*.html' {
 }
 
 declare module '*.css' {
+    const content: string;
+    export default content;
+}
+
+declare module '*.js' {
     const content: string;
     export default content;
 }

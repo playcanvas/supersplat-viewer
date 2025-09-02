@@ -4,6 +4,6 @@
         "module": "es2020",
         "moduleResolution": "bundler"
     },
-    "includes": ["src", "types.d.ts"],
+    "includes": ["src", "module", "types.d.ts"],
     "exclude": ["dist", "public"]
 }

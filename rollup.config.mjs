@@ -27,7 +27,7 @@ export default [{
         })
     ]
 }, {
-    input: 'src/module.ts',
+    input: 'module/index.ts',
     output: {
         file: 'dist/index.js',
         format: 'esm',
@@ -35,15 +35,12 @@ export default [{
     },
     plugins: [
         string({
-            include: ['src/index.html', 'src/index.css', 'src/index.ts'],
-            transform: (contents) => {
-                return contents.toString().replace('<base href="">', `<base href="${process.env.BASE_HREF ?? ''}">`);
-            }
+            include: ['**/*.html', '**/*.css', '**/*.js']
         }),
-        typescript(),
+        typescript({ noEmit: true }),
         copy({
             targets: [
-                { src: 'src/module.d.ts', dest: 'dist', rename: 'index.d.ts' }
+                { src: 'module/index.d.ts', dest: 'dist' }
             ]
         })
     ]

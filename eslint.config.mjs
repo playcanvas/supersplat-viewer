@@ -1,29 +1,35 @@
 import playcanvasConfig from '@playcanvas/eslint-config';
+import tsPlugin from '@typescript-eslint/eslint-plugin';
+import tsParser from '@typescript-eslint/parser';
 import globals from 'globals';
 
 export default [
     ...playcanvasConfig,
     {
-        files: ['src/*.js'],
+        files: ['**/*.ts'],
         languageOptions: {
-            ecmaVersion: 2022,
-            sourceType: 'module',
+            parser: tsParser,
             globals: {
                 ...globals.browser
             }
         },
+        plugins: {
+            '@typescript-eslint': tsPlugin
+        },
         rules: {
-            'import/default': 'off'
+            'import/default': 'off',
+            'import/no-unresolved': 'off'
         }
     },
     {
         files: ['**/*.mjs'],
         languageOptions: {
-            ecmaVersion: 2022,
-            sourceType: 'module',
             globals: {
                 ...globals.node
             }
+        },
+        rules: {
+            'import/no-unresolved': 'off'
         }
     }
 ];
