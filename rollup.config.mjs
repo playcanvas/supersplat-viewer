@@ -1,5 +1,6 @@
 import resolve from '@rollup/plugin-node-resolve';
 import copy from 'rollup-plugin-copy';
+import { string } from 'rollup-plugin-string';
 
 export default [{
     input: 'src/index.js',
@@ -21,6 +22,17 @@ export default [{
                 src: 'src/index.css',
                 dest: 'dist'
             }]
+        })
+    ]
+}, {
+    input: 'src/source.js',
+    output: {
+        file: 'dist/source.js',
+        format: 'esm'
+    },
+    plugins: [
+        string({
+            include: ['src/index.html', 'src/index.css', 'src/index.js']
         })
     ]
 }];

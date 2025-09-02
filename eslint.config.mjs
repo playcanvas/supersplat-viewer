@@ -11,6 +11,9 @@ export default [
             globals: {
                 ...globals.browser
             }
+        },
+        rules: {
+            'import/default': 'off'
         }
     },
     {

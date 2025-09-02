@@ -5,7 +5,10 @@
   "homepage": "https://github.com/playcanvas/supersplat-viewer#readme",
   "description": "Viewer for https://superspl.at",
   "license": "MIT",
-  "main": "index.js",
+  "exports": {
+    "types": "./dist/source.d.ts",
+    "import": "./dist/source.js"
+  },
   "files": [
     "dist"
   ],
@@ -41,6 +44,7 @@
     "playcanvas": "^2.10.6",
     "rollup": "^4.46.2",
     "rollup-plugin-copy": "^3.5.0",
+    "rollup-plugin-string": "^3.0.0",
     "serve": "^14.2.4"
   }
 }
