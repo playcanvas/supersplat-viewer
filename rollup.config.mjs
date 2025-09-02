@@ -1,9 +1,10 @@
 import resolve from '@rollup/plugin-node-resolve';
+import typescript from '@rollup/plugin-typescript';
 import copy from 'rollup-plugin-copy';
 import { string } from 'rollup-plugin-string';
 
 export default [{
-    input: 'src/index.js',
+    input: 'src/index.ts',
     output: {
         dir: 'public',
         format: 'esm',
@@ -11,6 +12,7 @@ export default [{
     },
     plugins: [
         resolve(),
+        typescript(),
         copy({
             targets: [{
                 src: 'src/index.html',
@@ -25,15 +27,19 @@ export default [{
         })
     ]
 }, {
-    input: 'src/module.js',
+    input: 'src/module.ts',
     output: {
         dir: 'dist',
         format: 'esm',
         sourcemap: true
     },
     plugins: [
+        typescript(),
         string({
-            include: ['src/index.html', 'src/index.css', 'src/index.js']
+            include: ['src/index.html', 'src/index.css', 'src/index.ts'],
+            transform: (contents) => {
+                return contents.toString().replace('<base href="">', `<base href="${process.env.BASE_HREF ?? ''}">`);
+            }
         })
     ]
 }];
