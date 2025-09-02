@@ -8,13 +8,13 @@ import {
     Vec2,
     Vec3
 } from 'playcanvas';
+import type { InputController } from 'playcanvas';
 
 import { AnimController } from './controllers/anim-controller.js';
 import { easeOut } from './core/math.js';
 import { AppController } from './input.js';
 import { Picker } from './picker.js';
 
-/** @import { InputController } from 'playcanvas' */
 
 const pose = new Pose();
 

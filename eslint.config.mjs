@@ -18,7 +18,10 @@ export default [
         },
         rules: {
             'import/default': 'off',
-            'import/no-unresolved': 'off'
+            'import/no-unresolved': 'off',
+            'jsdoc/require-param-type': 'off',
+            'jsdoc/require-returns-type': 'off',
+            'no-duplicate-imports': 'off'
         }
     },
     {

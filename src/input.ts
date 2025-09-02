@@ -8,8 +8,7 @@ import {
     PROJECTION_PERSPECTIVE,
     Vec3
 } from 'playcanvas';
-
-/** @import { CameraComponent } from 'playcanvas' */
+import type { CameraComponent } from 'playcanvas';
 
 const tmpV1 = new Vec3();
 const tmpV2 = new Vec3();

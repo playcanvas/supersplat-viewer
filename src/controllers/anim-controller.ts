@@ -1,25 +1,24 @@
-import { InputController, Vec3 } from 'playcanvas';
+import { InputController, Vec3, type InputFrame } from 'playcanvas';
 
 import { mod } from '../core/math.js';
 import { CubicSpline } from '../core/spline.js';
 
-/** @import { InputFrame, Pose } from 'playcanvas' */
 
 // track an animation cursor with support for looping and ping-pong modes
 class AnimCursor {
     duration = 0;
 
-    loopMode = 'none';
+    loopMode: 'none' | 'repeat' | 'pingpong' = 'none';
 
     timer = 0;
 
     cursor = 0;
 
-    constructor(duration, loopMode) {
+    constructor(duration: number, loopMode: 'none' | 'repeat' | 'pingpong') {
         this.reset(duration, loopMode);
     }
 
-    update(deltaTime) {
+    update(deltaTime: number) {
         // update animation timer
         this.timer += deltaTime;
 
@@ -55,7 +54,7 @@ class AnimCursor {
 class AnimController extends InputController {
     spline;
 
-    cursor = new AnimCursor();
+    cursor = new AnimCursor(0, 'none');
 
     frameRate;
 
@@ -73,11 +72,11 @@ class AnimController extends InputController {
     }
 
     /**
-     * @param {InputFrame<{ move: number[], rotate: number[] }>} frame - The input frame.
-     * @param {number} dt - The delta time.
-     * @returns {Pose} - The controller pose.
+     * @param frame - The input frame.
+     * @param dt - The delta time.
+     * @returns - The controller pose.
      */
-    update(frame, dt) {
+    update(frame: InputFrame<{ move: number[], rotate: number[] }>, dt: number) {
         // discard frame
         frame.read();
 

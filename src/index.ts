@@ -1,5 +1,6 @@
 import '@playcanvas/web-components';
-import { Asset, Color, Entity, EventHandler, MiniStats, Quat, ShaderChunks, Vec3 } from 'playcanvas';
+import type { AppElement, EntityElement } from '@playcanvas/web-components';
+import { Asset, Color, Entity, EventHandler, MiniStats, Quat, ShaderChunks, Vec3, type Texture } from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
@@ -7,8 +8,6 @@ import { migrateSettings } from './data-migrations.js';
 import { observe } from './observe.js';
 import { Viewer } from './viewer.js';
 
-/** @import { AppElement, EntityElement } from '@playcanvas/web-components' */
-/** @import { Texture } from 'playcanvas' */
 
 // override global pick to pack depth instead of meshInstance id
 const pickDepthGlsl = /* glsl */ `
