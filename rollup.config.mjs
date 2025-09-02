@@ -29,17 +29,22 @@ export default [{
 }, {
     input: 'src/module.ts',
     output: {
-        dir: 'dist',
+        file: 'dist/index.js',
         format: 'esm',
         sourcemap: true
     },
     plugins: [
-        typescript(),
         string({
             include: ['src/index.html', 'src/index.css', 'src/index.ts'],
             transform: (contents) => {
                 return contents.toString().replace('<base href="">', `<base href="${process.env.BASE_HREF ?? ''}">`);
             }
+        }),
+        typescript(),
+        copy({
+            targets: [
+                { src: 'src/module.d.ts', dest: 'dist', rename: 'index.d.ts' }
+            ]
         })
     ]
 }];
