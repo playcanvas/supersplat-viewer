@@ -651,5 +651,3 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 });
-
-export default {};
