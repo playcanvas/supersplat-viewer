@@ -235,7 +235,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         skyAsset.on('load', () => {
-            app.scene.envAtlas = /** @type {Texture} */ (skyAsset.resource);
+            app.scene.envAtlas = skyAsset.resource as Texture;
         });
 
         app.assets.add(skyAsset);

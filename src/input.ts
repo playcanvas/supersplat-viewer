@@ -16,15 +16,15 @@ const tmpV2 = new Vec3();
 /**
  * Converts screen space mouse deltas to world space pan vector.
  *
- * @param {CameraComponent} camera - The camera component.
- * @param {number} dx - The mouse delta x value.
- * @param {number} dy - The mouse delta y value.
- * @param {number} dz - The world space zoom delta value.
- * @param {Vec3} [out] - The output vector to store the pan result.
- * @returns {Vec3} - The pan vector in world space.
+ * @param camera - The camera component.
+ * @param dx - The mouse delta x value.
+ * @param dy - The mouse delta y value.
+ * @param dz - The world space zoom delta value.
+ * @param out - The output vector to store the pan result.
+ * @returns - The pan vector in world space.
  * @private
  */
-const screenToWorld = (camera, dx, dy, dz, out = new Vec3()) => {
+const screenToWorld = (camera: CameraComponent, dx: number, dy: number, dz: number, out: Vec3 = new Vec3()) => {
     const { system, fov, aspectRatio, horizontalFov, projection, orthoHeight } = camera;
     const { width, height } = system.app.graphicsDevice.clientRect;
 
@@ -67,9 +67,9 @@ const screenToWorld = (camera, dx, dy, dz, out = new Vec3()) => {
 };
 
 class AppController {
-    _camera;
+    private _camera: CameraComponent;
 
-    _state = {
+    private _state = {
         axis: new Vec3(),
         mouse: [0, 0, 0],
         shift: 0,
@@ -77,13 +77,13 @@ class AppController {
         touches: 0
     };
 
-    _desktopInput = new KeyboardMouseSource();
+    private _desktopInput: KeyboardMouseSource = new KeyboardMouseSource();
 
-    _orbitInput = new MultiTouchSource();
+    private _orbitInput = new MultiTouchSource();
 
-    _flyInput = new DualGestureSource();
+    private _flyInput = new DualGestureSource();
 
-    _gamepadInput = new GamepadSource();
+    private _gamepadInput = new GamepadSource();
 
     frame = new InputFrame({
         move: [0, 0, 0],
@@ -96,19 +96,19 @@ class AppController {
     };
 
     // this gets overridden by the viewer based on scene size
-    moveSpeed = 1;
+    moveSpeed: number = 1;
 
-    orbitSpeed = 18;
+    orbitSpeed: number = 18;
 
-    pinchSpeed = 0.4;
+    pinchSpeed: number = 0.4;
 
-    wheelSpeed = 0.06;
+    wheelSpeed: number = 0.06;
 
     /**
-     * @param {HTMLElement} element - the element to attach the input to
-     * @param {CameraComponent} camera - the camera component to control
+     * @param element - the element to attach the input to
+     * @param camera - the camera component to control
      */
-    constructor(element, camera) {
+    constructor(element: HTMLElement, camera: CameraComponent) {
         this._desktopInput.attach(element);
         this._orbitInput.attach(element);
         this._flyInput.attach(element);
@@ -128,11 +128,13 @@ class AppController {
     }
 
     /**
-     * @param {number} dt - delta time in seconds
-     * @param {{ cameraMode: 'anim' | 'fly' | 'orbit', snap: boolean }} state - the current state of the app
-     * @param {number} distance - the distance to the camera target
+     * @param dt - delta time in seconds
+     * @param state - the current state of the app
+     * @param state.cameraMode - the current camera mode
+     * @param state.snap - whether the camera is snapped to the target
+     * @param distance - the distance to the camera target
      */
-    update(dt, state, distance) {
+    update(dt: number, state: { cameraMode: 'anim' | 'fly' | 'orbit', snap: boolean }, distance: number) {
         const { keyCode } = KeyboardMouseSource;
 
         const { key, button, mouse, wheel } = this._desktopInput.read();

@@ -8,7 +8,7 @@ import {
     Vec2,
     Vec3
 } from 'playcanvas';
-import type { InputController } from 'playcanvas';
+import type { AppBase, Entity, EventHandler, InputController } from 'playcanvas';
 
 import { AnimController } from './controllers/anim-controller.js';
 import { easeOut } from './core/math.js';
@@ -21,15 +21,15 @@ const pose = new Pose();
 /**
  * Creates a rotation animation track
  *
- * @param {Pose} initial - The initial pose of the camera.
- * @param {number} [keys] - The number of keys in the animation.
- * @param {number} [duration] - The duration of the animation in seconds.
- * @returns {object} - The animation track object containing position and target keyframes.
+ * @param initial - The initial pose of the camera.
+ * @param keys - The number of keys in the animation.
+ * @param duration - The duration of the animation in seconds.
+ * @returns - The animation track object containing position and target keyframes.
  */
-const createRotateTrack = (initial, keys = 12, duration = 20) => {
+const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 20) => {
     const times = new Array(keys).fill(0).map((_, i) => i / keys * duration);
-    const position = [];
-    const target = [];
+    const position: number[] = [];
+    const target: number[] = [];
 
     const initialTarget = new Vec3();
     initial.getFocus(initialTarget);
@@ -73,6 +73,16 @@ const createRotateTrack = (initial, keys = 12, duration = 20) => {
 };
 
 class Viewer {
+    app: AppBase;
+
+    entity: Entity;
+
+    events: EventHandler;
+
+    state: any;
+
+    settings: any;
+
     constructor(app, entity, events, state, settings, params) {
         const { background, camera } = settings;
         const { graphicsDevice } = app;
@@ -215,11 +225,7 @@ class Viewer {
             return flyCamera;
         })();
 
-        /**
-         * @param {'orbit' | 'anim' | 'fly'} cameraMode - the camera mode to get
-         * @returns {InputController} the camera instance for the given mode
-         */
-        const getCamera = (cameraMode) => {
+        const getCamera = (cameraMode: 'orbit' | 'anim' | 'fly'): InputController => {
             switch (cameraMode) {
                 case 'orbit': return orbitCamera;
                 case 'anim': return animCamera;
