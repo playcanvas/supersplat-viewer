@@ -1,4 +1,4 @@
-const migrateAnimTrack = (track) => {
+const migrateAnimTrack = (track: { frameRate: number, keyframes: { times: number[] } }) => {
     if (!track.frameRate) {
         const defaultFrameRate = 30;
 
@@ -10,7 +10,7 @@ const migrateAnimTrack = (track) => {
     }
 };
 
-const migrateSettings = (settings) => {
+const migrateSettings = (settings: { animTracks?: any[] }) => {
     settings.animTracks?.forEach((track) => {
         migrateAnimTrack(track);
     });

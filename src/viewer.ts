@@ -8,9 +8,9 @@ import {
     Vec2,
     Vec3
 } from 'playcanvas';
-import type { AppBase, Entity, EventHandler, InputController } from 'playcanvas';
+import type { AppBase, Entity, EventHandler, GSplatComponent, InputController } from 'playcanvas';
 
-import { AnimController } from './controllers/anim-controller.js';
+import { AnimController, AnimTrack } from './controllers/anim-controller.js';
 import { easeOut } from './core/math.js';
 import { AppController } from './input.js';
 import { Picker } from './picker.js';
@@ -26,7 +26,7 @@ const pose = new Pose();
  * @param duration - The duration of the animation in seconds.
  * @returns - The animation track object containing position and target keyframes.
  */
-const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 20) => {
+const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 20): AnimTrack => {
     const times = new Array(keys).fill(0).map((_, i) => i / keys * duration);
     const position: number[] = [];
     const target: number[] = [];
@@ -56,12 +56,9 @@ const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 
     }
 
     return {
-        name: 'rotate',
         duration,
         frameRate: 1,
-        target: 'camera',
         loopMode: 'repeat',
-        interpolation: 'spline',
         keyframes: {
             times,
             values: {
@@ -155,7 +152,7 @@ class Viewer {
         const { app, entity, events, state, settings } = this;
 
         // get the gsplat
-        const gsplat = app.root.findComponent('gsplat');
+        const gsplat = app.root.findComponent('gsplat') as GSplatComponent;
 
         // calculate scene bounding box
         const bbox = gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();

@@ -4,6 +4,12 @@ const observe = (events, target) => {
 
     return new Proxy(target, {
         set(target, property, value, receiver) {
+            // prevent setting symbol properties
+            if (typeof property === 'symbol') {
+                console.log('err');
+                return false;
+            }
+
             // not allowed to set a new value on target
             if (!members.has(property)) {
                 console.log('err');

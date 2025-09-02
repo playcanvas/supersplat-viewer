@@ -1,6 +1,6 @@
 import '@playcanvas/web-components';
 import type { AppElement, EntityElement } from '@playcanvas/web-components';
-import { Asset, Color, Entity, EventHandler, MiniStats, Quat, ShaderChunks, Vec3, type Texture } from 'playcanvas';
+import { Asset, Color, Entity, EventHandler, MiniStats, Quat, ShaderChunks, type TextureHandler, Vec3, type Texture } from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
@@ -184,7 +184,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const { graphicsDevice } = app;
 
     // enable anonymous CORS for image loading in safari
-    app.loader.getHandler('texture').imgParser.crossOrigin = 'anonymous';
+    (app.loader.getHandler('texture') as TextureHandler).imgParser.crossOrigin = 'anonymous';
 
     // render skybox as plain equirect
     const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
@@ -275,10 +275,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         'reset', 'frame',
         'loadingText', 'loadingBar',
         'joystickBase', 'joystick'
-    ].reduce((acc, id) => {
+    ].reduce((acc: Record<string, HTMLElement>, id) => {
         acc[id] = document.getElementById(id);
         return acc;
-    }, /** @type {Record<string, HTMLElement>} */ ({}));
+    }, {});
 
     // Handle loading progress updates
     events.on('progress:changed', (progress) => {
@@ -615,12 +615,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // update input mode based on pointer event
     ['pointerdown', 'pointermove'].forEach((eventName) => {
-        window.addEventListener(eventName, (/** @type {PointerEvent} */ event) => {
+        window.addEventListener(eventName, (event: PointerEvent) => {
             state.inputMode = event.pointerType === 'touch' ? 'touch' : 'desktop';
         });
     });
 
-    window.addEventListener('keydown', (event) => {
+    window.addEventListener('keydown', (event: KeyboardEvent) => {
         if (event.key === 'Escape') {
             events.fire('inputEvent', 'cancel', event);
         } else if (!event.ctrlKey && !event.altKey && !event.metaKey) {

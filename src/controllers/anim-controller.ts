@@ -3,6 +3,19 @@ import { InputController, Vec3, type InputFrame } from 'playcanvas';
 import { mod } from '../core/math.js';
 import { CubicSpline } from '../core/spline.js';
 
+export type AnimTrack = {
+    keyframes: {
+        times: number[];
+        values: {
+            position: number[];
+            target: number[];
+        };
+    };
+    duration: number;
+    frameRate: number;
+    loopMode: 'none' | 'repeat' | 'pingpong';
+}
+
 // track an animation cursor with support for looping and ping-pong modes
 class AnimCursor {
     duration: number = 0;
@@ -97,18 +110,7 @@ class AnimController extends InputController {
     }
 
     // construct an animation from a settings track
-    static fromTrack(track: {
-        keyframes: {
-            times: number[];
-            values: {
-                position: number[];
-                target: number[];
-            };
-        };
-        duration: number;
-        frameRate: number;
-        loopMode: 'none' | 'repeat' | 'pingpong';
-    }) {
+    static fromTrack(track: AnimTrack) {
         const { keyframes, duration, frameRate, loopMode } = track;
         const { times, values } = keyframes;
         const { position, target } = values;
