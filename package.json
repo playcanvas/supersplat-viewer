@@ -1,13 +1,16 @@
 {
-  "name": "supersplat-viewer",
+  "name": "@playcanvas/supersplat-viewer",
   "version": "1.2.5",
   "author": "PlayCanvas <support@playcanvas.com>",
   "homepage": "https://github.com/playcanvas/supersplat-viewer#readme",
   "description": "Viewer for https://superspl.at",
   "license": "MIT",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
   "exports": {
-    "types": "./dist/source.d.ts",
-    "import": "./dist/source.js"
+    ".": {
+      "import": "./dist/index.js"
+    }
   },
   "files": [
     "dist",
