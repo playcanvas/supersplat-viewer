@@ -26,7 +26,20 @@ As well as the following:
 - `&ministats` - show the runtime CPU (and on desktop, GPU) performance graphs
 - `&skybox=url` - specify an equirectangular skybox image for the skybox
 
-</div>
+The webapp source files is available as strings for templating when imported as an NPM module:
+
+```ts
+import { html, css, js } from '@playcanvas/supersplat-viewer`
+
+// logs the source of index.html
+console.log(html);
+
+// logs the source of index.css
+console.log(css);
+
+// logs the source of index.js
+console.log(js);
+```
 
 ## Local Development
 
