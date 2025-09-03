@@ -8,13 +8,13 @@ const observe = (events: EventHandler, target: any) => {
         set(target, property, value, receiver) {
             // prevent setting symbol properties
             if (typeof property === 'symbol') {
-                console.log('err');
+                console.error('Cannot set symbol property on target');
                 return false;
             }
 
             // not allowed to set a new value on target
             if (!members.has(property)) {
-                console.log('err');
+                console.error('Cannot set new property on target');
                 return false;
             }
 
