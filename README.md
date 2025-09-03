@@ -29,7 +29,7 @@ As well as the following:
 The webapp source files is available as strings for templating when imported as an NPM module:
 
 ```ts
-import { html, css, js } from '@playcanvas/supersplat-viewer`
+import { html, css, js } from '@playcanvas/supersplat-viewer`;
 
 // logs the source of index.html
 console.log(html);
