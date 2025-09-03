@@ -127,8 +127,8 @@ type ExperienceSettings = {
 [npm-url]: https://www.npmjs.com/package/@playcanvas/supersplat-viewer
 [npm-trends-url]: https://npmtrends.com/@playcanvas/supersplat-viewer
 [license-url]: https://github.com/playcanvas/supersplat-viewer/blob/main/LICENSE
-[isitmaintained-url]: https://isitmaintained.com/project/playcanvas/supersplat-viewer
 [workflow-url]: https://github.com/playcanvas/supersplat-viewer/actions/workflows/ci.yml
+[isitmaintained-url]: https://isitmaintained.com/project/playcanvas/supersplat-viewer
 
 [manual-url]: https://developer.playcanvas.com
 [api-url]: https://api.playcanvas.com
