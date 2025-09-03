@@ -3,9 +3,9 @@
 [![NPM Version][npm-version-badge]][npm-url]
 [![NPM Downloads][npm-downloads-badge]][npm-trends-url]
 [![License][license-badge]][license-url]
+[![GitHub Actions Build Status][build-status-badge]][workflow-url]
 [![Github Issue Resolve Time][issue-resolve-badge]][isitmaintained-url]
 [![Github Open Issues][open-issues-badge]][isitmaintained-url]
-[![GitHub Actions Build Status][build-status-badge]][workflow-url]
 
 | [User Manual][manual-url] | [API Reference][api-url] | [Blog][blog-url] | [Forum][forum-url] | [Discord][discord-url] | [Reddit][reddit-url] | [Twitter][twitter-url] |
 
@@ -120,9 +120,9 @@ type ExperienceSettings = {
 [npm-version-badge]: https://img.shields.io/npm/v/@playcanvas/supersplat-viewer.svg
 [npm-downloads-badge]: https://img.shields.io/npm/dw/@playcanvas/supersplat-viewer
 [license-badge]: https://img.shields.io/npm/l/@playcanvas/supersplat-viewer.svg
+[build-status-badge]: https://github.com/playcanvas/supersplat-viewer/actions/workflows/ci.yml/badge.svg
 [issue-resolve-badge]: https://isitmaintained.com/badge/resolution/playcanvas/supersplat-viewer.svg
 [open-issues-badge]: https://isitmaintained.com/badge/open/playcanvas/supersplat-viewer.svg
-[build-status-badge]: https://github.com/playcanvas/supersplat-viewer/actions/workflows/ci.yml/badge.svg
 
 [npm-url]: https://www.npmjs.com/package/@playcanvas/supersplat-viewer
 [npm-trends-url]: https://npmtrends.com/@playcanvas/supersplat-viewer
