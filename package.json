@@ -56,14 +56,14 @@
   },
   "scripts": {
     "build": "rollup -c",
-    "watch": "rollup -c -w",
-    "serve": "serve public -C",
     "develop": "concurrently --kill-others \"npm run watch\" \"npm run serve\"",
-    "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint src module rollup.config.mjs eslint.config.mjs",
     "lint:fix": "eslint src module rollup.config.mjs eslint.config.mjs --fix",
+    "publint": "publint",
+    "serve": "serve public -C",
+    "test": "echo \"Error: no test specified\" && exit 1",
     "type:check": "tsc --noEmit",
-    "publint": "publint"
+    "watch": "rollup -c -w"
   },
   "engines": {
     "node": ">=18.0.0"
