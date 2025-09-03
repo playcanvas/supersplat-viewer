@@ -1,6 +1,16 @@
+<div align="center">
+
+<img width="200" src="https://s3-eu-west-1.amazonaws.com/static.playcanvas.com/platform/images/logo/playcanvas-logo-medium.png"/>
+
 # SuperSplat Viewer
 
+[User Manual](https://developer.playcanvas.com) | [Forum](https://forum.playcanvas.com)
+
 This is the official viewer for https://superspl.at and the SuperSplat Editor HTML export.
+
+[![Average time to resolve an issue][resolution-badge]][isitmaintained-url]
+[![Percentage of issues still open][open-issues-badge]][isitmaintained-url]
+[![Twitter][twitter-badge]][twitter-url]
 
 <img width="1088" alt="Screenshot 2025-04-11 at 13 36 02" src="https://github.com/user-attachments/assets/a5e2a2eb-3064-4d73-beb9-eb9c4708b2b2" />
 
@@ -16,6 +26,8 @@ As well as the following:
 - `&poster=url` - show an image while loading the scene content
 - `&ministats` - show the runtime CPU (and on desktop, GPU) performance graphs
 - `&skybox=url` - specify an equirectangular skybox image for the skybox
+
+</div>
 
 ## Local Development
 
@@ -41,6 +53,7 @@ To initialize a local development environment for SuperSplat Viewer, ensure you 
    ```
 
 4. Open the browser at http://localhost:3000.
+
 ## Settings Schema
 
 The `settings.json` file has the following schema (as defined in typescript, taken from SuperSplat editor):
@@ -92,5 +105,8 @@ type ExperienceSettings = {
 }
 ```
 
-## Notes
-- We plan to convert the source to typescript
+[resolution-badge]: https://isitmaintained.com/badge/resolution/playcanvas/supersplat-viewer.svg
+[open-issues-badge]: https://isitmaintained.com/badge/open/playcanvas/supersplat-viewer.svg
+[isitmaintained-url]: https://isitmaintained.com/project/playcanvas/supersplat-viewer
+[twitter-badge]: https://img.shields.io/twitter/follow/playcanvas.svg?style=social&label=Follow
+[twitter-url]: https://twitter.com/intent/follow?screen_name=playcanvas
