@@ -1,4 +1,4 @@
-const migrateAnimTrack = (track: { frameRate: number, keyframes: { times: number[] } }) => {
+const migrateAnimTrack = (track: { frameRate: number, smoothness: number, keyframes: { times: number[] } }) => {
     if (!track.frameRate) {
         const defaultFrameRate = 30;
 
@@ -7,6 +7,11 @@ const migrateAnimTrack = (track: { frameRate: number, keyframes: { times: number
         for (let i = 0; i < times.length; i++) {
             times[i] *= defaultFrameRate;
         }
+    }
+
+    // smoothness property added in v1.4.0
+    if (!track.hasOwnProperty('smoothness')) {
+        track.smoothness = 0;
     }
 };
 

@@ -3,8 +3,14 @@ import { InputController, Vec3, type InputFrame } from 'playcanvas';
 import { mod } from '../core/math';
 import { CubicSpline } from '../core/spline';
 
-export type AnimTrack = {
+type AnimTrack = {
     name: string;
+    duration: number;
+    frameRate: number;
+    target: 'camera';
+    interpolation: 'spline';
+    loopMode: 'none' | 'repeat' | 'pingpong';
+    smoothness: number;
     keyframes: {
         times: number[];
         values: {
@@ -12,11 +18,6 @@ export type AnimTrack = {
             target: number[];
         };
     };
-    duration: number;
-    frameRate: number;
-    target: 'camera';
-    interpolation: 'spline';
-    loopMode: 'none' | 'repeat' | 'pingpong';
 }
 
 // track an animation cursor with support for looping and ping-pong modes
@@ -114,7 +115,7 @@ class AnimController extends InputController {
 
     // construct an animation from a settings track
     static fromTrack(track: AnimTrack) {
-        const { keyframes, duration, frameRate, loopMode } = track;
+        const { keyframes, duration, frameRate, loopMode, smoothness } = track;
         const { times, values } = keyframes;
         const { position, target } = values;
 
@@ -127,10 +128,10 @@ class AnimController extends InputController {
 
         const extra = (duration === times[times.length - 1] / frameRate) ? 1 : 0;
 
-        const spline = CubicSpline.fromPointsLooping((duration + extra) * frameRate, times, points, -1);
+        const spline = CubicSpline.fromPointsLooping((duration + extra) * frameRate, times, points, smoothness);
 
         return new AnimController(spline, duration, loopMode, frameRate);
     }
 }
 
-export { AnimController };
+export { AnimTrack, AnimController };
