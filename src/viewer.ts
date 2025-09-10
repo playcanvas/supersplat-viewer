@@ -62,6 +62,7 @@ const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 
         target: 'camera',
         loopMode: 'repeat',
         interpolation: 'spline',
+        smoothness: 1,
         keyframes: {
             times,
             values: {
