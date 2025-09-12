@@ -11,7 +11,7 @@ import {
 import type { AppBase, Entity, EventHandler, GSplatComponent, InputController } from 'playcanvas';
 
 import { AnimController, AnimTrack } from './controllers/anim-controller';
-import { easeOut, easeIn } from './core/math';
+import { easeOut } from './core/math';
 import { AppController } from './input';
 import { Picker } from './picker';
 
@@ -332,9 +332,8 @@ class Viewer {
             }
         });
 
-        const prevPose = new Pose();
-        let prevCamera: InputController;
         let currCamera = getCamera(state.cameraMode);
+        const prevPose = new Pose();
 
         // transition time between cameras
         let transitionTimer = 0;
@@ -358,19 +357,13 @@ class Viewer {
             // use dt of 0 if animation is paused
             const dt = state.cameraMode === 'anim' && state.animationPaused ? 0 : deltaTime;
 
-            // blend camera smoothly during transitions
-            if (prevCamera) {
-                // update the camera we're transitioning from
-                transitionTimer = Math.min(1, transitionTimer + deltaTime);
-                if (transitionTimer === 1) {
-                    prevCamera = null;
-                }
-            }
+            // update the camera we're transitioning from
+            transitionTimer = Math.min(1, transitionTimer + deltaTime);
 
             // update camera
             pose.copy(currCamera.update(controller.frame, dt));
 
-            if (prevCamera) {
+            if (transitionTimer < 1) {
                 // handle lerp away from previous camera
                 lerpPose(activePose, prevPose, pose, easeOut(transitionTimer));
             } else {
@@ -391,8 +384,7 @@ class Viewer {
         events.on('cameraMode:changed', (value, prev) => {
             prevCameraMode = prev;
             prevPose.copy(activePose);
-            prevCamera = getCamera(prev);
-            prevCamera.detach();
+            getCamera(prev).detach();
 
             currCamera = getCamera(value);
             switch (value) {
