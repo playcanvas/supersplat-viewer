@@ -358,7 +358,7 @@ class Viewer {
             const dt = state.cameraMode === 'anim' && state.animationPaused ? 0 : deltaTime;
 
             // update the camera we're transitioning from
-            transitionTimer = Math.min(1, transitionTimer + deltaTime);
+            transitionTimer = Math.min(1, transitionTimer + deltaTime * 2.0);
 
             // update camera
             pose.copy(currCamera.update(controller.frame, dt));
