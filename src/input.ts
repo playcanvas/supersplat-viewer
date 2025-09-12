@@ -131,10 +131,9 @@ class AppController {
      * @param dt - delta time in seconds
      * @param state - the current state of the app
      * @param state.cameraMode - the current camera mode
-     * @param state.snap - whether the camera is snapped to the target
      * @param distance - the distance to the camera target
      */
-    update(dt: number, state: { cameraMode: 'anim' | 'fly' | 'orbit', snap: boolean }, distance: number) {
+    update(dt: number, state: { cameraMode: 'anim' | 'fly' | 'orbit' }, distance: number) {
         const { keyCode } = KeyboardMouseSource;
 
         const { key, button, mouse, wheel } = this._desktopInput.read();
@@ -156,7 +155,6 @@ class AppController {
         this._state.ctrl += key[keyCode.CTRL];
 
         if (state.cameraMode !== 'fly' && this._state.axis.length() > 0) {
-            state.snap = true;
             state.cameraMode = 'fly';
         }
 
