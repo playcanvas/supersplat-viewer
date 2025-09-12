@@ -336,7 +336,7 @@ class Viewer {
         const prevPose = new Pose();
 
         // transition time between cameras
-        let transitionTimer = 0;
+        let transitionTimer = 1;
 
         // application update
         app.on('update', (deltaTime) => {
