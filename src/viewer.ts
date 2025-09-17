@@ -273,7 +273,9 @@ class Viewer {
         // create controller
         // set move speed based on scene size, within reason
         const controller = new AppController(app.graphicsDevice.canvas, entity.camera);
-        controller.moveSpeed = bbox.halfExtents.length() * 0.1;
+
+        // fixed move speed
+        controller.moveSpeed = 4;
 
         // this pose stores the current camera position. it will be blended/smoothed
         // toward the current active camera

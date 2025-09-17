@@ -170,7 +170,7 @@ class AppController {
         // desktop move
         const v = tmpV1.set(0, 0, 0);
         const keyMove = this._state.axis.clone().normalize();
-        v.add(keyMove.mulScalar(fly * this.moveSpeed * (this._state.shift ? 2 : this._state.ctrl ? 0.5 : 1) * dt));
+        v.add(keyMove.mulScalar(fly * this.moveSpeed * (this._state.shift ? 4 : this._state.ctrl ? 0.25 : 1) * dt));
         const panMove = screenToWorld(this._camera, mouse[0], mouse[1], distance);
         v.add(panMove.mulScalar(pan));
         const wheelMove = new Vec3(0, 0, -wheel[0]);
