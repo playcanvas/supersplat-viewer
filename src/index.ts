@@ -281,8 +281,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         'buttonContainer',
         'play', 'pause',
         'settings', 'settingsPanel',
-        'orbitSettings', 'flySettings',
-        'fly', 'orbit', 'cameraToggleHighlight',
+        'orbitCamera', 'flyCamera',
         'high', 'low', 'qualityToggleHighlight',
         'reset', 'frame',
         'loadingText', 'loadingBar',
@@ -538,30 +537,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Camera mode UI
     events.on('cameraMode:changed', () => {
-        if (state.cameraMode === 'fly') {
-            dom.cameraToggleHighlight.classList.add('right');
-        } else {
-            dom.cameraToggleHighlight.classList.remove('right');
-        }
-
-        dom.orbitSettings.classList[state.cameraMode === 'orbit' ? 'remove' : 'add']('hidden');
-        dom.flySettings.classList[state.cameraMode === 'fly' ? 'remove' : 'add']('hidden');
+        dom.orbitCamera.classList[state.cameraMode === 'orbit' ? 'add' : 'remove']('active');
+        dom.flyCamera.classList[state.cameraMode === 'fly' ? 'add' : 'remove']('active');
     });
 
-    dom.orbitSettings.addEventListener('click', () => {
+    dom.settings.addEventListener('click', () => {
         dom.settingsPanel.classList.toggle('hidden');
     });
 
-    dom.flySettings.addEventListener('click', () => {
-        dom.settingsPanel.classList.toggle('hidden');
-    });
-
-    dom.fly.addEventListener('click', () => {
-        state.cameraMode = 'fly';
-    });
-
-    dom.orbit.addEventListener('click', () => {
+    dom.orbitCamera.addEventListener('click', () => {
         state.cameraMode = 'orbit';
+    });
+
+    dom.flyCamera.addEventListener('click', () => {
+        state.cameraMode = 'fly';
     });
 
     dom.reset.addEventListener('click', (event) => {
