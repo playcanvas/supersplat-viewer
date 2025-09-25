@@ -405,7 +405,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateInfoTab('touch');
     });
 
-    dom.info.addEventListener('pointerup', () => {
+    dom.info.addEventListener('click', () => {
         updateInfoTab(state.inputMode);
         dom.infoPanel.classList.toggle('hidden');
     });
