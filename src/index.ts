@@ -19,6 +19,7 @@ import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
 import { migrateSettings } from './data-migrations';
 import { observe } from './observe';
+import { Tooltip } from './tooltip';
 import { Viewer } from './viewer';
 
 
@@ -285,7 +286,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         'hqCheck', 'hqOption', 'lqCheck', 'lqOption',
         'reset', 'frame',
         'loadingText', 'loadingBar',
-        'joystickBase', 'joystick'
+        'joystickBase', 'joystick',
+        'tooltip'
     ].reduce((acc: Record<string, HTMLElement>, id) => {
         acc[id] = document.getElementById(id);
         return acc;
@@ -640,4 +642,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
     });
+
+    // tooltips
+    const tooltip = new Tooltip(dom.tooltip);
+
+    tooltip.register(dom.play, 'Play Animation', 'right');
+    tooltip.register(dom.pause, 'Pause Animation', 'right');
+    tooltip.register(dom.orbitCamera, 'Orbit Camera', 'top');
+    tooltip.register(dom.flyCamera, 'Fly Camera', 'top');
+    tooltip.register(dom.reset, 'Reset Camera', 'bottom');
+    tooltip.register(dom.frame, 'Frame Model', 'bottom');
+    tooltip.register(dom.settings, 'Show Settings', 'top');
+    tooltip.register(dom.info, 'Show Info', 'top');
+    tooltip.register(dom.arMode, 'Enter AR Mode', 'top');
+    tooltip.register(dom.vrMode, 'Enter VR Mode', 'top');
+    tooltip.register(dom.enterFullscreen, 'Enter Fullscreen', 'top');
+    tooltip.register(dom.exitFullscreen, 'Exit Fullscreen', 'top');
 });

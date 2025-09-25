@@ -25,6 +25,10 @@ body {
     -webkit-touch-callout: none;
 }
 
+button {
+    appearance: none;
+}
+
 .hidden {
     display: none !important;
 }
@@ -140,9 +144,10 @@ body {
             padding: 2px 4px;
             transform: translate(-50%, -100%);
             font-size: 12px;
+            border-radius: 4px;
+
             color: $clr-text-light;
             background-color: rgba($clr-bkg-dark, 0.5);
-            border-radius: 4px;
         }
     }
 
@@ -397,4 +402,14 @@ body {
 
         background-color: #fff8;
     }
+}
+
+#tooltip {
+    position: absolute;
+    border-radius: 4px;
+    padding: 4px 4px;
+    font-size: 12px;
+
+    color: $clr-text;
+    background-color: $clr-bkg-dark;
 }
