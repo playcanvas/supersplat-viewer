@@ -1,16 +1,16 @@
 import resolve from '@rollup/plugin-node-resolve';
 import typescript from '@rollup/plugin-typescript';
-import copy from 'rollup-plugin-copy';
-import { string } from 'rollup-plugin-string';
 import autoprefixer from 'autoprefixer';
 import postcss from 'postcss';
+import copy from 'rollup-plugin-copy';
 import scss from 'rollup-plugin-scss';
+import { string } from 'rollup-plugin-string';
 import sass from 'sass';
 
 const buildCss = {
     input: 'src/index.scss',
     output: {
-        dir: 'public',
+        dir: 'public'
     },
     plugins: [
         scss({
@@ -20,9 +20,9 @@ const buildCss = {
             runtime: sass,
             processor: (css) => {
                 return postcss([autoprefixer])
-                    .process(css, { from: undefined })
-                    .then(result => result.css);
-            },
+                .process(css, { from: undefined })
+                .then(result => result.css);
+            }
         })
     ]
 };

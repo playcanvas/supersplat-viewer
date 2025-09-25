@@ -61,8 +61,8 @@
   "scripts": {
     "build": "rollup -c",
     "develop": "concurrently --kill-others \"npm run watch\" \"npm run serve\"",
-    "lint": "eslint src module rollup.config.mjs eslint.config.mjs",
-    "lint:fix": "eslint src module rollup.config.mjs eslint.config.mjs --fix",
+    "lint": "eslint src rollup.config.mjs eslint.config.mjs",
+    "lint:fix": "eslint src rollup.config.mjs eslint.config.mjs --fix",
     "publint": "publint",
     "serve": "serve public -C",
     "test": "echo \"Error: no test specified\" && exit 1",
