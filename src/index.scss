@@ -1,6 +1,15 @@
 
+$clr-text: #E0DCDD;
+$clr-text-light: #fff;
+$clr-text-dark: #AAA;
+$clr-text-darkest: #666;
 $clr-accent: #F60;
-$clr-accent-dark: #0002;
+$clr-grip: #FFAF50;
+
+$clr-bkg: #333;
+$clr-bkg-dark: #282828;
+$clr-bkg-darkest: #141414;
+$clr-bkg-light: #444;
 
 * {
     margin: 0;
@@ -67,7 +76,7 @@ body {
 
     > #loadingText {
         font-size: 18px;
-        color: white;
+        color: $clr-text-light;
         text-align: center;
         text-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
     }
@@ -122,7 +131,7 @@ body {
             transform: translate(-50%, -50%);
             border: 2px solid #d9d9d9;
             border-radius: 50%;
-            background-color: #FFAF50;
+            background-color: $clr-grip;
         }
 
         > #time {
@@ -131,8 +140,8 @@ body {
             padding: 2px 4px;
             transform: translate(-50%, -100%);
             font-size: 12px;
-            color: white;
-            background-color: rgba(0, 0, 0, 0.5);
+            color: $clr-text-light;
+            background-color: rgba($clr-bkg-dark, 0.5);
             border-radius: 4px;
         }
     }
@@ -149,13 +158,13 @@ body {
             padding: 0;
             margin: 0;
             border: 0;
-
-            color: #E0DCDD;
-            background-color: transparent;
             cursor: pointer;
 
+            color: $clr-text;
+            background-color: transparent;
+
             &:hover {
-                color: #fff;
+                color: $clr-text-light;
             }
 
             /* icon styling */
@@ -181,14 +190,14 @@ body {
 
             /* camera toggle styling */
             &.toggle {
-                background: linear-gradient(90deg, $clr-accent 0px, $clr-accent 40px, $clr-accent-dark 40px, $clr-accent-dark 80px, $clr-accent 80px, $clr-accent 120px);
+                background: linear-gradient(90deg, $clr-accent 0px, $clr-accent 40px, transparent 40px, transparent 80px, $clr-accent 80px, $clr-accent 120px);
                 background-position-x: 40px;
                 background-size: 200% 100%;
                 background-origin: content-box;
 
                 transition: background-position-x 0.1s ease-in-out;
 
-                background-color: #0000001A;
+                background-color: rgba($clr-bkg-dark, 0.3);
 
                 &.left {
                     margin-right: -4px;
@@ -218,8 +227,6 @@ body {
     right: max(16px, env(safe-area-inset-right));
     bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
     padding: 10px;
-    color: #B3AAAC;
-    background-color: #282828;
     border-radius: 8px;
 
     display: flex;
@@ -229,6 +236,9 @@ body {
 
     font-size: 14px;
 
+    color: $clr-text;
+    background-color: $clr-bkg;
+
     > .settingsRow {
         display: flex;
         gap: 4px;
@@ -236,15 +246,34 @@ body {
 
         > button {
             flex-grow: 1;
-            padding: 10px 0px;
+            padding: 10px 20px;
             border: 0;
-
-            color: #B3AAAC;
-            background-color: black;
             cursor: pointer;
 
+            color: $clr-text;
+            background-color: $clr-bkg-darkest;
+
             &:hover {
-                color: white;
+                color: $clr-text-light;
+            }
+        }
+
+        > div {
+            padding: 8px;
+            cursor: pointer;
+
+            color: $clr-text-dark;
+
+            &.checkMark {
+                width: 16px;
+
+                &:not(.active) {
+                    color: $clr-bkg;
+                }
+            }
+
+            &:hover {
+                color: $clr-text;
             }
         }
     }
@@ -252,62 +281,9 @@ body {
     > .divider {
         width: 100%;
         height: 1px;
-        background-color: #444;
         margin: 8px 0;
-    }
 
-    /* toggleWrap */
-
-    .toggleWrap {
-        position: relative;
-        background-color: #dddd;
-        border: 1px solid #888;
-        border-radius: 8px;
-        height: 40px;
-        width: 120px;
-
-        > .toggleHighlight {
-            position: absolute;
-            left: 0;
-            width: 50%;
-            height: 100%;
-            background-color: #eee;
-            border-radius: 8px;
-            transition: left 0.1s ease-out;
-        }
-
-        > .toggleHighlight.right {
-            left: 60px;
-        }
-
-        > button {
-            position: absolute;
-            width: 60px;
-            height: 100%;
-            border: 0;
-            border-radius: 8px;
-
-            cursor: pointer;
-            font-size: 14px;
-            letter-spacing: -0.25px;
-
-            color: #222;
-            background-color: transparent;
-
-            appearance: none;
-        }
-
-        > button:hover {
-            color: black;
-        }
-
-        > button.left {
-            left: 0;
-        }
-
-        > button.right {
-            right: 0;
-        }
+        background-color: $clr-text-darkest;
     }
 }
 
@@ -319,7 +295,8 @@ body {
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.3);
+    background-color: rgba(black, 0.4);
+    backdrop-filter: blur(2px);
 
     > #infoPanelContent {
         position: absolute;
@@ -330,25 +307,19 @@ body {
         min-width: 320px;
         padding: 8px;
         border-radius: 24px;
-        color: black;
-        background-color: #eeed;
         display: flex;
         flex-direction: column;
 
-        > #header {
-            font-size: 24px;
-            font-weight: bold;
-            padding-bottom: 16px;
-            color: #444;
-            display: none;
-        }
+        color: $clr-text;
+        background-color: rgba($clr-bkg, 0.8);
 
         > #tabs {
             display: flex;
             gap: 16px;
-            background-color: #666;
             padding: 8px;
             border-radius: 22px;
+
+            background-color: $clr-bkg-dark;
 
             > .tab {
                 padding: 8px;
@@ -358,49 +329,49 @@ body {
                 text-align: center;
                 font-weight: bold;
                 font-size: 14px;
-                color: #222;
+
+                color: $clr-text;
                 transition: background-color 250ms ease;
             }
 
             > .tab:hover {
-                background-color: #eee;
+                background-color: $clr-bkg-light;
             }
 
             > .tab.active {
-                background-color: #eee;
+                background-color: $clr-bkg-light;
             }
         }
 
         > #infoPanels {
             padding: 16px;
 
-            > h1 {
+            h1 {
                 font-size: 14px;
                 font-weight: bold;
                 padding: 0 0 6px 0;
-            }
-        }
-
-        .control-item {
-            display: flex;
-            justify-content: space-between;
-            gap: 32px;
-            line-height: 1.5;
-
-            > .control-action {
-                text-align: left;
-                color: #333;
+                color: $clr-text-light;
             }
 
-            > .control-key {
-                text-align: right;
-                color: #666;
-            }
-        }
+            .control-item {
+                display: flex;
+                justify-content: space-between;
+                gap: 32px;
+                line-height: 1.5;
 
-        .control-spacer {
-            border-bottom: 1px dashed #666;
-            margin: 10px 0;
+                > .control-action {
+                    text-align: left;
+                }
+
+                > .control-key {
+                    text-align: right;
+                }
+            }
+
+            .control-spacer {
+                border-bottom: 1px dashed #666;
+                margin: 10px 0;
+            }
         }
     }
 }

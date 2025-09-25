@@ -149,11 +149,13 @@
 
             <!-- Settings Panel -->
             <div id="settingsPanel" class="hidden">
-                <div>Render Quality</div>
-                <div id="qualityToggle" class="toggleWrap">
-                    <div id="qualityToggleHighlight" class="toggleHighlight"></div>
-                    <button id="low" class="left">Low</button>
-                    <button id="high" class="right">High</button>
+                <div class="settingsRow">
+                    <div id="hqCheck" class="checkMark">✓</div>
+                    <div id="hqOption">High Quality Render</div>
+                </div>
+                <div class="settingsRow">
+                    <div id="lqCheck" class="checkMark">✓</div>
+                    <div id="lqOption">Low Quality Render</div>
                 </div>
                 <div class="divider"></div>
                 <div class="settingsRow">
@@ -165,7 +167,6 @@
             <!-- Info Panel -->
             <div id="infoPanel" class="hidden">
                 <div id="infoPanelContent" onpointerdown="event.stopPropagation()">
-                    <div id="header">Controls</div>
                     <div id="tabs">
                         <div id="desktopTab" class="tab active">Desktop</div>
                         <div id="touchTab" class="tab">Touch</div>

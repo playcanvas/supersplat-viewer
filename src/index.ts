@@ -282,7 +282,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         'play', 'pause',
         'settings', 'settingsPanel',
         'orbitCamera', 'flyCamera',
-        'high', 'low', 'qualityToggleHighlight',
+        'hqCheck', 'hqOption', 'lqCheck', 'lqOption',
         'reset', 'frame',
         'loadingText', 'loadingBar',
         'joystickBase', 'joystick'
@@ -353,15 +353,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // HQ mode
-    dom.high.addEventListener('click', () => {
+    dom.hqOption.addEventListener('click', () => {
         state.hqMode = true;
     });
-    dom.low.addEventListener('click', () => {
+    dom.lqOption.addEventListener('click', () => {
         state.hqMode = false;
     });
 
     const updateHQ = () => {
-        dom.qualityToggleHighlight.classList[state.hqMode ? 'add' : 'remove']('right');
+        dom.hqCheck.classList[state.hqMode ? 'add' : 'remove']('active');
+        dom.lqCheck.classList[state.hqMode ? 'remove' : 'add']('active');
     };
     events.on('hqMode:changed', (value) => {
         updateHQ();
