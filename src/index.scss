@@ -340,9 +340,25 @@ body {
         color: #fff;
     }
 
+    /* icon styling */
     > svg {
         display: block;
         margin: auto;
+
+        > g {
+            &.stroke {
+                fill: none;
+                stroke: black;
+                stroke-width: 3;
+                stroke-linejoin: round;
+                opacity: 0.25;
+            }
+
+            &.fill {
+                fill: currentColor;
+                stroke: none;
+            }
+        }
     }
 
     /* camera toggle controls */
