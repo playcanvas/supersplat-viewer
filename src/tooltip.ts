@@ -1,16 +1,16 @@
 type Direction = 'left' | 'right' | 'top' | 'bottom';
 
 class Tooltip {
-    register: (target: Element, text: string, direction?: Direction) => void;
+    register: (target: HTMLElement, text: string, direction?: Direction) => void;
 
-    unregister: (target: Element) => void;
+    unregister: (target: HTMLElement) => void;
 
     destroy: () => void;
 
     constructor(dom: HTMLElement) {
         const { style } = dom;
 
-        const targets = new Map<Element, any>();
+        const targets = new Map<HTMLElement, any>();
         let timer: number = 0;
 
         this.register = (target: HTMLElement, textString: string, direction: Direction = 'bottom') => {
@@ -43,7 +43,7 @@ class Tooltip {
                         break;
                 }
 
-                dom.innerHTML = textString;
+                dom.textContent = textString;
                 style.display = 'inline';
             };
 
@@ -87,7 +87,7 @@ class Tooltip {
             targets.set(target, { enter, leave });
         };
 
-        this.unregister = (target: Element) => {
+        this.unregister = (target: HTMLElement) => {
             const value = targets.get(target);
             if (value) {
                 target.removeEventListener('pointerenter', value.enter);
