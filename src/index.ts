@@ -651,11 +651,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     tooltip.register(dom.orbitCamera, 'Orbit Camera', 'top');
     tooltip.register(dom.flyCamera, 'Fly Camera', 'top');
     tooltip.register(dom.reset, 'Reset Camera', 'bottom');
-    tooltip.register(dom.frame, 'Frame Model', 'bottom');
-    tooltip.register(dom.settings, 'Show Settings', 'top');
-    tooltip.register(dom.info, 'Show Info', 'top');
-    tooltip.register(dom.arMode, 'Enter AR Mode', 'top');
-    tooltip.register(dom.vrMode, 'Enter VR Mode', 'top');
-    tooltip.register(dom.enterFullscreen, 'Enter Fullscreen', 'top');
-    tooltip.register(dom.exitFullscreen, 'Exit Fullscreen', 'top');
+    tooltip.register(dom.frame, 'Frame Scene', 'bottom');
+    tooltip.register(dom.settings, 'Settings', 'top');
+    tooltip.register(dom.info, 'Help', 'top');
+    tooltip.register(dom.arMode, 'Enter AR', 'top');
+    tooltip.register(dom.vrMode, 'Enter VR', 'top');
+    tooltip.register(dom.enterFullscreen, 'Fullscreen', 'top');
+    tooltip.register(dom.exitFullscreen, 'Fullscreen', 'top');
 });
