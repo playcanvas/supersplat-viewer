@@ -10,6 +10,8 @@ class Tooltip {
     constructor(dom: HTMLElement) {
         const { style } = dom;
 
+        style.display = 'none';
+
         const targets = new Map<HTMLElement, any>();
         let timer: number = 0;
 

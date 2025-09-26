@@ -195,12 +195,16 @@ button {
 
             /* camera toggle styling */
             &.toggle {
-                background: linear-gradient(90deg, $clr-accent 0px, $clr-accent 40px, transparent 40px, transparent 80px, $clr-accent 80px, $clr-accent 120px);
-                background-position-x: 40px;
+                background: repeating-linear-gradient(90deg,
+                    $clr-accent 0%,
+                    $clr-accent 50%,
+                    transparent 50%,
+                    transparent 100%
+                );
                 background-size: 200% 100%;
-                background-origin: content-box;
+                background-position: 100% 0%;
 
-                transition: background-position-x 0.1s ease-in-out;
+                transition: background-position 0.1s ease-in-out;
 
                 background-color: rgba($clr-bkg-dark, 0.3);
 
@@ -208,7 +212,7 @@ button {
                     margin-right: -4px;
                     border-radius: 4px 0px 0px 4px;
                     &.active {
-                        background-position-x: 0px;
+                        background-position: 200% 0%;
                     }
                 }
 
@@ -217,7 +221,7 @@ button {
                     margin-right: 20px;
                     border-radius: 0px 4px 4px 0px;
                     &.active {
-                        background-position-x: 80px;
+                        background-position: 0% 0%;
                     }
                 }
             }

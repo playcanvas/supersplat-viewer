@@ -646,8 +646,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // tooltips
     const tooltip = new Tooltip(dom.tooltip);
 
-    tooltip.register(dom.play, 'Play Animation', 'right');
-    tooltip.register(dom.pause, 'Pause Animation', 'right');
+    tooltip.register(dom.play, 'Play', 'top');
+    tooltip.register(dom.pause, 'Pause', 'top');
     tooltip.register(dom.orbitCamera, 'Orbit Camera', 'top');
     tooltip.register(dom.flyCamera, 'Fly Camera', 'top');
     tooltip.register(dom.reset, 'Reset Camera', 'bottom');
