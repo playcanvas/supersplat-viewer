@@ -111,6 +111,10 @@ class Viewer {
 
     settings: any;
 
+    controller: AppController;
+
+    currentCamera: InputController;
+
     constructor(app: AppBase, entity: Entity, events: EventHandler, state: any, settings: any, params: any) {
         const { background, camera } = settings;
         const { graphicsDevice } = app;
@@ -272,10 +276,10 @@ class Viewer {
 
         // create controller
         // set move speed based on scene size, within reason
-        const controller = new AppController(app.graphicsDevice.canvas, entity.camera);
+        this.controller = new AppController(app.graphicsDevice.canvas, entity.camera);
 
         // fixed move speed
-        controller.moveSpeed = 4;
+        this.controller.moveSpeed = 4;
 
         // this pose stores the current camera position. it will be blended/smoothed
         // toward the current active camera
@@ -283,7 +287,7 @@ class Viewer {
 
         if (state.cameraMode === 'anim') {
             //  first frame of the animation
-            activePose.copy(animCamera.update(controller.frame, 0));
+            activePose.copy(animCamera.update(this.controller.frame, 0));
         } else {
             // user start position
             activePose.copy(userStart);
@@ -334,7 +338,7 @@ class Viewer {
             }
         });
 
-        let currCamera = getCamera(state.cameraMode);
+        this.currentCamera = getCamera(state.cameraMode);
         const prevPose = new Pose();
 
         // transition time between cameras
@@ -349,11 +353,11 @@ class Viewer {
             }
 
             // update input controller
-            controller.update(deltaTime, state, activePose.distance);
+            this.controller.update(deltaTime, state, activePose.distance);
 
             // update touch joystick UI
             if (state.cameraMode === 'fly') {
-                events.fire('touchJoystickUpdate', controller.joystick.base, controller.joystick.stick);
+                events.fire('touchJoystickUpdate', this.controller.joystick.base, this.controller.joystick.stick);
             }
 
             // use dt of 0 if animation is paused
@@ -363,7 +367,7 @@ class Viewer {
             transitionTimer = Math.min(1, transitionTimer + deltaTime * 2.0);
 
             // update camera
-            pose.copy(currCamera.update(controller.frame, dt));
+            pose.copy(this.currentCamera.update(this.controller.frame, dt));
 
             if (transitionTimer < 1) {
                 // handle lerp away from previous camera
@@ -388,11 +392,11 @@ class Viewer {
             prevPose.copy(activePose);
             getCamera(prev).detach();
 
-            currCamera = getCamera(value);
+            this.currentCamera = getCamera(value);
             switch (value) {
                 case 'orbit':
                 case 'fly':
-                    currCamera.attach(activePose, false);
+                    this.currentCamera.attach(activePose, false);
                     break;
             }
 

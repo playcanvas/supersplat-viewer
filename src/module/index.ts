@@ -3,3 +3,6 @@ import html from '../../public/index.html';
 import js from '../../public/index.js';
 
 export { html, css, js };
+
+export { observe } from '../observe';
+export { Viewer } from '../viewer';
