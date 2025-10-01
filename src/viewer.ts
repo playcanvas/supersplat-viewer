@@ -110,8 +110,10 @@ class Viewer {
     state: any;
 
     settings: any;
-    
+
     controller: AppController;
+
+    currentCamera: InputController;
 
     constructor(app: AppBase, entity: Entity, events: EventHandler, state: any, settings: any, params: any) {
         const { background, camera } = settings;
@@ -336,7 +338,7 @@ class Viewer {
             }
         });
 
-        let currCamera = getCamera(state.cameraMode);
+        this.currentCamera = getCamera(state.cameraMode);
         const prevPose = new Pose();
 
         // transition time between cameras
@@ -365,7 +367,7 @@ class Viewer {
             transitionTimer = Math.min(1, transitionTimer + deltaTime * 2.0);
 
             // update camera
-            pose.copy(currCamera.update(this.controller.frame, dt));
+            pose.copy(this.currentCamera.update(this.controller.frame, dt));
 
             if (transitionTimer < 1) {
                 // handle lerp away from previous camera
@@ -390,11 +392,11 @@ class Viewer {
             prevPose.copy(activePose);
             getCamera(prev).detach();
 
-            currCamera = getCamera(value);
+            this.currentCamera = getCamera(value);
             switch (value) {
                 case 'orbit':
                 case 'fly':
-                    currCamera.attach(activePose, false);
+                    this.currentCamera.attach(activePose, false);
                     break;
             }
 
