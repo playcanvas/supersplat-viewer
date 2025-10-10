@@ -1,35 +1,35 @@
 # SuperSplat Viewer
 
-[![NPM Version][npm-version-badge]][npm-url]
-[![NPM Downloads][npm-downloads-badge]][npm-trends-url]
-[![License][license-badge]][license-url]
-[![GitHub Actions Build Status][build-status-badge]][workflow-url]
-[![Github Issue Resolve Time][issue-resolve-badge]][isitmaintained-url]
-[![Github Open Issues][open-issues-badge]][isitmaintained-url]
+[![NPM Version](https://img.shields.io/npm/v/@playcanvas/supersplat-viewer)](https://www.npmjs.com/package/@playcanvas/supersplat-viewer)
+[![NPM Downloads](https://img.shields.io/npm/dw/@playcanvas/supersplat-viewer)](https://npmtrends.com/@playcanvas/supersplat-viewer)
+[![License](https://img.shields.io/npm/l/@playcanvas/supersplat-viewer)](https://github.com/playcanvas/supersplat-viewer/blob/main/LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-5865F2?style=flat&logo=discord&logoColor=white&color=black)](https://discord.gg/RSaMRzg)
+[![Reddit](https://img.shields.io/badge/Reddit-FF4500?style=flat&logo=reddit&logoColor=white&color=black)](https://www.reddit.com/r/PlayCanvas)
+[![X](https://img.shields.io/badge/X-000000?style=flat&logo=x&logoColor=white&color=black)](https://x.com/intent/follow?screen_name=playcanvas)
 
-| [User Manual][manual-url] | [API Reference][api-url] | [Blog][blog-url] | [Forum][forum-url] | [Discord][discord-url] | [Reddit][reddit-url] | [Twitter][twitter-url] |
+| [User Manual](https://developer.playcanvas.com/user-manual/gaussian-splatting/editing/supersplat/import-export/#html-viewer-htmlzip) | [Blog](https://blog.playcanvas.com) | [Forum](https://forum.playcanvas.com) |
 
-This is the official viewer for https://superspl.at and the SuperSplat Editor HTML export.
+This is the official viewer for [SuperSplat](https://superspl.at).
 
-<img width="1088" alt="Screenshot 2025-04-11 at 13 36 02" src="https://github.com/user-attachments/assets/a5e2a2eb-3064-4d73-beb9-eb9c4708b2b2" />
+<img width="1114" height="739" alt="supersplat-viewer" src="https://github.com/user-attachments/assets/15d2c654-9484-4265-a279-99acb65e38c9" />
 
-This webapp compiles to simple, self-contained, static website.
+The web app compiles to a simple, self-contained static website.
 
 The app supports a few useful URL parameters (though please note these are subject to change):
 - `&settings=url` - specify the URL of the `settings.json` file (default is `./settings.json`)
 - `&content=url` - specify the URL of the `scene.compressed.ply` file (default is `./scene.compressed.ply`)
 
-As well as the following:
+Additional options:
 - `&noui` - hide UI
 - `&noanim` - start with animation paused
 - `&poster=url` - show an image while loading the scene content
 - `&ministats` - show the runtime CPU (and on desktop, GPU) performance graphs
 - `&skybox=url` - specify an equirectangular skybox image for the skybox
 
-The webapp source files is available as strings for templating when imported as an NPM module:
+The web app source files are available as strings for templating when you import the package from npm:
 
 ```ts
-import { html, css, js } from '@playcanvas/supersplat-viewer`;
+import { html, css, js } from '@playcanvas/supersplat-viewer';
 
 // logs the source of index.html
 console.log(html);
@@ -58,17 +58,17 @@ To initialize a local development environment for SuperSplat Viewer, ensure you 
    npm install
    ```
 
-3. Build SuperSplat Viewer and start a local web server:
+3. Start the development build and local web server:
 
    ```sh
    npm run develop
    ```
 
-4. Open the browser at http://localhost:3000.
+4. Open your browser at http://localhost:3000.
 
 ## Settings Schema
 
-The `settings.json` file has the following schema (as defined in typescript, taken from SuperSplat editor):
+The `settings.json` file has the following schema (defined in TypeScript and taken from the SuperSplat editor):
 
 
 ```typescript
@@ -117,24 +117,3 @@ type ExperienceSettings = {
   }
 }
 ```
-
-[npm-version-badge]: https://img.shields.io/npm/v/@playcanvas/supersplat-viewer
-[npm-downloads-badge]: https://img.shields.io/npm/dw/@playcanvas/supersplat-viewer
-[license-badge]: https://img.shields.io/npm/l/@playcanvas/supersplat-viewer
-[build-status-badge]: https://github.com/playcanvas/supersplat-viewer/actions/workflows/ci.yml/badge.svg
-[issue-resolve-badge]: https://isitmaintained.com/badge/resolution/playcanvas/supersplat-viewer.svg
-[open-issues-badge]: https://isitmaintained.com/badge/open/playcanvas/supersplat-viewer.svg
-
-[npm-url]: https://www.npmjs.com/package/@playcanvas/supersplat-viewer
-[npm-trends-url]: https://npmtrends.com/@playcanvas/supersplat-viewer
-[license-url]: https://github.com/playcanvas/supersplat-viewer/blob/main/LICENSE
-[workflow-url]: https://github.com/playcanvas/supersplat-viewer/actions/workflows/ci.yml
-[isitmaintained-url]: https://isitmaintained.com/project/playcanvas/supersplat-viewer
-
-[manual-url]: https://developer.playcanvas.com
-[api-url]: https://api.playcanvas.com
-[blog-url]: https://blog.playcanvas.com
-[forum-url]: https://forum.playcanvas.com
-[discord-url]: https://discord.gg/RSaMRzg
-[reddit-url]: https://www.reddit.com/r/PlayCanvas/
-[twitter-url]: https://twitter.com/intent/follow?screen_name=playcanvas
