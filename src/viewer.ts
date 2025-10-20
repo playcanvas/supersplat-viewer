@@ -243,14 +243,16 @@ class Viewer {
             return null;
         })(userStart, isObjectExperience);
 
+        const dampingFactor = settings?.camera?.dampingFactor ?? 0.97
+
         const orbitCamera = (() => {
             const orbitCamera = new OrbitController();
 
             orbitCamera.zoomRange = new Vec2(0.01, Infinity);
             orbitCamera.pitchRange = new Vec2(-90, 90);
-            orbitCamera.rotateDamping = 0.97;
-            orbitCamera.moveDamping = 0.97;
-            orbitCamera.zoomDamping = 0.97;
+            orbitCamera.rotateDamping = dampingFactor;
+            orbitCamera.moveDamping = dampingFactor;
+            orbitCamera.zoomDamping = dampingFactor;
 
             return orbitCamera;
         })();
@@ -259,8 +261,8 @@ class Viewer {
             const flyCamera = new FlyController();
 
             flyCamera.pitchRange = new Vec2(-90, 90);
-            flyCamera.rotateDamping = 0.97;
-            flyCamera.moveDamping = 0.97;
+            flyCamera.rotateDamping = dampingFactor;
+            flyCamera.moveDamping = dampingFactor;
 
             return flyCamera;
         })();

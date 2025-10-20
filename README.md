@@ -95,7 +95,8 @@ type ExperienceSettings = {
         position?: number[],
         target?: number[],
         startAnim: 'none' | 'orbit' | 'animTrack',
-        animTrack: string
+        animTrack: string,
+        dampingFactor: number
     },
     background: {
         color?: number[]
