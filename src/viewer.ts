@@ -115,6 +115,8 @@ class Viewer {
 
     currentCamera: InputController;
 
+    activePose: Pose;
+
     constructor(app: AppBase, entity: Entity, events: EventHandler, state: any, settings: any, params: any) {
         const { background, camera } = settings;
         const { graphicsDevice } = app;
@@ -124,6 +126,10 @@ class Viewer {
         this.events = events;
         this.state = state;
         this.settings = settings;
+
+        // this pose stores the current camera position. it will be blended/smoothed
+        // toward the current active camera
+        this.activePose = new Pose();
 
         // disable auto render, we'll render only when camera changes
         app.autoRender = false;
@@ -281,21 +287,18 @@ class Viewer {
         // fixed move speed
         this.controller.moveSpeed = 4;
 
-        // this pose stores the current camera position. it will be blended/smoothed
-        // toward the current active camera
-        const activePose = new Pose();
 
         if (state.cameraMode === 'anim') {
             //  first frame of the animation
-            activePose.copy(animCamera.update(this.controller.frame, 0));
+            this.activePose.copy(animCamera.update(this.controller.frame, 0));
         } else {
             // user start position
-            activePose.copy(userStart);
+            this.activePose.copy(userStart);
         }
 
         // place all user cameras at the start position
-        orbitCamera.attach(activePose, false);
-        flyCamera.attach(activePose, false);
+        orbitCamera.attach(this.activePose, false);
+        flyCamera.attach(this.activePose, false);
 
         // the previous camera we're transitioning away from
         let prevCameraMode = 'orbit';
@@ -353,7 +356,7 @@ class Viewer {
             }
 
             // update input controller
-            this.controller.update(deltaTime, state, activePose.distance);
+            this.controller.update(deltaTime, state, this.activePose.distance);
 
             // update touch joystick UI
             if (state.cameraMode === 'fly') {
@@ -371,14 +374,14 @@ class Viewer {
 
             if (transitionTimer < 1) {
                 // handle lerp away from previous camera
-                lerpPose(activePose, prevPose, pose, easeOut(transitionTimer));
+                lerpPose(this.activePose, prevPose, pose, easeOut(transitionTimer));
             } else {
-                activePose.copy(pose);
+                this.activePose.copy(pose);
             }
 
             // apply to camera
-            entity.setPosition(activePose.position);
-            entity.setEulerAngles(activePose.angles);
+            entity.setPosition(this.activePose.position);
+            entity.setEulerAngles(this.activePose.angles);
 
             // update animation timeline
             if (state.cameraMode === 'anim') {
@@ -389,14 +392,14 @@ class Viewer {
         // handle camera mode switching
         events.on('cameraMode:changed', (value, prev) => {
             prevCameraMode = prev;
-            prevPose.copy(activePose);
+            prevPose.copy(this.activePose);
             getCamera(prev).detach();
 
             this.currentCamera = getCamera(value);
             switch (value) {
                 case 'orbit':
                 case 'fly':
-                    this.currentCamera.attach(activePose, false);
+                    this.currentCamera.attach(this.activePose, false);
                     break;
             }
 
@@ -430,9 +433,9 @@ class Viewer {
                         }
 
                         // snap distance of focus to picked point to interpolate rotation only
-                        activePose.distance = activePose.position.distance(result);
-                        orbitCamera.attach(activePose, false);
-                        orbitCamera.attach(pose.look(activePose.position, result), true);
+                        this.activePose.distance = this.activePose.position.distance(result);
+                        orbitCamera.attach(this.activePose, false);
+                        orbitCamera.attach(pose.look(this.activePose.position, result), true);
                     }
                     break;
                 }
@@ -441,8 +444,8 @@ class Viewer {
 
         // initialize the camera entity to initial position and kick off the
         // first scene sort (which usually happens during render)
-        entity.setPosition(activePose.position);
-        entity.setEulerAngles(activePose.angles);
+        entity.setPosition(this.activePose.position);
+        entity.setEulerAngles(this.activePose.angles);
         gsplat?.instance?.sort(entity);
 
         // handle gsplat sort updates
