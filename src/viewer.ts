@@ -117,6 +117,10 @@ class Viewer {
 
     activePose: Pose;
 
+    prevPose: Pose;
+
+    prevCameraMode: 'orbit' | 'anim' | 'fly'
+
     constructor(app: AppBase, entity: Entity, events: EventHandler, state: any, settings: any, params: any) {
         const { background, camera } = settings;
         const { graphicsDevice } = app;
@@ -130,6 +134,11 @@ class Viewer {
         // this pose stores the current camera position. it will be blended/smoothed
         // toward the current active camera
         this.activePose = new Pose();
+
+        this.prevPose = new Pose();
+
+        // the previous camera we're transitioning away from
+        this.prevCameraMode = 'orbit';
 
         // disable auto render, we'll render only when camera changes
         app.autoRender = false;
@@ -302,49 +311,26 @@ class Viewer {
         orbitCamera.attach(this.activePose, false);
         flyCamera.attach(this.activePose, false);
 
-        // the previous camera we're transitioning away from
-        let prevCameraMode = 'orbit';
 
         // handle input events
         events.on('inputEvent', (eventName, event) => {
-            const doReset = (pose: Pose) => {
-                switch (state.cameraMode) {
-                    case 'orbit': {
-                        orbitCamera.attach(pose, true);
-                        break;
-                    }
-                    case 'fly': {
-                        if (state.cameraMode !== 'orbit') {
-                            state.cameraMode = 'orbit';
-                        }
-                        orbitCamera.attach(pose, true);
-                        break;
-                    }
-                    case 'anim': {
-                        state.cameraMode = prevCameraMode;
-                        break;
-                    }
-                }
-            };
-
             switch (eventName) {
                 case 'frame':
-                    doReset(framePose);
+                    this.setCameraPose(framePose);
                     break;
                 case 'reset':
-                    doReset(resetPose);
+                    this.setCameraPose(resetPose);
                     break;
                 case 'cancel':
                 case 'interrupt':
                     if (state.cameraMode === 'anim') {
-                        state.cameraMode = prevCameraMode;
+                        state.cameraMode = this.prevCameraMode;
                     }
                     break;
             }
         });
 
         this.currentCamera = getCamera(state.cameraMode);
-        const prevPose = new Pose();
 
         // transition time between cameras
         let transitionTimer = 1;
@@ -376,7 +362,7 @@ class Viewer {
 
             if (transitionTimer < 1) {
                 // handle lerp away from previous camera
-                lerpPose(this.activePose, prevPose, pose, easeOut(transitionTimer));
+                lerpPose(this.activePose, this.prevPose, pose, easeOut(transitionTimer));
             } else {
                 this.activePose.copy(pose);
             }
@@ -393,8 +379,8 @@ class Viewer {
 
         // handle camera mode switching
         events.on('cameraMode:changed', (value, prev) => {
-            prevCameraMode = prev;
-            prevPose.copy(this.activePose);
+            this.prevCameraMode = prev;
+            this.prevPose.copy(this.activePose);
             getCamera(prev).detach();
 
             this.currentCamera = getCamera(value);
@@ -470,6 +456,18 @@ class Viewer {
                 });
             }
         });
+    }
+
+    setCameraPose(pose: Pose) {
+        this.prevPose.copy(this.activePose)
+        // Exit from the anim mode & switch to orbit camera
+        if (this.state.cameraMode === 'anim') {
+            this.state.cameraMode = this.prevCameraMode
+            return  // Exit from anim
+        } else if (this.state.cameraMode === 'fly') {
+            this.state.cameraMode = 'orbit';
+        }
+        this.currentCamera.attach(pose, true)
     }
 }
 
