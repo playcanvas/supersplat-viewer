@@ -17,7 +17,7 @@ import {
 import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
-import { migrateSettings } from './data-migrations';
+import { importSettings } from './schemas/settings';
 import { observe } from './observe';
 import { Tooltip } from './tooltip';
 import { Viewer } from './viewer';
@@ -213,7 +213,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const cameraElement = await (document.querySelector('pc-entity[name="camera"]') as EntityElement).ready();
     const camera = cameraElement.entity;
-    const settings = migrateSettings(await window.sse?.settings);
+    const settings = importSettings(await window.sse?.settings);
     const events = new EventHandler();
     const state = observe(events, {
         readyToRender: false,       // don't render till this is set

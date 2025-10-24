@@ -14,6 +14,7 @@ import { AnimController, AnimTrack } from './controllers/anim-controller';
 import { easeOut } from './core/math';
 import { AppController } from './input';
 import { Picker } from './picker';
+import { ExperienceSettings } from './schemas/v2';
 
 const vecToAngles = (result: Vec3, vec: Vec3) => {
     const radToDeg = 180 / Math.PI;
@@ -109,7 +110,7 @@ class Viewer {
 
     state: any;
 
-    settings: any;
+    settings: ExperienceSettings;
 
     constructor(app: AppBase, entity: Entity, events: EventHandler, state: any, settings: any, params: any) {
         const { background, camera } = settings;
