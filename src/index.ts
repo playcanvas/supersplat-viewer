@@ -3,7 +3,6 @@ import type { AppElement, EntityElement } from '@playcanvas/web-components';
 import {
     Asset,
     Color,
-    Entity,
     EventHandler,
     MiniStats,
     Quat,
@@ -17,6 +16,7 @@ import {
 import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
+import { loadContent } from './asset-loader';
 import { migrateSettings } from './data-migrations';
 import { observe } from './observe';
 import { Tooltip } from './tooltip';
@@ -137,32 +137,6 @@ const initXr = (app: AppBase, cameraElement: EntityElement, state: any, events: 
             app.xr.end();
         }
     });
-};
-
-const loadContent = (app: AppBase) => {
-    const { contentUrl, contents } = window.sse;
-
-    const filename = new URL(contentUrl, location.href).pathname.split('/').pop();
-
-    const asset = new Asset(filename, 'gsplat', {
-        url: contentUrl,
-        filename,
-        contents
-    });
-
-    asset.on('load', () => {
-        const entity = new Entity('gsplat');
-        entity.setLocalEulerAngles(0, 0, 180);
-        entity.addComponent('gsplat', { asset });
-        app.root.addChild(entity);
-    });
-
-    asset.on('error', (err) => {
-        console.log(err);
-    });
-
-    app.assets.add(asset);
-    app.assets.load(asset);
 };
 
 const waitForGsplat = (app: AppBase, state: any) => {
