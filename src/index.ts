@@ -17,11 +17,10 @@ import {
 import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
-import { importSettings } from './schemas/settings';
-import { observe } from './observe';
+import { importSettings } from './settings';
+import { observe } from './core/observe';
 import { Tooltip } from './tooltip';
 import { Viewer } from './viewer';
-
 
 // override global pick to pack depth instead of meshInstance id
 const pickDepthGlsl = /* glsl */ `

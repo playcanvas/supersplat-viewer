@@ -1,5 +1,3 @@
-import { AnimTrack as AnimTrackV1, ExperienceSettings as V1 } from './v1';
-
 type AnimTrack = {
     name: string,
     duration: number,
@@ -94,49 +92,4 @@ type ExperienceSettings = {
     cameraStartMode: 'default' | 'animTrack' | 'annotation'
 };
 
-const migrateAnimTrack = (animTrackV1: AnimTrackV1, fov: number): AnimTrack => {
-    return {
-        name: animTrackV1.name,
-        duration: animTrackV1.duration,
-        frameRate: animTrackV1.frameRate,
-        loopMode: animTrackV1.loopMode,
-        interpolation: animTrackV1.interpolation,
-        smoothness: animTrackV1.smoothness,
-        keyframes: {
-            times: animTrackV1.keyframes.times,
-            values: {
-                position: animTrackV1.keyframes.values.position,
-                target: animTrackV1.keyframes.values.target,
-                fov: new Array(animTrackV1.keyframes.times.length).fill(fov)
-            }
-        }
-    };
-};
-
-const migrate = (v1: V1): ExperienceSettings => {
-    return {
-        version: 2,
-        tonemapping: 'none',
-        highPrecisionRendering: false,
-        background: {
-            color: v1.background.color as [number, number, number, number] || [0, 0, 0, 1],
-        },
-        postEffectSettings: {},
-        animTracks: v1.animTracks.map((animTrackV1: AnimTrackV1) => {
-            return migrateAnimTrack(animTrackV1, v1.camera.fov || 60);
-        }),
-        cameras: [{
-            fov: v1.camera.fov || 60,
-            initialPose: {
-                position: v1.camera.position as [number, number, number] || [0, 0, 5],
-                target: v1.camera.target as [number, number, number] || [0, 0, 0]
-            }
-        }],
-        annotations: [],
-        cameraStartMode: v1.camera.startAnim === 'animTrack' ? 'animTrack' : 'default'
-    }
-};
-
 export type { AnimTrack, Camera, Annotation, PostEffectSettings, ExperienceSettings };
-
-export { migrate };

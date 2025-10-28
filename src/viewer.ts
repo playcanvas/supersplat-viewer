@@ -10,11 +10,11 @@ import {
 } from 'playcanvas';
 import type { AppBase, Entity, EventHandler, GSplatComponent, InputController } from 'playcanvas';
 
-import { AnimController, AnimTrack } from './controllers/anim-controller';
+import { AnimController } from './controllers/anim-controller';
 import { easeOut } from './core/math';
 import { AppController } from './input';
 import { Picker } from './picker';
-import { ExperienceSettings } from './schemas/v2';
+import { AnimTrack, ExperienceSettings } from './settings';
 
 const vecToAngles = (result: Vec3, vec: Vec3) => {
     const radToDeg = 180 / Math.PI;
@@ -54,10 +54,11 @@ const lerpPose = (result: Pose, a: Pose, b: Pose, t: number) => {
  * @param duration - The duration of the animation in seconds.
  * @returns - The animation track object containing position and target keyframes.
  */
-const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 20): AnimTrack => {
+const createRotateTrack = (initial: Pose, fov: number, keys: number = 12, duration: number = 20): AnimTrack => {
     const times = new Array(keys).fill(0).map((_, i) => i / keys * duration);
     const position: number[] = [];
     const target: number[] = [];
+    const fovs: number[] = [];
 
     const initialTarget = new Vec3();
     initial.getFocus(initialTarget);
@@ -81,13 +82,14 @@ const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 
         target.push(initialTarget.x);
         target.push(initialTarget.y);
         target.push(initialTarget.z);
+
+        fovs.push(fov);
     }
 
     return {
         name: 'rotate',
         duration,
         frameRate: 1,
-        target: 'camera',
         loopMode: 'repeat',
         interpolation: 'spline',
         smoothness: 1,
@@ -95,7 +97,8 @@ const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 
             times,
             values: {
                 position,
-                target
+                target,
+                fov: fovs
             }
         }
     };
@@ -200,9 +203,11 @@ class Viewer {
             );
         })();
 
+        const { initialPose } = settings.cameras[0];
+
         // calculate the orbit camera reset position
         const resetPose = (() => {
-            const { position, target } = settings.camera;
+            const { position, target } = initialPose;
             return new Pose().look(
                 new Vec3(position ?? [2, 1, 2]),
                 new Vec3(target ?? [0, 0, 0])
@@ -219,7 +224,8 @@ class Viewer {
 
         // create the cameras
         const animCamera = ((initial, isObjectExperience) => {
-            const { animTracks, camera } = settings;
+            const { animTracks } = settings;
+            const camera = settings.cameras[0];
 
             // extract the camera animation track from settings
             if (animTracks?.length > 0 && camera.startAnim === 'animTrack') {
@@ -229,7 +235,7 @@ class Viewer {
                 }
             } else if (isObjectExperience) {
                 // create basic rotation animation if no anim track is specified
-                return AnimController.fromTrack(createRotateTrack(initial));
+                return AnimController.fromTrack(createRotateTrack(initial, camera.fov));
             }
             return null;
         })(userStart, isObjectExperience);
