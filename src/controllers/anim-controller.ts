@@ -1,4 +1,4 @@
-import { InputController, Vec3, type InputFrame } from 'playcanvas';
+import { Pose, Vec3 } from 'playcanvas';
 
 import { mod } from '../core/math';
 import { CubicSpline } from '../core/spline';
@@ -51,7 +51,7 @@ class AnimCursor {
 }
 
 // Manage the state of a camera animation track
-class AnimController extends InputController {
+class AnimController {
     spline: CubicSpline;
 
     cursor: AnimCursor = new AnimCursor(0, 'none');
@@ -60,6 +60,8 @@ class AnimController extends InputController {
 
     result: number[] = [];
 
+    pose = new Pose();
+
     position: Vec3 = new Vec3();
 
     target: Vec3 = new Vec3();
@@ -67,7 +69,6 @@ class AnimController extends InputController {
     fov: number = 60;
 
     constructor(spline: CubicSpline, duration: number, loopMode: 'none' | 'repeat' | 'pingpong', frameRate: number) {
-        super();
         this.spline = spline;
         this.cursor.reset(duration, loopMode);
         this.frameRate = frameRate;
@@ -78,11 +79,8 @@ class AnimController extends InputController {
      * @param dt - The delta time.
      * @returns - The controller pose.
      */
-    update(frame: InputFrame<{ move: number[], rotate: number[] }>, dt: number) {
-        // discard frame
-        frame.read();
-
-        const { cursor, result, spline, frameRate, position, target } = this;
+    update(dt: number) {
+        const { cursor, result, spline, frameRate, pose, position, target } = this;
 
         // update the animation cursor
         cursor.update(dt);
@@ -97,7 +95,9 @@ class AnimController extends InputController {
         }
 
         // update pose
-        return this._pose.look(position, target);
+        pose.look(position, target);
+
+        return pose;
     }
 
     // construct an animation from a settings track

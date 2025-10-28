@@ -289,8 +289,11 @@ class Viewer {
         const activePose = new Pose();
 
         if (state.cameraMode === 'anim') {
+            // discard frame
+            controller.frame.read();
+
             //  first frame of the animation
-            activePose.copy(animCamera.update(controller.frame, 0));
+            activePose.copy(animCamera.update(0));
         } else {
             // user start position
             activePose.copy(userStart);
