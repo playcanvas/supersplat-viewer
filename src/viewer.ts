@@ -111,6 +111,16 @@ class Viewer {
 
     settings: any;
 
+    controller: AppController;
+
+    currentCamera: InputController;
+
+    activePose: Pose;
+
+    prevPose: Pose;
+
+    prevCameraMode: 'orbit' | 'anim' | 'fly'
+
     constructor(app: AppBase, entity: Entity, events: EventHandler, state: any, settings: any, params: any) {
         const { background, camera } = settings;
         const { graphicsDevice } = app;
@@ -120,6 +130,15 @@ class Viewer {
         this.events = events;
         this.state = state;
         this.settings = settings;
+
+        // this pose stores the current camera position. it will be blended/smoothed
+        // toward the current active camera
+        this.activePose = new Pose();
+
+        this.prevPose = new Pose();
+
+        // the previous camera we're transitioning away from
+        this.prevCameraMode = 'orbit';
 
         // disable auto render, we'll render only when camera changes
         app.autoRender = false;
@@ -233,14 +252,16 @@ class Viewer {
             return null;
         })(userStart, isObjectExperience);
 
+        const dampingFactor = settings?.camera?.dampingFactor ?? 0.97
+
         const orbitCamera = (() => {
             const orbitCamera = new OrbitController();
 
             orbitCamera.zoomRange = new Vec2(0.01, Infinity);
             orbitCamera.pitchRange = new Vec2(-90, 90);
-            orbitCamera.rotateDamping = 0.97;
-            orbitCamera.moveDamping = 0.97;
-            orbitCamera.zoomDamping = 0.97;
+            orbitCamera.rotateDamping = dampingFactor;
+            orbitCamera.moveDamping = dampingFactor;
+            orbitCamera.zoomDamping = dampingFactor;
 
             return orbitCamera;
         })();
@@ -249,8 +270,8 @@ class Viewer {
             const flyCamera = new FlyController();
 
             flyCamera.pitchRange = new Vec2(-90, 90);
-            flyCamera.rotateDamping = 0.97;
-            flyCamera.moveDamping = 0.97;
+            flyCamera.rotateDamping = dampingFactor;
+            flyCamera.moveDamping = dampingFactor;
 
             return flyCamera;
         })();
@@ -272,70 +293,44 @@ class Viewer {
 
         // create controller
         // set move speed based on scene size, within reason
-        const controller = new AppController(app.graphicsDevice.canvas, entity.camera);
+        this.controller = new AppController(app.graphicsDevice.canvas, entity.camera);
 
         // fixed move speed
-        controller.moveSpeed = 4;
+        this.controller.moveSpeed = 4;
 
-        // this pose stores the current camera position. it will be blended/smoothed
-        // toward the current active camera
-        const activePose = new Pose();
 
         if (state.cameraMode === 'anim') {
             //  first frame of the animation
-            activePose.copy(animCamera.update(controller.frame, 0));
+            this.activePose.copy(animCamera.update(this.controller.frame, 0));
         } else {
             // user start position
-            activePose.copy(userStart);
+            this.activePose.copy(userStart);
         }
 
         // place all user cameras at the start position
-        orbitCamera.attach(activePose, false);
-        flyCamera.attach(activePose, false);
+        orbitCamera.attach(this.activePose, false);
+        flyCamera.attach(this.activePose, false);
 
-        // the previous camera we're transitioning away from
-        let prevCameraMode = 'orbit';
 
         // handle input events
         events.on('inputEvent', (eventName, event) => {
-            const doReset = (pose: Pose) => {
-                switch (state.cameraMode) {
-                    case 'orbit': {
-                        orbitCamera.attach(pose, true);
-                        break;
-                    }
-                    case 'fly': {
-                        if (state.cameraMode !== 'orbit') {
-                            state.cameraMode = 'orbit';
-                        }
-                        orbitCamera.attach(pose, true);
-                        break;
-                    }
-                    case 'anim': {
-                        state.cameraMode = prevCameraMode;
-                        break;
-                    }
-                }
-            };
-
             switch (eventName) {
                 case 'frame':
-                    doReset(framePose);
+                    this.setCameraPose(framePose);
                     break;
                 case 'reset':
-                    doReset(resetPose);
+                    this.setCameraPose(resetPose);
                     break;
                 case 'cancel':
                 case 'interrupt':
                     if (state.cameraMode === 'anim') {
-                        state.cameraMode = prevCameraMode;
+                        state.cameraMode = this.prevCameraMode;
                     }
                     break;
             }
         });
 
-        let currCamera = getCamera(state.cameraMode);
-        const prevPose = new Pose();
+        this.currentCamera = getCamera(state.cameraMode);
 
         // transition time between cameras
         let transitionTimer = 1;
@@ -349,11 +344,11 @@ class Viewer {
             }
 
             // update input controller
-            controller.update(deltaTime, state, activePose.distance);
+            this.controller.update(deltaTime, state, this.activePose.distance);
 
             // update touch joystick UI
             if (state.cameraMode === 'fly') {
-                events.fire('touchJoystickUpdate', controller.joystick.base, controller.joystick.stick);
+                events.fire('touchJoystickUpdate', this.controller.joystick.base, this.controller.joystick.stick);
             }
 
             // use dt of 0 if animation is paused
@@ -363,18 +358,18 @@ class Viewer {
             transitionTimer = Math.min(1, transitionTimer + deltaTime * 2.0);
 
             // update camera
-            pose.copy(currCamera.update(controller.frame, dt));
+            pose.copy(this.currentCamera.update(this.controller.frame, dt));
 
             if (transitionTimer < 1) {
                 // handle lerp away from previous camera
-                lerpPose(activePose, prevPose, pose, easeOut(transitionTimer));
+                lerpPose(this.activePose, this.prevPose, pose, easeOut(transitionTimer));
             } else {
-                activePose.copy(pose);
+                this.activePose.copy(pose);
             }
 
             // apply to camera
-            entity.setPosition(activePose.position);
-            entity.setEulerAngles(activePose.angles);
+            entity.setPosition(this.activePose.position);
+            entity.setEulerAngles(this.activePose.angles);
 
             // update animation timeline
             if (state.cameraMode === 'anim') {
@@ -384,15 +379,15 @@ class Viewer {
 
         // handle camera mode switching
         events.on('cameraMode:changed', (value, prev) => {
-            prevCameraMode = prev;
-            prevPose.copy(activePose);
+            this.prevCameraMode = prev;
+            this.prevPose.copy(this.activePose);
             getCamera(prev).detach();
 
-            currCamera = getCamera(value);
+            this.currentCamera = getCamera(value);
             switch (value) {
                 case 'orbit':
                 case 'fly':
-                    currCamera.attach(activePose, false);
+                    this.currentCamera.attach(this.activePose, false);
                     break;
             }
 
@@ -426,9 +421,9 @@ class Viewer {
                         }
 
                         // snap distance of focus to picked point to interpolate rotation only
-                        activePose.distance = activePose.position.distance(result);
-                        orbitCamera.attach(activePose, false);
-                        orbitCamera.attach(pose.look(activePose.position, result), true);
+                        this.activePose.distance = this.activePose.position.distance(result);
+                        orbitCamera.attach(this.activePose, false);
+                        orbitCamera.attach(pose.look(this.activePose.position, result), true);
                     }
                     break;
                 }
@@ -437,8 +432,8 @@ class Viewer {
 
         // initialize the camera entity to initial position and kick off the
         // first scene sort (which usually happens during render)
-        entity.setPosition(activePose.position);
-        entity.setEulerAngles(activePose.angles);
+        entity.setPosition(this.activePose.position);
+        entity.setEulerAngles(this.activePose.angles);
         gsplat?.instance?.sort(entity);
 
         // handle gsplat sort updates
@@ -461,6 +456,18 @@ class Viewer {
                 });
             }
         });
+    }
+
+    setCameraPose(pose: Pose) {
+        this.prevPose.copy(this.activePose)
+        // Exit from the anim mode & switch to orbit camera
+        if (this.state.cameraMode === 'anim') {
+            this.state.cameraMode = this.prevCameraMode
+            return  // Exit from anim
+        } else if (this.state.cameraMode === 'fly') {
+            this.state.cameraMode = 'orbit';
+        }
+        this.currentCamera.attach(pose, true)
     }
 }
 
