@@ -4,7 +4,7 @@ import { Tooltip } from './tooltip';
 
 const v = new Vec3();
 
-const initUI = (events: EventHandler, state: any, canvas: HTMLCanvasElement) => {
+const initUI = (events: EventHandler, state: any, config: any, canvas: HTMLCanvasElement) => {
     // Acquire Elements
     const docRoot = document.documentElement;
     const dom = [
@@ -320,7 +320,7 @@ const initUI = (events: EventHandler, state: any, canvas: HTMLCanvasElement) => 
     });
 
     // Hide all UI (poster, loading bar, controls)
-    if (state.noui) {
+    if (config.noui) {
         dom.ui.classList.add('hidden');
     }
 

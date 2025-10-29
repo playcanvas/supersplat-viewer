@@ -1,6 +1,5 @@
 import {
     BoundingBox,
-    Color,
     FlyController,
     InputController,
     Pose,
@@ -9,13 +8,14 @@ import {
     Vec2,
     Vec3
 } from 'playcanvas';
-import type { AppBase, Entity, EventHandler, GSplatComponent, InputFrame } from 'playcanvas';
+import type { InputFrame } from 'playcanvas';
 
 import { AnimState } from './controllers/anim-state';
 import { easeOut } from './core/math';
 import { AppController } from './input';
 import { Picker } from './picker';
-import { AnimTrack, ExperienceSettings } from './settings';
+import { AnimTrack } from './settings';
+import { CameraMode, Global } from './types';
 
 const vecToAngles = (result: Vec3, vec: Vec3) => {
     const radToDeg = 180 / Math.PI;
@@ -120,98 +120,17 @@ const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 
 };
 
 class Viewer {
-    app: AppBase;
-
-    entity: Entity;
-
-    events: EventHandler;
-
-    state: any;
-
-    settings: ExperienceSettings;
-
-    constructor(app: AppBase, entity: Entity, events: EventHandler, state: any, settings: any, params: any) {
-        const { background, camera } = settings;
-        const { graphicsDevice } = app;
-
-        this.app = app;
-        this.entity = entity;
-        this.events = events;
-        this.state = state;
-        this.settings = settings;
-
-        // disable auto render, we'll render only when camera changes
-        app.autoRender = false;
-
-        // apply camera animation settings
-        entity.camera.clearColor = new Color(background.color);
-        entity.camera.fov = camera.fov;
-
-        // handle horizontal fov on canvas resize
-        const updateHorizontalFov = () => {
-            this.entity.camera.horizontalFov = graphicsDevice.width > graphicsDevice.height;
-        };
-        graphicsDevice.on('resizecanvas', () => {
-            updateHorizontalFov();
-            app.renderNextFrame = true;
-        });
-        updateHorizontalFov();
-
-        // track camera changes
-        const prevProj = new Mat4();
-        const prevWorld = new Mat4();
-
-        app.on('framerender', () => {
-            const world = this.entity.getWorldTransform();
-            const proj = this.entity.camera.projectionMatrix;
-            const nearlyEquals = (a: Float32Array<ArrayBufferLike>, b: Float32Array<ArrayBufferLike>, epsilon = 1e-4) => {
-                return !a.some((v, i) => Math.abs(v - b[i]) >= epsilon);
-            };
-
-            if (params.ministats) {
-                app.renderNextFrame = true;
-            }
-
-            if (!app.autoRender && !app.renderNextFrame) {
-                if (!nearlyEquals(world.data, prevWorld.data) ||
-                    !nearlyEquals(proj.data, prevProj.data)) {
-                    app.renderNextFrame = true;
-                }
-            }
-
-            if (app.renderNextFrame) {
-                prevWorld.copy(world);
-                prevProj.copy(proj);
-            }
-
-            // suppress rendering till we're ready
-            if (!state.readyToRender) {
-                app.renderNextFrame = false;
-            }
-        });
-
-        events.on('hqMode:changed', (value) => {
-            graphicsDevice.maxPixelRatio = value ? window.devicePixelRatio : 1;
-            app.renderNextFrame = true;
-        });
-        graphicsDevice.maxPixelRatio = state.hqMode ? window.devicePixelRatio : 1;
-    }
-
-    // initialize the viewer once gsplat asset is finished loading (so we know its bound etc)
-    initialize() {
-        const { app, entity, events, state, settings } = this;
-
-        // get the gsplat
-        const gsplat = app.root.findComponent('gsplat') as GSplatComponent;
+    constructor(global: Global) {
+        const { app, events, settings, state, camera, gsplat } = global;
 
         // calculate scene bounding box
-        const bbox = gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
+        const bbox = gsplat.gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
 
         // create an anim camera
         // calculate the orbit camera frame position
         const framePose = (() => {
             const sceneSize = bbox.halfExtents.length();
-            const distance = sceneSize / Math.sin(entity.camera.fov / 180 * Math.PI * 0.5);
+            const distance = sceneSize / Math.sin(camera.camera.fov / 180 * Math.PI * 0.5);
             return new Pose().look(
                 new Vec3(2, 1, 2).normalize().mulScalar(distance).add(bbox.center),
                 bbox.center
@@ -291,7 +210,7 @@ class Viewer {
 
         // create controller
         // set move speed based on scene size, within reason
-        const controller = new AppController(app.graphicsDevice.canvas, entity.camera);
+        const controller = new AppController(app.graphicsDevice.canvas, camera.camera);
 
         // fixed move speed
         controller.moveSpeed = 4;
@@ -313,7 +232,7 @@ class Viewer {
         flyCamera.attach(activePose, false);
 
         // the previous camera we're transitioning away from
-        let prevCameraMode = 'orbit';
+        let prevCameraMode: CameraMode = 'orbit';
 
         // handle input events
         events.on('inputEvent', (eventName, event) => {
@@ -324,9 +243,7 @@ class Viewer {
                         break;
                     }
                     case 'fly': {
-                        if (state.cameraMode !== 'orbit') {
-                            state.cameraMode = 'orbit';
-                        }
+                        state.cameraMode = 'orbit';
                         orbitCamera.attach(pose, true);
                         break;
                     }
@@ -392,8 +309,8 @@ class Viewer {
             }
 
             // apply to camera
-            entity.setPosition(activePose.position);
-            entity.setEulerAngles(activePose.angles);
+            camera.setPosition(activePose.position);
+            camera.setEulerAngles(activePose.angles);
 
             // update animation timeline
             if (state.cameraMode === 'anim') {
@@ -436,7 +353,7 @@ class Viewer {
             switch (eventName) {
                 case 'dblclick': {
                     if (!picker) {
-                        picker = new Picker(app, entity);
+                        picker = new Picker(app, camera);
                     }
                     const result = await picker.pick(event.offsetX, event.offsetY);
                     if (result) {
@@ -456,30 +373,8 @@ class Viewer {
 
         // initialize the camera entity to initial position and kick off the
         // first scene sort (which usually happens during render)
-        entity.setPosition(activePose.position);
-        entity.setEulerAngles(activePose.angles);
-        gsplat?.instance?.sort(entity);
-
-        // handle gsplat sort updates
-        gsplat?.instance?.sorter?.on('updated', () => {
-            // request frame render when sorting changes
-            app.renderNextFrame = true;
-
-            if (!state.readyToRender) {
-                // we're ready to render once the first sort has completed
-                state.readyToRender = true;
-
-                // wait for the first valid frame to complete rendering
-                const frameHandle = app.on('frameend', () => {
-                    frameHandle.off();
-
-                    events.fire('firstFrame');
-
-                    // emit first frame event on window
-                    window.firstFrame?.();
-                });
-            }
-        });
+        camera.setPosition(activePose.position);
+        camera.setEulerAngles(activePose.angles);
     }
 }
 

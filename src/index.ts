@@ -2,8 +2,10 @@ import '@playcanvas/web-components';
 import type { AppElement, EntityElement } from '@playcanvas/web-components';
 import {
     Asset,
+    Color,
     Entity,
     EventHandler,
+    Mat4,
     MiniStats,
     ShaderChunks,
     type TextureHandler,
@@ -13,6 +15,7 @@ import {
 
 import { observe } from './core/observe';
 import { importSettings } from './settings';
+import { Global } from './types';
 import { initUI } from './ui';
 import { Viewer } from './viewer';
 import { initXr } from './xr';
@@ -39,7 +42,88 @@ const pickDepthWgsl = /* wgsl */ `
     }
 `;
 
-// displays a blurry poster image which resolves to sharp during loading
+const initApp = (global: Global) => {
+    const { app, settings, config, events, state, camera } = global;
+    const { background } = settings;
+    const { graphicsDevice } = app;
+
+    // enable anonymous CORS for image loading in safari
+    (app.loader.getHandler('texture') as TextureHandler).imgParser.crossOrigin = 'anonymous';
+
+    // render skybox as plain equirect
+    const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
+    glsl.set('skyboxPS', glsl.get('skyboxPS').replace('mapRoughnessUv(uv, mipLevel)', 'uv'));
+    glsl.set('pickPS', pickDepthGlsl);
+
+    const wgsl = ShaderChunks.get(graphicsDevice, 'wgsl');
+    wgsl.set('skyboxPS', wgsl.get('skyboxPS').replace('mapRoughnessUv(uv, uniform.mipLevel)', 'uv'));
+    wgsl.set('pickPS', pickDepthWgsl);
+
+    // disable auto render, we'll render only when camera changes
+    app.autoRender = false;
+
+    // apply camera animation settings
+    camera.camera.clearColor = new Color(background.color);
+    camera.camera.fov = settings.camera.fov;
+
+    // handle horizontal fov on canvas resize
+    const updateHorizontalFov = () => {
+        camera.camera.horizontalFov = graphicsDevice.width > graphicsDevice.height;
+    };
+    graphicsDevice.on('resizecanvas', () => {
+        updateHorizontalFov();
+        app.renderNextFrame = true;
+    });
+    updateHorizontalFov();
+
+    // track camera changes
+    const prevProj = new Mat4();
+    const prevWorld = new Mat4();
+
+    app.on('framerender', () => {
+        const world = camera.getWorldTransform();
+        const proj = camera.camera.projectionMatrix;
+        const nearlyEquals = (a: Float32Array<ArrayBufferLike>, b: Float32Array<ArrayBufferLike>, epsilon = 1e-4) => {
+            return !a.some((v, i) => Math.abs(v - b[i]) >= epsilon);
+        };
+
+        if (config.ministats) {
+            app.renderNextFrame = true;
+        }
+
+        if (!app.autoRender && !app.renderNextFrame) {
+            if (!nearlyEquals(world.data, prevWorld.data) ||
+                !nearlyEquals(proj.data, prevProj.data)) {
+                app.renderNextFrame = true;
+            }
+        }
+
+        if (app.renderNextFrame) {
+            prevWorld.copy(world);
+            prevProj.copy(proj);
+        }
+
+        // suppress rendering till we're ready
+        if (!state.readyToRender) {
+            app.renderNextFrame = false;
+        }
+    });
+
+    events.on('hqMode:changed', (value) => {
+        graphicsDevice.maxPixelRatio = value ? window.devicePixelRatio : 1;
+        app.renderNextFrame = true;
+    });
+
+    graphicsDevice.maxPixelRatio = state.hqMode ? window.devicePixelRatio : 1;
+
+    // Construct ministats
+    if (config.ministats) {
+        // eslint-disable-next-line no-new
+        new MiniStats(app);
+    }
+};
+
+// display a poster image which starts blurry and then resolves to sharp during loading
 const initPoster = (events: EventHandler) => {
     const element = document.getElementById('poster');
     const blur = (progress: number) => `blur(${Math.floor((100 - progress) * 0.4)}px)`;
@@ -53,15 +137,12 @@ const initPoster = (events: EventHandler) => {
     });
 };
 
-const loadContent = (app: AppBase, contentUrl: string, contents: ArrayBuffer, progressCallback: (progress: number) => void) => {
-    return new Promise((resolve, reject) => {
-        const filename = new URL(contentUrl, location.href).pathname.split('/').pop();
+const loadGsplat = (app: AppBase, url: string, contents: Promise<Response>, progressCallback: (progress: number) => void) => {
+    const c = contents as unknown as ArrayBuffer;
 
-        const asset = new Asset(filename, 'gsplat', {
-            url: contentUrl,
-            filename,
-            contents
-        });
+    return new Promise<Entity>((resolve, reject) => {
+        const filename = new URL(url, location.href).pathname.split('/').pop();
+        const asset = new Asset(filename, 'gsplat', { url, filename, contents: c } );
 
         asset.on('load', () => {
             const entity = new Entity('gsplat');
@@ -90,21 +171,53 @@ const loadContent = (app: AppBase, contentUrl: string, contents: ArrayBuffer, pr
     });
 };
 
-const main = async (app: AppBase, camera: Entity) => {
-    const { sse } = window;
-    const params = sse?.params ?? {};
-    const settingsJson = await sse?.settings;
-    const settings = importSettings(settingsJson);
+const loadSkybox = (app: AppBase, url: string) => {
+    return new Promise<Asset>((resolve, reject) => {
+        const asset = new Asset('skybox', 'texture', {
+            url
+        }, {
+            type: 'rgbp',
+            mipmaps: false,
+            addressu: 'repeat',
+            addressv: 'clamp'
+        });
+
+        asset.on('load', () => {
+            resolve(asset);
+        });
+
+        asset.on('error', (err) => {
+            console.log(err);
+            reject(err);
+        });
+
+        app.assets.add(asset);
+        app.assets.load(asset);
+    });
+};
+
+const initGlobal = async (app: AppBase, camera: Entity): Promise<Global> => {
+    const sse: any = window.sse ?? {};
+    const params = sse.params ?? {};
+    const settings = importSettings(await sse.settings);
     const events = new EventHandler();
+
+    const config = {
+        noui: !!(params.noui || false),
+        ministats: !!(params.ministats || false),
+        skyboxUrl: params.skyboxUrl,
+        poster: sse.poster,
+        contentUrl: sse.contentUrl,
+        contents: sse.contents
+    };
 
     // construct the observable state
     const state = observe(events, {
-        readyToRender: false,       // don't render till this is set
-        noui: params.noui || false,
+        readyToRender: false,
         hqMode: true,
-        progress: 0,                // content loading progress 0-100
-        inputMode: 'desktop',       // desktop, touch
-        cameraMode: 'orbit',        // orbit, anim, fly
+        progress: 0,
+        inputMode: 'desktop',
+        cameraMode: 'orbit',
         hasAnimation: false,
         animationDuration: 0,
         animationTime: 0,
@@ -115,81 +228,90 @@ const main = async (app: AppBase, camera: Entity) => {
         controlsHidden: false
     });
 
-    // start loading content
-    const loadPromise = loadContent(
+    return {
         app,
-        sse.contentUrl,
-        sse.contents,
-        (progress: number) => {
-            state.progress = progress;
-        }
-    );
+        settings,
+        config,
+        state,
+        events,
+        camera,
+        gsplat: null
+    };
+};
+
+const main = async (global: Global) => {
+    const { app, events, config, state, camera } = global;
+
+    initApp(global);
 
     // Initialize the load-time poster
-    if (sse?.poster) {
+    if (config.poster) {
         initPoster(events);
     }
 
+    const promises = [];
+
+    // start loading content
+    promises.push(loadGsplat(
+        app,
+        config.contentUrl,
+        config.contents,
+        (progress: number) => {
+            state.progress = progress;
+        }
+    ));
+
     // Initialize skybox
-    if (params.skyboxUrl) {
-        const skyAsset = new Asset('skybox', 'texture', {
-            url: params.skyboxUrl
-        }, {
-            type: 'rgbp',
-            mipmaps: false,
-            addressu: 'repeat',
-            addressv: 'clamp'
-        });
-
-        skyAsset.on('load', () => {
-            app.scene.envAtlas = skyAsset.resource as Texture;
-        });
-
-        app.assets.add(skyAsset);
-        app.assets.load(skyAsset);
-    }
-
-    // Construct ministats
-    if (params.ministats) {
-        // eslint-disable-next-line no-new
-        new MiniStats(app);
+    if (config.skyboxUrl) {
+        promises.push(loadSkybox(app, config.skyboxUrl).then((asset) => {
+            app.scene.envAtlas = asset.resource as Texture;
+        }));
     }
 
     // Initialize XR support
     initXr(app, camera, state, events);
 
     // Initialize the user interface
-    initUI(events, state, app.graphicsDevice.canvas);
+    initUI(events, state, config, app.graphicsDevice.canvas);
+
+    // Wait for loads to complete
+    const loadResults = await Promise.all(promises);
+
+    global.gsplat = loadResults[0] as Entity;
 
     // Create the viewer
-    const viewer = new Viewer(app, camera, events, state, settings, params);
+    const viewer = new Viewer(global);
 
-    // Wait for gsplat asset to load before initializing the viewer
-    await loadPromise;
+    // kick off gsplat sorting immediately now that camera is in position
+    global.gsplat.gsplat?.instance?.sort(camera);
 
-    viewer.initialize();
+    // listen for sorting updates to trigger first frame events
+    global.gsplat.gsplat?.instance?.sorter?.on('updated', () => {
+        // request frame render when sorting changes
+        app.renderNextFrame = true;
+
+        if (!state.readyToRender) {
+            // we're ready to render once the first sort has completed
+            state.readyToRender = true;
+
+            // wait for the first valid frame to complete rendering
+            app.once('frameend', () => {
+                events.fire('firstFrame');
+
+                // emit first frame event on window
+                window.firstFrame?.();
+            });
+        }
+    });
 };
 
 // wait for dom content to finish loading
 document.addEventListener('DOMContentLoaded', async () => {
     const appElement: AppElement = document.querySelector('pc-app');
     const app = (await appElement.ready()).app;
-
-    const { graphicsDevice } = app;
-
-    // enable anonymous CORS for image loading in safari
-    (app.loader.getHandler('texture') as TextureHandler).imgParser.crossOrigin = 'anonymous';
-
-    // render skybox as plain equirect
-    const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
-    glsl.set('skyboxPS', glsl.get('skyboxPS').replace('mapRoughnessUv(uv, mipLevel)', 'uv'));
-    glsl.set('pickPS', pickDepthGlsl);
-
-    const wgsl = ShaderChunks.get(graphicsDevice, 'wgsl');
-    wgsl.set('skyboxPS', wgsl.get('skyboxPS').replace('mapRoughnessUv(uv, uniform.mipLevel)', 'uv'));
-    wgsl.set('pickPS', pickDepthWgsl);
-
     const cameraElement = await (document.querySelector('pc-entity[name="camera"]') as EntityElement).ready();
 
-    await main(app, cameraElement.entity);
+    const global = await initGlobal(app, cameraElement.entity);
+
+    await main(global);
 });
