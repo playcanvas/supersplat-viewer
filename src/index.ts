@@ -17,11 +17,11 @@ import { initXr } from './xr';
 
 const loadGsplat = async (app: AppBase, url: string, contents: Promise<Response>, progressCallback: (progress: number) => void) => {
     const c = contents as unknown as ArrayBuffer;
+    const filename = new URL(url, location.href).pathname.split('/').pop();
+    const data = filename.endsWith('meta.json') ? await (await contents).json() : undefined;
+    const asset = new Asset(filename, 'gsplat', { url, filename, contents: c }, data);
 
-    return new Promise<Entity>(async (resolve, reject) => {
-        const filename = new URL(url, location.href).pathname.split('/').pop();
-        const asset = new Asset(filename, 'gsplat', { url, filename, contents: c }, filename.endsWith('meta.json') ? await (await contents).json() : undefined);
-
+    return new Promise<Entity>((resolve, reject) => {
         asset.on('load', () => {
             const entity = new Entity('gsplat');
             entity.setLocalEulerAngles(0, 0, 180);
@@ -90,7 +90,6 @@ const initGlobal = async (app: AppBase, camera: Entity): Promise<Global> => {
         contents: sse.contents
     };
 
-    // construct the observable state
     const state = observe(events, {
         readyToRender: false,
         hqMode: true,

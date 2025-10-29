@@ -21,6 +21,7 @@ type Camera = {
 
 class OrbitCamera implements Camera {
     controller: OrbitController;
+
     controllerPose: Pose;
 
     constructor() {
@@ -43,10 +44,11 @@ class OrbitCamera implements Camera {
     goto(pose: Pose, smooth = false) {
         this.controller.attach(pose, smooth);
     }
-};
+}
 
 class FlyCamera implements Camera {
     controller: FlyController;
+
     controllerPose: Pose;
 
     constructor() {
@@ -67,10 +69,11 @@ class FlyCamera implements Camera {
     goto(pose: Pose, smooth = false) {
         this.controller.attach(pose, smooth);
     }
-};
+}
 
 class AnimCamera implements Camera {
     animState: AnimState;
+
     pose = new Pose();
 
     constructor(animState: AnimState) {
@@ -90,9 +93,9 @@ class AnimCamera implements Camera {
     }
 
     goto(pose: Pose, smooth: boolean) {
-        
+
     }
-};
+}
 
 export type { CameraFrame, Camera };
 

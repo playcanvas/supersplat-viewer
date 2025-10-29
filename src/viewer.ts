@@ -11,13 +11,12 @@ import {
 } from 'playcanvas';
 
 import { AnimState } from './anim-state';
-
+import { type Camera, OrbitCamera, FlyCamera, AnimCamera } from './camera';
 import { easeOut } from './core/math';
 import { InputController } from './input-controller';
 import { Picker } from './picker';
 import { AnimTrack } from './settings';
 import { CameraMode, Global } from './types';
-import { type Camera, OrbitCamera, FlyCamera, AnimCamera } from './camera';
 
 // override global pick to pack depth instead of meshInstance id
 const pickDepthGlsl = /* glsl */ `
