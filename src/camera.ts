@@ -1,16 +1,16 @@
 import {
     FlyController,
     InputFrame,
-    Pose,
     OrbitController,
+    Pose,
     Vec2
 } from 'playcanvas';
 
 import { AnimState } from './anim-state';
 
 type CameraFrame = InputFrame<{
-    move: number[];
-    rotate: number[];
+    move: [number, number, number];
+    rotate: [number, number, number];
 }>;
 
 type Camera = {
