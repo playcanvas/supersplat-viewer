@@ -66,8 +66,6 @@ class AnimController {
 
     target: Vec3 = new Vec3();
 
-    fov: number = 60;
-
     constructor(spline: CubicSpline, duration: number, loopMode: 'none' | 'repeat' | 'pingpong', frameRate: number) {
         this.spline = spline;
         this.cursor.reset(duration, loopMode);
@@ -91,7 +89,6 @@ class AnimController {
         if (result.every(isFinite)) {
             position.set(result[0], result[1], result[2]);
             target.set(result[3], result[4], result[5]);
-            this.fov = result[6];
         }
 
         // update pose
