@@ -12,7 +12,7 @@ import {
 
 import { AnimState } from './anim-state';
 import { type Camera, OrbitCamera, FlyCamera, AnimCamera } from './camera';
-import { easeOut } from './core/math';
+import { easeOut, nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
 import { Picker } from './picker';
 import { AnimTrack } from './settings';
@@ -184,11 +184,8 @@ class Viewer {
         app.on('framerender', () => {
             const world = camera.getWorldTransform();
             const proj = camera.camera.projectionMatrix;
-            const nearlyEquals = (a: Float32Array<ArrayBufferLike>, b: Float32Array<ArrayBufferLike>, epsilon = 1e-4) => {
-                return !a.some((v, i) => Math.abs(v - b[i]) >= epsilon);
-            };
 
-            if (config.ministats) {
+            if (!state.readyToRender || config.ministats) {
                 app.renderNextFrame = true;
             }
 
@@ -202,11 +199,6 @@ class Viewer {
             if (app.renderNextFrame) {
                 prevWorld.copy(world);
                 prevProj.copy(proj);
-            }
-
-            // suppress rendering till we're ready
-            if (!state.readyToRender) {
-                app.renderNextFrame = false;
             }
         });
 
@@ -381,8 +373,10 @@ class Viewer {
             currCamera = getCamera(value);
             switch (value) {
                 case 'orbit':
+                    orbitCamera.goto(activePose, false);
+                    break;
                 case 'fly':
-                    currCamera.goto(activePose, false);
+                    flyCamera.goto(activePose, false);
                     break;
             }
 

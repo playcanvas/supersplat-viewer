@@ -16,7 +16,6 @@ type CameraFrame = InputFrame<{
 type Camera = {
     pose: Pose;
     update(inputFrame: CameraFrame, dt: number): void;
-    goto(pose: Pose, smooth: boolean): void;
 };
 
 class OrbitCamera implements Camera {
@@ -90,10 +89,6 @@ class AnimCamera implements Camera {
 
         // ignore input
         frame.read();
-    }
-
-    goto(pose: Pose, smooth: boolean) {
-
     }
 }
 
