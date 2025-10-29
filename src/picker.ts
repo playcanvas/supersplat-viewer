@@ -29,7 +29,7 @@ class Picker {
 
         // construct picker on demand
         if (!this.picker) {
-            this.picker = new Picker_(this.app, width, height);
+            this.picker = new Picker_(app, width, height);
         }
 
         // render scene, read depth
