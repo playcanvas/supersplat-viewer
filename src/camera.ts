@@ -6,7 +6,7 @@ import {
     Vec2
 } from 'playcanvas';
 
-import { AnimState } from './anim-state';
+import type { AnimState } from './anim-state';
 
 type CameraFrame = InputFrame<{
     move: [number, number, number];
