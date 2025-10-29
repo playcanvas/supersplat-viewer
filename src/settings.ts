@@ -1,5 +1,4 @@
 import { ExperienceSettings as V1, AnimTrack as AnimTrackV1 } from './schemas/v1';
-import { ExperienceSettings as V2, AnimTrack as AnimTrackV2 } from './schemas/v2';
 
 const migrateV1 = (settings: V1): V1 => {
     settings.animTracks?.forEach((track: AnimTrackV1) => {
@@ -23,60 +22,13 @@ const migrateV1 = (settings: V1): V1 => {
     return settings;
 };
 
-const migrateAnimTrackV2 = (animTrackV1: AnimTrackV1, fov: number): AnimTrackV2 => {
-    return {
-        name: animTrackV1.name,
-        duration: animTrackV1.duration,
-        frameRate: animTrackV1.frameRate,
-        loopMode: animTrackV1.loopMode,
-        interpolation: animTrackV1.interpolation,
-        smoothness: animTrackV1.smoothness,
-        keyframes: {
-            times: animTrackV1.keyframes.times,
-            values: {
-                position: animTrackV1.keyframes.values.position,
-                target: animTrackV1.keyframes.values.target,
-                fov: new Array(animTrackV1.keyframes.times.length).fill(fov)
-            }
-        }
-    };
-};
-
-const migrateV2 = (v1: V1): V2 => {
-    return {
-        version: 2,
-        tonemapping: 'none',
-        highPrecisionRendering: false,
-        background: {
-            color: v1.background.color as [number, number, number, number] || [0, 0, 0, 1],
-        },
-        postEffectSettings: {},
-        animTracks: v1.animTracks.map((animTrackV1: AnimTrackV1) => {
-            return migrateAnimTrackV2(animTrackV1, v1.camera.fov || 60);
-        }),
-        cameras: [{
-            fov: v1.camera.fov || 60,
-            initialPose: {
-                position: v1.camera.position as [number, number, number] || [0, 0, 5],
-                target: v1.camera.target as [number, number, number] || [0, 0, 0]
-            }
-        }],
-        annotations: [],
-        cameraStartMode: v1.camera.startAnim === 'animTrack' ? 'animTrack' : 'default'
-    }
-};
-
 // import a json object to conform to the latest settings schema. settings is assumed to be one of the well-formed schemas
-const importSettings = (settings: any): V2 => {
-    let result: V2;
+const importSettings = (settings: any): V1 => {
+    let result: V1;
 
     const version = settings.version;
     if (version === undefined) {
-        // v1 -> v2
-        result = migrateV2(migrateV1(settings as V1));
-    } else if (version === 2) {
-        // already v2
-        result = settings as V2;
+        result = migrateV1(settings as V1);
     } else {
         throw new Error(`Unsupported experience settings version: ${version}`);
     }
@@ -85,6 +37,6 @@ const importSettings = (settings: any): V2 => {
 };
 
 // export the latest/current schema types
-export type { AnimTrack, Camera, Annotation, PostEffectSettings, ExperienceSettings } from './schemas/v2';
+export type { AnimTrack, ExperienceSettings } from './schemas/v1';
 
 export { importSettings };

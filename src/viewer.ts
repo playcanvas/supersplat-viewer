@@ -90,6 +90,7 @@ const createRotateTrack = (initial: Pose, fov: number, keys: number = 12, durati
         name: 'rotate',
         duration,
         frameRate: 1,
+        target: 'camera',
         loopMode: 'repeat',
         interpolation: 'spline',
         smoothness: 1,
@@ -97,8 +98,7 @@ const createRotateTrack = (initial: Pose, fov: number, keys: number = 12, durati
             times,
             values: {
                 position,
-                target,
-                fov: fovs
+                target
             }
         }
     };
@@ -203,7 +203,7 @@ class Viewer {
             );
         })();
 
-        const { initialPose } = settings.cameras[0];
+        const { initialPose } = settings.camera;
 
         // calculate the orbit camera reset position
         const resetPose = (() => {

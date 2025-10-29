@@ -100,6 +100,7 @@ const main = async (app: AppBase, camera: Entity) => {
     // construct the observable state
     const state = observe(events, {
         readyToRender: false,       // don't render till this is set
+        noui: params.noui || false,
         hqMode: true,
         progress: 0,                // content loading progress 0-100
         inputMode: 'desktop',       // desktop, touch
@@ -111,7 +112,7 @@ const main = async (app: AppBase, camera: Entity) => {
         hasAR: app.xr.isAvailable('immersive-ar'),
         hasVR: app.xr.isAvailable('immersive-vr'),
         isFullscreen: false,
-        uiVisible: true
+        controlsHidden: false
     });
 
     // start loading content

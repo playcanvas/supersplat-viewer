@@ -166,8 +166,8 @@ const initUI = (events: EventHandler, state: any, canvas: HTMLCanvasElement) => 
     });
 
     // fade ui controls after 5 seconds of inactivity
-    events.on('uiVisible:changed', (value) => {
-        dom.controlsWrap.className = value ? 'faded-in' : 'faded-out';
+    events.on('controlsHidden:changed', (value) => {
+        dom.controlsWrap.className = value ? 'faded-out' : 'faded-in';
     });
 
     // show the ui and start a timer to hide it again
@@ -176,10 +176,10 @@ const initUI = (events: EventHandler, state: any, canvas: HTMLCanvasElement) => 
         if (uiTimeout) {
             clearTimeout(uiTimeout);
         }
-        state.uiVisible = true;
+        state.controlsHidden = false;
         uiTimeout = setTimeout(() => {
             uiTimeout = null;
-            state.uiVisible = false;
+            state.controlsHidden = true;
         }, 4000);
     };
     showUI();
@@ -318,8 +318,8 @@ const initUI = (events: EventHandler, state: any, canvas: HTMLCanvasElement) => 
         }
     });
 
-    // Hide UI
-    if (params.noui) {
+    // Hide all UI (poster, loading bar, controls)
+    if (state.noui) {
         dom.ui.classList.add('hidden');
     }
 

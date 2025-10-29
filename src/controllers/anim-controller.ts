@@ -104,14 +104,13 @@ class AnimController {
     static fromTrack(track: AnimTrack) {
         const { keyframes, duration, frameRate, loopMode, smoothness } = track;
         const { times, values } = keyframes;
-        const { position, target, fov } = values;
+        const { position, target } = values;
 
         // construct the points array containing position and target
         const points = [];
         for (let i = 0; i < times.length; i++) {
             points.push(position[i * 3], position[i * 3 + 1], position[i * 3 + 2]);
             points.push(target[i * 3], target[i * 3 + 1], target[i * 3 + 2]);
-            points.push(fov[i]);
         }
 
         const extra = (duration === times[times.length - 1] / frameRate) ? 1 : 0;
