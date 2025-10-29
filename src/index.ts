@@ -8,13 +8,13 @@ import {
     ShaderChunks,
     type TextureHandler,
     type Texture,
-    type AppBase,
+    type AppBase
 } from 'playcanvas';
 
-import { importSettings } from './settings';
 import { observe } from './core/observe';
-import { Viewer } from './viewer';
+import { importSettings } from './settings';
 import { initUI } from './ui';
+import { Viewer } from './viewer';
 import { initXr } from './xr';
 
 // override global pick to pack depth instead of meshInstance id
@@ -120,7 +120,9 @@ const main = async (app: AppBase, camera: Entity) => {
         app,
         sse.contentUrl,
         sse.contents,
-        (progress: number) => state.progress = progress
+        (progress: number) => {
+            state.progress = progress;
+        }
     );
 
     // Initialize the load-time poster

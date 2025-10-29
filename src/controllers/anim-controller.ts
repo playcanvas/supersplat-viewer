@@ -70,11 +70,7 @@ class AnimController {
         this.frameRate = frameRate;
     }
 
-    /**
-     * @param frame - The input frame.
-     * @param dt - The delta time.
-     * @returns - The controller pose.
-     */
+    // update given delta time
     update(dt: number) {
         const { cursor, result, spline, frameRate, position, target } = this;
 

@@ -1,4 +1,5 @@
 import { EventHandler, Vec3 } from 'playcanvas';
+
 import { Tooltip } from './tooltip';
 
 const v = new Vec3();

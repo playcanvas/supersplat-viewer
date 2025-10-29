@@ -63,7 +63,7 @@ class AnimWrap extends InputController {
         this._pose.look(this.controller.position, this.controller.target);
         return this._pose;
     }
-};
+}
 
 /**
  * Creates a rotation animation track
