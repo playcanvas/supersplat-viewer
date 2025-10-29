@@ -5,6 +5,7 @@ type CameraMode = 'orbit' | 'anim' | 'fly';
 
 type InputMode = 'desktop' | 'touch';
 
+// configuration options are immutable at runtime
 type Config = {
     noui: boolean;
     ministats: boolean;
@@ -14,6 +15,7 @@ type Config = {
     contents?: Promise<Response>;
 };
 
+// observable state that can change at runtime
 type State = {
     readyToRender: boolean;                     // don't render till this is set
     hqMode: boolean;

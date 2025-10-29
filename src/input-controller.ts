@@ -66,7 +66,7 @@ const screenToWorld = (camera: CameraComponent, dx: number, dy: number, dz: numb
     return out;
 };
 
-class AppController {
+class InputController {
     private _camera: CameraComponent;
 
     private _state = {
@@ -96,7 +96,7 @@ class AppController {
     } = { base: null, stick: null };
 
     // this gets overridden by the viewer based on scene size
-    moveSpeed: number = 1;
+    moveSpeed: number = 4;
 
     orbitSpeed: number = 18;
 
@@ -216,4 +216,4 @@ class AppController {
     }
 }
 
-export { AppController };
+export { InputController };

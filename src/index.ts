@@ -142,7 +142,7 @@ const loadGsplat = (app: AppBase, url: string, contents: Promise<Response>, prog
 
     return new Promise<Entity>((resolve, reject) => {
         const filename = new URL(url, location.href).pathname.split('/').pop();
-        const asset = new Asset(filename, 'gsplat', { url, filename, contents: c } );
+        const asset = new Asset(filename, 'gsplat', { url, filename, contents: c });
 
         asset.on('load', () => {
             const entity = new Entity('gsplat');
@@ -196,6 +196,7 @@ const loadSkybox = (app: AppBase, url: string) => {
     });
 };
 
+// initialize global config and state
 const initGlobal = async (app: AppBase, camera: Entity): Promise<Global> => {
     const sse: any = window.sse ?? {};
     const params = sse.params ?? {};
@@ -307,11 +308,8 @@ const main = async (global: Global) => {
 
 // wait for dom content to finish loading
 document.addEventListener('DOMContentLoaded', async () => {
-    const appElement: AppElement = document.querySelector('pc-app');
-    const app = (await appElement.ready()).app;
+    const appElement = await (document.querySelector('pc-app') as AppElement).ready();
     const cameraElement = await (document.querySelector('pc-entity[name="camera"]') as EntityElement).ready();
-
-    const global = await initGlobal(app, cameraElement.entity);
-
+    const global = await initGlobal(appElement.app, cameraElement.entity);
     await main(global);
 });

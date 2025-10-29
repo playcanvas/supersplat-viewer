@@ -1,21 +1,18 @@
 import {
     BoundingBox,
-    FlyController,
-    InputController,
     Pose,
     Mat4,
-    OrbitController,
-    Vec2,
     Vec3
 } from 'playcanvas';
-import type { InputFrame } from 'playcanvas';
 
-import { AnimState } from './controllers/anim-state';
+import { AnimState } from './anim-state';
+
 import { easeOut } from './core/math';
-import { AppController } from './input';
+import { InputController } from './input-controller';
 import { Picker } from './picker';
 import { AnimTrack } from './settings';
 import { CameraMode, Global } from './types';
+import { type Camera, OrbitCamera, FlyCamera, AnimCamera } from './camera';
 
 const vecToAngles = (result: Vec3, vec: Vec3) => {
     const radToDeg = 180 / Math.PI;
@@ -46,23 +43,6 @@ const lerpPose = (result: Pose, a: Pose, b: Pose, t: number) => {
     // set angles
     vecToAngles(result.angles, avec.mulScalar(1.0 / result.distance));
 };
-
-class AnimController extends InputController {
-    animState: AnimState;
-
-    constructor(animState: AnimState) {
-        super();
-        this.animState = animState;
-    }
-
-    update(frame: InputFrame<{ move: number[], rotate: number[] }>, dt: number) {
-        this.animState.update(dt);
-
-        frame.read();
-        this._pose.look(this.animState.position, this.animState.target);
-        return this._pose;
-    }
-}
 
 /**
  * Creates a rotation animation track
@@ -119,6 +99,19 @@ const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 
     };
 };
 
+const createPose = (position: Vec3, target: Vec3): Pose => {
+    return new Pose().look(position, target);
+};
+
+const createFramePose = (bbox: BoundingBox, cameraFov: number): Pose => {
+    const sceneSize = bbox.halfExtents.length();
+    const distance = sceneSize / Math.sin(cameraFov / 180 * Math.PI * 0.5);
+    return createPose(
+        new Vec3(2, 1, 2).normalize().mulScalar(distance).add(bbox.center),
+        bbox.center
+    );
+};
+
 class Viewer {
     constructor(global: Global) {
         const { app, events, settings, state, camera, gsplat } = global;
@@ -126,74 +119,39 @@ class Viewer {
         // calculate scene bounding box
         const bbox = gsplat.gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
 
-        // create an anim camera
-        // calculate the orbit camera frame position
-        const framePose = (() => {
-            const sceneSize = bbox.halfExtents.length();
-            const distance = sceneSize / Math.sin(camera.camera.fov / 180 * Math.PI * 0.5);
-            return new Pose().look(
-                new Vec3(2, 1, 2).normalize().mulScalar(distance).add(bbox.center),
-                bbox.center
-            );
-        })();
+        const framePose = createFramePose(bbox, camera.camera.fov);
 
-        // calculate the orbit camera reset position
-        const resetPose = (() => {
-            const { position, target } = settings.camera;
-            return new Pose().look(
-                new Vec3(position ?? [2, 1, 2]),
-                new Vec3(target ?? [0, 0, 0])
-            );
-        })();
+        const resetPose = createPose(
+            new Vec3(settings.camera.position ?? [2, 1, 2]),
+            new Vec3(settings.camera.target ?? [0, 0, 0])
+        );
 
-        // calculate the user camera start position (the pose we'll use if there is no animation)
-        const useReset = settings.camera.position || settings.camera.target || bbox.halfExtents.length() > 100;
-        const userStart = (useReset ? resetPose : framePose).clone();
-
-        // if camera doesn't intersect the scene, assume it's an object we're
-        // viewing
-        const isObjectExperience = !bbox.containsPoint(userStart.position);
-
-        // create the cameras
-        const animCamera = ((initial, isObjectExperience) => {
+        const getAnimState = (initial: Pose, isObjectExperience: boolean) => {
             const { animTracks, camera } = settings;
 
             // extract the camera animation track from settings
             if (animTracks?.length > 0 && camera.startAnim === 'animTrack') {
                 const track = animTracks.find((track: AnimTrack) => track.name === camera.animTrack);
                 if (track) {
-                    return new AnimController(AnimState.fromTrack(track));
+                    return AnimState.fromTrack(track);
                 }
             } else if (isObjectExperience) {
                 // create basic rotation animation if no anim track is specified
-                return new AnimController(AnimState.fromTrack(createRotateTrack(initial)));
+                return AnimState.fromTrack(createRotateTrack(initial));
             }
             return null;
-        })(userStart, isObjectExperience);
+        };
 
-        const orbitCamera = (() => {
-            const orbitCamera = new OrbitController();
+        // calculate the user camera start position (the pose we'll use if there is no animation)
+        const useReset = settings.camera.position || settings.camera.target || bbox.halfExtents.length() > 100;
+        const userStart = (useReset ? resetPose : framePose).clone();
+        const animState = getAnimState(userStart, !bbox.containsPoint(userStart.position));
 
-            orbitCamera.zoomRange = new Vec2(0.01, Infinity);
-            orbitCamera.pitchRange = new Vec2(-90, 90);
-            orbitCamera.rotateDamping = 0.97;
-            orbitCamera.moveDamping = 0.97;
-            orbitCamera.zoomDamping = 0.97;
+        const orbitCamera = new OrbitCamera();
+        const flyCamera = new FlyCamera();
+        const animCamera = animState ? new AnimCamera(animState) : null;
 
-            return orbitCamera;
-        })();
-
-        const flyCamera = (() => {
-            const flyCamera = new FlyController();
-
-            flyCamera.pitchRange = new Vec2(-90, 90);
-            flyCamera.rotateDamping = 0.97;
-            flyCamera.moveDamping = 0.97;
-
-            return flyCamera;
-        })();
-
-        const getCamera = (cameraMode: 'orbit' | 'anim' | 'fly'): InputController => {
+        const getCamera = (cameraMode: 'orbit' | 'anim' | 'fly'): Camera => {
             switch (cameraMode) {
                 case 'orbit': return orbitCamera;
                 case 'anim': return animCamera;
@@ -208,43 +166,29 @@ class Viewer {
             state.cameraMode = 'anim';
         }
 
-        // create controller
-        // set move speed based on scene size, within reason
-        const controller = new AppController(app.graphicsDevice.canvas, camera.camera);
+        // create the input device controller
+        const inputController = new InputController(app.graphicsDevice.canvas, camera.camera);
 
-        // fixed move speed
-        controller.moveSpeed = 4;
-
-        // this pose stores the current camera position. it will be blended/smoothed
-        // toward the current active camera
+        const prevPose = new Pose();
         const activePose = new Pose();
-
-        if (state.cameraMode === 'anim') {
-            // first frame of the animation
-            activePose.copy(animCamera.update(controller.frame, 0));
-        } else {
-            // user start position
-            activePose.copy(userStart);
-        }
-
-        // place all user cameras at the start position
-        orbitCamera.attach(activePose, false);
-        flyCamera.attach(activePose, false);
-
-        // the previous camera we're transitioning away from
+        let currCamera = getCamera(state.cameraMode);
         let prevCameraMode: CameraMode = 'orbit';
+
+        activePose.copy(currCamera.pose);
+        orbitCamera.goto(activePose);
+        flyCamera.goto(activePose);
 
         // handle input events
         events.on('inputEvent', (eventName, event) => {
             const doReset = (pose: Pose) => {
                 switch (state.cameraMode) {
                     case 'orbit': {
-                        orbitCamera.attach(pose, true);
+                        orbitCamera.goto(pose, true);
                         break;
                     }
                     case 'fly': {
                         state.cameraMode = 'orbit';
-                        orbitCamera.attach(pose, true);
+                        orbitCamera.goto(pose, true);
                         break;
                     }
                     case 'anim': {
@@ -270,9 +214,6 @@ class Viewer {
             }
         });
 
-        let currCamera = getCamera(state.cameraMode);
-        const prevPose = new Pose();
-
         // transition time between cameras
         let transitionTimer = 1;
 
@@ -285,11 +226,11 @@ class Viewer {
             }
 
             // update input controller
-            controller.update(deltaTime, state, activePose.distance);
+            inputController.update(deltaTime, state, activePose.distance);
 
             // update touch joystick UI
             if (state.cameraMode === 'fly') {
-                events.fire('touchJoystickUpdate', controller.joystick.base, controller.joystick.stick);
+                events.fire('touchJoystickUpdate', inputController.joystick.base, inputController.joystick.stick);
             }
 
             // use dt of 0 if animation is paused
@@ -298,8 +239,10 @@ class Viewer {
             // update the camera we're transitioning from
             transitionTimer = Math.min(1, transitionTimer + deltaTime * 2.0);
 
+            currCamera.update(inputController.frame, dt);
+
             // update camera
-            pose.copy(currCamera.update(controller.frame, dt));
+            pose.copy(currCamera.pose);
 
             if (transitionTimer < 1) {
                 // handle lerp away from previous camera
@@ -322,13 +265,13 @@ class Viewer {
         events.on('cameraMode:changed', (value, prev) => {
             prevCameraMode = prev;
             prevPose.copy(activePose);
-            getCamera(prev).detach();
+            // getCamera(prev).detach();
 
             currCamera = getCamera(value);
             switch (value) {
                 case 'orbit':
                 case 'fly':
-                    currCamera.attach(activePose, false);
+                    currCamera.goto(activePose, false);
                     break;
             }
 
@@ -363,8 +306,8 @@ class Viewer {
 
                         // snap distance of focus to picked point to interpolate rotation only
                         activePose.distance = activePose.position.distance(result);
-                        orbitCamera.attach(activePose, false);
-                        orbitCamera.attach(pose.look(activePose.position, result), true);
+                        orbitCamera.goto(activePose, false);
+                        orbitCamera.goto(pose.look(activePose.position, result), true);
                     }
                     break;
                 }
