@@ -1,4 +1,4 @@
-import { Pose, Vec3 } from 'playcanvas';
+import { Vec3 } from 'playcanvas';
 
 import { mod } from '../core/math';
 import { CubicSpline } from '../core/spline';
@@ -60,8 +60,6 @@ class AnimController {
 
     result: number[] = [];
 
-    pose = new Pose();
-
     position: Vec3 = new Vec3();
 
     target: Vec3 = new Vec3();
@@ -78,7 +76,7 @@ class AnimController {
      * @returns - The controller pose.
      */
     update(dt: number) {
-        const { cursor, result, spline, frameRate, pose, position, target } = this;
+        const { cursor, result, spline, frameRate, position, target } = this;
 
         // update the animation cursor
         cursor.update(dt);
@@ -90,11 +88,6 @@ class AnimController {
             position.set(result[0], result[1], result[2]);
             target.set(result[3], result[4], result[5]);
         }
-
-        // update pose
-        pose.look(position, target);
-
-        return pose;
     }
 
     // construct an animation from a settings track

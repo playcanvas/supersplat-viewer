@@ -47,7 +47,7 @@ const lerpPose = (result: Pose, a: Pose, b: Pose, t: number) => {
     vecToAngles(result.angles, avec.mulScalar(1.0 / result.distance));
 };
 
-class AnimWrap extends InputController{
+class AnimWrap extends InputController {
     controller: AnimController;
 
     constructor(animController: AnimController) {
@@ -57,9 +57,10 @@ class AnimWrap extends InputController{
     }
 
     update(frame: InputFrame<{ move: number[], rotate: number[] }>, dt: number) {
-        frame.read();
         this.controller.update(dt);
-        this._pose.copy(this.controller.pose);
+
+        frame.read();
+        this._pose.look(this.controller.position, this.controller.target);
         return this._pose;
     }
 };
