@@ -4,6 +4,20 @@ import { Tooltip } from './tooltip';
 
 const v = new Vec3();
 
+// update the poster image to start blurry and then resolve to sharp during loading
+const initPoster = (events: EventHandler) => {
+    const element = document.getElementById('poster');
+    const blur = (progress: number) => `blur(${Math.floor((100 - progress) * 0.4)}px)`;
+
+    events.on('progress:changed', (progress: number) => {
+        element.style.filter = blur(progress);
+    });
+
+    events.on('firstFrame', () => {
+        element.style.display = 'none';
+    });
+};
+
 const initUI = (events: EventHandler, state: any, config: any, canvas: HTMLCanvasElement) => {
     // Acquire Elements
     const docRoot = document.documentElement;
@@ -395,4 +409,4 @@ const initUI = (events: EventHandler, state: any, config: any, canvas: HTMLCanva
     tooltip.register(dom.exitFullscreen, 'Fullscreen', 'top');
 };
 
-export { initUI };
+export { initPoster, initUI };

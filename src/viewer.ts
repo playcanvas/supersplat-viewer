@@ -1,7 +1,12 @@
 import {
     BoundingBox,
-    Pose,
+    Color,
+    Entity,
     Mat4,
+    MiniStats,
+    Pose,
+    ShaderChunks,
+    type TextureHandler,
     Vec3
 } from 'playcanvas';
 
@@ -13,6 +18,28 @@ import { Picker } from './picker';
 import { AnimTrack } from './settings';
 import { CameraMode, Global } from './types';
 import { type Camera, OrbitCamera, FlyCamera, AnimCamera } from './camera';
+
+// override global pick to pack depth instead of meshInstance id
+const pickDepthGlsl = /* glsl */ `
+vec4 packFloat(float depth) {
+    uvec4 u = (uvec4(floatBitsToUint(depth)) >> uvec4(0u, 8u, 16u, 24u)) & 0xffu;
+    return vec4(u) / 255.0;
+}
+vec4 getPickOutput() {
+    return packFloat(gl_FragCoord.z);
+}
+`;
+
+const pickDepthWgsl = /* wgsl */ `
+    fn packFloat(depth: f32) -> vec4f {
+        let u: vec4<u32> = (vec4<u32>(bitcast<u32>(depth)) >> vec4<u32>(0u, 8u, 16u, 24u)) & vec4<u32>(0xffu);
+        return vec4f(u) / 255.0;
+    }
+
+    fn getPickOutput() -> vec4f {
+        return packFloat(pcPosition.z);
+    }
+`;
 
 const vecToAngles = (result: Vec3, vec: Vec3) => {
     const radToDeg = 180 / Math.PI;
@@ -113,8 +140,93 @@ const createFramePose = (bbox: BoundingBox, cameraFov: number): Pose => {
 };
 
 class Viewer {
+    global: Global;
+
     constructor(global: Global) {
-        const { app, events, settings, state, camera, gsplat } = global;
+        this.global = global;
+
+        const { app, settings, config, events, state, camera } = global;
+        const { background } = settings;
+        const { graphicsDevice } = app;
+
+        // enable anonymous CORS for image loading in safari
+        (app.loader.getHandler('texture') as TextureHandler).imgParser.crossOrigin = 'anonymous';
+
+        // render skybox as plain equirect
+        const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
+        glsl.set('skyboxPS', glsl.get('skyboxPS').replace('mapRoughnessUv(uv, mipLevel)', 'uv'));
+        glsl.set('pickPS', pickDepthGlsl);
+
+        const wgsl = ShaderChunks.get(graphicsDevice, 'wgsl');
+        wgsl.set('skyboxPS', wgsl.get('skyboxPS').replace('mapRoughnessUv(uv, uniform.mipLevel)', 'uv'));
+        wgsl.set('pickPS', pickDepthWgsl);
+
+        // disable auto render, we'll render only when camera changes
+        app.autoRender = false;
+
+        // apply camera animation settings
+        camera.camera.clearColor = new Color(background.color);
+        camera.camera.fov = settings.camera.fov;
+
+        // handle horizontal fov on canvas resize
+        const updateHorizontalFov = () => {
+            camera.camera.horizontalFov = graphicsDevice.width > graphicsDevice.height;
+        };
+        graphicsDevice.on('resizecanvas', () => {
+            updateHorizontalFov();
+            app.renderNextFrame = true;
+        });
+        updateHorizontalFov();
+
+        // track camera changes
+        const prevProj = new Mat4();
+        const prevWorld = new Mat4();
+
+        app.on('framerender', () => {
+            const world = camera.getWorldTransform();
+            const proj = camera.camera.projectionMatrix;
+            const nearlyEquals = (a: Float32Array<ArrayBufferLike>, b: Float32Array<ArrayBufferLike>, epsilon = 1e-4) => {
+                return !a.some((v, i) => Math.abs(v - b[i]) >= epsilon);
+            };
+
+            if (config.ministats) {
+                app.renderNextFrame = true;
+            }
+
+            if (!app.autoRender && !app.renderNextFrame) {
+                if (!nearlyEquals(world.data, prevWorld.data) ||
+                    !nearlyEquals(proj.data, prevProj.data)) {
+                    app.renderNextFrame = true;
+                }
+            }
+
+            if (app.renderNextFrame) {
+                prevWorld.copy(world);
+                prevProj.copy(proj);
+            }
+
+            // suppress rendering till we're ready
+            if (!state.readyToRender) {
+                app.renderNextFrame = false;
+            }
+        });
+
+        events.on('hqMode:changed', (value) => {
+            graphicsDevice.maxPixelRatio = value ? window.devicePixelRatio : 1;
+            app.renderNextFrame = true;
+        });
+
+        graphicsDevice.maxPixelRatio = state.hqMode ? window.devicePixelRatio : 1;
+
+        // Construct ministats
+        if (config.ministats) {
+            // eslint-disable-next-line no-new
+            new MiniStats(app);
+        }
+    }
+
+    onModelLoaded(gsplat: Entity) {
+        const { app, events, settings, state, camera } = this.global;
 
         // calculate scene bounding box
         const bbox = gsplat.gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
@@ -318,6 +430,28 @@ class Viewer {
         // first scene sort (which usually happens during render)
         camera.setPosition(activePose.position);
         camera.setEulerAngles(activePose.angles);
+
+        // kick off gsplat sorting immediately now that camera is in position
+        gsplat.gsplat?.instance?.sort(camera);
+
+        // listen for sorting updates to trigger first frame events
+        gsplat.gsplat?.instance?.sorter?.on('updated', () => {
+            // request frame render when sorting changes
+            app.renderNextFrame = true;
+
+            if (!state.readyToRender) {
+                // we're ready to render once the first sort has completed
+                state.readyToRender = true;
+
+                // wait for the first valid frame to complete rendering
+                app.once('frameend', () => {
+                    events.fire('firstFrame');
+
+                    // emit first frame event on window
+                    window.firstFrame?.();
+                });
+            }
+        });
     }
 }
 

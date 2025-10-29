@@ -38,9 +38,7 @@ type Global = {
     config: Config;
     state: State;
     events: EventHandler;
-
     camera: Entity;
-    gsplat?: Entity;
 };
 
 export { CameraMode, InputMode, State, Global };
