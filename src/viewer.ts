@@ -54,11 +54,10 @@ const lerpPose = (result: Pose, a: Pose, b: Pose, t: number) => {
  * @param duration - The duration of the animation in seconds.
  * @returns - The animation track object containing position and target keyframes.
  */
-const createRotateTrack = (initial: Pose, fov: number, keys: number = 12, duration: number = 20): AnimTrack => {
+const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 20): AnimTrack => {
     const times = new Array(keys).fill(0).map((_, i) => i / keys * duration);
     const position: number[] = [];
     const target: number[] = [];
-    const fovs: number[] = [];
 
     const initialTarget = new Vec3();
     initial.getFocus(initialTarget);
@@ -82,8 +81,6 @@ const createRotateTrack = (initial: Pose, fov: number, keys: number = 12, durati
         target.push(initialTarget.x);
         target.push(initialTarget.y);
         target.push(initialTarget.z);
-
-        fovs.push(fov);
     }
 
     return {
@@ -203,11 +200,9 @@ class Viewer {
             );
         })();
 
-        const { initialPose } = settings.camera;
-
         // calculate the orbit camera reset position
         const resetPose = (() => {
-            const { position, target } = initialPose;
+            const { position, target } = settings.camera;
             return new Pose().look(
                 new Vec3(position ?? [2, 1, 2]),
                 new Vec3(target ?? [0, 0, 0])
@@ -224,8 +219,7 @@ class Viewer {
 
         // create the cameras
         const animCamera = ((initial, isObjectExperience) => {
-            const { animTracks } = settings;
-            const camera = settings.cameras[0];
+            const { animTracks, camera } = settings;
 
             // extract the camera animation track from settings
             if (animTracks?.length > 0 && camera.startAnim === 'animTrack') {
@@ -235,7 +229,7 @@ class Viewer {
                 }
             } else if (isObjectExperience) {
                 // create basic rotation animation if no anim track is specified
-                return AnimController.fromTrack(createRotateTrack(initial, camera.fov));
+                return AnimController.fromTrack(createRotateTrack(initial));
             }
             return null;
         })(userStart, isObjectExperience);
