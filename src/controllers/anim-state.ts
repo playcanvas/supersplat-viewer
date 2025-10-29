@@ -51,7 +51,7 @@ class AnimCursor {
 }
 
 // Manage the state of a camera animation track
-class AnimController {
+class AnimState {
     spline: CubicSpline;
 
     cursor: AnimCursor = new AnimCursor(0, 'none');
@@ -103,8 +103,8 @@ class AnimController {
 
         const spline = CubicSpline.fromPointsLooping((duration + extra) * frameRate, times, points, smoothness);
 
-        return new AnimController(spline, duration, loopMode, frameRate);
+        return new AnimState(spline, duration, loopMode, frameRate);
     }
 }
 
-export { AnimTrack, AnimController };
+export { AnimTrack, AnimState };

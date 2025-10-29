@@ -11,7 +11,7 @@ import {
 } from 'playcanvas';
 import type { AppBase, Entity, EventHandler, GSplatComponent, InputFrame } from 'playcanvas';
 
-import { AnimController } from './controllers/anim-controller';
+import { AnimState } from './controllers/anim-state';
 import { easeOut } from './core/math';
 import { AppController } from './input';
 import { Picker } from './picker';
@@ -47,20 +47,19 @@ const lerpPose = (result: Pose, a: Pose, b: Pose, t: number) => {
     vecToAngles(result.angles, avec.mulScalar(1.0 / result.distance));
 };
 
-class AnimWrap extends InputController {
-    controller: AnimController;
+class AnimController extends InputController {
+    animState: AnimState;
 
-    constructor(animController: AnimController) {
+    constructor(animState: AnimState) {
         super();
-
-        this.controller = animController;
+        this.animState = animState;
     }
 
     update(frame: InputFrame<{ move: number[], rotate: number[] }>, dt: number) {
-        this.controller.update(dt);
+        this.animState.update(dt);
 
         frame.read();
-        this._pose.look(this.controller.position, this.controller.target);
+        this._pose.look(this.animState.position, this.animState.target);
         return this._pose;
     }
 }
@@ -244,11 +243,11 @@ class Viewer {
             if (animTracks?.length > 0 && camera.startAnim === 'animTrack') {
                 const track = animTracks.find((track: AnimTrack) => track.name === camera.animTrack);
                 if (track) {
-                    return new AnimWrap(AnimController.fromTrack(track));
+                    return new AnimController(AnimState.fromTrack(track));
                 }
             } else if (isObjectExperience) {
                 // create basic rotation animation if no anim track is specified
-                return new AnimWrap(AnimController.fromTrack(createRotateTrack(initial)));
+                return new AnimController(AnimState.fromTrack(createRotateTrack(initial)));
             }
             return null;
         })(userStart, isObjectExperience);
@@ -285,7 +284,7 @@ class Viewer {
 
         // set the global animation flag
         state.hasAnimation = !!animCamera;
-        state.animationDuration = animCamera ? animCamera.controller.cursor.duration : 0;
+        state.animationDuration = animCamera ? animCamera.animState.cursor.duration : 0;
         if (animCamera) {
             state.cameraMode = 'anim';
         }
@@ -398,7 +397,7 @@ class Viewer {
 
             // update animation timeline
             if (state.cameraMode === 'anim') {
-                state.animationTime = animCamera.controller.cursor.value;
+                state.animationTime = animCamera.animState.cursor.value;
             }
         });
 
@@ -422,7 +421,7 @@ class Viewer {
 
         events.on('setAnimationTime', (time) => {
             if (animCamera) {
-                animCamera.controller.cursor.value = time;
+                animCamera.animState.cursor.value = time;
 
                 // switch to animation camera if we're not already there
                 if (state.cameraMode !== 'anim') {
