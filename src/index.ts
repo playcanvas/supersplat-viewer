@@ -124,6 +124,12 @@ const main = async (global: Global) => {
         initPoster(events);
     }
 
+    // Initialize XR support
+    initXr(global);
+
+    // Initialize user interface
+    initUI(global);
+
     // Load model
     const gsplatLoad = loadGsplat(
         app,
@@ -139,12 +145,6 @@ const main = async (global: Global) => {
         loadSkybox(app, config.skyboxUrl).then((asset) => {
             app.scene.envAtlas = asset.resource as Texture;
         });
-
-    // Initialize XR support
-    initXr(global);
-
-    // Initialize user interface
-    initUI(global);
 
     // Create the viewer
     const viewer = new Viewer(global, gsplatLoad, skyboxLoad);

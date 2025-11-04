@@ -11,7 +11,6 @@ import { FlyCamera } from './cameras/fly-camera';
 import { OrbitCamera } from './cameras/orbit-camera';
 import { easeOut } from './core/math';
 import { InputController } from './input-controller';
-import { Picker } from './picker';
 import { AnimTrack } from './settings';
 import { CameraMode, Global } from './types';
 import { createRotateTrack } from './animation/create-rotate-track';
@@ -111,7 +110,7 @@ class CameraController {
         }
 
         // create the input device controller
-        const inputController = new InputController(global, camera.camera);
+        const inputController = new InputController(global);
 
         const prevPose = new Pose();
         const activePose = new Pose();
@@ -244,28 +243,15 @@ class CameraController {
             }
         });
 
-        // pick orbit camera focus point on double click
-        let picker: Picker | null = null;
-        events.on('inputEvent', async (eventName, event) => {
-            switch (eventName) {
-                case 'dblclick': {
-                    if (!picker) {
-                        picker = new Picker(app, camera);
-                    }
-                    const result = await picker.pick(event.offsetX, event.offsetY);
-                    if (result) {
-                        if (state.cameraMode !== 'orbit') {
-                            state.cameraMode = 'orbit';
-                        }
-
-                        // snap distance of focus to picked point to interpolate rotation only
-                        activePose.distance = activePose.position.distance(result);
-                        orbitCamera.goto(activePose, false);
-                        orbitCamera.goto(pose.look(activePose.position, result), true);
-                    }
-                    break;
-                }
+        events.on('pick', (position: Vec3) => {
+            if (state.cameraMode !== 'orbit') {
+                state.cameraMode = 'orbit';
             }
+
+            // snap distance of focus to picked point to interpolate rotation only
+            activePose.distance = activePose.position.distance(position);
+            orbitCamera.goto(activePose, false);
+            orbitCamera.goto(pose.look(activePose.position, position), true);
         });
 
         // initialize the camera entity to initial position and kick off the

@@ -9,6 +9,7 @@ import {
     Vec3
 } from 'playcanvas';
 import type { CameraComponent } from 'playcanvas';
+import { Picker } from './picker';
 import type { Global } from './types';
 
 const tmpV1 = new Vec3();
@@ -109,15 +110,15 @@ class InputController {
      * @param element - the element to attach the input to
      * @param camera - the camera component to control
      */
-    constructor(global: Global, camera: CameraComponent) {
-        const { app, events, state } = global;
+    constructor(global: Global) {
+        const { app, camera, events, state } = global;
         const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
 
         this._desktopInput.attach(canvas);
         this._orbitInput.attach(canvas);
         this._flyInput.attach(canvas);
 
-        this._camera = camera;
+        this._camera = camera.camera;
 
         // convert events to joystick state
         this._flyInput.on('joystick:position:left', ([bx, by, sx, sy]) => {
@@ -155,6 +156,23 @@ class InputController {
                 lastTap.time = now;
                 lastTap.x = event.clientX;
                 lastTap.y = event.clientY;
+            }
+        });
+
+        // Calculate pick location on double click
+        let picker: Picker | null = null;
+        events.on('inputEvent', async (eventName, event) => {
+            switch (eventName) {
+                case 'dblclick': {
+                    if (!picker) {
+                        picker = new Picker(app, camera);
+                    }
+                    const result = await picker.pick(event.offsetX, event.offsetY);
+                    if (result) {
+                        events.fire('pick', result);
+                    }
+                    break;
+                }
             }
         });
 
