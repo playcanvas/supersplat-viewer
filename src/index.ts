@@ -141,10 +141,10 @@ const main = async (global: Global) => {
         });
 
     // Initialize XR support
-    initXr(app, camera, state, events);
+    initXr(global);
 
     // Initialize user interface
-    initUI(events, state, config, app.graphicsDevice.canvas);
+    initUI(global);
 
     // Create the viewer
     const viewer = new Viewer(global, gsplatLoad, skyboxLoad);

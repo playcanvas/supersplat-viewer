@@ -1,6 +1,7 @@
 import { EventHandler, Vec3 } from 'playcanvas';
 
 import { Tooltip } from './tooltip';
+import { Global } from './types';
 
 const v = new Vec3();
 
@@ -18,7 +19,9 @@ const initPoster = (events: EventHandler) => {
     });
 };
 
-const initUI = (events: EventHandler, state: any, config: any, canvas: HTMLCanvasElement) => {
+const initUI = (global: Global) => {
+    const { config, events, state } = global;
+
     // Acquire Elements
     const docRoot = document.documentElement;
     const dom = [
