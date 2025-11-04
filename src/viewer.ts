@@ -1,4 +1,5 @@
 import {
+    BoundingBox,
     Color,
     type Entity,
     Mat4,
@@ -117,8 +118,11 @@ class Viewer {
         Promise.all([gsplatLoad, skyboxLoad]).then((results) => {
             const gsplat = results[0] as Entity;
 
+            // calculate scene bounding box
+            const bbox = gsplat.gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
+
             // construct the camera controller
-            this.cameraController = new CameraController(global, gsplat);
+            this.cameraController = new CameraController(global, bbox);
 
             // kick off gsplat sorting immediately now that camera is in position
             gsplat.gsplat?.instance?.sort(camera);

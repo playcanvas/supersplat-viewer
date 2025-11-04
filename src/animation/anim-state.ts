@@ -1,8 +1,8 @@
 import { Vec3 } from 'playcanvas';
 
-import { mod } from './core/math';
-import { CubicSpline } from './core/spline';
-import { AnimTrack } from './settings';
+import { mod } from '../core/math';
+import { CubicSpline } from '../core/spline';
+import { AnimTrack } from '../settings';
 
 // track an animation cursor with support for looping and ping-pong modes
 class AnimCursor {

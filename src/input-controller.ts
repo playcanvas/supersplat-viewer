@@ -9,6 +9,7 @@ import {
     Vec3
 } from 'playcanvas';
 import type { CameraComponent } from 'playcanvas';
+import type { Global } from './types';
 
 const tmpV1 = new Vec3();
 const tmpV2 = new Vec3();
@@ -108,10 +109,13 @@ class InputController {
      * @param element - the element to attach the input to
      * @param camera - the camera component to control
      */
-    constructor(element: HTMLElement, camera: CameraComponent) {
-        this._desktopInput.attach(element);
-        this._orbitInput.attach(element);
-        this._flyInput.attach(element);
+    constructor(global: Global, camera: CameraComponent) {
+        const { app, events, state } = global;
+        const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
+
+        this._desktopInput.attach(canvas);
+        this._orbitInput.attach(canvas);
+        this._flyInput.attach(canvas);
 
         this._camera = camera;
 
@@ -124,6 +128,60 @@ class InputController {
             }
             this.joystick.base = [bx, by];
             this.joystick.stick = [sx - bx, sy - by];
+        });
+
+        // Generate input events
+        ['wheel', 'pointerdown', 'contextmenu', 'keydown'].forEach((eventName) => {
+            canvas.addEventListener(eventName, (event) => {
+                events.fire('inputEvent', 'interrupt', event);
+            });
+        });
+
+        canvas.addEventListener('pointermove', (event) => {
+            events.fire('inputEvent', 'interact', event);
+        });
+
+        // Detect double taps manually because iOS doesn't send dblclick events
+        const lastTap = { time: 0, x: 0, y: 0 };
+        canvas.addEventListener('pointerdown', (event) => {
+            const now = Date.now();
+            const delay = Math.max(0, now - lastTap.time);
+            if (delay < 300 &&
+                Math.abs(event.clientX - lastTap.x) < 8 &&
+                Math.abs(event.clientY - lastTap.y) < 8) {
+                events.fire('inputEvent', 'dblclick', event);
+                lastTap.time = 0;
+            } else {
+                lastTap.time = now;
+                lastTap.x = event.clientX;
+                lastTap.y = event.clientY;
+            }
+        });
+
+        // update input mode based on pointer event
+        ['pointerdown', 'pointermove'].forEach((eventName) => {
+            window.addEventListener(eventName, (event: PointerEvent) => {
+                state.inputMode = event.pointerType === 'touch' ? 'touch' : 'desktop';
+            });
+        });
+
+        // handle keyboard events
+        window.addEventListener('keydown', (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                events.fire('inputEvent', 'cancel', event);
+            } else if (!event.ctrlKey && !event.altKey && !event.metaKey) {
+                switch (event.key) {
+                    case 'f':
+                        events.fire('inputEvent', 'frame', event);
+                        break;
+                    case 'r':
+                        events.fire('inputEvent', 'reset', event);
+                        break;
+                    case ' ':
+                        events.fire('inputEvent', 'playPause', event);
+                        break;
+                }
+            }
         });
     }
 

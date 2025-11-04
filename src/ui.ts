@@ -234,14 +234,6 @@ const initUI = (events: EventHandler, state: any, config: any, canvas: HTMLCanva
         events.on('cameraMode:changed', updatePlayPause);
         events.on('animationPaused:changed', updatePlayPause);
 
-        // Spacebar to play/pause
-        events.on('inputEvent', (eventName) => {
-            if (eventName === 'playPause') {
-                state.cameraMode = 'anim';
-                state.animationPaused = !state.animationPaused;
-            }
-        });
-
         const updateSlider = () => {
             dom.handle.style.left = `${state.animationTime / state.animationDuration * 100}%`;
             dom.time.style.left = `${state.animationTime / state.animationDuration * 100}%`;
@@ -337,60 +329,6 @@ const initUI = (events: EventHandler, state: any, config: any, canvas: HTMLCanva
     if (config.noui) {
         dom.ui.classList.add('hidden');
     }
-
-    // Generate input events
-
-    ['wheel', 'pointerdown', 'contextmenu', 'keydown'].forEach((eventName) => {
-        canvas.addEventListener(eventName, (event) => {
-            events.fire('inputEvent', 'interrupt', event);
-        });
-    });
-
-    canvas.addEventListener('pointermove', (event) => {
-        events.fire('inputEvent', 'interact', event);
-    });
-
-    // we must detect double taps manually because ios doesn't send dblclick events
-    const lastTap = { time: 0, x: 0, y: 0 };
-    canvas.addEventListener('pointerdown', (event) => {
-        const now = Date.now();
-        const delay = Math.max(0, now - lastTap.time);
-        if (delay < 300 &&
-            Math.abs(event.clientX - lastTap.x) < 8 &&
-            Math.abs(event.clientY - lastTap.y) < 8) {
-            events.fire('inputEvent', 'dblclick', event);
-            lastTap.time = 0;
-        } else {
-            lastTap.time = now;
-            lastTap.x = event.clientX;
-            lastTap.y = event.clientY;
-        }
-    });
-
-    // update input mode based on pointer event
-    ['pointerdown', 'pointermove'].forEach((eventName) => {
-        window.addEventListener(eventName, (event: PointerEvent) => {
-            state.inputMode = event.pointerType === 'touch' ? 'touch' : 'desktop';
-        });
-    });
-
-    window.addEventListener('keydown', (event: KeyboardEvent) => {
-        if (event.key === 'Escape') {
-            events.fire('inputEvent', 'cancel', event);
-        } else if (!event.ctrlKey && !event.altKey && !event.metaKey) {
-            switch (event.key) {
-                case 'f':
-                    events.fire('inputEvent', 'frame', event);
-                    break;
-                case 'r':
-                    events.fire('inputEvent', 'reset', event);
-                    break;
-                case ' ':
-                    events.fire('inputEvent', 'playPause', event);
-                    break;
-            }
-        }
-    });
 
     // tooltips
     const tooltip = new Tooltip(dom.tooltip);

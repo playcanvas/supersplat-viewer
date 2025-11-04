@@ -1,12 +1,10 @@
 import {
-    BoundingBox,
-    Entity,
-    Mat4,
+    type BoundingBox,
     Pose,
     Vec3
 } from 'playcanvas';
 
-import { AnimState } from './anim-state';
+import { AnimState } from './animation/anim-state';
 import type { Camera } from './cameras/camera';
 import { AnimCamera } from './cameras/anim-camera';
 import { FlyCamera } from './cameras/fly-camera';
@@ -16,6 +14,7 @@ import { InputController } from './input-controller';
 import { Picker } from './picker';
 import { AnimTrack } from './settings';
 import { CameraMode, Global } from './types';
+import { createRotateTrack } from './animation/create-rotate-track';
 
 const vecToAngles = (result: Vec3, vec: Vec3) => {
     const radToDeg = 180 / Math.PI;
@@ -60,67 +59,9 @@ const createFramePose = (bbox: BoundingBox, cameraFov: number): Pose => {
     );
 };
 
-/**
- * Creates a rotation animation track
- *
- * @param initial - The initial pose of the camera.
- * @param keys - The number of keys in the animation.
- * @param duration - The duration of the animation in seconds.
- * @returns - The animation track object containing position and target keyframes.
- */
-const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 20): AnimTrack => {
-    const times = new Array(keys).fill(0).map((_, i) => i / keys * duration);
-    const position: number[] = [];
-    const target: number[] = [];
-
-    const initialTarget = new Vec3();
-    initial.getFocus(initialTarget);
-
-    const mat = new Mat4();
-    const vec = new Vec3();
-    const dif = new Vec3(
-        initial.position.x - initialTarget.x,
-        initial.position.y - initialTarget.y,
-        initial.position.z - initialTarget.z
-    );
-
-    for (let i = 0; i < keys; ++i) {
-        mat.setFromEulerAngles(0, -i / keys * 360, 0);
-        mat.transformPoint(dif, vec);
-
-        position.push(initialTarget.x + vec.x);
-        position.push(initialTarget.y + vec.y);
-        position.push(initialTarget.z + vec.z);
-
-        target.push(initialTarget.x);
-        target.push(initialTarget.y);
-        target.push(initialTarget.z);
-    }
-
-    return {
-        name: 'rotate',
-        duration,
-        frameRate: 1,
-        target: 'camera',
-        loopMode: 'repeat',
-        interpolation: 'spline',
-        smoothness: 1,
-        keyframes: {
-            times,
-            values: {
-                position,
-                target
-            }
-        }
-    };
-};
-
 class CameraController {
-    constructor(global: Global, gsplat: Entity) {
+    constructor(global: Global, bbox: BoundingBox) {
         const { app, events, settings, state, camera } = global;
-
-        // calculate scene bounding box
-        const bbox = gsplat.gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
 
         const framePose = createFramePose(bbox, camera.camera.fov);
 
@@ -170,7 +111,7 @@ class CameraController {
         }
 
         // create the input device controller
-        const inputController = new InputController(app.graphicsDevice.canvas, camera.camera);
+        const inputController = new InputController(global, camera.camera);
 
         const prevPose = new Pose();
         const activePose = new Pose();
@@ -207,6 +148,14 @@ class CameraController {
                     break;
                 case 'reset':
                     doReset(resetPose);
+                    break;
+                case 'playPause':
+                    if (state.cameraMode === 'anim') {
+                        state.animationPaused = !state.animationPaused;
+                    } else {
+                        state.cameraMode = 'anim';
+                        state.animationPaused = false;
+                    }
                     break;
                 case 'cancel':
                 case 'interrupt':

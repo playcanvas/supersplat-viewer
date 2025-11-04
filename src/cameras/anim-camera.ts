@@ -1,4 +1,4 @@
-import type { AnimState } from '../anim-state';
+import type { AnimState } from '../animation/anim-state';
 import type { Camera, CameraFrame } from './camera';
 import { Pose } from 'playcanvas';
 
