@@ -124,26 +124,21 @@ const main = async (global: Global) => {
         initPoster(events);
     }
 
-    const promises = [];
-
-    // Start loading the model
-    promises.push(loadGsplat(
+    // Load model
+    const gsplatLoad = loadGsplat(
         app,
         config.contentUrl,
         config.contents,
         (progress: number) => {
             state.progress = progress;
         }
-    ));
+    );
 
-    // Start loading the skybox texture
-    if (config.skyboxUrl) {
-        promises.push(loadSkybox(app, config.skyboxUrl).then((asset) => {
+    // Load skybox
+    const skyboxLoad = config.skyboxUrl &&
+        loadSkybox(app, config.skyboxUrl).then((asset) => {
             app.scene.envAtlas = asset.resource as Texture;
-        }));
-    }
-
-    const viewer = new Viewer(global);
+        });
 
     // Initialize XR support
     initXr(app, camera, state, events);
@@ -151,11 +146,8 @@ const main = async (global: Global) => {
     // Initialize user interface
     initUI(events, state, config, app.graphicsDevice.canvas);
 
-    // Wait for loads to complete
-    const results = await Promise.all(promises);
-
     // Create the viewer
-    viewer.onModelLoaded(results[0] as Entity);
+    const viewer = new Viewer(global, gsplatLoad, skyboxLoad);
 };
 
 // wait for dom content to finish loading

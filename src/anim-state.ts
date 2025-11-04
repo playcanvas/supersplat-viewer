@@ -107,4 +107,4 @@ class AnimState {
     }
 }
 
-export { AnimTrack, AnimState };
+export { AnimState };
