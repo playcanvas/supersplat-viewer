@@ -1,56 +1,10 @@
 import { Vec3 } from 'playcanvas';
 
-import { mod } from '../core/math';
 import { CubicSpline } from '../core/spline';
 import { AnimTrack } from '../settings';
+import { AnimCursor } from './anim-cursor';
 
-// track an animation cursor with support for looping and ping-pong modes
-class AnimCursor {
-    duration: number = 0;
-
-    loopMode: 'none' | 'repeat' | 'pingpong' = 'none';
-
-    timer: number = 0;
-
-    cursor: number = 0;
-
-    constructor(duration: number, loopMode: 'none' | 'repeat' | 'pingpong') {
-        this.reset(duration, loopMode);
-    }
-
-    update(deltaTime: number) {
-        // update animation timer
-        this.timer += deltaTime;
-
-        // update the track cursor
-        this.cursor += deltaTime;
-
-        if (this.cursor >= this.duration) {
-            switch (this.loopMode) {
-                case 'none': this.cursor = this.duration; break;
-                case 'repeat': this.cursor %= this.duration; break;
-                case 'pingpong': this.cursor %= (this.duration * 2); break;
-            }
-        }
-    }
-
-    reset(duration: number, loopMode: 'none' | 'repeat' | 'pingpong') {
-        this.duration = duration;
-        this.loopMode = loopMode;
-        this.timer = 0;
-        this.cursor = 0;
-    }
-
-    set value(value: number) {
-        this.cursor = mod(value, this.duration);
-    }
-
-    get value() {
-        return this.cursor > this.duration ? this.duration - this.cursor : this.cursor;
-    }
-}
-
-// Manage the state of a camera animation track
+// manage the state of a camera animation track
 class AnimState {
     spline: CubicSpline;
 
