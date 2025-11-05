@@ -8,12 +8,14 @@ type InputMode = 'desktop' | 'touch';
 
 // configuration options are immutable at runtime
 type Config = {
-    noui: boolean;
-    ministats: boolean;
-    skyboxUrl?: string;
     poster?: HTMLImageElement;
+    skyboxUrl?: string;
     contentUrl?: string;
     contents?: Promise<Response>;
+
+    noui: boolean;
+    noanim: boolean;
+    ministats: boolean;
 };
 
 // observable state that can change at runtime
@@ -42,4 +44,4 @@ type Global = {
     camera: Entity;
 };
 
-export { CameraMode, InputMode, State, Global };
+export { CameraMode, InputMode, Config, State, Global };

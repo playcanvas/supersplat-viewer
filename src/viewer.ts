@@ -9,8 +9,8 @@ import {
 } from 'playcanvas';
 
 import { CameraController } from './camera-controller';
-import { InputController } from './input-controller';
 import { nearlyEquals } from './core/math';
+import { InputController } from './input-controller';
 import type { Global } from './types';
 
 // override global pick to pack depth instead of meshInstance id
@@ -85,6 +85,12 @@ class Viewer {
         events.on('hqMode:changed', updateHqMode);
         updateHqMode();
 
+        // Construct debug ministats
+        if (config.ministats) {
+            // eslint-disable-next-line no-new
+            new MiniStats(app);
+        }
+
         const prevProj = new Mat4();
         const prevWorld = new Mat4();
 
@@ -112,6 +118,7 @@ class Viewer {
             }
         });
 
+        // handle application update
         app.on('update', (deltaTime) => {
             // in xr mode we leave the camera alone
             if (app.xr.active) {
@@ -127,12 +134,6 @@ class Viewer {
             }
         });
 
-        // Construct ministats
-        if (config.ministats) {
-            // eslint-disable-next-line no-new
-            new MiniStats(app);
-        }
-
         // wait for the model to load
         Promise.all([gsplatLoad, skyboxLoad]).then((results) => {
             const gsplat = results[0] as Entity;
@@ -141,6 +142,7 @@ class Viewer {
             const bbox = gsplat.gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
 
             this.inputController = new InputController(global);
+
             this.cameraController = new CameraController(global, bbox);
 
             // kick off gsplat sorting immediately now that camera is in position

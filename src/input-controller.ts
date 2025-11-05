@@ -107,11 +107,6 @@ class InputController {
 
     wheelSpeed: number = 0.06;
 
-    /**
-     * @param element - the element to attach the input to
-     * @param camera - the camera component to control
-     * @param global
-     */
     constructor(global: Global) {
         const { app, camera, events, state } = global;
         const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;

@@ -59,6 +59,7 @@ const createFramePose = (bbox: BoundingBox, cameraFov: number): Pose => {
 
 class CameraController {
     update: (deltaTime: number, cameraFrame: CameraFrame) => void;
+
     activePose: Pose = new Pose();
 
     constructor(global: Global, bbox: BoundingBox) {

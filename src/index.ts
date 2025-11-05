@@ -1,5 +1,4 @@
 import '@playcanvas/web-components';
-import type { AppElement, EntityElement } from '@playcanvas/web-components';
 import {
     Asset,
     Entity,
@@ -10,7 +9,7 @@ import {
 
 import { observe } from './core/observe';
 import { importSettings } from './settings';
-import { Global } from './types';
+import type { Config, Global } from './types';
 import { initPoster, initUI } from './ui';
 import { Viewer } from './viewer';
 import { initXr } from './xr';
@@ -74,21 +73,8 @@ const loadSkybox = (app: AppBase, url: string) => {
     });
 };
 
-// initialize global config and state
-const initGlobal = async (app: AppBase, camera: Entity): Promise<Global> => {
-    const sse: any = window.sse ?? {};
-    const params = sse.params ?? {};
-    const settings = importSettings(await sse.settings);
+const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) => {
     const events = new EventHandler();
-
-    const config = {
-        noui: !!(params.noui || false),
-        ministats: !!(params.ministats || false),
-        skyboxUrl: params.skyboxUrl,
-        poster: sse.poster,
-        contentUrl: sse.contentUrl,
-        contents: sse.contents
-    };
 
     const state = observe(events, {
         readyToRender: false,
@@ -99,25 +85,21 @@ const initGlobal = async (app: AppBase, camera: Entity): Promise<Global> => {
         hasAnimation: false,
         animationDuration: 0,
         animationTime: 0,
-        animationPaused: params.noanim,
-        hasAR: app.xr.isAvailable('immersive-ar'),
-        hasVR: app.xr.isAvailable('immersive-vr'),
+        animationPaused: !!config.noanim,
+        hasAR: false,
+        hasVR: false,
         isFullscreen: false,
         controlsHidden: false
     });
 
-    return {
+    const global: Global = {
         app,
-        settings,
+        settings: importSettings(settingsJson),
         config,
         state,
         events,
         camera
     };
-};
-
-const main = (global: Global) => {
-    const { app, events, config, state } = global;
 
     // Initialize the load-time poster
     if (config.poster) {
@@ -147,14 +129,7 @@ const main = (global: Global) => {
         });
 
     // Create the viewer
-    const viewer = new Viewer(global, gsplatLoad, skyboxLoad);
+    return new Viewer(global, gsplatLoad, skyboxLoad);
 };
 
-// wait for dom content to finish loading
-document.addEventListener('DOMContentLoaded', async () => {
-    const appElement = await (document.querySelector('pc-app') as AppElement).ready();
-    const cameraElement = await (document.querySelector('pc-entity[name="camera"]') as EntityElement).ready();
-    const global = await initGlobal(appElement.app, cameraElement.entity);
-
-    main(global);
-});
+export { main };

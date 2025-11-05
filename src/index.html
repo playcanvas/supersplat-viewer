@@ -7,36 +7,36 @@
         <base href="">
         <link rel="stylesheet" href="./index.css">
         <script type="module">
-            const url = new URL(location.href);
-            const settingsUrl = url.searchParams.has('settings') ? url.searchParams.get('settings') : './settings.json';
-            const contentUrl = url.searchParams.has('content') ? url.searchParams.get('content') : './scene.compressed.ply';
-            const params = {};
-
-            // apply url parameter overrides
-            if (url.searchParams.has('noui')) params.noui = true;
-            if (url.searchParams.has('noanim')) params.noanim = true;
-            if (url.searchParams.has('poster')) params.posterUrl = url.searchParams.get('poster');
-            if (url.searchParams.has('skybox')) params.skyboxUrl = url.searchParams.get('skybox');
-            if (url.searchParams.has('ministats')) params.ministats = true;
-
             const createImage = (url) => {
                 const img = new Image();
                 img.src = url;
                 return img;
             };
 
-            window.sse = {
-                poster: params.posterUrl && createImage(params.posterUrl),
-                settings: fetch(settingsUrl).then(response => response.json()),
+            const url = new URL(location.href);
+
+            const posterUrl = url.searchParams.get('poster');
+            const skyboxUrl = url.searchParams.get('skybox');
+            const settingsUrl = url.searchParams.has('settings') ? url.searchParams.get('settings') : './settings.json';
+            const contentUrl = url.searchParams.has('content') ? url.searchParams.get('content') : './scene.compressed.ply';
+
+            const config = {
+                poster: posterUrl && createImage(posterUrl),
+                skyboxUrl,
                 contentUrl,
                 contents: fetch(contentUrl),
-                params
+                noui: url.searchParams.has('noui'),
+                noanim: url.searchParams.has('noanim'),
+                ministats: url.searchParams.has('ministats')
+            };
+
+            window.sse = {
+                config,
+                settings: fetch(settingsUrl).then(response => response.json())
             };
         </script>
-        <script type="module" src="./index.js"></script>
     </head>
     <body>
-
         <pc-app antialias="false" depth="false" high-resolution="true" stencil="false">
             <pc-scene>
                 <!-- Camera (with XR support) -->
@@ -254,14 +254,28 @@
             <div id="tooltip"></div>
         </div>
         <script type="module">
-            // Load the poster image if available
-            const poster = window.sse?.poster;
+            import { main } from './index.js';
+
+            const { config, settings } = window.sse;
+            const { poster } = config;
+
+            // Show the poster image
             if (poster) {
                 const element = document.getElementById('poster');
                 element.style.backgroundImage = `url(${poster.src})`;
                 element.style.display = 'block';
                 element.style.filter = 'blur(40px)';
             }
+
+            document.addEventListener('DOMContentLoaded', async () => {
+                const [appElement, cameraElement, settingsJson] = await Promise.all([
+                    document.querySelector('pc-app').ready(),
+                    document.querySelector('pc-entity[name="camera"]').ready(),
+                    settings
+                ]);
+
+                const viewer = await main(appElement.app, cameraElement.entity, settingsJson, config);
+            });
         </script>
 
         <!-- SVG Icons -->

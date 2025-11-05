@@ -14,6 +14,9 @@ import { Global } from './types';
 const initXr = (global: Global) => {
     const { app, events, state, camera } = global;
 
+    state.hasAR = app.xr.isAvailable('immersive-ar');
+    state.hasVR = app.xr.isAvailable('immersive-vr');
+
     // initialize ar/vr
     app.xr.on('available:immersive-ar', (available) => {
         state.hasAR = available;
