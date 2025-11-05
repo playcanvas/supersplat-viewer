@@ -116,8 +116,8 @@ const initGlobal = async (app: AppBase, camera: Entity): Promise<Global> => {
     };
 };
 
-const main = async (global: Global) => {
-    const { app, events, config, state, camera } = global;
+const main = (global: Global) => {
+    const { app, events, config, state } = global;
 
     // Initialize the load-time poster
     if (config.poster) {
@@ -155,5 +155,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const appElement = await (document.querySelector('pc-app') as AppElement).ready();
     const cameraElement = await (document.querySelector('pc-entity[name="camera"]') as EntityElement).ready();
     const global = await initGlobal(appElement.app, cameraElement.entity);
-    await main(global);
+
+    main(global);
 });

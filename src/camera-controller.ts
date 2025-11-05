@@ -5,15 +5,14 @@ import {
 } from 'playcanvas';
 
 import { AnimState } from './animation/anim-state';
-import type { Camera } from './cameras/camera';
+import { createRotateTrack } from './animation/create-rotate-track';
 import { AnimCamera } from './cameras/anim-camera';
+import type { Camera, CameraFrame } from './cameras/camera';
 import { FlyCamera } from './cameras/fly-camera';
 import { OrbitCamera } from './cameras/orbit-camera';
 import { easeOut } from './core/math';
-import { InputController } from './input-controller';
 import { AnimTrack } from './settings';
 import { CameraMode, Global } from './types';
-import { createRotateTrack } from './animation/create-rotate-track';
 
 const vecToAngles = (result: Vec3, vec: Vec3) => {
     const radToDeg = 180 / Math.PI;
@@ -59,8 +58,11 @@ const createFramePose = (bbox: BoundingBox, cameraFov: number): Pose => {
 };
 
 class CameraController {
+    update: (deltaTime: number, cameraFrame: CameraFrame) => void;
+    activePose: Pose = new Pose();
+
     constructor(global: Global, bbox: BoundingBox) {
-        const { app, events, settings, state, camera } = global;
+        const { events, settings, state, camera } = global;
 
         const framePose = createFramePose(bbox, camera.camera.fov);
 
@@ -109,11 +111,8 @@ class CameraController {
             state.cameraMode = 'anim';
         }
 
-        // create the input device controller
-        const inputController = new InputController(global);
-
         const prevPose = new Pose();
-        const activePose = new Pose();
+        const { activePose } = this;
         let currCamera = getCamera(state.cameraMode);
         let prevCameraMode: CameraMode = 'orbit';
 
@@ -169,20 +168,7 @@ class CameraController {
         let transitionTimer = 1;
 
         // application update
-        app.on('update', (deltaTime) => {
-
-            // in xr mode we leave the camera alone
-            if (app.xr.active) {
-                return;
-            }
-
-            // update input controller
-            inputController.update(deltaTime, state, activePose.distance);
-
-            // update touch joystick UI
-            if (state.cameraMode === 'fly') {
-                events.fire('touchJoystickUpdate', inputController.joystick.base, inputController.joystick.stick);
-            }
+        this.update = (deltaTime: number, frame: CameraFrame) => {
 
             // use dt of 0 if animation is paused
             const dt = state.cameraMode === 'anim' && state.animationPaused ? 0 : deltaTime;
@@ -190,7 +176,7 @@ class CameraController {
             // update the camera we're transitioning from
             transitionTimer = Math.min(1, transitionTimer + deltaTime * 2.0);
 
-            currCamera.update(inputController.frame, dt);
+            currCamera.update(frame, dt);
 
             // update camera
             pose.copy(currCamera.pose);
@@ -210,13 +196,12 @@ class CameraController {
             if (state.cameraMode === 'anim') {
                 state.animationTime = animCamera.animState.cursor.value;
             }
-        });
+        };
 
         // handle camera mode switching
         events.on('cameraMode:changed', (value, prev) => {
             prevCameraMode = prev;
             prevPose.copy(activePose);
-            // getCamera(prev).detach();
 
             currCamera = getCamera(value);
             switch (value) {
@@ -232,7 +217,8 @@ class CameraController {
             transitionTimer = 0;
         });
 
-        events.on('setAnimationTime', (time) => {
+        // handle user scrubbing the animation timeline
+        events.on('scrubAnim', (time) => {
             if (animCamera) {
                 animCamera.animState.cursor.value = time;
 
@@ -243,11 +229,11 @@ class CameraController {
             }
         });
 
+        // handle user picking in the scene
         events.on('pick', (position: Vec3) => {
             if (state.cameraMode !== 'orbit') {
                 state.cameraMode = 'orbit';
             }
-
             // snap distance of focus to picked point to interpolate rotation only
             activePose.distance = activePose.position.distance(position);
             orbitCamera.goto(activePose, false);
@@ -259,6 +245,6 @@ class CameraController {
         camera.setPosition(activePose.position);
         camera.setEulerAngles(activePose.angles);
     }
-};
+}
 
 export { CameraController };

@@ -9,6 +9,7 @@ import {
     Vec3
 } from 'playcanvas';
 import type { CameraComponent } from 'playcanvas';
+
 import { Picker } from './picker';
 import type { Global } from './types';
 
@@ -69,8 +70,6 @@ const screenToWorld = (camera: CameraComponent, dx: number, dy: number, dz: numb
 };
 
 class InputController {
-    private _camera: CameraComponent;
-
     private _state = {
         axis: new Vec3(),
         mouse: [0, 0, 0],
@@ -86,6 +85,8 @@ class InputController {
     private _flyInput = new DualGestureSource();
 
     private _gamepadInput = new GamepadSource();
+
+    global: Global;
 
     frame = new InputFrame({
         move: [0, 0, 0],
@@ -109,6 +110,7 @@ class InputController {
     /**
      * @param element - the element to attach the input to
      * @param camera - the camera component to control
+     * @param global
      */
     constructor(global: Global) {
         const { app, camera, events, state } = global;
@@ -117,8 +119,6 @@ class InputController {
         this._desktopInput.attach(canvas);
         this._orbitInput.attach(canvas);
         this._flyInput.attach(canvas);
-
-        this._camera = camera.camera;
 
         // convert events to joystick state
         this._flyInput.on('joystick:position:left', ([bx, by, sx, sy]) => {
@@ -130,6 +130,8 @@ class InputController {
             this.joystick.base = [bx, by];
             this.joystick.stick = [sx - bx, sy - by];
         });
+
+        this.global = global;
 
         // Generate input events
         ['wheel', 'pointerdown', 'contextmenu', 'keydown'].forEach((eventName) => {
@@ -209,13 +211,16 @@ class InputController {
      * @param state.cameraMode - the current camera mode
      * @param distance - the distance to the camera target
      */
-    update(dt: number, state: { cameraMode: 'anim' | 'fly' | 'orbit' }, distance: number) {
+    update(dt: number, distance: number) {
         const { keyCode } = KeyboardMouseSource;
 
         const { key, button, mouse, wheel } = this._desktopInput.read();
         const { touch, pinch, count } = this._orbitInput.read();
         const { leftInput, rightInput } = this._flyInput.read();
         const { leftStick, rightStick } = this._gamepadInput.read();
+
+        const { events, state } = this.global;
+        const { camera } = this.global.camera;
 
         // update state
         this._state.axis.add(tmpV1.set(
@@ -239,7 +244,7 @@ class InputController {
         const double = +(this._state.touches > 1);
         const pan = this._state.mouse[2] || +(button[2] === -1) || double;
 
-        const orbitFactor = fly ? this._camera.fov / 120 : 1;
+        const orbitFactor = fly ? camera.fov / 120 : 1;
 
         const { deltas } = this.frame;
 
@@ -247,7 +252,7 @@ class InputController {
         const v = tmpV1.set(0, 0, 0);
         const keyMove = this._state.axis.clone().normalize();
         v.add(keyMove.mulScalar(fly * this.moveSpeed * (this._state.shift ? 4 : this._state.ctrl ? 0.25 : 1) * dt));
-        const panMove = screenToWorld(this._camera, mouse[0], mouse[1], distance);
+        const panMove = screenToWorld(camera, mouse[0], mouse[1], distance);
         v.add(panMove.mulScalar(pan));
         const wheelMove = new Vec3(0, 0, -wheel[0]);
         v.add(wheelMove.mulScalar(this.wheelSpeed * dt));
@@ -262,7 +267,7 @@ class InputController {
 
         // mobile move
         v.set(0, 0, 0);
-        const orbitMove = screenToWorld(this._camera, touch[0], touch[1], distance);
+        const orbitMove = screenToWorld(camera, touch[0], touch[1], distance);
         v.add(orbitMove.mulScalar(orbit * pan));
         const flyMove = new Vec3(leftInput[0], 0, -leftInput[1]);
         v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
@@ -289,6 +294,11 @@ class InputController {
         const stickRotate = new Vec3(rightStick[0], rightStick[1], 0);
         v.add(stickRotate.mulScalar(this.orbitSpeed * orbitFactor * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
+
+        // update touch joystick UI
+        if (state.cameraMode === 'fly') {
+            events.fire('touchJoystickUpdate', this.joystick.base, this.joystick.stick);
+        }
     }
 }
 

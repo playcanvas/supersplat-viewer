@@ -1,10 +1,11 @@
-import type { Camera, CameraFrame } from './camera';
-
 import {
     FlyController,
     Pose,
     Vec2
 } from 'playcanvas';
+
+import type { Camera, CameraFrame } from './camera';
+
 
 class FlyCamera implements Camera {
     controller: FlyController;

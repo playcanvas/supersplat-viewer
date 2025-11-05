@@ -1,6 +1,7 @@
-import type { AnimState } from '../animation/anim-state';
-import type { Camera, CameraFrame } from './camera';
 import { Pose } from 'playcanvas';
+
+import type { Camera, CameraFrame } from './camera';
+import type { AnimState } from '../animation/anim-state';
 
 class AnimCamera implements Camera {
     animState: AnimState;

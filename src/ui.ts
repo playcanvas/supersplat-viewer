@@ -249,7 +249,7 @@ const initUI = (global: Global) => {
         const handleScrub = (event: PointerEvent) => {
             const rect = dom.timelineContainer.getBoundingClientRect();
             const t = Math.max(0, Math.min(rect.width - 1, event.clientX - rect.left)) / rect.width;
-            events.fire('setAnimationTime', state.animationDuration * t);
+            events.fire('scrubAnim', state.animationDuration * t);
             showUI();
         };
 

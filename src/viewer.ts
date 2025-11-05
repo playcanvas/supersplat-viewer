@@ -5,10 +5,11 @@ import {
     Mat4,
     MiniStats,
     ShaderChunks,
-    type TextureHandler,
+    type TextureHandler
 } from 'playcanvas';
 
 import { CameraController } from './camera-controller';
+import { InputController } from './input-controller';
 import { nearlyEquals } from './core/math';
 import type { Global } from './types';
 
@@ -36,6 +37,9 @@ const pickDepthWgsl = /* wgsl */ `
 
 class Viewer {
     global: Global;
+
+    inputController: InputController;
+
     cameraController: CameraController;
 
     constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void>) {
@@ -108,6 +112,21 @@ class Viewer {
             }
         });
 
+        app.on('update', (deltaTime) => {
+            // in xr mode we leave the camera alone
+            if (app.xr.active) {
+                return;
+            }
+
+            if (this.inputController && this.cameraController) {
+                // update inputs
+                this.inputController.update(deltaTime, this.cameraController.activePose.distance);
+
+                // update cameras
+                this.cameraController.update(deltaTime, this.inputController.frame);
+            }
+        });
+
         // Construct ministats
         if (config.ministats) {
             // eslint-disable-next-line no-new
@@ -121,7 +140,7 @@ class Viewer {
             // calculate scene bounding box
             const bbox = gsplat.gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
 
-            // construct the camera controller
+            this.inputController = new InputController(global);
             this.cameraController = new CameraController(global, bbox);
 
             // kick off gsplat sorting immediately now that camera is in position

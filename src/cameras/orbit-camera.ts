@@ -1,9 +1,10 @@
-import type { Camera, CameraFrame } from './camera';
 import {
     OrbitController,
     Pose,
     Vec2
 } from 'playcanvas';
+
+import type { Camera, CameraFrame } from './camera';
 
 class OrbitCamera implements Camera {
     controller: OrbitController;
