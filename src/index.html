@@ -253,30 +253,6 @@
             <!-- Tooltip -->
             <div id="tooltip"></div>
         </div>
-        <script type="module">
-            import { main } from './index.js';
-
-            const { config, settings } = window.sse;
-            const { poster } = config;
-
-            // Show the poster image
-            if (poster) {
-                const element = document.getElementById('poster');
-                element.style.backgroundImage = `url(${poster.src})`;
-                element.style.display = 'block';
-                element.style.filter = 'blur(40px)';
-            }
-
-            document.addEventListener('DOMContentLoaded', async () => {
-                const [appElement, cameraElement, settingsJson] = await Promise.all([
-                    document.querySelector('pc-app').ready(),
-                    document.querySelector('pc-entity[name="camera"]').ready(),
-                    settings
-                ]);
-
-                const viewer = await main(appElement.app, cameraElement.entity, settingsJson, config);
-            });
-        </script>
 
         <!-- SVG Icons -->
         <svg>
@@ -327,5 +303,31 @@
                 <path d="M16 2.09961C16.4971 2.09961 16.9004 2.50294 16.9004 3V7.09961H21C21.4971 7.09961 21.9004 7.50294 21.9004 8C21.9004 8.49706 21.4971 8.90039 21 8.90039H16C15.5029 8.90039 15.0996 8.49706 15.0996 8V3C15.0996 2.50294 15.5029 2.09961 16 2.09961Z" />
             </symbol>
         </svg>
+
+        <!-- Application Script -->
+        <script type="module">
+            import { main } from './index.js';
+
+            const { config, settings } = window.sse;
+            const { poster } = config;
+
+            // Show the poster image
+            if (poster) {
+                const element = document.getElementById('poster');
+                element.style.backgroundImage = `url(${poster.src})`;
+                element.style.display = 'block';
+                element.style.filter = 'blur(40px)';
+            }
+
+            document.addEventListener('DOMContentLoaded', async () => {
+                const [appElement, cameraElement, settingsJson] = await Promise.all([
+                    document.querySelector('pc-app').ready(),
+                    document.querySelector('pc-entity[name="camera"]').ready(),
+                    settings
+                ]);
+
+                const viewer = await main(appElement.app, cameraElement.entity, settingsJson, config);
+            });
+        </script>
     </body>
 </html>

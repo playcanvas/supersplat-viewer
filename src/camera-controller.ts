@@ -241,8 +241,7 @@ class CameraController {
             orbitCamera.goto(pose.look(activePose.position, position), true);
         });
 
-        // initialize the camera entity to initial position and kick off the
-        // first scene sort (which usually happens during render)
+        // initialize the camera entity to initial position
         camera.setPosition(activePose.position);
         camera.setEulerAngles(activePose.angles);
     }
