@@ -95,6 +95,7 @@ class CameraManager {
         let fromMode: CameraMode = 'orbit';
 
         // transition time between cameras
+        const transitionSpeed = 2.0;
         let transitionTimer = 1;
 
         // application update
@@ -104,7 +105,7 @@ class CameraManager {
             const dt = state.cameraMode === 'anim' && state.animationPaused ? 0 : deltaTime;
 
             // update transition timer
-            transitionTimer = Math.min(1, transitionTimer + deltaTime * 2.0);
+            transitionTimer = Math.min(1, transitionTimer + deltaTime * transitionSpeed);
 
             const controller = getController(state.cameraMode);
 
@@ -135,11 +136,13 @@ class CameraManager {
                     controllers.orbit.goto(resetCamera);
                     break;
                 case 'playPause':
-                    if (state.cameraMode === 'anim') {
-                        state.animationPaused = !state.animationPaused;
-                    } else {
-                        state.cameraMode = 'anim';
-                        state.animationPaused = false;
+                    if (state.hasAnimation) {
+                        if (state.cameraMode === 'anim') {
+                            state.animationPaused = !state.animationPaused;
+                        } else {
+                            state.cameraMode = 'anim';
+                            state.animationPaused = false;
+                        }
                     }
                     break;
                 case 'cancel':
