@@ -27,7 +27,7 @@ class AnimController implements CameraController {
     }
 
     onExit(camera: Camera): void {
-         
+
     }
 }
 

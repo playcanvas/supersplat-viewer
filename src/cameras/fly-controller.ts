@@ -11,8 +11,6 @@ const p = new Pose();
 class FlyController implements CameraController {
     controller: FlyControllerPC;
 
-    controllerPose: Pose;
-
     constructor() {
         this.controller = new FlyControllerPC();
         this.controller.pitchRange = new Vec2(-90, 90);
@@ -36,7 +34,7 @@ class FlyController implements CameraController {
     }
 
     onExit(camera: Camera): void {
-         
+
     }
 
     goto(pose: Pose) {

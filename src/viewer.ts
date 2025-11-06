@@ -8,8 +8,8 @@ import {
     type TextureHandler
 } from 'playcanvas';
 
-import { Camera } from './cameras/camera';
 import { CameraManager } from './camera-manager';
+import { Camera } from './cameras/camera';
 import { nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
 import type { Global } from './types';

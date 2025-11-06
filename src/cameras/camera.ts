@@ -1,5 +1,6 @@
 import { math, Vec3, Quat } from 'playcanvas';
 import type { InputFrame } from 'playcanvas';
+
 import { vecToAngles } from '../core/math';
 
 type CameraFrame = InputFrame<{
@@ -13,8 +14,11 @@ const bvec = new Vec3();
 
 class Camera {
     position = new Vec3();
+
     angles = new Vec3();
+
     distance = 1;
+
     fov = 65;
 
     copy(source: Camera) {
@@ -47,19 +51,18 @@ class Camera {
 
     calcFocusPoint(result: Vec3) {
         rotation.setFromEulerAngles(this.angles)
-            .transformVector(Vec3.FORWARD, result)
-            .mulScalar(this.distance)
-            .add(this.position);
+        .transformVector(Vec3.FORWARD, result)
+        .mulScalar(this.distance)
+        .add(this.position);
     }
-};
+}
 
 interface CameraController {
     onEnter(camera: Camera): void;
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera): void;
     onExit(camera: Camera): void;
-};
+}
 
 export type { CameraFrame, CameraController };
 
 export { Camera };
-

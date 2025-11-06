@@ -11,8 +11,6 @@ const p = new Pose();
 class OrbitController implements CameraController {
     controller: OrbitControllerPC;
 
-    controllerPose: Pose;
-
     constructor() {
         this.controller = new OrbitControllerPC();
         this.controller.zoomRange = new Vec2(0.01, Infinity);
@@ -38,7 +36,7 @@ class OrbitController implements CameraController {
     }
 
     onExit(camera: Camera): void {
-         
+
     }
 
     goto(camera: Camera) {
