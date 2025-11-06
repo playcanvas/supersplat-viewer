@@ -14,33 +14,30 @@ import { AnimTrack } from '../settings';
  * @param duration - The duration of the animation in seconds.
  * @returns - The animation track object containing position and target keyframes.
  */
-const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 20): AnimTrack => {
+const createRotateTrack = (position: Vec3, target: Vec3, keys: number = 12, duration: number = 20): AnimTrack => {
     const times = new Array(keys).fill(0).map((_, i) => i / keys * duration);
-    const position: number[] = [];
-    const target: number[] = [];
-
-    const initialTarget = new Vec3();
-    initial.getFocus(initialTarget);
+    const positions: number[] = [];
+    const targets: number[] = [];
 
     const mat = new Mat4();
     const vec = new Vec3();
     const dif = new Vec3(
-        initial.position.x - initialTarget.x,
-        initial.position.y - initialTarget.y,
-        initial.position.z - initialTarget.z
+        position.x - target.x,
+        position.y - target.y,
+        position.z - target.z
     );
 
     for (let i = 0; i < keys; ++i) {
         mat.setFromEulerAngles(0, -i / keys * 360, 0);
         mat.transformPoint(dif, vec);
 
-        position.push(initialTarget.x + vec.x);
-        position.push(initialTarget.y + vec.y);
-        position.push(initialTarget.z + vec.z);
+        positions.push(target.x + vec.x);
+        positions.push(target.y + vec.y);
+        positions.push(target.z + vec.z);
 
-        target.push(initialTarget.x);
-        target.push(initialTarget.y);
-        target.push(initialTarget.z);
+        targets.push(target.x);
+        targets.push(target.y);
+        targets.push(target.z);
     }
 
     return {
@@ -54,8 +51,8 @@ const createRotateTrack = (initial: Pose, keys: number = 12, duration: number = 
         keyframes: {
             times,
             values: {
-                position,
-                target
+                position: positions,
+                target: targets
             }
         }
     };

@@ -1,3 +1,5 @@
+import type { Vec3 } from 'playcanvas';
+
 /**
  * Damping function to smooth out transitions.
  *
@@ -28,4 +30,12 @@ const nearlyEquals = (a: Float32Array<ArrayBufferLike>, b: Float32Array<ArrayBuf
     return !a.some((v, i) => Math.abs(v - b[i]) >= epsilon);
 };
 
-export { damp, easeOut, mod, nearlyEquals };
+const vecToAngles = (result: Vec3, vec: Vec3) => {
+    const radToDeg = 180 / Math.PI;
+    result.x = Math.asin(vec.y) * radToDeg;
+    result.y = Math.atan2(-vec.x, -vec.z) * radToDeg;
+    result.z = 0;
+    return result;
+};
+
+export { damp, easeOut, mod, nearlyEquals, vecToAngles };

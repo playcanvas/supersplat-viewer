@@ -8,7 +8,8 @@ import {
     type TextureHandler
 } from 'playcanvas';
 
-import { CameraController } from './camera-controller';
+import { Camera } from './cameras/camera';
+import { CameraManager } from './camera-manager';
 import { nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
 import type { Global } from './types';
@@ -40,7 +41,7 @@ class Viewer {
 
     inputController: InputController;
 
-    cameraController: CameraController;
+    cameraManager: CameraManager;
 
     constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void>) {
         this.global = global;
@@ -66,7 +67,6 @@ class Viewer {
 
         // apply camera animation settings
         camera.camera.clearColor = new Color(background.color);
-        camera.camera.fov = settings.camera.fov;
         camera.camera.aspectRatio = graphicsDevice.width / graphicsDevice.height;
 
         // handle horizontal fov on canvas resize
@@ -118,6 +118,12 @@ class Viewer {
             }
         });
 
+        const applyCamera = (camera: Camera) => {
+            global.camera.setPosition(camera.position);
+            global.camera.setEulerAngles(camera.angles);
+            global.camera.camera.fov = camera.fov;
+        };
+
         // handle application update
         app.on('update', (deltaTime) => {
             // in xr mode we leave the camera alone
@@ -125,12 +131,15 @@ class Viewer {
                 return;
             }
 
-            if (this.inputController && this.cameraController) {
+            if (this.inputController && this.cameraManager) {
                 // update inputs
-                this.inputController.update(deltaTime, this.cameraController.activePose.distance);
+                this.inputController.update(deltaTime, this.cameraManager.camera.distance);
 
                 // update cameras
-                this.cameraController.update(deltaTime, this.inputController.frame);
+                this.cameraManager.update(deltaTime, this.inputController.frame);
+
+                // apply to the camera entity
+                applyCamera(this.cameraManager.camera);
             }
         });
 
@@ -143,7 +152,8 @@ class Viewer {
 
             this.inputController = new InputController(global);
 
-            this.cameraController = new CameraController(global, bbox);
+            this.cameraManager = new CameraManager(global, bbox);
+            applyCamera(this.cameraManager.camera);
 
             // kick off gsplat sorting immediately now that camera is in position
             gsplat.gsplat?.instance?.sort(camera);
