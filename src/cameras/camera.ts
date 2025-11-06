@@ -21,6 +21,12 @@ class Camera {
 
     fov = 65;
 
+    constructor(other?: Camera) {
+        if (other) {
+            this.copy(other);
+        }
+    }
+
     copy(source: Camera) {
         this.position.copy(source.position);
         this.angles.copy(source.angles);

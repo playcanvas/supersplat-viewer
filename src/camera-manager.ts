@@ -69,7 +69,8 @@ class CameraManager {
         // calculate the user camera start position (the pose we'll use if there is no animation)
         const useReset = settings.camera.position || settings.camera.target || bbox.halfExtents.length() > 100;
         const userStart = useReset ? resetCamera : frameCamera;
-        const animTrack = getAnimTrack(userStart, !bbox.containsPoint(userStart.position));
+        const isObjectExperience = !bbox.containsPoint(userStart.position);
+        const animTrack = getAnimTrack(userStart, isObjectExperience);
 
         const controllers = {
             orbit: new OrbitController(),
@@ -85,14 +86,16 @@ class CameraManager {
         state.hasAnimation = !!controllers.anim;
         state.animationDuration = controllers.anim ? controllers.anim.animState.cursor.duration : 0;
 
-        // start in animation mode if one exists
-        if (controllers.anim) {
-            state.cameraMode = 'anim';
-        }
+        // initialize camera mode and initial camera position
+        state.cameraMode = state.hasAnimation ? 'anim' : (isObjectExperience ? 'orbit' : 'fly');
+        this.camera.copy(userStart);
 
-        const target = new Camera();                // the active controller updates this
-        const from = new Camera();                  // stores the previous camera state during transition
-        let fromMode: CameraMode = 'orbit';
+        const target = new Camera(this.camera);             // the active controller updates this
+        const from = new Camera(this.camera);               // stores the previous camera state during transition
+        let fromMode: CameraMode = isObjectExperience ? 'orbit' : 'fly';
+
+        // enter the initial controller
+        getController(state.cameraMode).onEnter(this.camera);
 
         // transition time between cameras
         const transitionSpeed = 2.0;
