@@ -49,7 +49,7 @@ type Annotation = {
     title: string,
     text: string,
     extras: any,
-    camera: number
+    camera: Camera;
 };
 
 type PostEffectSettings = {

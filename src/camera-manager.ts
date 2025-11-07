@@ -10,6 +10,7 @@ import { FlyController } from './cameras/fly-controller';
 import { OrbitController } from './cameras/orbit-controller';
 import { easeOut } from './core/math';
 import { CameraMode, Global } from './types';
+import { Annotation } from './settings';
 
 const tmpCamera = new Camera();
 const tmpv = new Vec3();
@@ -188,6 +189,20 @@ class CameraManager {
             // construct camera
             tmpCamera.copy(this.camera);
             tmpCamera.look(this.camera.position, position);
+
+            controllers.orbit.goto(tmpCamera);
+        });
+
+        events.on('annotation.activate', (annotation: Annotation) => {
+            // switch to orbit camera on pick
+            state.cameraMode = 'orbit';
+
+            // construct camera
+            tmpCamera.look(
+                new Vec3(annotation.camera.initialPose.position),
+                new Vec3(annotation.camera.initialPose.target)
+            );
+            tmpCamera.fov = annotation.camera.initialPose.fov;
 
             controllers.orbit.goto(tmpCamera);
         });

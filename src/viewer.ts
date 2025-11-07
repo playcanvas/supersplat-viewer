@@ -8,6 +8,7 @@ import {
     type TextureHandler
 } from 'playcanvas';
 
+import { Annotations } from './annotations';
 import { CameraManager } from './camera-manager';
 import { Camera } from './cameras/camera';
 import { nearlyEquals } from './core/math';
@@ -42,6 +43,8 @@ class Viewer {
     inputController: InputController;
 
     cameraManager: CameraManager;
+
+    annotations: Annotations;
 
     constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void>) {
         this.global = global;
@@ -149,6 +152,8 @@ class Viewer {
 
             // calculate scene bounding box
             const bbox = gsplat.gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
+
+            this.annotations = new Annotations(global);
 
             this.inputController = new InputController(global);
 
