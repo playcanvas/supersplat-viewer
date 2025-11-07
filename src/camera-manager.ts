@@ -9,7 +9,6 @@ import { Camera, type CameraFrame, type CameraController } from './cameras/camer
 import { FlyController } from './cameras/fly-controller';
 import { OrbitController } from './cameras/orbit-controller';
 import { easeOut } from './core/math';
-import { AnimTrack } from './settings';
 import { CameraMode, Global } from './types';
 
 const tmpCamera = new Camera();
@@ -50,7 +49,7 @@ class CameraManager {
         );
 
         const getAnimTrack = (initial: Camera, isObjectExperience: boolean) => {
-            const { animTracks, cameras } = settings;
+            const { animTracks } = settings;
 
             // extract the camera animation track from settings
             if (animTracks?.length > 0 && settings.cameraStartMode === 'animTrack') {
