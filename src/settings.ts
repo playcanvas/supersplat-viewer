@@ -48,17 +48,17 @@ const migrateV2 = (v1: V1): V2 => {
         tonemapping: 'none',
         highPrecisionRendering: false,
         background: {
-            color: v1.background.color as [number, number, number, number] || [0, 0, 0, 1],
+            color: v1.background.color as [number, number, number] || [0, 0, 0],
         },
         postEffectSettings: {},
         animTracks: v1.animTracks.map((animTrackV1: AnimTrackV1) => {
             return migrateAnimTrackV2(animTrackV1, v1.camera.fov || 60);
         }),
         cameras: [{
-            fov: v1.camera.fov || 60,
             initialPose: {
                 position: v1.camera.position as [number, number, number] || [0, 0, 5],
-                target: v1.camera.target as [number, number, number] || [0, 0, 0]
+                target: v1.camera.target as [number, number, number] || [0, 0, 0],
+                fov: v1.camera.fov || 65
             }
         }],
         annotations: [],

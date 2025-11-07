@@ -34,11 +34,11 @@ type OrbitConstraints = {
 
 type CameraPose = {
     position: [number, number, number],
-    target: [number, number, number]
+    target: [number, number, number],
+    fov: number
 };
 
 type Camera = {
-    fov: number,
     initialPose: CameraPose,
     positionConstraints?: PositionConstraints,
     orbitConstraints?: OrbitConstraints
@@ -79,7 +79,7 @@ type ExperienceSettings = {
     tonemapping: 'none' | 'linear' | 'filmic' | 'hejl' | 'aces' | 'aces2' | 'neutral',
     highPrecisionRendering: boolean,
     background: {
-        color: [number, number, number, number],
+        color: [number, number, number],
         skyboxUrl?: string
     },
     postEffectSettings: PostEffectSettings,
