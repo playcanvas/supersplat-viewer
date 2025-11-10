@@ -197,12 +197,14 @@ class CameraManager {
             // switch to orbit camera on pick
             state.cameraMode = 'orbit';
 
+            const { initialPose } = annotation.camera;
+
             // construct camera
+            tmpCamera.fov = initialPose.fov;
             tmpCamera.look(
-                new Vec3(annotation.camera.initialPose.position),
-                new Vec3(annotation.camera.initialPose.target)
+                new Vec3(initialPose.position),
+                new Vec3(initialPose.target)
             );
-            tmpCamera.fov = annotation.camera.initialPose.fov;
 
             controllers.orbit.goto(tmpCamera);
         });

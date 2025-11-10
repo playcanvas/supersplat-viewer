@@ -53,23 +53,31 @@ type Annotation = {
 };
 
 type PostEffectSettings = {
-    bloom?: {
+    sharpness: {
+        enabled: boolean,
+        amount: number,
+    },
+    bloom: {
+        enabled: boolean,
         intensity: number,
         blurLevel: number,
     },
-    grading?: {
+    grading: {
+        enabled: boolean,
         brightness: number,
         contrast: number,
         saturation: number,
         tint: [number, number, number],
     },
-    vignette?: {
+    vignette: {
+        enabled: boolean,
         intensity: number,
         inner: number,
         outer: number,
         curvature: number,
     },
-    fringing?: {
+    fringing: {
+        enabled: boolean,
         intensity: number
     }
 };

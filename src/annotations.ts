@@ -7,16 +7,28 @@ import { Annotation } from './annotation';
 class Annotations {
     annotations: AnnotationSettings[];
 
+    dom: HTMLElement;
+
     constructor(global: Global) {
         this.annotations = global.settings.annotations;
 
+        // create dom parent
+        this.dom = document.createElement('div');
+        this.dom.id = 'annotations';
+        document.body.appendChild(this.dom);
+        Annotation.parentDom = this.dom;
+
         // create annotation entities
         const parent = global.app.root;
-        for (const ann of this.annotations) {
+
+        for (let i = 0; i < this.annotations.length; i++) {
+            const ann = this.annotations[i];
+
             const entity = new Entity();
             entity.addComponent('script');
             entity.script.create(Annotation);
             const script = entity.script as any;
+            script.annotation.label = (i + 1).toString();
             script.annotation.title = ann.title;
             script.annotation.text = ann.text;
 
