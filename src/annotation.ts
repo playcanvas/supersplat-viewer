@@ -4,7 +4,6 @@ import {
     FILTER_LINEAR,
     PIXELFORMAT_RGBA8,
     BlendState,
-    type CameraComponent,
     Color,
     Entity,
     Layer,
@@ -35,6 +34,10 @@ export class Annotation extends Script {
 
     static hotspotSize = 25;
 
+    static hotspotColor = new Color(0.8, 0.8, 0.8);
+
+    static hoverColor = new Color(1.0, 0.4, 0.0);
+
     static parentDom: HTMLElement | null = null;
 
     static styleSheet: HTMLStyleElement | null = null;
@@ -52,6 +55,8 @@ export class Annotation extends Script {
     static mesh: Mesh | null = null;
 
     static activeAnnotation: Annotation | null = null;
+
+    static hoverAnnotation: Annotation | null = null;
 
     /**
      * @attribute
@@ -147,8 +152,15 @@ export class Annotation extends Script {
         Annotation.styleSheet = style;
     }
 
-    static initializeStatic(app: AppBase) {
-        if (Annotation.styleSheet) return;
+    /**
+     * Initialize static resources.
+     * @param {AppBase} app - The application instance
+     * @private
+     */
+    static _initializeStatic(app: AppBase) {
+        if (Annotation.styleSheet) {
+            return;
+        }
 
         Annotation._injectStyles(Annotation.hotspotSize);
 
@@ -159,19 +171,19 @@ export class Annotation extends Script {
         const { layers } = app.scene;
         const worldLayer = layers.getLayerByName('World');
 
-        const createLayer = (name: string, semitrans: boolean, offset: number) => {
+        const createLayer = (name: string, semitrans: boolean) => {
             const layer = new Layer({ name: name });
             const idx = semitrans ? layers.getTransparentIndex(worldLayer) : layers.getOpaqueIndex(worldLayer);
-            layers.insert(layer, idx + offset);
+            layers.insert(layer, idx + 1);
             return layer;
         };
 
         Annotation.layers = [
-            createLayer('HotspotBase', false, 1),
-            createLayer('HotspotOverlay', true, 1)
+            createLayer('HotspotBase', false),
+            createLayer('HotspotOverlay', true)
         ];
 
-        if (!Annotation.camera) {
+        if (Annotation.camera === null) {
             Annotation.camera = app.root.findComponent('camera').entity;
         }
 
@@ -185,17 +197,16 @@ export class Annotation extends Script {
             lengthSegments: 1
         }));
 
-        // initialize tooltip dom
+        // Initialize tooltip dom
         Annotation.tooltipDom = document.createElement('div');
         Annotation.tooltipDom.className = 'pc-annotation';
 
-        // Add title
         Annotation.titleDom = document.createElement('div');
         Annotation.titleDom.className = 'pc-annotation-title';
         Annotation.tooltipDom.appendChild(Annotation.titleDom);
 
-        // Add text
         Annotation.textDom = document.createElement('div');
+        Annotation.textDom.className = 'pc-annotation-text';
         Annotation.tooltipDom.appendChild(Annotation.textDom);
 
         Annotation.parentDom.appendChild(Annotation.tooltipDom);
@@ -210,8 +221,9 @@ export class Annotation extends Script {
      * @param {string} [strokeColor] - The border color
      * @param {number} [borderWidth] - The border width in pixels
      * @returns {Texture} The hotspot texture
+     * @private
      */
-    static createHotspotTexture(app: AppBase, label: string, size = 64, borderWidth = 6) {
+    static _createHotspotTexture(app: AppBase, label: string, size = 64, borderWidth = 6) {
         // Create canvas for hotspot texture
         const canvas = document.createElement('canvas');
         canvas.width = size;
@@ -253,7 +265,8 @@ export class Annotation extends Script {
         const imageData = ctx.getImageData(0, 0, size, size);
         const data = imageData.data;
 
-        // set the color channel of semitransparent pixels to white
+        // set the color channel of semitransparent pixels to white so the blending at
+        // the edges is correct
         for (let i = 0; i < data.length; i += 4) {
             const a = data[i + 3];
             if (a < 255) {
@@ -318,12 +331,12 @@ export class Annotation extends Script {
 
     initialize() {
         // Ensure static resources are initialized
-        Annotation.initializeStatic(this.app);
+        Annotation._initializeStatic(this.app);
 
-        // Create textures
-        this.texture = Annotation.createHotspotTexture(this.app, this.label);
+        // Create texture
+        this.texture = Annotation._createHotspotTexture(this.app, this.label);
 
-        // Create materials using helper
+        // Create material the base and overlay material
         this.materials = [
             Annotation._createHotspotMaterial(this.texture, {
                 opacity: 1,
@@ -362,6 +375,24 @@ export class Annotation extends Script {
             this.showTooltip();
         });
 
+        const leave = () => {
+            if (Annotation.hoverAnnotation === this) {
+                Annotation.hoverAnnotation = null;
+                this.setHover(false);
+            }
+        };
+
+        const enter = () => {
+            if (Annotation.hoverAnnotation !== null) {
+                Annotation.hoverAnnotation.setHover(false);
+            }
+            Annotation.hoverAnnotation = this;
+            this.setHover(true);
+        };
+
+        this.hotspotDom.addEventListener('pointerenter', enter);
+        this.hotspotDom.addEventListener('pointerleave', leave);
+
         document.addEventListener('click', () => {
             this.hideTooltip();
         });
@@ -399,8 +430,19 @@ export class Annotation extends Script {
     }
 
     /**
+     * Set the hover state of the annotation.
      * @private
-     * @param {HTMLDivElement} tooltip - The tooltip element
+     */
+    setHover(hover: boolean) {
+        this.materials.forEach((material) => {
+            material.emissive.copy(hover ? Annotation.hoverColor : Annotation.hotspotColor);
+            material.update();
+        });
+        this.fire('hover', hover);
+    }
+
+    /**
+     * @private
      */
     showTooltip() {
         Annotation.activeAnnotation = this;
@@ -413,7 +455,6 @@ export class Annotation extends Script {
 
     /**
      * @private
-     * @param {HTMLDivElement} tooltip - The tooltip element
      */
     hideTooltip() {
         Annotation.activeAnnotation = null;

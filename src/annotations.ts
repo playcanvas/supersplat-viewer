@@ -40,6 +40,11 @@ class Annotations {
             script.annotation.on('show', () => {
                 global.events.fire('annotation.activate', ann);
             });
+
+            // re-render if hover state changes
+            script.annotation.on('hover', (hover: boolean) => {
+                global.app.renderNextFrame = true;
+            });
         }
     }
 };
