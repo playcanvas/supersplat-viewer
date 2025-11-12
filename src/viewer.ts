@@ -19,7 +19,8 @@ import {
     TONEMAP_ACES2,
     TONEMAP_NEUTRAL,
     PIXELFORMAT_RGBA8,
-    PIXELFORMAT_SRGBA8
+    PIXELFORMAT_SRGBA8,
+    Vec3
 } from 'playcanvas';
 
 import { Annotations } from './annotations';
@@ -120,6 +121,8 @@ const anyPostEffectEnabled = (settings: PostEffectSettings): boolean => {
         (settings.fringing.enabled && settings.fringing.intensity > 0);
 };
 
+const vec = new Vec3();
+
 class Viewer {
     global: Global;
 
@@ -186,6 +189,7 @@ class Viewer {
 
         const prevProj = new Mat4();
         const prevWorld = new Mat4();
+        const sceneBound = new BoundingBox();
 
         // track the camera state and trigger a render when it changes
         app.on('framerender', () => {
@@ -212,9 +216,25 @@ class Viewer {
         });
 
         const applyCamera = (camera: Camera) => {
-            global.camera.setPosition(camera.position);
-            global.camera.setEulerAngles(camera.angles);
-            global.camera.camera.fov = camera.fov;
+            const cameraEntity = global.camera;
+
+            cameraEntity.setPosition(camera.position);
+            cameraEntity.setEulerAngles(camera.angles);
+            cameraEntity.camera.fov = camera.fov;
+
+            // fit clipping planes to bounding box
+            const boundRadius = sceneBound.halfExtents.length();
+
+            vec.sub2(sceneBound.center, camera.position);
+            const dist = vec.dot(cameraEntity.forward);
+
+            const far = Math.max(dist + boundRadius, 1e-2);
+            const near = Math.max(dist - boundRadius, far / (1024 * 16));
+
+            cameraEntity.camera.farClip = far;
+            cameraEntity.camera.nearClip = near;
+
+            console.log(`near=${near} far=${far}`);
         };
 
         // handle application update
@@ -240,8 +260,11 @@ class Viewer {
         Promise.all([gsplatLoad, skyboxLoad]).then((results) => {
             const gsplat = results[0] as Entity;
 
-            // calculate scene bounding box
-            const bbox = gsplat.gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
+            // get scene bounding box
+            const gsplatBbox = gsplat.gsplat?.instance?.meshInstance?.aabb;
+            if (gsplatBbox) {
+                sceneBound.copy(gsplatBbox);
+            }
 
             // 
             camera.camera.nearClip = 1;
@@ -251,7 +274,7 @@ class Viewer {
 
             this.inputController = new InputController(global);
 
-            this.cameraManager = new CameraManager(global, bbox);
+            this.cameraManager = new CameraManager(global, sceneBound);
             applyCamera(this.cameraManager.camera);
 
             // kick off gsplat sorting immediately now that camera is in position

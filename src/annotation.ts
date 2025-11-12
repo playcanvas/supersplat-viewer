@@ -14,12 +14,24 @@ import {
     StandardMaterial,
     Texture,
     type Quat,
-    type Vec3,
+    Vec3,
     BLENDEQUATION_ADD,
     BLENDMODE_ONE,
     BLENDMODE_ONE_MINUS_SRC_ALPHA,
     BLENDMODE_SRC_ALPHA
 } from 'playcanvas';
+
+// clamp the vertices of the hotspot so it is never clipped by the near or far plane
+const depthClamp = `
+    float f = gl_Position.z / gl_Position.w;
+    if (f > 1.0) {
+        gl_Position.z = gl_Position.w;
+    } else if (f < -1.0) {
+        gl_Position.z = -gl_Position.w;
+    }
+`;
+
+const vec = new Vec3();
 
 /**
  * A script for creating interactive 3D annotations in a scene. Each annotation consists of:
@@ -327,6 +339,10 @@ export class Annotation extends Script {
         material.cull = CULLFACE_NONE;
         material.useLighting = false;
 
+        material.shaderChunks.glsl.add({
+            'litUserMainEndVS': depthClamp
+        });
+
         material.update();
         return material;
     }
@@ -353,15 +369,19 @@ export class Annotation extends Script {
         ];
 
         const base = new Entity('base');
+        const baseMi = new MeshInstance(Annotation.mesh, this.materials[0]);
+        baseMi.cull = false;
         base.addComponent('render', {
             layers: [Annotation.layers[0].id],
-            meshInstances: [new MeshInstance(Annotation.mesh, this.materials[0])]
+            meshInstances: [baseMi]
         });
 
         const overlay = new Entity('overlay');
+        const overlayMi = new MeshInstance(Annotation.mesh, this.materials[1]);
+        overlayMi.cull = false;
         overlay.addComponent('render', {
             layers: [Annotation.layers[1].id],
-            meshInstances: [new MeshInstance(Annotation.mesh, this.materials[1])]
+            meshInstances: [overlayMi]
         });
 
         this.entity.addChild(base);
@@ -421,7 +441,9 @@ export class Annotation extends Script {
             const position = this.entity.getPosition();
             const screenPos = Annotation.camera.camera.worldToScreen(position);
 
-            if (screenPos.z <= 0) {
+            const { viewMatrix } = Annotation.camera.camera;
+            viewMatrix.transformPoint(position, vec);
+            if (vec.z >= 0) {
                 this._hideElements();
                 return;
             }
