@@ -58,6 +58,8 @@ export class Annotation extends Script {
 
     static hoverAnnotation: Annotation | null = null;
 
+    static opacity = 1.0;
+
     /**
      * @attribute
      */
@@ -426,6 +428,13 @@ export class Annotation extends Script {
 
             this._updatePositions(screenPos);
             this._updateRotationAndScale();
+
+            // update material opacity and also directly on the uniform so we
+            // can avoid a full material update
+            this.materials[0].opacity = Annotation.opacity;
+            this.materials[1].opacity = 0.25 * Annotation.opacity;
+            this.materials[0].setParameter('material_opacity', Annotation.opacity);
+            this.materials[1].setParameter('material_opacity', 0.25 * Annotation.opacity);
         });
     }
 
