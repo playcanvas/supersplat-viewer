@@ -3,6 +3,8 @@ import {
     CameraFrame,
     Color,
     type Entity,
+    GAMMA_SRGB,
+    RenderTarget,
     Mat4,
     MiniStats,
     ShaderChunks,
@@ -15,7 +17,9 @@ import {
     TONEMAP_HEJL,
     TONEMAP_ACES,
     TONEMAP_ACES2,
-    TONEMAP_NEUTRAL
+    TONEMAP_NEUTRAL,
+    PIXELFORMAT_RGBA8,
+    PIXELFORMAT_SRGBA8
 } from 'playcanvas';
 
 import { Annotations } from './annotations';
@@ -34,6 +38,12 @@ vec4 packFloat(float depth) {
 }
 vec4 getPickOutput() {
     return packFloat(gl_FragCoord.z);
+}
+`;
+
+const gammaChunk = `
+vec3 prepareOutputFromGamma(vec3 gammaColor) {
+    return gammaColor;
 }
 `;
 
@@ -58,6 +68,58 @@ const tonemapTable: Record<string, number> = {
     neutral: TONEMAP_NEUTRAL
 };
 
+const applyPostEffectSettings = (cameraFrame: CameraFrame, settings: PostEffectSettings) => {
+    if (settings.sharpness.enabled) {
+        cameraFrame.rendering.sharpness = settings.sharpness.amount;
+    } else {
+        cameraFrame.rendering.sharpness = 0;
+    }
+
+    const { bloom } = cameraFrame;
+    if (settings.bloom.enabled) {
+        bloom.intensity = settings.bloom.intensity;
+        bloom.blurLevel = settings.bloom.blurLevel;
+    } else {
+        bloom.intensity = 0;
+    }
+
+    const { grading } = cameraFrame;
+    if (settings.grading.enabled) {
+        grading.enabled = true;
+        grading.brightness = settings.grading.brightness;
+        grading.contrast = settings.grading.contrast;
+        grading.saturation = settings.grading.saturation;
+        grading.tint = new Color().fromArray(settings.grading.tint);
+    } else {
+        grading.enabled = false;
+    }
+
+    const { vignette } = cameraFrame;
+    if (settings.vignette.enabled) {
+        vignette.intensity = settings.vignette.intensity;
+        vignette.inner = settings.vignette.inner;
+        vignette.outer = settings.vignette.outer;
+        vignette.curvature = settings.vignette.curvature;
+    } else {
+        vignette.intensity = 0;
+    }
+
+    const { fringing } = cameraFrame;
+    if (settings.fringing.enabled) {
+        fringing.intensity = settings.fringing.intensity;
+    } else {
+        fringing.intensity = 0;
+    }
+};
+
+const anyPostEffectEnabled = (settings: PostEffectSettings): boolean => {
+    return (settings.sharpness.enabled && settings.sharpness.amount > 0) ||
+        (settings.bloom.enabled && settings.bloom.intensity > 0) ||
+        (settings.grading.enabled) ||
+        (settings.vignette.enabled && settings.vignette.intensity > 0) ||
+        (settings.fringing.enabled && settings.fringing.intensity > 0);
+};
+
 class Viewer {
     global: Global;
 
@@ -73,7 +135,6 @@ class Viewer {
         this.global = global;
 
         const { app, settings, config, events, state, camera } = global;
-        const { background } = settings;
         const { graphicsDevice } = app;
 
         // enable anonymous CORS for image loading in safari
@@ -92,14 +153,14 @@ class Viewer {
         app.autoRender = false;
 
         // apply camera animation settings
-        camera.camera.clearColor = new Color(background.color);
         camera.camera.aspectRatio = graphicsDevice.width / graphicsDevice.height;
-
-        // create camera frame
-        this.cameraFrame = new CameraFrame(app, camera.camera);
 
         // configure the camera
         this.configureCamera(settings);
+
+        // reconfigure camera when entering/exiting XR
+        app.xr.on('start', () => this.configureCamera(settings));
+        app.xr.on('end', () => this.configureCamera(settings));
 
         // handle horizontal fov on canvas resize
         const updateHorizontalFov = () => {
@@ -126,7 +187,7 @@ class Viewer {
         const prevProj = new Mat4();
         const prevWorld = new Mat4();
 
-        // track camera movement and trigger render only when it changes
+        // track the camera state and trigger a render when it changes
         app.on('framerender', () => {
             const world = camera.getWorldTransform();
             const proj = camera.camera.projectionMatrix;
@@ -182,6 +243,10 @@ class Viewer {
             // calculate scene bounding box
             const bbox = gsplat.gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
 
+            // 
+            camera.camera.nearClip = 1;
+            camera.camera.farClip = 1000;
+
             this.annotations = new Annotations(global);
 
             this.inputController = new InputController(global);
@@ -213,58 +278,51 @@ class Viewer {
         });
     }
 
-    // configure camera frame
+    // configure camera based on application mode and post process settings
     configureCamera(settings: ExperienceSettings) {
-        const { cameraFrame } = this;
+        const { global } = this;
+        const { app, camera } = global;
         const { postEffectSettings } = settings;
+        const { background } = settings;
 
-        cameraFrame.enabled = true;
-        cameraFrame.rendering.toneMapping = tonemapTable[settings.tonemapping];
-        cameraFrame.rendering.renderFormats = settings.highPrecisionRendering ? [PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F] : [];
+        const enableCameraFrame = !app.xr.active && (anyPostEffectEnabled(postEffectSettings) || settings.highPrecisionRendering);
 
-        if (postEffectSettings.sharpness.enabled) {
-            cameraFrame.rendering.sharpness = postEffectSettings.sharpness.amount;
+        if (enableCameraFrame) {
+            // create instance
+            if (!this.cameraFrame) {
+                this.cameraFrame = new CameraFrame(app, camera.camera);
+            }
+
+            const { cameraFrame } = this;
+            cameraFrame.enabled = true;
+            cameraFrame.rendering.toneMapping = tonemapTable[settings.tonemapping];
+            cameraFrame.rendering.renderFormats = settings.highPrecisionRendering ? [PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F] : [];
+            applyPostEffectSettings(cameraFrame, postEffectSettings);
+            cameraFrame.update();
+
+            // force gsplat shader to write gamma-space colors
+            // ShaderChunks.get(app.graphicsDevice, 'glsl').set('gsplatOutputVS', gammaChunk);
+
+            // override 
+            RenderTarget.prototype.isColorBufferSrgb = function () {
+                return false;
+            };
+
+            camera.camera.clearColor = new Color(background.color).linear();
         } else {
-            cameraFrame.rendering.sharpness = 0;
-        }
+            // no post effects needed, destroy camera frame if it exists
+            if (this.cameraFrame) {
+                this.cameraFrame.destroy();
+                this.cameraFrame = null;
+            }
 
-        const { bloom } = cameraFrame;
-        if (postEffectSettings.bloom.enabled) {
-            bloom.intensity = postEffectSettings.bloom.intensity;
-            bloom.blurLevel = postEffectSettings.bloom.blurLevel;
-        } else {
-            bloom.intensity = 0;
-        }
+            camera.camera.toneMapping = tonemapTable[settings.tonemapping];
+            camera.camera.clearColor = new Color(background.color);
 
-        const { grading } = cameraFrame;
-        if (postEffectSettings.grading.enabled) {
-            grading.enabled = true;
-            grading.brightness = postEffectSettings.grading.brightness;
-            grading.contrast = postEffectSettings.grading.contrast;
-            grading.saturation = postEffectSettings.grading.saturation;
-            grading.tint = new Color().fromArray(postEffectSettings.grading.tint);
-        } else {
-            grading.enabled = false;
-        }
+            if (settings.highPrecisionRendering) {
 
-        const { vignette } = cameraFrame;
-        if (postEffectSettings.vignette.enabled) {
-            vignette.intensity = postEffectSettings.vignette.intensity;
-            vignette.inner = postEffectSettings.vignette.inner;
-            vignette.outer = postEffectSettings.vignette.outer;
-            vignette.curvature = postEffectSettings.vignette.curvature;
-        } else {
-            vignette.intensity = 0;
+            }
         }
-
-        const { fringing } = cameraFrame;
-        if (postEffectSettings.fringing.enabled) {
-            fringing.intensity = postEffectSettings.fringing.intensity;
-        } else {
-            fringing.intensity = 0;
-        }
-
-        cameraFrame.update();
     }
 }
 
