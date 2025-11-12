@@ -323,14 +323,14 @@ class Viewer {
             cameraFrame.update();
 
             // force gsplat shader to write gamma-space colors
-            // ShaderChunks.get(app.graphicsDevice, 'glsl').set('gsplatOutputVS', gammaChunk);
+            ShaderChunks.get(app.graphicsDevice, 'glsl').set('gsplatOutputVS', gammaChunk);
 
-            // override 
+            // ensure the final blit doesn't perform linear->gamma conversion
             RenderTarget.prototype.isColorBufferSrgb = function () {
-                return false;
+                return true;
             };
 
-            camera.camera.clearColor = new Color(background.color).linear();
+            camera.camera.clearColor = new Color(background.color);
         } else {
             // no post effects needed, destroy camera frame if it exists
             if (this.cameraFrame) {
