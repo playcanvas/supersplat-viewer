@@ -225,6 +225,7 @@ class Viewer {
             // fit clipping planes to bounding box
             const boundRadius = sceneBound.halfExtents.length();
 
+            // calculate the forward distance between the camera to the bound center
             vec.sub2(sceneBound.center, camera.position);
             const dist = vec.dot(cameraEntity.forward);
 
@@ -233,8 +234,6 @@ class Viewer {
 
             cameraEntity.camera.farClip = far;
             cameraEntity.camera.nearClip = near;
-
-            console.log(`near=${near} far=${far}`);
         };
 
         // handle application update

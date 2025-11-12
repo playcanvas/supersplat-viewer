@@ -43,11 +43,7 @@ class CameraManager {
 
         const camera0 = settings.cameras[0].initial;
         const frameCamera = createFrameCamera(bbox, camera0.fov);
-        const resetCamera = createCamera(
-            new Vec3(camera0.position ?? [2, 1, 2]),
-            new Vec3(camera0.target ?? [0, 0, 0]),
-            camera0.fov
-        );
+        const resetCamera = createCamera(new Vec3(camera0.position), new Vec3(camera0.target), camera0.fov);
 
         const getAnimTrack = (initial: Camera, isObjectExperience: boolean) => {
             const { animTracks } = settings;
@@ -66,7 +62,7 @@ class CameraManager {
 
         // object experience starts outside the bounding box
         const isObjectExperience = !bbox.containsPoint(resetCamera.position);
-        const animTrack = getAnimTrack(resetCamera, isObjectExperience);
+        const animTrack = getAnimTrack(settings.hasStartPose ? resetCamera : frameCamera, isObjectExperience);
 
         const controllers = {
             orbit: new OrbitController(),
