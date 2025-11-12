@@ -162,19 +162,13 @@ class Viewer {
             vec.sub2(sceneBound.center, camera.position);
             const dist = vec.dot(cameraEntity.forward);
 
-            let near, far;
-            if (dist > 0) {
-                far = dist + boundRadius;
-                // if camera is placed inside the sphere bound calculate near based far
-                near = Math.max(1e-6, dist < boundRadius ? far / (1024 * 16) : dist - boundRadius);
-            } else {
-                // if the scene is behind the camera
-                far = boundRadius * 2;
-                near = far / (1024 * 16);
-            }
+            const far = Math.max(dist + boundRadius, 1e-2);
+            const near = Math.max(dist - boundRadius, far / (1024 * 16));
 
             cameraEntity.camera.farClip = far;
             cameraEntity.camera.nearClip = near;
+
+            console.log(`near=${near} far=${far}`);
         };
 
         // handle application update
