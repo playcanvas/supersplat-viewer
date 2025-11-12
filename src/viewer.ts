@@ -15,7 +15,8 @@ import {
     TONEMAP_HEJL,
     TONEMAP_ACES,
     TONEMAP_ACES2,
-    TONEMAP_NEUTRAL
+    TONEMAP_NEUTRAL,
+    Vec3
 } from 'playcanvas';
 
 import { Annotations } from './annotations';
@@ -57,6 +58,8 @@ const tonemapTable: Record<string, number> = {
     aces2: TONEMAP_ACES2,
     neutral: TONEMAP_NEUTRAL
 };
+
+const vec = new Vec3();
 
 class Viewer {
     global: Global;
@@ -120,6 +123,7 @@ class Viewer {
 
         const prevProj = new Mat4();
         const prevWorld = new Mat4();
+        const sceneBound = new BoundingBox();
 
         // track camera movement and trigger render only when it changes
         app.on('framerender', () => {
@@ -146,9 +150,31 @@ class Viewer {
         });
 
         const applyCamera = (camera: Camera) => {
-            global.camera.setPosition(camera.position);
-            global.camera.setEulerAngles(camera.angles);
-            global.camera.camera.fov = camera.fov;
+            const cameraEntity = global.camera;
+
+            cameraEntity.setPosition(camera.position);
+            cameraEntity.setEulerAngles(camera.angles);
+            cameraEntity.camera.fov = camera.fov;
+
+            // fit clipping planes to bounding box
+            const boundRadius = sceneBound.halfExtents.length();
+
+            vec.sub2(sceneBound.center, camera.position);
+            const dist = vec.dot(cameraEntity.forward);
+
+            let near, far;
+            if (dist > 0) {
+                far = dist + boundRadius;
+                // if camera is placed inside the sphere bound calculate near based far
+                near = Math.max(1e-6, dist < boundRadius ? far / (1024 * 16) : dist - boundRadius);
+            } else {
+                // if the scene is behind the camera
+                far = boundRadius * 2;
+                near = far / (1024 * 16);
+            }
+
+            cameraEntity.camera.farClip = far;
+            cameraEntity.camera.nearClip = near;
         };
 
         // handle application update
@@ -174,14 +200,17 @@ class Viewer {
         Promise.all([gsplatLoad, skyboxLoad]).then((results) => {
             const gsplat = results[0] as Entity;
 
-            // calculate scene bounding box
-            const bbox = gsplat.gsplat?.instance?.meshInstance?.aabb ?? new BoundingBox();
+            // get scene bounding box
+            const gsplatBbox = gsplat.gsplat?.instance?.meshInstance?.aabb;
+            if (gsplatBbox) {
+                sceneBound.copy(gsplatBbox);
+            }
 
             this.annotations = new Annotations(global);
 
             this.inputController = new InputController(global);
 
-            this.cameraManager = new CameraManager(global, bbox);
+            this.cameraManager = new CameraManager(global, sceneBound);
             applyCamera(this.cameraManager.camera);
 
             // kick off gsplat sorting immediately now that camera is in position
