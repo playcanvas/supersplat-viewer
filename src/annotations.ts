@@ -13,8 +13,14 @@ class Annotations {
         // create dom parent
         const parentDom = document.createElement('div');
         parentDom.id = 'annotations';
-        document.body.appendChild(parentDom);
         Annotation.parentDom = parentDom;
+        document.querySelector('#ui').appendChild(parentDom);
+
+        global.events.on('controlsHidden:changed', (value) => {
+            parentDom.style.display = value ? 'none' : 'block';
+            Annotation.opacity = value ? 0.0 : 1.0;
+            global.app.renderNextFrame = true;
+        });
 
         this.annotations = global.settings.annotations;
         this.parentDom = parentDom;
