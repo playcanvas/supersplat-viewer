@@ -3,7 +3,6 @@ import {
     CameraFrame,
     Color,
     type Entity,
-    GAMMA_SRGB,
     RenderTarget,
     Mat4,
     MiniStats,
@@ -18,8 +17,6 @@ import {
     TONEMAP_ACES,
     TONEMAP_ACES2,
     TONEMAP_NEUTRAL,
-    PIXELFORMAT_RGBA8,
-    PIXELFORMAT_SRGBA8,
     Vec3
 } from 'playcanvas';
 
@@ -28,8 +25,8 @@ import { CameraManager } from './camera-manager';
 import { Camera } from './cameras/camera';
 import { nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
-import type { Global } from './types';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
+import type { Global } from './types';
 
 // override global pick to pack depth instead of meshInstance id
 const pickDepthGlsl = /* glsl */ `
@@ -336,10 +333,6 @@ class Viewer {
 
             camera.camera.toneMapping = tonemapTable[settings.tonemapping];
             camera.camera.clearColor = new Color(background.color);
-
-            if (settings.highPrecisionRendering) {
-
-            }
         }
     }
 }

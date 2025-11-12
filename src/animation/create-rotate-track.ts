@@ -10,6 +10,7 @@ import { AnimTrack } from '../settings';
  *
  * @param position - Starting location of the camera.
  * @param target - Target point around which to rotate
+ * @param fov - The camera field of view.
  * @param keys - The number of keys in the animation.
  * @param duration - The duration of the animation in seconds.
  * @returns - The animation track object containing position and target keyframes.

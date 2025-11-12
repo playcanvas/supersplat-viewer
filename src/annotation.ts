@@ -229,10 +229,8 @@ export class Annotation extends Script {
     /**
      * Creates a circular hotspot texture.
      * @param {AppBase} app - The PlayCanvas AppBase
-     * @param {number} [alpha] - The opacity of the hotspot
+     * @param {string} label - Label text to draw on the hotspot
      * @param {number} [size] - The texture size (should be power of 2)
-     * @param {string} [fillColor] - The circle fill color
-     * @param {string} [strokeColor] - The border color
      * @param {number} [borderWidth] - The border width in pixels
      * @returns {Texture} The hotspot texture
      * @private
@@ -245,7 +243,7 @@ export class Annotation extends Script {
         const ctx = canvas.getContext('2d');
 
         // First clear with stroke color at zero alpha
-        ctx.fillStyle = `white`;
+        ctx.fillStyle = 'white';
         ctx.globalAlpha = 0;
         ctx.fillRect(0, 0, size, size);
         ctx.globalAlpha = 1.0;
@@ -265,11 +263,11 @@ export class Annotation extends Script {
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
         ctx.lineWidth = borderWidth;
-        ctx.strokeStyle = `white`;
+        ctx.strokeStyle = 'white';
         ctx.stroke();
 
         // Draw text
-        ctx.font = "bold 32px Arial";
+        ctx.font = 'bold 32px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = 'white';
@@ -462,6 +460,7 @@ export class Annotation extends Script {
 
     /**
      * Set the hover state of the annotation.
+     * @param hover - Whether the annotation is hovered
      * @private
      */
     setHover(hover: boolean) {

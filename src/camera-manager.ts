@@ -9,8 +9,8 @@ import { Camera, type CameraFrame, type CameraController } from './cameras/camer
 import { FlyController } from './cameras/fly-controller';
 import { OrbitController } from './cameras/orbit-controller';
 import { easeOut } from './core/math';
-import { CameraMode, Global } from './types';
 import { Annotation } from './settings';
+import { CameraMode, Global } from './types';
 
 const tmpCamera = new Camera();
 const tmpv = new Vec3();

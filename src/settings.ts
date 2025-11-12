@@ -48,31 +48,31 @@ const migrateV2 = (v1: V1): V2 => {
         tonemapping: 'none',
         highPrecisionRendering: false,
         background: {
-            color: v1.background.color as [number, number, number] || [0, 0, 0],
+            color: v1.background.color as [number, number, number] || [0, 0, 0]
         },
         postEffectSettings: {
             sharpness: {
                 enabled: false,
-                amount: 0,
+                amount: 0
             },
             bloom: {
                 enabled: false,
                 intensity: 1,
-                blurLevel: 2,
+                blurLevel: 2
             },
             grading: {
                 enabled: false,
                 brightness: 0,
                 contrast: 1,
                 saturation: 1,
-                tint: [1, 1, 1],
+                tint: [1, 1, 1]
             },
             vignette: {
                 enabled: false,
                 intensity: 0.5,
                 inner: 0.3,
                 outer: 0.75,
-                curvature: 1,
+                curvature: 1
             },
             fringing: {
                 enabled: false,
@@ -86,13 +86,13 @@ const migrateV2 = (v1: V1): V2 => {
             initial: {
                 position: v1.camera.position as [number, number, number] || [0, 0, 5],
                 target: v1.camera.target as [number, number, number] || [0, 0, 0],
-                fov: v1.camera.fov || 65,
+                fov: v1.camera.fov || 65
             }
         }],
         annotations: [],
         startMode: v1.camera.startAnim === 'animTrack' ? 'animTrack' : 'default',
         hasStartPose: !!(v1.camera.position && v1.camera.target)
-    }
+    };
 };
 
 // import a json object to conform to the latest settings schema. settings is assumed to be one of the well-formed schemas
