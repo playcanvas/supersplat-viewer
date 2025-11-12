@@ -24,7 +24,7 @@ import { Camera } from './cameras/camera';
 import { nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
 import type { Global } from './types';
-import type { ExperienceSettings, PostEffectSettings } from './settings';
+import type { ExperienceSettings } from './settings';
 
 // override global pick to pack depth instead of meshInstance id
 const pickDepthGlsl = /* glsl */ `
@@ -94,12 +94,7 @@ class Viewer {
         // apply camera animation settings
         camera.camera.clearColor = new Color(background.color);
         camera.camera.aspectRatio = graphicsDevice.width / graphicsDevice.height;
-
-        // create camera frame
-        this.cameraFrame = new CameraFrame(app, camera.camera);
-
-        // configure the camera
-        this.configureCamera(settings);
+        camera.camera.toneMapping = tonemapTable[settings.tonemapping];
 
         // handle horizontal fov on canvas resize
         const updateHorizontalFov = () => {
@@ -211,60 +206,6 @@ class Viewer {
                 }
             });
         });
-    }
-
-    // configure camera frame
-    configureCamera(settings: ExperienceSettings) {
-        const { cameraFrame } = this;
-        const { postEffectSettings } = settings;
-
-        cameraFrame.enabled = true;
-        cameraFrame.rendering.toneMapping = tonemapTable[settings.tonemapping];
-        cameraFrame.rendering.renderFormats = settings.highPrecisionRendering ? [PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F] : [];
-
-        if (postEffectSettings.sharpness.enabled) {
-            cameraFrame.rendering.sharpness = postEffectSettings.sharpness.amount;
-        } else {
-            cameraFrame.rendering.sharpness = 0;
-        }
-
-        const { bloom } = cameraFrame;
-        if (postEffectSettings.bloom.enabled) {
-            bloom.intensity = postEffectSettings.bloom.intensity;
-            bloom.blurLevel = postEffectSettings.bloom.blurLevel;
-        } else {
-            bloom.intensity = 0;
-        }
-
-        const { grading } = cameraFrame;
-        if (postEffectSettings.grading.enabled) {
-            grading.enabled = true;
-            grading.brightness = postEffectSettings.grading.brightness;
-            grading.contrast = postEffectSettings.grading.contrast;
-            grading.saturation = postEffectSettings.grading.saturation;
-            grading.tint = new Color().fromArray(postEffectSettings.grading.tint);
-        } else {
-            grading.enabled = false;
-        }
-
-        const { vignette } = cameraFrame;
-        if (postEffectSettings.vignette.enabled) {
-            vignette.intensity = postEffectSettings.vignette.intensity;
-            vignette.inner = postEffectSettings.vignette.inner;
-            vignette.outer = postEffectSettings.vignette.outer;
-            vignette.curvature = postEffectSettings.vignette.curvature;
-        } else {
-            vignette.intensity = 0;
-        }
-
-        const { fringing } = cameraFrame;
-        if (postEffectSettings.fringing.enabled) {
-            fringing.intensity = postEffectSettings.fringing.intensity;
-        } else {
-            fringing.intensity = 0;
-        }
-
-        cameraFrame.update();
     }
 }
 

@@ -33,36 +33,6 @@ type Annotation = {
     camera: Camera;
 };
 
-type PostEffectSettings = {
-    sharpness: {
-        enabled: boolean,
-        amount: number,
-    },
-    bloom: {
-        enabled: boolean,
-        intensity: number,
-        blurLevel: number,
-    },
-    grading: {
-        enabled: boolean,
-        brightness: number,
-        contrast: number,
-        saturation: number,
-        tint: [number, number, number],
-    },
-    vignette: {
-        enabled: boolean,
-        intensity: number,
-        inner: number,
-        outer: number,
-        curvature: number,
-    },
-    fringing: {
-        enabled: boolean,
-        intensity: number
-    }
-};
-
 type ExperienceSettings = {
     version: 2,
     tonemapping: 'none' | 'linear' | 'filmic' | 'hejl' | 'aces' | 'aces2' | 'neutral',
@@ -72,7 +42,6 @@ type ExperienceSettings = {
         color: [number, number, number],
         skyboxUrl?: string
     },
-    postEffectSettings: PostEffectSettings,
 
     animTracks: AnimTrack[],
     cameras: Camera[],
@@ -81,4 +50,4 @@ type ExperienceSettings = {
     startMode: 'default' | 'animTrack' | 'annotation'
 };
 
-export type { AnimTrack, Camera, Annotation, PostEffectSettings, ExperienceSettings };
+export type { AnimTrack, Camera, Annotation, ExperienceSettings };

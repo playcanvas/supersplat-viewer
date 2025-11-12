@@ -50,35 +50,6 @@ const migrateV2 = (v1: V1): V2 => {
         background: {
             color: v1.background.color as [number, number, number] || [0, 0, 0],
         },
-        postEffectSettings: {
-            sharpness: {
-                enabled: false,
-                amount: 0,
-            },
-            bloom: {
-                enabled: false,
-                intensity: 1,
-                blurLevel: 2,
-            },
-            grading: {
-                enabled: false,
-                brightness: 0,
-                contrast: 1,
-                saturation: 1,
-                tint: [1, 1, 1],
-            },
-            vignette: {
-                enabled: false,
-                intensity: 0.5,
-                inner: 0.3,
-                outer: 0.75,
-                curvature: 1,
-            },
-            fringing: {
-                enabled: false,
-                intensity: 0.5
-            }
-        },
         animTracks: v1.animTracks.map((animTrackV1: AnimTrackV1) => {
             return migrateAnimTrackV2(animTrackV1, v1.camera.fov || 60);
         }),
@@ -113,6 +84,6 @@ const importSettings = (settings: any): V2 => {
 };
 
 // export the latest/current schema types
-export type { AnimTrack, Camera, Annotation, PostEffectSettings, ExperienceSettings } from './schemas/v2';
+export type { AnimTrack, Camera, Annotation, ExperienceSettings } from './schemas/v2';
 
 export { importSettings };
