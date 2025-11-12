@@ -15,23 +15,6 @@ type AnimTrack = {
     }
 };
 
-type Constraint = {
-    min: number,
-    max: number
-};
-
-type PositionConstraints = {
-    x: Constraint,
-    y: Constraint,
-    z: Constraint
-};
-
-type OrbitConstraints = {
-    distance: Constraint,
-    azimuth: Constraint,
-    elevation: Constraint
-};
-
 type CameraPose = {
     position: [number, number, number],
     target: [number, number, number],
@@ -39,9 +22,7 @@ type CameraPose = {
 };
 
 type Camera = {
-    initialPose: CameraPose,
-    positionConstraints?: PositionConstraints,
-    orbitConstraints?: OrbitConstraints
+    initial: CameraPose,
 };
 
 type Annotation = {
@@ -86,18 +67,18 @@ type ExperienceSettings = {
     version: 2,
     tonemapping: 'none' | 'linear' | 'filmic' | 'hejl' | 'aces' | 'aces2' | 'neutral',
     highPrecisionRendering: boolean,
+    soundUrl?: string,
     background: {
         color: [number, number, number],
         skyboxUrl?: string
     },
     postEffectSettings: PostEffectSettings,
-    audioUrl?: string,
 
     animTracks: AnimTrack[],
     cameras: Camera[],
     annotations: Annotation[],
 
-    cameraStartMode: 'default' | 'animTrack' | 'annotation'
+    startMode: 'default' | 'animTrack' | 'annotation'
 };
 
 export type { AnimTrack, Camera, Annotation, PostEffectSettings, ExperienceSettings };

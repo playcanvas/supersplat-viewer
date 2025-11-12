@@ -83,14 +83,14 @@ const migrateV2 = (v1: V1): V2 => {
             return migrateAnimTrackV2(animTrackV1, v1.camera.fov || 60);
         }),
         cameras: [{
-            initialPose: {
+            initial: {
                 position: v1.camera.position as [number, number, number] || [0, 0, 5],
                 target: v1.camera.target as [number, number, number] || [0, 0, 0],
-                fov: v1.camera.fov || 65
+                fov: v1.camera.fov || 65,
             }
         }],
         annotations: [],
-        cameraStartMode: v1.camera.startAnim === 'animTrack' ? 'animTrack' : 'default'
+        startMode: v1.camera.startAnim === 'animTrack' ? 'animTrack' : 'default'
     }
 };
 

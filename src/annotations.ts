@@ -7,16 +7,17 @@ import { Annotation } from './annotation';
 class Annotations {
     annotations: AnnotationSettings[];
 
-    dom: HTMLElement;
+    parentDom: HTMLElement;
 
     constructor(global: Global) {
-        this.annotations = global.settings.annotations;
-
         // create dom parent
-        this.dom = document.createElement('div');
-        this.dom.id = 'annotations';
-        document.body.appendChild(this.dom);
-        Annotation.parentDom = this.dom;
+        const parentDom = document.createElement('div');
+        parentDom.id = 'annotations';
+        document.body.appendChild(parentDom);
+        Annotation.parentDom = parentDom;
+
+        this.annotations = global.settings.annotations;
+        this.parentDom = parentDom;
 
         // create annotation entities
         const parent = global.app.root;

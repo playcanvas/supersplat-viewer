@@ -20,7 +20,7 @@
             const settingsUrl = url.searchParams.has('settings') ? url.searchParams.get('settings') : './settings.json';
             const contentUrl = url.searchParams.has('content') ? url.searchParams.get('content') : './scene.compressed.ply';
 
-            const config = {
+            const sseConfig = {
                 poster: posterUrl && createImage(posterUrl),
                 skyboxUrl,
                 contentUrl,
@@ -31,7 +31,7 @@
             };
 
             window.sse = {
-                config,
+                config: sseConfig,
                 settings: fetch(settingsUrl).then(response => response.json())
             };
         </script>

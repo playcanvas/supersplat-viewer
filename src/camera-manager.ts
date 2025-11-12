@@ -41,7 +41,7 @@ class CameraManager {
     constructor(global: Global, bbox: BoundingBox) {
         const { events, settings, state } = global;
 
-        const camera0 = settings.cameras[0].initialPose;
+        const camera0 = settings.cameras[0].initial;
         const frameCamera = createFrameCamera(bbox, camera0.fov);
         const resetCamera = createCamera(
             new Vec3(camera0.position ?? [2, 1, 2]),
@@ -53,7 +53,7 @@ class CameraManager {
             const { animTracks } = settings;
 
             // extract the camera animation track from settings
-            if (animTracks?.length > 0 && settings.cameraStartMode === 'animTrack') {
+            if (animTracks?.length > 0 && settings.startMode === 'animTrack') {
                 // use the first animTrack
                 return animTracks[0];
             } else if (isObjectExperience) {
@@ -197,13 +197,13 @@ class CameraManager {
             // switch to orbit camera on pick
             state.cameraMode = 'orbit';
 
-            const { initialPose } = annotation.camera;
+            const { initial } = annotation.camera;
 
             // construct camera
-            tmpCamera.fov = initialPose.fov;
+            tmpCamera.fov = initial.fov;
             tmpCamera.look(
-                new Vec3(initialPose.position),
-                new Vec3(initialPose.target)
+                new Vec3(initial.position),
+                new Vec3(initial.target)
             );
 
             controllers.orbit.goto(tmpCamera);

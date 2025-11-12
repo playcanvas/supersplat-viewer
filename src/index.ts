@@ -128,6 +128,20 @@ const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) =
             app.scene.envAtlas = asset.resource as Texture;
         });
 
+    // Load and play sound
+    if (global.settings.soundUrl) {
+        const sound = new Audio(global.settings.soundUrl);
+        sound.crossOrigin = 'anonymous';
+        document.body.addEventListener('click', () => {
+            if (sound) {
+                sound.play();
+            }
+        }, {
+            capture: true,
+            once: true
+        });
+    }
+
     // Create the viewer
     return new Viewer(global, gsplatLoad, skyboxLoad);
 };
