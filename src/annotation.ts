@@ -318,7 +318,7 @@ export class Annotation extends Script {
 
         // Base properties
         material.diffuse = Color.BLACK;
-        material.emissive = new Color(0.8, 0.8, 0.8);
+        material.emissive.copy(Annotation.hotspotColor);
         material.emissiveMap = texture;
         material.opacityMap = texture;
 

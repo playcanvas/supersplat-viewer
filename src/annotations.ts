@@ -9,7 +9,7 @@ class Annotations {
 
     parentDom: HTMLElement;
 
-    constructor(global: Global) {
+    constructor(global: Global, hasCameraFrame: boolean) {
         // create dom parent
         const parentDom = document.createElement('div');
         parentDom.id = 'annotations';
@@ -24,6 +24,11 @@ class Annotations {
 
         this.annotations = global.settings.annotations;
         this.parentDom = parentDom;
+
+        if (hasCameraFrame) {
+            Annotation.hotspotColor.gamma();
+            Annotation.hoverColor.gamma();
+        }
 
         // create annotation entities
         const parent = global.app.root;

@@ -265,11 +265,7 @@ class Viewer {
                 sceneBound.copy(gsplatBbox);
             }
 
-            // 
-            camera.camera.nearClip = 1;
-            camera.camera.farClip = 1000;
-
-            this.annotations = new Annotations(global);
+            this.annotations = new Annotations(global, this.cameraFrame != null);
 
             this.inputController = new InputController(global);
 
