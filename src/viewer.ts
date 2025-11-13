@@ -17,7 +17,8 @@ import {
     TONEMAP_ACES,
     TONEMAP_ACES2,
     TONEMAP_NEUTRAL,
-    Vec3
+    Vec3,
+    GSplatComponent
 } from 'playcanvas';
 
 import { Annotations } from './annotations';
@@ -254,12 +255,12 @@ class Viewer {
 
         // wait for the model to load
         Promise.all([gsplatLoad, skyboxLoad]).then((results) => {
-            const gsplat = results[0] as Entity;
+            const gsplat = results[0].gsplat as GSplatComponent;
 
             // get scene bounding box
-            const gsplatBbox = gsplat.gsplat?.instance?.meshInstance?.aabb;
+            const gsplatBbox = gsplat.customAabb;
             if (gsplatBbox) {
-                sceneBound.copy(gsplatBbox);
+                sceneBound.setFromTransformedAabb(gsplatBbox, results[0].getWorldTransform());
             }
 
             this.annotations = new Annotations(global, this.cameraFrame != null);
@@ -269,27 +270,36 @@ class Viewer {
             this.cameraManager = new CameraManager(global, sceneBound);
             applyCamera(this.cameraManager.camera);
 
-            // kick off gsplat sorting immediately now that camera is in position
-            gsplat.gsplat?.instance?.sort(camera);
+            const { instance } = gsplat;
+            if (instance) {
+                // kick off gsplat sorting immediately now that camera is in position
+                instance.sort(camera);
 
-            // listen for sorting updates to trigger first frame events
-            gsplat.gsplat?.instance?.sorter?.on('updated', () => {
-                // request frame render when sorting changes
-                app.renderNextFrame = true;
+                // listen for sorting updates to trigger first frame events
+                instance.sorter?.on('updated', () => {
+                    // request frame render when sorting changes
+                    app.renderNextFrame = true;
 
-                if (!state.readyToRender) {
-                    // we're ready to render once the first sort has completed
-                    state.readyToRender = true;
+                    if (!state.readyToRender) {
+                        // we're ready to render once the first sort has completed
+                        state.readyToRender = true;
 
-                    // wait for the first valid frame to complete rendering
-                    app.once('frameend', () => {
-                        events.fire('firstFrame');
+                        // wait for the first valid frame to complete rendering
+                        app.once('frameend', () => {
+                            events.fire('firstFrame');
 
-                        // emit first frame event on window
-                        window.firstFrame?.();
-                    });
-                }
-            });
+                            // emit first frame event on window
+                            window.firstFrame?.();
+                        });
+                    }
+                });
+            } else {
+                // FIXME: unified doesn't have a sorter, need to add a "ready" event for this case
+                // till then screenshots will likely not work correctly.
+                state.readyToRender = true;
+                events.fire('firstFrame');
+                window.firstFrame?.();
+            }
         });
     }
 

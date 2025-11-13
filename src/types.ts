@@ -16,6 +16,7 @@ type Config = {
     noui: boolean;
     noanim: boolean;
     ministats: boolean;
+    unified: boolean;                           // force unified rendering mode
 };
 
 // observable state that can change at runtime
