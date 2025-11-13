@@ -17,14 +17,14 @@ import { initXr } from './xr';
 const loadGsplat = async (app: AppBase, url: string, contents: Promise<Response>, forceUnified: boolean, progressCallback: (progress: number) => void) => {
     const c = contents as unknown as ArrayBuffer;
     const filename = new URL(url, location.href).pathname.split('/').pop();
-    const data = filename.toLocaleLowerCase() === 'meta.json' ? await (await contents).json() : undefined;
+    const data = filename.toLowerCase() === 'meta.json' ? await (await contents).json() : undefined;
     const asset = new Asset(filename, 'gsplat', { url, filename, contents: c }, data);
 
     return new Promise<Entity>((resolve, reject) => {
         asset.on('load', () => {
             const entity = new Entity('gsplat');
             entity.setLocalEulerAngles(0, 0, 180);
-            entity.addComponent('gsplat', { unified: forceUnified || filename.toLocaleLowerCase().endsWith('lod-meta.json'), asset });
+            entity.addComponent('gsplat', { unified: forceUnified || filename.toLowerCase().endsWith('lod-meta.json'), asset });
             app.root.addChild(entity);
             resolve(entity);
         });
