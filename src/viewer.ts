@@ -181,8 +181,20 @@ class Viewer {
 
         // Construct debug ministats
         if (config.ministats) {
+            const options = MiniStats.getDefaultOptions() as any;
+            options.cpu.enabled = false;
+            options.stats = options.stats.filter((s: any) => s.name !== 'DrawCalls');
+            options.stats.push({
+                name: 'VRAM',
+                stats: ['vram.tex'],
+                decimalPlaces: 1,
+                multiplier: 1 / (1024 * 1024),
+                unitsName: 'MB',
+                watermark: 1024
+            });
+
             // eslint-disable-next-line no-new
-            new MiniStats(app);
+            new MiniStats(app, options);
         }
 
         const prevProj = new Mat4();

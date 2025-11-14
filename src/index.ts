@@ -14,17 +14,25 @@ import { initPoster, initUI } from './ui';
 import { Viewer } from './viewer';
 import { initXr } from './xr';
 
-const loadGsplat = async (app: AppBase, url: string, contents: Promise<Response>, forceUnified: boolean, progressCallback: (progress: number) => void) => {
+const loadGsplat = async (app: AppBase, config: Config, progressCallback: (progress: number) => void) => {
+    const { contents, contentUrl, unified, aa } = config;
     const c = contents as unknown as ArrayBuffer;
-    const filename = new URL(url, location.href).pathname.split('/').pop();
+    const filename = new URL(contentUrl, location.href).pathname.split('/').pop();
     const data = filename.toLowerCase() === 'meta.json' ? await (await contents).json() : undefined;
-    const asset = new Asset(filename, 'gsplat', { url, filename, contents: c }, data);
+    const asset = new Asset(filename, 'gsplat', { url: contentUrl, filename, contents: c }, data);
 
     return new Promise<Entity>((resolve, reject) => {
         asset.on('load', () => {
             const entity = new Entity('gsplat');
             entity.setLocalEulerAngles(0, 0, 180);
-            entity.addComponent('gsplat', { unified: forceUnified || filename.toLowerCase().endsWith('lod-meta.json'), asset });
+            entity.addComponent('gsplat', {
+                unified: unified || filename.toLowerCase().endsWith('lod-meta.json'),
+                asset
+            });
+            // don't support AA in unified mode yet
+            if (aa && !entity.gsplat.unified) {
+                entity.gsplat.material.setDefine('GSPLAT_AA', true);
+            }
             app.root.addChild(entity);
             resolve(entity);
         });
@@ -115,9 +123,7 @@ const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) =
     // Load model
     const gsplatLoad = loadGsplat(
         app,
-        config.contentUrl,
-        config.contents,
-        config.unified,
+        config,
         (progress: number) => {
             state.progress = progress;
         }

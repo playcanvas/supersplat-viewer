@@ -17,6 +17,7 @@ type Config = {
     noanim: boolean;
     ministats: boolean;
     unified: boolean;                           // force unified rendering mode
+    aa: boolean;                                // render with antialiasing
 };
 
 // observable state that can change at runtime
