@@ -43,12 +43,7 @@
             <pc-scene>
                 <!-- Camera (with XR support) -->
                 <pc-entity name="camera root">
-                    <pc-entity name="camera">
-                        <pc-camera near-clip="0.001" far-clip="5000" horizontal-fov="true" tonemap="none"></pc-camera>
-                    </pc-entity>
-                    <!-- XR controllers will be added here -->
-                    <pc-scripts>
-                    </pc-scripts>
+                    <pc-entity name="camera"></pc-entity>
                 </pc-entity>
                 <!-- Light (for XR controllers) -->
                 <pc-entity name="light" rotation="35 45 0">
@@ -322,10 +317,11 @@
             }
 
             document.addEventListener('DOMContentLoaded', async () => {
-                const [appElement, cameraElement, settingsJson] = await Promise.all([
+                const [appElement, cameraElement, settingsJson, cameraRootElement] = await Promise.all([
                     document.querySelector('pc-app').ready(),
                     document.querySelector('pc-entity[name="camera"]').ready(),
-                    settings
+                    settings,
+                    document.querySelector('pc-entity[name="camera root"]').ready(),
                 ]);
 
                 const viewer = await main(appElement.app, cameraElement.entity, settingsJson, config);

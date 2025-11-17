@@ -34,6 +34,7 @@ const initXr = (global: Global) => {
     const cameraRotation = new Quat();
     const angles = new Vec3();
 
+    parent.addComponent('script');
     parent.script.create(XrControllers);
     parent.script.create(XrNavigation);
 
