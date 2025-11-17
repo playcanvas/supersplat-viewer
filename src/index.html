@@ -317,11 +317,10 @@
             }
 
             document.addEventListener('DOMContentLoaded', async () => {
-                const [appElement, cameraElement, settingsJson, cameraRootElement] = await Promise.all([
+                const [appElement, cameraElement, settingsJson] = await Promise.all([
                     document.querySelector('pc-app').ready(),
                     document.querySelector('pc-entity[name="camera"]').ready(),
-                    settings,
-                    document.querySelector('pc-entity[name="camera root"]').ready(),
+                    settings
                 ]);
 
                 const viewer = await main(appElement.app, cameraElement.entity, settingsJson, config);
