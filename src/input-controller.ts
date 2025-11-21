@@ -13,8 +13,16 @@ import type { CameraComponent } from 'playcanvas';
 import { Picker } from './picker';
 import type { Global } from './types';
 
+/* Vec initialisation to avoid recurrent memory allocation */
 const tmpV1 = new Vec3();
 const tmpV2 = new Vec3();
+const mouseRotate = new Vec3();
+const flyMove = new Vec3();
+const pinchMove = new Vec3();
+const orbitRotate = new Vec3();
+const flyRotate = new Vec3();
+const stickMove = new Vec3();
+const stickRotate = new Vec3();
 
 /**
  * Converts screen space mouse deltas to world space pan vector.
@@ -256,7 +264,7 @@ class InputController {
 
         // desktop rotate
         v.set(0, 0, 0);
-        const mouseRotate = new Vec3(mouse[0], mouse[1], 0);
+        mouseRotate.set(mouse[0], mouse[1], 0);
         v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * orbitFactor * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
 
@@ -264,29 +272,29 @@ class InputController {
         v.set(0, 0, 0);
         const orbitMove = screenToWorld(camera, touch[0], touch[1], distance);
         v.add(orbitMove.mulScalar(orbit * pan));
-        const flyMove = new Vec3(leftInput[0], 0, -leftInput[1]);
+        flyMove.set(leftInput[0], 0, -leftInput[1]);
         v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
-        const pinchMove = new Vec3(0, 0, pinch[0]);
+        pinchMove.set(0, 0, pinch[0]);
         v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * dt));
         deltas.move.append([v.x, v.y, v.z]);
 
         // mobile rotate
         v.set(0, 0, 0);
-        const orbitRotate = new Vec3(touch[0], touch[1], 0);
+        orbitRotate.set(touch[0], touch[1], 0);
         v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * dt));
-        const flyRotate = new Vec3(rightInput[0], rightInput[1], 0);
+        flyRotate.set(rightInput[0], rightInput[1], 0);
         v.add(flyRotate.mulScalar(fly * this.orbitSpeed * orbitFactor * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // gamepad move
         v.set(0, 0, 0);
-        const stickMove = new Vec3(leftStick[0], 0, -leftStick[1]);
+        stickMove.set(leftStick[0], 0, -leftStick[1]);
         v.add(stickMove.mulScalar(this.moveSpeed * dt));
         deltas.move.append([v.x, v.y, v.z]);
 
         // gamepad rotate
         v.set(0, 0, 0);
-        const stickRotate = new Vec3(rightStick[0], rightStick[1], 0);
+        stickRotate.set(rightStick[0], rightStick[1], 0);
         v.add(stickRotate.mulScalar(this.orbitSpeed * orbitFactor * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
 
