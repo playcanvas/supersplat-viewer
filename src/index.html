@@ -6,7 +6,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
         <base href="">
         <link rel="stylesheet" href="./index.css">
-        <script type="module">
+        <script type="module" data-cfasync="false">
             const createImage = (url) => {
                 const img = new Image();
                 img.src = url;
@@ -302,7 +302,7 @@
         </svg>
 
         <!-- Application Script -->
-        <script type="module">
+        <script type="module" data-cfasync="false">
             import { main } from './index.js';
 
             const { config, settings } = window.sse;
