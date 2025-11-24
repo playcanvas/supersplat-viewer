@@ -1,8 +1,10 @@
 import {
     BoundingBox,
     CameraFrame,
+    type CameraComponent,
     Color,
     type Entity,
+    type Layer,
     RenderTarget,
     Mat4,
     MiniStats,
@@ -18,7 +20,8 @@ import {
     TONEMAP_ACES2,
     TONEMAP_NEUTRAL,
     Vec3,
-    GSplatComponent
+    GSplatComponent,
+    platform
 } from 'playcanvas';
 
 import { Annotations } from './annotations';
@@ -132,6 +135,8 @@ class Viewer {
 
     annotations: Annotations;
 
+    forceRenderNextFrame = false;
+
     constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void>) {
         this.global = global;
 
@@ -217,6 +222,10 @@ class Viewer {
             // suppress rendering till we're ready
             if (!state.readyToRender) {
                 app.renderNextFrame = false;
+            }
+
+            if (this.forceRenderNextFrame) {
+                app.renderNextFrame = true;
             }
 
             if (app.renderNextFrame) {
@@ -306,11 +315,33 @@ class Viewer {
                     }
                 });
             } else {
-                // FIXME: unified doesn't have a sorter, need to add a "ready" event for this case
-                // till then screenshots will likely not work correctly.
-                state.readyToRender = true;
-                events.fire('firstFrame');
-                window.firstFrame?.();
+                // hard-code LOD range for mobile vs desktop
+                const range = platform.mobile ? [2, 5] : [0, 2];
+                const { gsplat } = app.scene;
+                gsplat.lodRangeMin = range[0];
+                gsplat.lodRangeMax = range[1];
+
+                // seems like unified rendering doesn't update unless you're rendering empty frames
+                this.forceRenderNextFrame = true;
+
+                // keep rendering empty frames till the unified system indicates it's ready and no longer loading
+                let firstReadyFrame = true;
+                app.renderer.gsplatDirector.eventHandler.on('frame:ready', (camera: CameraComponent, layer: Layer, ready: boolean, loading: boolean) => {
+                    if (ready && !loading && firstReadyFrame) {
+                        firstReadyFrame = false;
+
+                        // wait for the first valid frame to complete rendering
+                        app.once('frameend', () => {
+                            events.fire('firstFrame');
+
+                            // emit first frame event on window
+                            window.firstFrame?.();
+
+                            this.forceRenderNextFrame = false;
+                            state.readyToRender = true;
+                        });
+                    }
+                });
             }
         });
     }
