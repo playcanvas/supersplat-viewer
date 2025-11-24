@@ -315,18 +315,18 @@ class Viewer {
                     }
                 });
             } else {
-                // hard-code LOD range for mobile vs desktop
+                // in unified mode, for now we hard-code LOD range on mobile vs desktop
                 const range = platform.mobile ? [2, 5] : [0, 2];
                 const { gsplat } = app.scene;
                 gsplat.lodRangeMin = range[0];
                 gsplat.lodRangeMax = range[1];
 
-                // seems like unified rendering doesn't update unless you're rendering empty frames
-                this.forceRenderNextFrame = true;
+                const { eventHandler } = app.renderer.gsplatDirector;
 
-                // keep rendering empty frames till the unified system indicates it's ready and no longer loading
+                // unified rendering doesn't update assets unless app is rendering empty frames
+                this.forceRenderNextFrame = true;
                 let firstReadyFrame = true;
-                app.renderer.gsplatDirector.eventHandler.on('frame:ready', (camera: CameraComponent, layer: Layer, ready: boolean, loading: boolean) => {
+                const readyHandler = (camera: CameraComponent, layer: Layer, ready: boolean, loading: boolean) => {
                     if (ready && !loading && firstReadyFrame) {
                         firstReadyFrame = false;
 
@@ -339,9 +339,12 @@ class Viewer {
 
                             this.forceRenderNextFrame = false;
                             state.readyToRender = true;
+                            eventHandler.off('frame:ready', readyHandler);
                         });
                     }
-                });
+                };
+
+                eventHandler.on('frame:ready', readyHandler);
             }
         });
     }
