@@ -349,11 +349,10 @@ class Viewer {
 
                 eventHandler.on('frame:ready', readyHandler);
 
-                // re-render the scene when ready is set
+                // render when ready is set
                 eventHandler.on('frame:ready', (camera: CameraComponent, layer: Layer, ready: boolean, loading: boolean) => {
-                    if (ready && !loading) {
+                    if (ready) {
                         app.renderNextFrame = true;
-                        console.log('rendering');
                     }
                 });
             }
