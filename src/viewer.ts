@@ -323,7 +323,9 @@ class Viewer {
                 gsplat.lodRangeMin = range[0];
                 gsplat.lodRangeMax = range[1];
 
-                const { eventHandler } = app.renderer.gsplatDirector;
+                // FIXME: remove ignore when gsplat system is documented
+                // @ts-ignore
+                const eventHandler = app.systems.gsplat;
 
                 // force render empty frames otherwise unified rendering doesn't update
                 this.forceRenderNextFrame = true;
@@ -346,6 +348,14 @@ class Viewer {
                 };
 
                 eventHandler.on('frame:ready', readyHandler);
+
+                // re-render the scene when ready is set
+                eventHandler.on('frame:ready', (camera: CameraComponent, layer: Layer, ready: boolean, loading: boolean) => {
+                    if (ready && !loading) {
+                        app.renderNextFrame = true;
+                        console.log('rendering');
+                    }
+                });
             }
         });
     }
