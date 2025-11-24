@@ -327,11 +327,13 @@ class Viewer {
 
                 // force render empty frames otherwise unified rendering doesn't update
                 this.forceRenderNextFrame = true;
-                let firstReadyFrame = true;
 
                 const readyHandler = (camera: CameraComponent, layer: Layer, ready: boolean, loading: boolean) => {
-                    if (ready && !loading && firstReadyFrame) {
-                        firstReadyFrame = false;
+                    if (ready && !loading) {
+                        eventHandler.off('frame:ready', readyHandler);
+
+                        this.forceRenderNextFrame = false;
+                        state.readyToRender = true;
 
                         // wait for the first valid frame to complete rendering
                         app.once('frameend', () => {
@@ -339,10 +341,6 @@ class Viewer {
 
                             // emit first frame event on window
                             window.firstFrame?.();
-
-                            this.forceRenderNextFrame = false;
-                            state.readyToRender = true;
-                            eventHandler.off('frame:ready', readyHandler);
                         });
                     }
                 };
