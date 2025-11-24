@@ -284,7 +284,9 @@ class Viewer {
                 sceneBound.setFromTransformedAabb(gsplatBbox, results[0].getWorldTransform());
             }
 
-            this.annotations = new Annotations(global, this.cameraFrame != null);
+            if (!config.noui) {
+                this.annotations = new Annotations(global, this.cameraFrame != null);
+            }
 
             this.inputController = new InputController(global);
 
@@ -323,9 +325,10 @@ class Viewer {
 
                 const { eventHandler } = app.renderer.gsplatDirector;
 
-                // unified rendering doesn't update assets unless app is rendering empty frames
+                // force render empty frames otherwise unified rendering doesn't update
                 this.forceRenderNextFrame = true;
                 let firstReadyFrame = true;
+
                 const readyHandler = (camera: CameraComponent, layer: Layer, ready: boolean, loading: boolean) => {
                     if (ready && !loading && firstReadyFrame) {
                         firstReadyFrame = false;
