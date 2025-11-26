@@ -347,7 +347,6 @@ class Viewer {
                 // same performance, but rotating on slow devices does not give us unsorted splats on sides
                 gsplat.radialSorting = true;
 
-                // remove ignore when gsplat system is documented
                 const eventHandler = app.systems.gsplat;
 
                 // force render empty frames otherwise unified rendering doesn't update
