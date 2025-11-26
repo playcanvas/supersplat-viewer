@@ -332,10 +332,13 @@ class Viewer {
 
                 const { gsplat } = app.scene;
 
+                // lod ranges
+                const low = [2, 5];
+                const high = [0, 2];
+
                 // in unified mode, for now we hard-code LOD range on mobile vs desktop
-                const range = platform.mobile ? [2, 5] : [0, 2];
-                gsplat.lodRangeMin = range[0];
-                gsplat.lodRangeMax = range[1];
+                gsplat.lodRangeMin = low[0];
+                gsplat.lodRangeMax = low[1];
 
                 // these two allow LOD behind camera to drop, saves lots of splats
                 gsplat.lodUpdateAngle = 90;
@@ -354,10 +357,16 @@ class Viewer {
                 let watermark = 1;
                 const readyHandler = (camera: CameraComponent, layer: Layer, ready: boolean, loading: number) => {
                     if (ready && !loading) {
+                        // scene is done loading
+
                         eventHandler.off('frame:ready', readyHandler);
 
                         this.forceRenderNextFrame = false;
                         state.readyToRender = true;
+
+                        const range = platform.mobile ? low : high;
+                        gsplat.lodRangeMin = range[0];
+                        gsplat.lodRangeMax = range[1];
 
                         // wait for the first valid frame to complete rendering
                         app.once('frameend', () => {
