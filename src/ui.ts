@@ -7,16 +7,18 @@ const v = new Vec3();
 
 // update the poster image to start blurry and then resolve to sharp during loading
 const initPoster = (events: EventHandler) => {
-    const element = document.getElementById('poster');
-    const blur = (progress: number) => `blur(${Math.floor((100 - progress) * 0.4)}px)`;
-
-    events.on('progress:changed', (progress: number) => {
-        element.style.filter = blur(progress);
-    });
+    const poster = document.getElementById('poster');
 
     events.on('firstFrame', () => {
-        element.style.display = 'none';
+        poster.style.display = 'none';
+        document.documentElement.style.setProperty('--canvas-opacity', '1');
     });
+
+    const blur = (progress: number) => {
+        poster.style.filter = `blur(${Math.floor((100 - progress) * 0.4)}px)`;
+    };
+
+    events.on('progress:changed', blur);
 };
 
 const initUI = (global: Global) => {

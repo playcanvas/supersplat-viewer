@@ -1,3 +1,4 @@
+import json from '@rollup/plugin-json';
 import resolve from '@rollup/plugin-node-resolve';
 import typescript from '@rollup/plugin-typescript';
 import autoprefixer from 'autoprefixer';
@@ -37,6 +38,7 @@ const buildPublic = {
     plugins: [
         resolve(),
         typescript(),
+        json(),
         copy({
             targets: [{
                 src: 'src/index.html',
@@ -61,6 +63,7 @@ const buildDist = {
             include: ['**/*.html', '**/*.css', '**/*.js']
         }),
         typescript({ noEmit: true }),
+        json(),
         copy({
             targets: [
                 { src: 'src/module/index.d.ts', dest: 'dist' }

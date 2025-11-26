@@ -311,9 +311,12 @@
             // Show the poster image
             if (poster) {
                 const element = document.getElementById('poster');
-                element.style.backgroundImage = `url(${poster.src})`;
+                element.style.setProperty('--poster-url', `url(${poster.src})`);
                 element.style.display = 'block';
                 element.style.filter = 'blur(40px)';
+
+                // hide the canvas
+                document.documentElement.style.setProperty('--canvas-opacity', '0');
             }
 
             document.addEventListener('DOMContentLoaded', async () => {

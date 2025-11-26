@@ -184,7 +184,7 @@ class Viewer {
         events.on('hqMode:changed', updateHqMode);
         updateHqMode();
 
-        // Construct debug ministats
+        // construct debug ministats
         if (config.ministats) {
             const options = MiniStats.getDefaultOptions() as any;
             options.cpu.enabled = false;
@@ -196,6 +196,13 @@ class Viewer {
                 multiplier: 1 / (1024 * 1024),
                 unitsName: 'MB',
                 watermark: 1024
+            }, {
+                name: 'Splats',
+                stats: ['frame.gsplats'],
+                decimalPlaces: 3,
+                multiplier: 1 / 1000000,
+                unitsName: 'M',
+                watermark: 5
             });
 
             // eslint-disable-next-line no-new
@@ -274,6 +281,11 @@ class Viewer {
             }
         });
 
+        // unpause the animation on first frame
+        events.on('firstFrame', () => {
+            state.animationPaused = !!config.noanim;
+        });
+
         // wait for the model to load
         Promise.all([gsplatLoad, skyboxLoad]).then((results) => {
             const gsplat = results[0].gsplat as GSplatComponent;
@@ -317,20 +329,30 @@ class Viewer {
                     }
                 });
             } else {
+
+                const { gsplat } = app.scene;
+
                 // in unified mode, for now we hard-code LOD range on mobile vs desktop
                 const range = platform.mobile ? [2, 5] : [0, 2];
-                const { gsplat } = app.scene;
                 gsplat.lodRangeMin = range[0];
                 gsplat.lodRangeMax = range[1];
 
-                // FIXME: remove ignore when gsplat system is documented
-                // @ts-ignore
+                // these two allow LOD behind camera to drop, saves lots of splats
+                gsplat.lodUpdateAngle = 90;
+                gsplat.lodBehindPenalty = 5;
+
+                // same performance, but rotating on slow devices does not give us unsorted splats on sides
+                gsplat.radialSorting = true;
+
+                // remove ignore when gsplat system is documented
                 const eventHandler = app.systems.gsplat;
 
                 // force render empty frames otherwise unified rendering doesn't update
                 this.forceRenderNextFrame = true;
 
-                const readyHandler = (camera: CameraComponent, layer: Layer, ready: boolean, loading: boolean) => {
+                let current = 0;
+                let watermark = 1;
+                const readyHandler = (camera: CameraComponent, layer: Layer, ready: boolean, loading: number) => {
                     if (ready && !loading) {
                         eventHandler.off('frame:ready', readyHandler);
 
@@ -345,16 +367,20 @@ class Viewer {
                             window.firstFrame?.();
                         });
                     }
-                };
 
-                eventHandler.on('frame:ready', readyHandler);
-
-                // render when ready is set
-                eventHandler.on('frame:ready', (camera: CameraComponent, layer: Layer, ready: boolean, loading: boolean) => {
                     if (ready) {
                         app.renderNextFrame = true;
                     }
-                });
+
+                    // update loading status
+                    if (loading !== current) {
+                        watermark = Math.max(watermark, loading);
+                        current = watermark - loading;
+                        state.progress = Math.trunc(current / watermark * 100);
+                    }
+                };
+
+                eventHandler.on('frame:ready', readyHandler);
             }
         });
     }
