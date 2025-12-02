@@ -79,7 +79,7 @@ const migrateV2 = (v1: V1): V2 => {
                 intensity: 0.5
             }
         },
-        animTracks: v1.animTracks.map((animTrackV1: AnimTrackV1) => {
+        animTracks: (v1.animTracks ?? []).map((animTrackV1: AnimTrackV1) => {
             return migrateAnimTrackV2(animTrackV1, v1.camera.fov || 60);
         }),
         cameras: [{
