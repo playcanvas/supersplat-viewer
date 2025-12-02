@@ -2,23 +2,28 @@ import { ExperienceSettings as V1, AnimTrack as AnimTrackV1 } from './schemas/v1
 import { ExperienceSettings as V2, AnimTrack as AnimTrackV2 } from './schemas/v2';
 
 const migrateV1 = (settings: V1): V1 => {
-    settings.animTracks?.forEach((track: AnimTrackV1) => {
-        // some early settings did not have frameRate set on anim tracks
-        if (!track.frameRate) {
-            const defaultFrameRate = 30;
+    if (settings.animTracks) {
+        settings.animTracks?.forEach((track: AnimTrackV1) => {
+            // some early settings did not have frameRate set on anim tracks
+            if (!track.frameRate) {
+                const defaultFrameRate = 30;
 
-            track.frameRate = defaultFrameRate;
-            const times = track.keyframes.times;
-            for (let i = 0; i < times.length; i++) {
-                times[i] *= defaultFrameRate;
+                track.frameRate = defaultFrameRate;
+                const times = track.keyframes.times;
+                for (let i = 0; i < times.length; i++) {
+                    times[i] *= defaultFrameRate;
+                }
             }
-        }
 
-        // smoothness property added in v1.4.0
-        if (!track.hasOwnProperty('smoothness')) {
-            track.smoothness = 0;
-        }
-    });
+            // smoothness property added in v1.4.0
+            if (!track.hasOwnProperty('smoothness')) {
+                track.smoothness = 0;
+            }
+        });
+    } else {
+        // some scenes were published without animTracks
+        settings.animTracks = [];
+    }
 
     return settings;
 };
@@ -79,7 +84,7 @@ const migrateV2 = (v1: V1): V2 => {
                 intensity: 0.5
             }
         },
-        animTracks: (v1.animTracks ?? []).map((animTrackV1: AnimTrackV1) => {
+        animTracks: v1.animTracks.map((animTrackV1: AnimTrackV1) => {
             return migrateAnimTrackV2(animTrackV1, v1.camera.fov || 60);
         }),
         cameras: [{
