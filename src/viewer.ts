@@ -20,8 +20,7 @@ import {
     TONEMAP_ACES2,
     TONEMAP_NEUTRAL,
     Vec3,
-    GSplatComponent,
-    platform
+    GSplatComponent
 } from 'playcanvas';
 
 import { Annotations } from './annotations';
@@ -375,8 +374,7 @@ class Viewer {
                             const settings = state.hqMode ? quality.high : quality.low;
                             gsplat.lodRangeMin = settings.range[0];
                             gsplat.lodRangeMax = settings.range[1];
-                            gsplat.splatBudget = settings.splatBudget * 1000000;                            
-                            app.renderNextFrame = true;
+                            gsplat.splatBudget = settings.splatBudget * 1000000;
                         };
                         events.on('hqMode:changed', updateLod);
                         updateLod();
