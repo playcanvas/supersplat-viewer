@@ -332,13 +332,22 @@ class Viewer {
 
                 const { gsplat } = app.scene;
 
-                // lod ranges
-                const low = [2, 5];
-                const high = [0, 2];
+                // quality ranges
+                const quality = {
+                    low: {
+                        range: [2, 8],
+                        splatBudget: 1
+                    },
+                    high: {
+                        range: [0, 8],
+                        splatBudget: 4
+                    }
+                };
 
-                // in unified mode, for now we hard-code LOD range on mobile vs desktop
-                gsplat.lodRangeMin = low[0];
-                gsplat.lodRangeMax = low[1];
+                // start in low quality mode so we can get user interacting asap
+                gsplat.lodRangeMin = quality.low.range[0];
+                gsplat.lodRangeMax = quality.low.range[1];
+                gsplat.splatBudget = quality.low.splatBudget * 1000000;
 
                 // these two allow LOD behind camera to drop, saves lots of splats
                 gsplat.lodUpdateAngle = 90;
@@ -349,23 +358,31 @@ class Viewer {
 
                 const eventHandler = app.systems.gsplat;
 
-                // force render empty frames otherwise unified rendering doesn't update
+                // we must force continuous rendering with streaming & lod system
                 this.forceRenderNextFrame = true;
 
                 let current = 0;
                 let watermark = 1;
                 const readyHandler = (camera: CameraComponent, layer: Layer, ready: boolean, loading: number) => {
-                    if (ready && !loading) {
+                    if (ready && loading === 0) {
                         // scene is done loading
-
                         eventHandler.off('frame:ready', readyHandler);
 
-                        this.forceRenderNextFrame = false;
                         state.readyToRender = true;
 
-                        const range = platform.mobile ? low : high;
-                        gsplat.lodRangeMin = range[0];
-                        gsplat.lodRangeMax = range[1];
+                        // handle quality mode changes
+                        const updateLod = () => {
+                            const settings = state.hqMode ? quality.high : quality.low;
+                            gsplat.lodRangeMin = settings.range[0];
+                            gsplat.lodRangeMax = settings.range[1];
+                            gsplat.splatBudget = settings.splatBudget * 1000000;                            
+                            app.renderNextFrame = true;
+                        };
+                        events.on('hqMode:changed', updateLod);
+                        updateLod();
+
+                        // debug colorize lods
+                        gsplat.colorizeLod = config.colorize;
 
                         // wait for the first valid frame to complete rendering
                         app.once('frameend', () => {
@@ -376,10 +393,6 @@ class Viewer {
                         });
                     }
 
-                    if (ready) {
-                        app.renderNextFrame = true;
-                    }
-
                     // update loading status
                     if (loading !== current) {
                         watermark = Math.max(watermark, loading);
@@ -387,7 +400,6 @@ class Viewer {
                         state.progress = Math.trunc(current / watermark * 100);
                     }
                 };
-
                 eventHandler.on('frame:ready', readyHandler);
             }
         });

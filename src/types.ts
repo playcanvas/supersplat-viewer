@@ -16,6 +16,7 @@ type Config = {
     noui: boolean;
     noanim: boolean;
     ministats: boolean;
+    colorize: boolean;                          // render with LOD colorization
     unified: boolean;                           // force unified rendering mode
     aa: boolean;                                // render with antialiasing
 };
