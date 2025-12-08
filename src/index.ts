@@ -5,7 +5,6 @@ import {
     EventHandler,
     type Texture,
     type AppBase,
-    platform,
     revision as engineRevision,
     version as engineVersion
 } from 'playcanvas';
@@ -90,7 +89,7 @@ const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) =
 
     const state = observe(events, {
         readyToRender: false,
-        hqMode: !platform.mobile,
+        hqMode: true,
         progress: 0,
         inputMode: 'desktop',
         cameraMode: 'orbit',

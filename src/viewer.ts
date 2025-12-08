@@ -20,7 +20,8 @@ import {
     TONEMAP_ACES2,
     TONEMAP_NEUTRAL,
     Vec3,
-    GSplatComponent
+    GSplatComponent,
+    platform
 } from 'playcanvas';
 
 import { Annotations } from './annotations';
@@ -177,7 +178,12 @@ class Viewer {
 
         // handle HQ mode changes
         const updateHqMode = () => {
-            graphicsDevice.maxPixelRatio = state.hqMode ? window.devicePixelRatio : 1;
+            // keep resolution under 4k on desktop and HD on mobile
+            const maxRatio = window.devicePixelRatio * Math.max(screen.width, screen.height) / (platform.mobile ? 1920 : 3024);
+
+            // half pixel resolution with hq mode disabled
+            graphicsDevice.maxPixelRatio = (state.hqMode ? 1.0 : 0.5) * Math.min(maxRatio, window.devicePixelRatio);
+
             app.renderNextFrame = true;
         };
         events.on('hqMode:changed', updateHqMode);
@@ -332,16 +338,30 @@ class Viewer {
                 const { gsplat } = app.scene;
 
                 // quality ranges
-                const quality = {
-                    low: {
-                        range: [2, 8],
-                        splatBudget: 1
+                const ranges = {
+                    mobile: {
+                        low: {
+                            range: [2, 8],
+                            splatBudget: 1
+                        },
+                        high: {
+                            range: [1, 8],
+                            splatBudget: 2
+                        }
                     },
-                    high: {
-                        range: [0, 8],
-                        splatBudget: 4
+                    desktop: {
+                        low: {
+                            range: [1, 8],
+                            splatBudget: 3
+                        },
+                        high: {
+                            range: [0, 8],
+                            splatBudget: 6
+                        }
                     }
                 };
+
+                const quality = platform.mobile ? ranges.mobile : ranges.desktop;
 
                 // start in low quality mode so we can get user interacting asap
                 gsplat.lodRangeMin = quality.low.range[0];
