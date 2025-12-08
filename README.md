@@ -16,15 +16,18 @@ This is the official viewer for [SuperSplat](https://superspl.at).
 The web app compiles to a simple, self-contained static website.
 
 The app supports a few useful URL parameters (though please note these are subject to change):
-- `&settings=url` - specify the URL of the `settings.json` file (default is `./settings.json`)
-- `&content=url` - specify the URL of the `scene.compressed.ply` file (default is `./scene.compressed.ply`)
 
-Additional options:
-- `&noui` - hide UI
-- `&noanim` - start with animation paused
-- `&poster=url` - show an image while loading the scene content
-- `&ministats` - show the runtime CPU (and on desktop, GPU) performance graphs
-- `&skybox=url` - specify an equirectangular skybox image for the skybox
+| Parameter | Description | Default |
+| --------- | ----------- | ------- |
+| `settings` | URL of the `settings.json` file | `./settings.json` |
+| `content` | URL of the scene file (`.ply`, `.sog`, `.meta.json`, `.lod-meta.json`) | `./scene.compressed.ply` |
+| `skybox` | URL of an equirectangular skybox image | |
+| `poster` | URL of an image to show while loading | |
+| `noui` | Hide UI | |
+| `noanim` | Start with animation paused | |
+| `ministats` | Show runtime CPU/GPU performance graphs | |
+| `unified` | Force unified rendering mode | |
+| `aa` | Enable antialiasing (not supported in unified mode) | |
 
 The web app source files are available as strings for templating when you import the package from npm:
 
