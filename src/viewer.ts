@@ -179,7 +179,7 @@ class Viewer {
         // handle HQ mode changes
         const updateHqMode = () => {
             // keep resolution under 4k on desktop and HD on mobile
-            const maxRatio = window.devicePixelRatio * Math.max(screen.width, screen.height) / (platform.mobile ? 1920 : 3024);
+            const maxRatio = (platform.mobile ? 1920 : 3024) / Math.max(screen.width, screen.height);
 
             // half pixel resolution with hq mode disabled
             graphicsDevice.maxPixelRatio = (state.hqMode ? 1.0 : 0.5) * Math.min(maxRatio, window.devicePixelRatio);
