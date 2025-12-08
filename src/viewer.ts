@@ -346,7 +346,7 @@ class Viewer {
                 // start in low quality mode so we can get user interacting asap
                 gsplat.lodRangeMin = quality.low.range[0];
                 gsplat.lodRangeMax = quality.low.range[1];
-                gsplat.splatBudget = quality.low.splatBudget * 1000000;
+                results[0].gsplat.splatBudget = quality.low.splatBudget * 1000000;
 
                 // these two allow LOD behind camera to drop, saves lots of splats
                 gsplat.lodUpdateAngle = 90;
@@ -374,7 +374,7 @@ class Viewer {
                             const settings = state.hqMode ? quality.high : quality.low;
                             gsplat.lodRangeMin = settings.range[0];
                             gsplat.lodRangeMax = settings.range[1];
-                            gsplat.splatBudget = settings.splatBudget * 1000000;
+                            results[0].gsplat.splatBudget = settings.splatBudget * 1000000;
                         };
                         events.on('hqMode:changed', updateLod);
                         updateLod();
