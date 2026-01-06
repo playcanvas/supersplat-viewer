@@ -178,8 +178,8 @@ class Viewer {
 
         // handle HQ mode changes
         const updateHqMode = () => {
-            // keep resolution under 4k on desktop and HD on mobile, but use the shorter screen side
-            // so ultra-wide monitors work correctly.
+            // limit the backbuffer to 4k on desktop and HD on mobile
+            // we use the shorter dimension so ultra-wide (or high) monitors still work correctly.
             const maxRatio = (platform.mobile ? 1080 : 2160) / Math.min(screen.width, screen.height);
 
             // half pixel resolution with hq mode disabled
