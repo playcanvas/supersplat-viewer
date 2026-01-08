@@ -34,12 +34,11 @@ import type { Global } from './types';
 
 // override global pick to pack depth instead of meshInstance id
 const pickDepthGlsl = /* glsl */ `
-vec4 packFloat(float depth) {
-    uvec4 u = (uvec4(floatBitsToUint(depth)) >> uvec4(0u, 8u, 16u, 24u)) & 0xffu;
-    return vec4(u) / 255.0;
-}
+uniform vec4 camera_params;     // 1/far, far, near, isOrtho
 vec4 getPickOutput() {
-    return packFloat(gl_FragCoord.z);
+    float linearDepth = 1.0 / gl_FragCoord.w;
+    float normalizedDepth = (linearDepth - camera_params.z) / (camera_params.y - camera_params.z);
+    return vec4(gaussianColor.a * normalizedDepth, 0.0, 0.0, gaussianColor.a);
 }
 `;
 
@@ -50,13 +49,11 @@ vec3 prepareOutputFromGamma(vec3 gammaColor) {
 `;
 
 const pickDepthWgsl = /* wgsl */ `
-    fn packFloat(depth: f32) -> vec4f {
-        let u: vec4<u32> = (vec4<u32>(bitcast<u32>(depth)) >> vec4<u32>(0u, 8u, 16u, 24u)) & vec4<u32>(0xffu);
-        return vec4f(u) / 255.0;
-    }
-
+    uniform camera_params: vec4f;       // 1/far, far, near, isOrtho
     fn getPickOutput() -> vec4f {
-        return packFloat(pcPosition.z);
+        let linearDepth = 1.0 / pcPosition.w;
+        let normalizedDepth = (linearDepth - uniform.camera_params.z) / (uniform.camera_params.y - uniform.camera_params.z);
+        return vec4f(gaussianColor.a * normalizedDepth, 0.0, 0.0, gaussianColor.a);
     }
 `;
 

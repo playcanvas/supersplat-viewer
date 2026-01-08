@@ -19,7 +19,9 @@ class Annotations {
         global.events.on('controlsHidden:changed', (value) => {
             parentDom.style.display = value ? 'none' : 'block';
             Annotation.opacity = value ? 0.0 : 1.0;
-            global.app.renderNextFrame = true;
+            if (this.annotations.length > 0) {
+                global.app.renderNextFrame = true;
+            }
         });
 
         this.annotations = global.settings.annotations;

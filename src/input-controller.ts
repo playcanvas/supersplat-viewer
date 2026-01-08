@@ -172,7 +172,7 @@ class InputController {
                     if (!picker) {
                         picker = new Picker(app, camera);
                     }
-                    const result = await picker.pick(event.offsetX, event.offsetY);
+                    const result = await picker.pick(event.offsetX / canvas.clientWidth, event.offsetY / canvas.clientHeight);
                     if (result) {
                         events.fire('pick', result);
                     }
