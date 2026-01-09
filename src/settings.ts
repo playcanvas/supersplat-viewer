@@ -95,7 +95,7 @@ const migrateV2 = (v1: V1): V2 => {
             }
         }],
         annotations: [],
-        startMode: v1.camera.startAnim === 'animTrack' ? 'animTrack' : 'default',
+        startMode: v1.camera.startAnim === 'none' ? 'none' : v1.camera.startAnim === 'animTrack' ? 'animTrack' : 'default',
         hasStartPose: !!(v1.camera.position && v1.camera.target)
     };
 };
