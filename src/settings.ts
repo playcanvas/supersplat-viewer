@@ -91,7 +91,7 @@ const migrateV2 = (v1: V1): V2 => {
             initial: {
                 position: (v1.camera.position || [0, 0, 5]) as [number, number, number],
                 target: (v1.camera.target || [0, 0, 0]) as [number, number, number],
-                fov: v1.camera.fov || 65
+                fov: v1.camera.fov || 75
             }
         }],
         annotations: [],
