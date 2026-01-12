@@ -33,10 +33,13 @@ const loadGsplat = async (app: AppBase, config: Config, progressCallback: (progr
                 asset
             });
             // don't support AA in unified mode yet
-            if (aa && !entity.gsplat.unified) {
-                entity.gsplat.material.setDefine('GSPLAT_AA', true);
+            if (!entity.gsplat.unified) {
+                if (aa) {
+                    entity.gsplat.material.setDefine('GSPLAT_AA', true);
+                }
+                // require for depth
+                entity.gsplat.material?.setParameter('alphaClip', 1 / 255);
             }
-            entity.gsplat.material.setParameter('alphaClip', 1 / 255);
             app.root.addChild(entity);
             resolve(entity);
         });
