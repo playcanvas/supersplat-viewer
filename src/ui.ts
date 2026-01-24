@@ -63,7 +63,9 @@ const initUI = (global: Global) => {
     });
 
     // Fullscreen support
-    // Use fullscreenEnabled to detect if fullscreen is allowed (accounts for permissions policy)
+    // Use fullscreenEnabled to detect if native fullscreen API is available and permitted.
+    // When false (iOS, or iframe without allow="fullscreen"), fall back to postMessage
+    // which allows the parent page to handle fullscreen (e.g., by resizing the iframe).
     const hasFullscreenAPI = document.fullscreenEnabled;
 
     const requestFullscreen = () => {
@@ -90,24 +92,20 @@ const initUI = (global: Global) => {
         document.addEventListener('fullscreenchange', () => {
             state.isFullscreen = !!document.fullscreenElement;
         });
-
-        dom.enterFullscreen.addEventListener('click', requestFullscreen);
-        dom.exitFullscreen.addEventListener('click', exitFullscreen);
-
-        // toggle fullscreen when user switches between landscape portrait
-        // orientation
-        screen?.orientation?.addEventListener('change', (event) => {
-            if (['landscape-primary', 'landscape-secondary'].includes(screen.orientation.type)) {
-                requestFullscreen();
-            } else {
-                exitFullscreen();
-            }
-        });
-    } else {
-        // Hide fullscreen buttons if fullscreen is not available
-        dom.enterFullscreen.classList.add('hidden');
-        dom.exitFullscreen.classList.add('hidden');
     }
+
+    dom.enterFullscreen.addEventListener('click', requestFullscreen);
+    dom.exitFullscreen.addEventListener('click', exitFullscreen);
+
+    // toggle fullscreen when user switches between landscape portrait
+    // orientation
+    screen?.orientation?.addEventListener('change', (event) => {
+        if (['landscape-primary', 'landscape-secondary'].includes(screen.orientation.type)) {
+            requestFullscreen();
+        } else {
+            exitFullscreen();
+        }
+    });
 
     // update UI when fullscreen state changes
     events.on('isFullscreen:changed', (value) => {
