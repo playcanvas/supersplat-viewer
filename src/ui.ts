@@ -63,11 +63,12 @@ const initUI = (global: Global) => {
     });
 
     // Fullscreen support
-    const hasFullscreenAPI = docRoot.requestFullscreen && document.exitFullscreen;
+    // Use fullscreenEnabled to detect if fullscreen is allowed (accounts for permissions policy)
+    const hasFullscreenAPI = document.fullscreenEnabled;
 
     const requestFullscreen = () => {
         if (hasFullscreenAPI) {
-            docRoot.requestFullscreen();
+            docRoot.requestFullscreen().catch(() => {});
         } else {
             window.parent.postMessage('requestFullscreen', '*');
             state.isFullscreen = true;
@@ -76,7 +77,9 @@ const initUI = (global: Global) => {
 
     const exitFullscreen = () => {
         if (hasFullscreenAPI) {
-            document.exitFullscreen();
+            if (document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+            }
         } else {
             window.parent.postMessage('exitFullscreen', '*');
             state.isFullscreen = false;
@@ -87,20 +90,24 @@ const initUI = (global: Global) => {
         document.addEventListener('fullscreenchange', () => {
             state.isFullscreen = !!document.fullscreenElement;
         });
+
+        dom.enterFullscreen.addEventListener('click', requestFullscreen);
+        dom.exitFullscreen.addEventListener('click', exitFullscreen);
+
+        // toggle fullscreen when user switches between landscape portrait
+        // orientation
+        screen?.orientation?.addEventListener('change', (event) => {
+            if (['landscape-primary', 'landscape-secondary'].includes(screen.orientation.type)) {
+                requestFullscreen();
+            } else {
+                exitFullscreen();
+            }
+        });
+    } else {
+        // Hide fullscreen buttons if fullscreen is not available
+        dom.enterFullscreen.classList.add('hidden');
+        dom.exitFullscreen.classList.add('hidden');
     }
-
-    dom.enterFullscreen.addEventListener('click', requestFullscreen);
-    dom.exitFullscreen.addEventListener('click', exitFullscreen);
-
-    // toggle fullscreen when user switches between landscape portrait
-    // orientation
-    screen?.orientation?.addEventListener('change', (event) => {
-        if (['landscape-primary', 'landscape-secondary'].includes(screen.orientation.type)) {
-            requestFullscreen();
-        } else {
-            exitFullscreen();
-        }
-    });
 
     // update UI when fullscreen state changes
     events.on('isFullscreen:changed', (value) => {
