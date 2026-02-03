@@ -1,6 +1,7 @@
 import { Entity } from 'playcanvas';
 
 import { Annotation } from './annotation';
+import { AnnotationNavigator } from './annotation-navigator';
 import type { Annotation as AnnotationSettings } from './settings';
 import type { Global } from './types';
 
@@ -8,6 +9,8 @@ class Annotations {
     annotations: AnnotationSettings[];
 
     parentDom: HTMLElement;
+
+    navigator: AnnotationNavigator | null = null;
 
     constructor(global: Global, hasCameraFrame: boolean) {
         // create dom parent
@@ -35,6 +38,8 @@ class Annotations {
         // create annotation entities
         const parent = global.app.root;
 
+        const annotationEntries: Array<{ settings: AnnotationSettings; instance: Annotation }> = [];
+
         for (let i = 0; i < this.annotations.length; i++) {
             const ann = this.annotations[i];
 
@@ -42,23 +47,30 @@ class Annotations {
             entity.addComponent('script');
             entity.script.create(Annotation);
             const script = entity.script as any;
-            script.annotation.label = (i + 1).toString();
-            script.annotation.title = ann.title;
-            script.annotation.text = ann.text;
+            const instance = script.annotation as Annotation;
+            instance.label = (i + 1).toString();
+            instance.title = ann.title;
+            instance.text = ann.text;
 
             entity.setPosition(ann.position[0], ann.position[1], ann.position[2]);
 
             parent.addChild(entity);
 
             // handle an annotation being activated/shown
-            script.annotation.on('show', () => {
+            annotationEntries.push({ settings: ann, instance });
+
+            instance.on('show', () => {
                 global.events.fire('annotation.activate', ann);
             });
 
             // re-render if hover state changes
-            script.annotation.on('hover', (hover: boolean) => {
+            instance.on('hover', (hover: boolean) => {
                 global.app.renderNextFrame = true;
             });
+        }
+
+        if (annotationEntries.length > 0) {
+            this.navigator = new AnnotationNavigator(global, annotationEntries);
         }
     }
 }

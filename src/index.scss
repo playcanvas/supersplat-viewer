@@ -441,3 +441,101 @@ button {
 #annotations * {
     pointer-events: auto;
 }
+
+#annotationNavigator {
+    position: fixed;
+    left: 50%;
+    bottom: calc(max(16px, env(safe-area-inset-bottom)) + 72px);
+    transform: translateX(-50%);
+    z-index: 3;
+
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    width: 320px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    max-width: calc(100% - 32px);
+
+    color: $clr-text-light;
+    background-color: rgba($clr-bkg-darkest, 0.85);
+    border: 1px solid rgba($clr-text-darkest, 0.6);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(6px);
+}
+
+#annotationNavigator .annotationNavigator-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0 2px;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#annotationNavigator .annotationNavigator-button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    cursor: pointer;
+
+    display: grid;
+    place-items: center;
+
+    color: $clr-text-light;
+    background-color: transparent;
+    opacity: 0.75;
+    transition: opacity 150ms ease, transform 120ms ease;
+
+    > svg {
+        width: 16px;
+        height: 16px;
+        display: block;
+    }
+
+    &:hover {
+        opacity: 1;
+    }
+
+    &:active {
+        transform: translateY(1px);
+        opacity: 0.9;
+    }
+}
+
+@media (max-width: 640px) {
+    #annotationNavigator {
+        top: 50%;
+        left: 0;
+        right: 0;
+        bottom: auto;
+        transform: translateY(-50%);
+
+        width: 100%;
+        max-width: none;
+        padding: 0 max(24px, env(safe-area-inset-right)) 0 max(24px, env(safe-area-inset-left));
+        gap: 0;
+        justify-content: space-between;
+
+        background-color: transparent;
+        border: 0;
+        box-shadow: none;
+        backdrop-filter: none;
+    }
+
+    #annotationNavigator .annotationNavigator-title {
+        display: none;
+    }
+
+    #annotationNavigator .annotationNavigator-button {
+        width: 44px;
+        height: 44px;
+        opacity: 0.85;
+    }
+}
