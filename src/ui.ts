@@ -17,7 +17,7 @@ const initJoystick = (
 
     // Fixed joystick position (bottom-left corner with safe area)
     const joystickFixedX = 60;
-    const joystickFixedY = () => window.innerHeight - 100;
+    const joystickFixedY = () => window.innerHeight - 140;
 
     // Joystick touch state
     let joystickPointerId: number | null = null;
