@@ -5,6 +5,96 @@ import { Global } from './types';
 
 const v = new Vec3();
 
+// Initialize the touch joystick for fly mode camera control
+const initJoystick = (
+    dom: Record<string, HTMLElement>,
+    events: EventHandler,
+    state: { cameraMode: string; inputMode: string }
+) => {
+    // Joystick dimensions (matches SCSS: base height=120, stick size=48)
+    const joystickHeight = 120;
+    const stickSize = 48;
+    const stickCenterY = (joystickHeight - stickSize) / 2; // 36px - top position when centered
+    const maxStickTravel = stickCenterY; // can travel 36px up or down from center
+
+    // Fixed joystick position (bottom-left corner with safe area)
+    const joystickFixedX = 60;
+    const joystickFixedY = () => window.innerHeight - 100;
+
+    // Joystick touch state
+    let joystickPointerId: number | null = null;
+    let joystickValue = 0; // -1 to 1, negative = forward, positive = backward
+
+    // Update joystick visibility based on camera mode and input mode
+    const updateJoystickVisibility = () => {
+        if (state.cameraMode === 'fly' && state.inputMode === 'touch') {
+            dom.joystickBase.classList.remove('hidden');
+            dom.joystickBase.style.left = `${joystickFixedX}px`;
+            dom.joystickBase.style.top = `${joystickFixedY()}px`;
+            // Center the stick vertically (top edge at 36px)
+            dom.joystick.style.top = `${stickCenterY}px`;
+        } else {
+            dom.joystickBase.classList.add('hidden');
+        }
+    };
+
+    events.on('cameraMode:changed', updateJoystickVisibility);
+    events.on('inputMode:changed', updateJoystickVisibility);
+    window.addEventListener('resize', updateJoystickVisibility);
+
+    // Handle joystick touch input directly on the joystick element
+    const updateJoystickStick = (clientY: number) => {
+        const baseY = joystickFixedY();
+        // Calculate offset from joystick center (positive = down/backward)
+        const offsetY = clientY - baseY;
+        // Clamp to max travel and normalize to -1 to 1
+        const clampedOffset = Math.max(-maxStickTravel, Math.min(maxStickTravel, offsetY));
+        joystickValue = clampedOffset / maxStickTravel;
+
+        // Update stick visual position
+        dom.joystick.style.top = `${stickCenterY + clampedOffset}px`;
+
+        // Fire input event for the input controller
+        events.fire('joystickInput', joystickValue);
+    };
+
+    dom.joystickBase.addEventListener('pointerdown', (event: PointerEvent) => {
+        if (joystickPointerId !== null) return; // Already tracking a touch
+
+        joystickPointerId = event.pointerId;
+        dom.joystickBase.setPointerCapture(event.pointerId);
+
+        updateJoystickStick(event.clientY);
+        event.preventDefault();
+        event.stopPropagation();
+    });
+
+    dom.joystickBase.addEventListener('pointermove', (event: PointerEvent) => {
+        if (event.pointerId !== joystickPointerId) return;
+
+        updateJoystickStick(event.clientY);
+        event.preventDefault();
+    });
+
+    const endJoystickTouch = (event: PointerEvent) => {
+        if (event.pointerId !== joystickPointerId) return;
+
+        joystickPointerId = null;
+        joystickValue = 0;
+
+        // Reset stick to center
+        dom.joystick.style.top = `${stickCenterY}px`;
+
+        // Fire input event with zero value
+        events.fire('joystickInput', 0);
+
+        dom.joystickBase.releasePointerCapture(event.pointerId);
+    };
+
+    dom.joystickBase.addEventListener('pointerup', endJoystickTouch);
+    dom.joystickBase.addEventListener('pointercancel', endJoystickTouch);
+};
+
 // update the poster image to start blurry and then resolve to sharp during loading
 const initPoster = (events: EventHandler) => {
     const poster = document.getElementById('poster');
@@ -313,24 +403,8 @@ const initUI = (global: Global) => {
         events.fire('inputEvent', 'frame', event);
     });
 
-    // update UI based on touch joystick updates
-    events.on('touchJoystickUpdate', (base, stick) => {
-        if (base === null) {
-            dom.joystickBase.classList.add('hidden');
-        } else {
-            v.set(stick[0], stick[1], 0).mulScalar(1 / 48);
-            if (v.length() > 1) {
-                v.normalize();
-            }
-            v.mulScalar(48);
-
-            dom.joystickBase.classList.remove('hidden');
-            dom.joystickBase.style.left = `${base[0]}px`;
-            dom.joystickBase.style.top = `${base[1]}px`;
-            dom.joystick.style.left = `${48 + v.x}px`;
-            dom.joystick.style.top = `${48 + v.y}px`;
-        }
-    });
+    // Initialize touch joystick for fly mode
+    initJoystick(dom, events, state);
 
     // Hide all UI (poster, loading bar, controls)
     if (config.noui) {

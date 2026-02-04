@@ -397,24 +397,26 @@ button {
 
 #joystickBase {
     position: absolute;
-    width: 96px;
-    height: 96px;
+    width: 64px;
+    height: 120px;
     transform: translate(-50%, -50%);
-    border-radius: 50%;
+    border-radius: 32px;
     touch-action: none;
 
-    background: radial-gradient(circle at center, #0000 50%, #000f 100%);
-    background-color: #0002;
+    background: linear-gradient(180deg, #0004 0%, #0000 30%, #0000 70%, #0004 100%);
+    background-color: #0003;
+    border: 2px solid #fff3;
 
     > #joystick {
         position: absolute;
+        left: 8px;  // (64 - 48) / 2 = 8px to center horizontally
         width: 48px;
         height: 48px;
-        transform: translate(-50%, -50%);
         border-radius: 50%;
         touch-action: none;
 
         background-color: #fff8;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     }
 }
 
