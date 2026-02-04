@@ -1,6 +1,5 @@
 import {
     math,
-    DualGestureSource,
     GamepadSource,
     InputFrame,
     KeyboardMouseSource,
@@ -90,8 +89,6 @@ class InputController {
 
     private _orbitInput = new MultiTouchSource();
 
-    private _flyInput = new DualGestureSource();
-
     private _gamepadInput = new GamepadSource();
 
     global: Global;
@@ -119,7 +116,6 @@ class InputController {
 
         this._desktopInput.attach(canvas);
         this._orbitInput.attach(canvas);
-        this._flyInput.attach(canvas);
 
         // Listen for joystick input from the UI (touch joystick element)
         events.on('joystickInput', (value: number) => {
@@ -211,10 +207,9 @@ class InputController {
 
         const { key, button, mouse, wheel } = this._desktopInput.read();
         const { touch, pinch, count } = this._orbitInput.read();
-        const { leftInput, rightInput } = this._flyInput.read();
         const { leftStick, rightStick } = this._gamepadInput.read();
 
-        const { events, state } = this.global;
+        const { state } = this.global;
         const { camera } = this.global.camera;
 
         // update state

@@ -1,9 +1,7 @@
-import { EventHandler, Vec3 } from 'playcanvas';
+import { EventHandler } from 'playcanvas';
 
 import { Tooltip } from './tooltip';
 import { Global } from './types';
-
-const v = new Vec3();
 
 // Initialize the touch joystick for fly mode camera control
 const initJoystick = (
