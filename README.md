@@ -22,6 +22,8 @@ The app supports a few useful URL parameters (though please note these are subje
 | `settings` | URL of the `settings.json` file | `./settings.json` |
 | `content` | URL of the scene file (`.ply`, `.sog`, `.meta.json`, `.lod-meta.json`) | `./scene.compressed.ply` |
 | `skybox` | URL of an equirectangular skybox image | |
+| `skyprojection` | Projection for `skybox` (`box` or `dome`) | |
+| `skydome` | Alias for `skybox` with `skyprojection=dome` | |
 | `poster` | URL of an image to show while loading | |
 | `noui` | Hide UI | |
 | `noanim` | Start with animation paused | |
@@ -101,7 +103,13 @@ type ExperienceSettings = {
         animTrack: string
     },
     background: {
-        color?: number[]
+        color?: number[],
+        skybox?: {
+            url?: string,
+            projection?: 'box' | 'dome',
+            scale?: number,
+            center?: number[]
+        }
     },
     animTracks: AnimTrack[]
 };
