@@ -395,6 +395,51 @@ button {
     }
 }
 
+/* cameraInfoPanel */
+#cameraInfoPanel {
+    position: fixed;
+    top: 16px;
+    right: max(16px, env(safe-area-inset-right));
+    min-width: 320px;
+    padding: 16px;
+    border-radius: 8px;
+
+    display: flex;
+    flex-direction: column;
+
+    font-size: 14px;
+
+    color: $clr-text;
+    background-color: rgba($clr-bkg, 0.8);
+
+    h1 {
+        font-size: 14px;
+        font-weight: bold;
+        padding: 0 0 6px 0;
+        color: $clr-text-light;
+    }
+
+    .control-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 32px;
+        line-height: 1.5;
+
+        > .control-action {
+            text-align: left;
+        }
+
+        > .control-key {
+            text-align: right;
+        }
+    }
+
+    .control-spacer {
+        border-bottom: 1px dashed #666;
+        margin: 10px 0;
+    }
+}
+
 #joystickBase {
     position: absolute;
     width: 96px;
