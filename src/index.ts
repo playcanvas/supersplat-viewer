@@ -83,6 +83,31 @@ const loadSkybox = (app: AppBase, url: string) => {
     });
 };
 
+const loadSkydome = (app: AppBase, url: string) => {
+    return new Promise<Asset>((resolve, reject) => {
+        const asset = new Asset('skydome', 'texture', {
+            url
+        }, {
+            type: 'rgbp',
+            mipmaps: false,
+            addressu: 'repeat',
+            addressv: 'clamp'
+        });
+
+        asset.on('load', () => {
+            resolve(asset);
+        });
+
+        asset.on('error', (err) => {
+            console.log(err);
+            reject(err);
+        });
+
+        app.assets.add(asset);
+        app.assets.load(asset);
+    });
+};
+
 const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) => {
     const events = new EventHandler();
 
@@ -133,11 +158,21 @@ const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) =
         }
     );
 
-    // Load skybox
-    const skyboxLoad = config.skyboxUrl &&
-        loadSkybox(app, config.skyboxUrl).then((asset) => {
+    const settingsSkybox = global.settings.background?.skybox;
+    const skyboxUrl = config.skyboxUrl ?? settingsSkybox?.url;
+    const skyboxProjection = config.skyboxProjection ?? settingsSkybox?.projection;
+
+    // Load skybox (box projection) for background/IBL
+    const skyboxLoad = skyboxUrl && skyboxProjection !== 'dome' ?
+        loadSkybox(app, skyboxUrl).then((asset) => {
             app.scene.envAtlas = asset.resource as Texture;
-        });
+        }) :
+        Promise.resolve();
+
+    // Load skydome (dome projection) for background only
+    const skydomeLoad = skyboxUrl && skyboxProjection === 'dome' ?
+        loadSkydome(app, skyboxUrl).then((asset) => asset.resource as Texture) :
+        Promise.resolve(null);
 
     // Load and play sound
     if (global.settings.soundUrl) {
@@ -154,7 +189,7 @@ const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) =
     }
 
     // Create the viewer
-    return new Viewer(global, gsplatLoad, skyboxLoad);
+    return new Viewer(global, gsplatLoad, skyboxLoad, skydomeLoad);
 };
 
 console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engineRevision})`);

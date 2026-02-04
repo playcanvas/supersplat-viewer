@@ -10,6 +10,7 @@ type InputMode = 'desktop' | 'touch';
 type Config = {
     poster?: HTMLImageElement;
     skyboxUrl?: string;
+    skyboxProjection?: 'box' | 'dome';
     contentUrl?: string;
     contents?: Promise<Response>;
 

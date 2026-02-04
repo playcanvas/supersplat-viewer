@@ -3,12 +3,16 @@ import {
     CameraFrame,
     type CameraComponent,
     Color,
-    type Entity,
+    Entity,
     type Layer,
+    type Texture,
     RenderTarget,
     Mat4,
+    Mesh,
+    MeshInstance,
     MiniStats,
     ShaderChunks,
+    StandardMaterial,
     type TextureHandler,
     PIXELFORMAT_RGBA16F,
     PIXELFORMAT_RGBA32F,
@@ -21,7 +25,10 @@ import {
     TONEMAP_NEUTRAL,
     Vec3,
     GSplatComponent,
-    platform
+    platform,
+    DomeGeometry,
+    CULLFACE_FRONT,
+    LAYERID_SKYBOX
 } from 'playcanvas';
 
 import { Annotations } from './annotations';
@@ -134,7 +141,9 @@ class Viewer {
 
     forceRenderNextFrame = false;
 
-    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void>) {
+    skydomeEntity: Entity | null = null;
+
+    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void>, skydomeLoad: Promise<Texture | null>) {
         this.global = global;
 
         const { app, settings, config, events, state, camera } = global;
@@ -244,6 +253,14 @@ class Viewer {
             }
         });
 
+        const skydomeCenter = new Vec3(0, 0, 0);
+        const skyboxSettings = settings.background?.skybox;
+        if (skyboxSettings?.center && skyboxSettings.center.length >= 3) {
+            skydomeCenter.set(skyboxSettings.center[0], skyboxSettings.center[1], skyboxSettings.center[2]);
+        }
+
+        let skydomeRadius = 0;
+
         const applyCamera = (camera: Camera) => {
             const cameraEntity = global.camera;
 
@@ -258,8 +275,14 @@ class Viewer {
             vec.sub2(sceneBound.center, camera.position);
             const dist = vec.dot(cameraEntity.forward);
 
-            const far = Math.max(dist + boundRadius, 1e-2);
+            let far = Math.max(dist + boundRadius, 1e-2);
             const near = Math.max(dist - boundRadius, far / (1024 * 16));
+
+            if (skydomeRadius > 0) {
+                vec.sub2(skydomeCenter, camera.position);
+                const domeFar = vec.length() + skydomeRadius;
+                far = Math.max(far, domeFar);
+            }
 
             cameraEntity.camera.farClip = far;
             cameraEntity.camera.nearClip = near;
@@ -290,8 +313,9 @@ class Viewer {
         });
 
         // wait for the model to load
-        Promise.all([gsplatLoad, skyboxLoad]).then((results) => {
+        Promise.all([gsplatLoad, skyboxLoad, skydomeLoad]).then((results) => {
             const gsplat = results[0].gsplat as GSplatComponent;
+            const skydomeTexture = results[2];
 
             // get scene bounding box
             const gsplatBbox = gsplat.customAabb;
@@ -301,6 +325,39 @@ class Viewer {
 
             if (!config.noui) {
                 this.annotations = new Annotations(global, this.cameraFrame != null);
+            }
+
+            if (skydomeTexture) {
+                const geometry = new DomeGeometry({
+                    latitudeBands: 32,
+                    longitudeBands: 64
+                });
+                const mesh = Mesh.fromGeometry(graphicsDevice, geometry);
+                const material = new StandardMaterial();
+                material.useLighting = false;
+                material.emissive = new Color(1, 1, 1);
+                material.emissiveMap = skydomeTexture;
+                material.cull = CULLFACE_FRONT;
+                material.depthWrite = false;
+                material.depthTest = false;
+                material.update();
+
+                const meshInstance = new MeshInstance(mesh, material);
+                const skydomeEntity = new Entity('skydome');
+                skydomeEntity.addComponent('render', {
+                    layers: [LAYERID_SKYBOX],
+                    meshInstances: [meshInstance]
+                });
+
+                const boundRadius = sceneBound.halfExtents.length();
+                const scaleSetting = skyboxSettings?.scale;
+                const scale = scaleSetting ?? Math.max(boundRadius * 4, 10);
+                skydomeRadius = scale * 0.5;
+                skydomeEntity.setLocalScale(scale, scale, scale);
+                skydomeEntity.setPosition(skydomeCenter);
+
+                app.root.addChild(skydomeEntity);
+                this.skydomeEntity = skydomeEntity;
             }
 
             this.inputController = new InputController(global);

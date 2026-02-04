@@ -70,7 +70,12 @@ type ExperienceSettings = {
     soundUrl?: string,
     background: {
         color: [number, number, number],
-        skyboxUrl?: string
+        skybox?: {
+            url?: string,
+            projection?: 'box' | 'dome',
+            scale?: number,
+            center?: number[]
+        }
     },
     postEffectSettings: PostEffectSettings,
 
