@@ -280,7 +280,7 @@ class Viewer {
 
             if (skydomeRadius > 0) {
                 vec.sub2(skydomeCenter, camera.position);
-                const domeFar = vec.length() + skydomeRadius;
+                const domeFar = vec.length() + skydomeRadius*2;
                 far = Math.max(far, domeFar);
             }
 
