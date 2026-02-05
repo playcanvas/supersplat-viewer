@@ -299,7 +299,7 @@ class InputController {
         v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * dt));
         // In fly mode, use any touch for look-around (joystick captures its own touches)
         // Exclude multi-touch (double) to avoid interference with pinch gestures
-        // 1.5x sensitivity for touch look-around
+        // 1.25x sensitivity for touch look-around
         flyRotate.set(touch[0], touch[1], 0);
         v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * 1.25 * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
