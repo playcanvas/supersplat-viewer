@@ -13,6 +13,7 @@ const initJoystick = (
     const joystickHeight = 120;
     const stickSize = 48;
     const stickCenterY = (joystickHeight - stickSize) / 2; // 36px - top position when centered
+    const stickCenterX = (joystickHeight - stickSize) / 2; // 36px - left position when centered (for 2D mode)
     const maxStickTravel = stickCenterY; // can travel 36px up or down from center
 
     // Fixed joystick position (bottom-left corner with safe area)
@@ -21,16 +22,29 @@ const initJoystick = (
 
     // Joystick touch state
     let joystickPointerId: number | null = null;
-    let joystickValue = 0; // -1 to 1, negative = forward, positive = backward
+    let joystickValueX = 0; // -1 to 1, negative = left, positive = right
+    let joystickValueY = 0; // -1 to 1, negative = forward, positive = backward
+
+    // Joystick mode: '1d' for vertical only, '2d' for full directional
+    let joystickMode: '1d' | '2d' = '1d';
+
+    // Double-tap detection for mode toggle
+    let lastTapTime = 0;
 
     // Update joystick visibility based on camera mode and input mode
     const updateJoystickVisibility = () => {
         if (state.cameraMode === 'fly' && state.inputMode === 'touch') {
             dom.joystickBase.classList.remove('hidden');
+            dom.joystickBase.classList.toggle('mode-2d', joystickMode === '2d');
             dom.joystickBase.style.left = `${joystickFixedX}px`;
             dom.joystickBase.style.top = `${joystickFixedY()}px`;
-            // Center the stick vertically (top edge at 36px)
+            // Center the stick
             dom.joystick.style.top = `${stickCenterY}px`;
+            if (joystickMode === '2d') {
+                dom.joystick.style.left = `${stickCenterX}px`;
+            } else {
+                dom.joystick.style.left = '8px'; // Reset to 1D centered position
+            }
         } else {
             dom.joystickBase.classList.add('hidden');
         }
@@ -41,28 +55,51 @@ const initJoystick = (
     window.addEventListener('resize', updateJoystickVisibility);
 
     // Handle joystick touch input directly on the joystick element
-    const updateJoystickStick = (clientY: number) => {
+    const updateJoystickStick = (clientX: number, clientY: number) => {
         const baseY = joystickFixedY();
-        // Calculate offset from joystick center (positive = down/backward)
+        // Calculate Y offset from joystick center (positive = down/backward)
         const offsetY = clientY - baseY;
         // Clamp to max travel and normalize to -1 to 1
-        const clampedOffset = Math.max(-maxStickTravel, Math.min(maxStickTravel, offsetY));
-        joystickValue = clampedOffset / maxStickTravel;
+        const clampedOffsetY = Math.max(-maxStickTravel, Math.min(maxStickTravel, offsetY));
+        joystickValueY = clampedOffsetY / maxStickTravel;
 
-        // Update stick visual position
-        dom.joystick.style.top = `${stickCenterY + clampedOffset}px`;
+        // Update stick visual Y position
+        dom.joystick.style.top = `${stickCenterY + clampedOffsetY}px`;
+
+        // Handle X axis in 2D mode
+        if (joystickMode === '2d') {
+            const baseX = joystickFixedX;
+            const offsetX = clientX - baseX;
+            const clampedOffsetX = Math.max(-maxStickTravel, Math.min(maxStickTravel, offsetX));
+            joystickValueX = clampedOffsetX / maxStickTravel;
+
+            // Update stick visual X position
+            dom.joystick.style.left = `${stickCenterX + clampedOffsetX}px`;
+        } else {
+            joystickValueX = 0;
+        }
 
         // Fire input event for the input controller
-        events.fire('joystickInput', joystickValue);
+        events.fire('joystickInput', { x: joystickValueX, y: joystickValueY });
     };
 
     dom.joystickBase.addEventListener('pointerdown', (event: PointerEvent) => {
+        // Double-tap detection for mode toggle
+        const now = Date.now();
+        if (now - lastTapTime < 300) {
+            joystickMode = joystickMode === '1d' ? '2d' : '1d';
+            updateJoystickVisibility();
+            lastTapTime = 0;
+        } else {
+            lastTapTime = now;
+        }
+
         if (joystickPointerId !== null) return; // Already tracking a touch
 
         joystickPointerId = event.pointerId;
         dom.joystickBase.setPointerCapture(event.pointerId);
 
-        updateJoystickStick(event.clientY);
+        updateJoystickStick(event.clientX, event.clientY);
         event.preventDefault();
         event.stopPropagation();
     });
@@ -70,7 +107,7 @@ const initJoystick = (
     dom.joystickBase.addEventListener('pointermove', (event: PointerEvent) => {
         if (event.pointerId !== joystickPointerId) return;
 
-        updateJoystickStick(event.clientY);
+        updateJoystickStick(event.clientX, event.clientY);
         event.preventDefault();
     });
 
@@ -78,13 +115,17 @@ const initJoystick = (
         if (event.pointerId !== joystickPointerId) return;
 
         joystickPointerId = null;
-        joystickValue = 0;
+        joystickValueX = 0;
+        joystickValueY = 0;
 
         // Reset stick to center
         dom.joystick.style.top = `${stickCenterY}px`;
+        if (joystickMode === '2d') {
+            dom.joystick.style.left = `${stickCenterX}px`;
+        }
 
-        // Fire input event with zero value
-        events.fire('joystickInput', 0);
+        // Fire input event with zero values
+        events.fire('joystickInput', { x: 0, y: 0 });
 
         dom.joystickBase.releasePointerCapture(event.pointerId);
     };

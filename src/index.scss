@@ -407,6 +407,8 @@ button {
     background-color: #0003;
     border: 2px solid #fff3;
 
+    transition: width 0.2s ease, height 0.2s ease, border-radius 0.2s ease;
+
     > #joystick {
         position: absolute;
         left: 8px;  // (64 - 48) / 2 = 8px to center horizontally
@@ -417,6 +419,21 @@ button {
 
         background-color: #fff8;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+
+        transition: left 0.1s ease;
+    }
+
+    // 2D mode: square joystick with full directional movement
+    &.mode-2d {
+        width: 120px;
+        height: 120px;
+        border-radius: 60px;
+        background: radial-gradient(circle, #0000 40%, #0004 100%);
+        background-color: #0003;
+
+        > #joystick {
+            left: 36px;  // (120 - 48) / 2 = 36px to center horizontally
+        }
     }
 }
 

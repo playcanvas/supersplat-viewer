@@ -76,6 +76,28 @@ const screenToWorld = (camera: CameraComponent, dx: number, dy: number, dz: numb
     return out;
 };
 
+// patch keydown and keyup to ignore events with meta key otherwise
+// keys can get stuck on macOS.
+const patchKeyboardMeta = (desktopInput: any) => {
+    const origOnKeyDown = desktopInput._onKeyDown;
+    desktopInput._onKeyDown = (event: KeyboardEvent) => {
+        if (event.key === 'Meta') {
+            desktopInput._keyNow.fill(0);
+        } else if (!event.metaKey) {
+            origOnKeyDown(event);
+        }
+    };
+
+    const origOnKeyUp = desktopInput._onKeyUp;
+    desktopInput._onKeyUp = (event: KeyboardEvent) => {
+        if (event.key === 'Meta') {
+            desktopInput._keyNow.fill(0);
+        } else if (!event.metaKey) {
+            origOnKeyUp(event);
+        }
+    };
+};
+
 class InputController {
     private _state = {
         axis: new Vec3(),
@@ -98,8 +120,9 @@ class InputController {
         rotate: [0, 0, 0]
     });
 
-    // Touch joystick input value (-1 to 1, negative = forward)
-    private _touchJoystickValue: number = 0;
+    // Touch joystick input values (-1 to 1)
+    private _touchJoystickX: number = 0; // negative = left, positive = right
+    private _touchJoystickY: number = 0; // negative = forward, positive = backward
 
     // this gets overridden by the viewer based on scene size
     moveSpeed: number = 4;
@@ -114,12 +137,15 @@ class InputController {
         const { app, camera, events, state } = global;
         const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
 
+        patchKeyboardMeta(this._desktopInput);
+
         this._desktopInput.attach(canvas);
         this._orbitInput.attach(canvas);
 
         // Listen for joystick input from the UI (touch joystick element)
-        events.on('joystickInput', (value: number) => {
-            this._touchJoystickValue = value;
+        events.on('joystickInput', (value: { x: number; y: number }) => {
+            this._touchJoystickX = value.x;
+            this._touchJoystickY = value.y;
         });
 
         this.global = global;
@@ -259,8 +285,8 @@ class InputController {
         v.set(0, 0, 0);
         const orbitMove = screenToWorld(camera, touch[0], touch[1], distance);
         v.add(orbitMove.mulScalar(orbit * pan));
-        // Use touch joystick value for fly movement (negative = forward)
-        flyMove.set(0, 0, -this._touchJoystickValue);
+        // Use touch joystick values for fly movement (X = strafe, Y = forward/backward)
+        flyMove.set(this._touchJoystickX, 0, -this._touchJoystickY);
         v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
         pinchMove.set(0, 0, pinch[0]);
         v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * dt));
@@ -274,7 +300,7 @@ class InputController {
         // Exclude multi-touch (double) to avoid interference with pinch gestures
         // 1.5x sensitivity for touch look-around
         flyRotate.set(touch[0], touch[1], 0);
-        v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * 1.5 * dt));
+        v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * 1.25 * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // gamepad move
