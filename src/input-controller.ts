@@ -122,6 +122,7 @@ class InputController {
 
     // Touch joystick input values (-1 to 1)
     private _touchJoystickX: number = 0; // negative = left, positive = right
+
     private _touchJoystickY: number = 0; // negative = forward, positive = backward
 
     // this gets overridden by the viewer based on scene size
