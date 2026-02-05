@@ -17,7 +17,7 @@ const initJoystick = (
     const maxStickTravel = stickCenterY; // can travel 36px up or down from center
 
     // Fixed joystick position (bottom-left corner with safe area)
-    const joystickFixedX = 60;
+    const joystickFixedX = 70;
     const joystickFixedY = () => window.innerHeight - 140;
 
     // Joystick touch state
@@ -26,7 +26,7 @@ const initJoystick = (
     let joystickValueY = 0; // -1 to 1, negative = forward, positive = backward
 
     // Joystick mode: '1d' for vertical only, '2d' for full directional
-    let joystickMode: '1d' | '2d' = '1d';
+    let joystickMode: '1d' | '2d' = '2d';
 
     // Double-tap detection for mode toggle
     let lastTapTime = 0;
