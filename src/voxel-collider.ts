@@ -94,20 +94,6 @@ class VoxelCollider {
         { x: 0, y: 0, z: 0 }
     ];
 
-    /** Enable debug logging for querySphere */
-    debug = false;
-
-    // Debug state written by resolveDeepestPenetration, read by querySphere
-    private _debugPenetration = 0;
-
-    private _debugVoxelIx = 0;
-
-    private _debugVoxelIy = 0;
-
-    private _debugVoxelIz = 0;
-
-    private _debugSolidCount = 0;
-
     constructor(
         metadata: VoxelMetadata,
         nodes: Uint32Array,
@@ -212,11 +198,7 @@ class VoxelCollider {
         let numNormals = 0;
 
         for (let iter = 0; iter < maxIterations; iter++) {
-            const solidCount = this._debugSolidCount;
             if (!this.resolveDeepestPenetration(resolvedX, resolvedY, resolvedZ, radius)) {
-                if (this.debug) {
-                    console.log(`  iter ${iter}: no collision (${solidCount} solid voxels in AABB)`);
-                }
                 break;
             }
             hadCollision = true;
@@ -247,16 +229,6 @@ class VoxelCollider {
                 numNormals++;
             }
 
-            if (this.debug) {
-                console.log(
-                    `  iter ${iter}: raw=(${push.x.toFixed(4)}, ${push.y.toFixed(4)}, ${push.z.toFixed(4)})` +
-                    ` proj=(${px.toFixed(4)}, ${py.toFixed(4)}, ${pz.toFixed(4)})` +
-                    ` pen=${this._debugPenetration.toFixed(4)}` +
-                    ` voxel=(${this._debugVoxelIx}, ${this._debugVoxelIy}, ${this._debugVoxelIz})` +
-                    ` solidCount=${this._debugSolidCount}`
-                );
-            }
-
             resolvedX += px;
             resolvedY += py;
             resolvedZ += pz;
@@ -273,16 +245,6 @@ class VoxelCollider {
             out.x = totalPushX;
             out.y = totalPushY;
             out.z = totalPushZ;
-        }
-
-        if (this.debug && hadCollision) {
-            console.log(
-                `  TOTAL: in=(${cx.toFixed(4)}, ${cy.toFixed(4)}, ${cz.toFixed(4)})` +
-                ` push=(${totalPushX.toFixed(4)}, ${totalPushY.toFixed(4)}, ${totalPushZ.toFixed(4)})` +
-                ` |push|=${Math.sqrt(totalPushSq).toFixed(6)}` +
-                ` out=(${resolvedX.toFixed(4)}, ${resolvedY.toFixed(4)}, ${resolvedZ.toFixed(4)})` +
-                (hasSignificantPush ? '' : ' [SUPPRESSED - below epsilon]')
-            );
         }
 
         return hasSignificantPush;
@@ -317,11 +279,7 @@ class VoxelCollider {
         let bestPushY = 0;
         let bestPushZ = 0;
         let bestPenetration = PENETRATION_EPSILON;
-        let bestIx = 0;
-        let bestIy = 0;
-        let bestIz = 0;
         let found = false;
-        let solidCount = 0;
 
         for (let iz = izMin; iz <= izMax; iz++) {
             for (let iy = iyMin; iy <= iyMax; iy++) {
@@ -329,7 +287,6 @@ class VoxelCollider {
                     if (!this.isVoxelSolid(ix, iy, iz)) {
                         continue;
                     }
-                    solidCount++;
 
                     // Compute the world-space AABB of this voxel
                     const vMinX = gridMinX + ix * voxelResolution;
@@ -404,25 +361,16 @@ class VoxelCollider {
                         bestPushX = px;
                         bestPushY = py;
                         bestPushZ = pz;
-                        bestIx = ix;
-                        bestIy = iy;
-                        bestIz = iz;
                         found = true;
                     }
                 }
             }
         }
 
-        this._debugSolidCount = solidCount;
-
         if (found) {
             this._push.x = bestPushX;
             this._push.y = bestPushY;
             this._push.z = bestPushZ;
-            this._debugPenetration = bestPenetration;
-            this._debugVoxelIx = bestIx;
-            this._debugVoxelIy = bestIy;
-            this._debugVoxelIz = bestIz;
         }
 
         return found;

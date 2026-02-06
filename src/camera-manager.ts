@@ -73,15 +73,6 @@ class CameraManager {
 
         controllers.fly.collider = collider;
 
-        // Expose debug toggle on window for console access:
-        //   window.debugCollision = true   (enable)
-        //   window.debugCollision = false  (disable)
-        Object.defineProperty(window, 'debugCollision', {
-            get: () => controllers.fly.debug,
-            set: (v: boolean) => { controllers.fly.debug = v; },
-            configurable: true
-        });
-
         const getController = (cameraMode: 'orbit' | 'anim' | 'fly'): CameraController => {
             return controllers[cameraMode];
         };

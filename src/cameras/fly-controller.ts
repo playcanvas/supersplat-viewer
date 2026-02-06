@@ -21,9 +21,6 @@ class FlyController implements CameraController {
     /** Optional voxel collider for sphere collision with sliding */
     collider: VoxelCollider | null = null;
 
-    /** Enable debug logging for collision */
-    debug = false;
-
     constructor() {
         this.controller = new FlyControllerPC();
         this.controller.pitchRange = new Vec2(-90, 90);
@@ -45,8 +42,6 @@ class FlyController implements CameraController {
         camera.distance = pose.distance;
 
         if (this.collider) {
-            this.collider.debug = this.debug;
-
             // Resolve collision on _targetPose first. The engine's update() already
             // applied input to _targetPose and lerped _pose toward it. By correcting
             // _targetPose now, we ensure next frame's lerp interpolates toward a safe
@@ -67,17 +62,7 @@ class FlyController implements CameraController {
             const vy = -pose.position.y;
             const vz = pose.position.z;
 
-            if (this.debug) {
-                console.log(`[fly-collision] pos=(${vx.toFixed(4)}, ${vy.toFixed(4)}, ${vz.toFixed(4)}) r=${CAMERA_RADIUS}`);
-            }
-
             if (this.collider.querySphere(vx, vy, vz, CAMERA_RADIUS, pushOut)) {
-                if (this.debug) {
-                    console.log(
-                        `[fly-collision] pose push: world delta=(${(-pushOut.x).toFixed(4)}, ${(-pushOut.y).toFixed(4)}, ${pushOut.z.toFixed(4)})`
-                    );
-                }
-
                 pose.position.x += -pushOut.x;
                 pose.position.y += -pushOut.y;
                 pose.position.z += pushOut.z;
