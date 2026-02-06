@@ -242,8 +242,12 @@ const initUI = (global: Global) => {
         events.on('animationPaused:changed', updatePlayPause);
 
         const updateSlider = () => {
-            dom.handle.style.left = `${state.animationTime / state.animationDuration * 100}%`;
-            dom.time.style.left = `${state.animationTime / state.animationDuration * 100}%`;
+            const t = state.animationDuration > 0 ? (state.animationTime / state.animationDuration) : 0;
+            const pct = Math.max(0, Math.min(1, t)) * 100;
+
+            dom.timelineContainer.style.setProperty('--timeline-progress', `${pct}%`);
+            dom.handle.style.left = `${pct}%`;
+            dom.time.style.left = `${pct}%`;
             dom.time.innerText = `${state.animationTime.toFixed(1)}s`;
         };
 

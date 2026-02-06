@@ -19,16 +19,34 @@ class Annotations {
         Annotation.parentDom = parentDom;
         document.querySelector('#ui').appendChild(parentDom);
 
-        global.events.on('controlsHidden:changed', (value) => {
-            parentDom.style.display = value ? 'none' : 'block';
-            Annotation.opacity = value ? 0.0 : 1.0;
+        this.annotations = global.settings.annotations;
+        this.parentDom = parentDom;
+        Annotation.events = global.events;
+
+        let controlsHidden = false;
+        let annotationsVisible = true;
+
+        const updateVisibility = () => {
+            const visible = !controlsHidden && annotationsVisible;
+            parentDom.style.display = visible ? 'block' : 'none';
+            Annotation.opacity = visible ? 1.0 : 0.0;
+            if (!visible && Annotation.activeAnnotation) {
+                Annotation.activeAnnotation.hideTooltip();
+            }
             if (this.annotations.length > 0) {
                 global.app.renderNextFrame = true;
             }
+        };
+
+        global.events.on('controlsHidden:changed', (value) => {
+            controlsHidden = value;
+            updateVisibility();
         });
 
-        this.annotations = global.settings.annotations;
-        this.parentDom = parentDom;
+        global.events.on('annotations.visible', (visible: boolean) => {
+            annotationsVisible = visible;
+            updateVisibility();
+        });
 
         if (hasCameraFrame) {
             Annotation.hotspotColor.gamma();
@@ -51,6 +69,7 @@ class Annotations {
             instance.label = (i + 1).toString();
             instance.title = ann.title;
             instance.text = ann.text;
+            instance.updateLabel();
 
             entity.setPosition(ann.position[0], ann.position[1], ann.position[2]);
 
