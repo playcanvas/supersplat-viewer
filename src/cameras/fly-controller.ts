@@ -21,6 +21,9 @@ class FlyController implements CameraController {
     /** Optional voxel collider for sphere collision with sliding */
     collider: VoxelCollider | null = null;
 
+    /** Enable debug logging for collision */
+    debug = false;
+
     constructor() {
         this.controller = new FlyControllerPC();
         this.controller.pitchRange = new Vec2(-90, 90);
@@ -42,23 +45,46 @@ class FlyController implements CameraController {
         camera.distance = pose.distance;
 
         if (this.collider) {
-            // Convert new position to voxel space (negate X and Y for the 180° Z rotation)
+            this.collider.debug = this.debug;
+
+            // Resolve collision on _targetPose first. The engine's update() already
+            // applied input to _targetPose and lerped _pose toward it. By correcting
+            // _targetPose now, we ensure next frame's lerp interpolates toward a safe
+            // position, preventing the camera from overshooting into the wall.
+            const target = (this.controller as any)._targetPose;
+            const tvx = -target.position.x;
+            const tvy = -target.position.y;
+            const tvz = target.position.z;
+
+            if (this.collider.querySphere(tvx, tvy, tvz, CAMERA_RADIUS, pushOut)) {
+                target.position.x += -pushOut.x;
+                target.position.y += -pushOut.y;
+                target.position.z += pushOut.z;
+            }
+
+            // Now resolve collision on the interpolated pose (_pose).
             const vx = -pose.position.x;
             const vy = -pose.position.y;
             const vz = pose.position.z;
 
+            if (this.debug) {
+                console.log(`[fly-collision] pos=(${vx.toFixed(4)}, ${vy.toFixed(4)}, ${vz.toFixed(4)}) r=${CAMERA_RADIUS}`);
+            }
+
             if (this.collider.querySphere(vx, vy, vz, CAMERA_RADIUS, pushOut)) {
-                // Apply push-out: convert back from voxel space to world space (negate X and Y)
+                if (this.debug) {
+                    console.log(
+                        `[fly-collision] pose push: world delta=(${(-pushOut.x).toFixed(4)}, ${(-pushOut.y).toFixed(4)}, ${pushOut.z.toFixed(4)})`
+                    );
+                }
+
                 pose.position.x += -pushOut.x;
                 pose.position.y += -pushOut.y;
                 pose.position.z += pushOut.z;
 
-                // Also correct the target pose position to prevent drift back into the voxel.
-                // Only position is touched -- angles are left intact to preserve rotation momentum.
-                const target = (this.controller as any)._targetPose;
-                target.position.x += -pushOut.x;
-                target.position.y += -pushOut.y;
-                target.position.z += pushOut.z;
+                // Also snap target to the corrected pose to kill any residual
+                // momentum (the gap between target and current drives the lerp).
+                target.position.copy(pose.position);
             }
         }
 

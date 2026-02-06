@@ -29,6 +29,9 @@ const SOLID_LEAF_MARKER = 0x00000000 >>> 0;
 /** Mixed leaf node marker: high byte = 0x00, bit 23 set */
 const MIXED_LEAF_FLAG = 0x00800000 >>> 0;
 
+/** Minimum penetration depth to report a collision (avoids floating-point noise at corners) */
+const PENETRATION_EPSILON = 1e-4;
+
 /**
  * Count the number of set bits in a 32-bit integer.
  *
@@ -83,6 +86,27 @@ class VoxelCollider {
 
     /** Pre-allocated scratch push-out vector to avoid per-frame allocations */
     private readonly _push: PushOut = { x: 0, y: 0, z: 0 };
+
+    /** Pre-allocated constraint normals for iterative corner resolution (max 3 walls) */
+    private readonly _constraintNormals = [
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: 0, z: 0 }
+    ];
+
+    /** Enable debug logging for querySphere */
+    debug = false;
+
+    // Debug state written by resolveDeepestPenetration, read by querySphere
+    private _debugPenetration = 0;
+
+    private _debugVoxelIx = 0;
+
+    private _debugVoxelIy = 0;
+
+    private _debugVoxelIz = 0;
+
+    private _debugSolidCount = 0;
 
     constructor(
         metadata: VoxelMetadata,
@@ -182,26 +206,86 @@ class VoxelCollider {
 
         const push = this._push;
 
+        // Constraint normals from previous iterations - prevents oscillation at corners
+        // by ensuring subsequent pushes don't undo previous ones
+        const normals = this._constraintNormals;
+        let numNormals = 0;
+
         for (let iter = 0; iter < maxIterations; iter++) {
+            const solidCount = this._debugSolidCount;
             if (!this.resolveDeepestPenetration(resolvedX, resolvedY, resolvedZ, radius)) {
+                if (this.debug) {
+                    console.log(`  iter ${iter}: no collision (${solidCount} solid voxels in AABB)`);
+                }
                 break;
             }
             hadCollision = true;
-            resolvedX += push.x;
-            resolvedY += push.y;
-            resolvedZ += push.z;
-            totalPushX += push.x;
-            totalPushY += push.y;
-            totalPushZ += push.z;
+
+            let px = push.x;
+            let py = push.y;
+            let pz = push.z;
+
+            // Project out components that contradict previous constraint normals
+            for (let i = 0; i < numNormals; i++) {
+                const n = normals[i];
+                const dot = px * n.x + py * n.y + pz * n.z;
+                if (dot < 0) {
+                    px -= dot * n.x;
+                    py -= dot * n.y;
+                    pz -= dot * n.z;
+                }
+            }
+
+            // Record this push direction as a constraint normal
+            const len = Math.sqrt(push.x * push.x + push.y * push.y + push.z * push.z);
+            if (len > PENETRATION_EPSILON && numNormals < 3) {
+                const invLen = 1.0 / len;
+                const n = normals[numNormals];
+                n.x = push.x * invLen;
+                n.y = push.y * invLen;
+                n.z = push.z * invLen;
+                numNormals++;
+            }
+
+            if (this.debug) {
+                console.log(
+                    `  iter ${iter}: raw=(${push.x.toFixed(4)}, ${push.y.toFixed(4)}, ${push.z.toFixed(4)})` +
+                    ` proj=(${px.toFixed(4)}, ${py.toFixed(4)}, ${pz.toFixed(4)})` +
+                    ` pen=${this._debugPenetration.toFixed(4)}` +
+                    ` voxel=(${this._debugVoxelIx}, ${this._debugVoxelIy}, ${this._debugVoxelIz})` +
+                    ` solidCount=${this._debugSolidCount}`
+                );
+            }
+
+            resolvedX += px;
+            resolvedY += py;
+            resolvedZ += pz;
+            totalPushX += px;
+            totalPushY += py;
+            totalPushZ += pz;
         }
 
-        if (hadCollision) {
+        // Only report collision if the total push is meaningful
+        const totalPushSq = totalPushX * totalPushX + totalPushY * totalPushY + totalPushZ * totalPushZ;
+        const hasSignificantPush = hadCollision && totalPushSq > PENETRATION_EPSILON * PENETRATION_EPSILON;
+
+        if (hasSignificantPush) {
             out.x = totalPushX;
             out.y = totalPushY;
             out.z = totalPushZ;
         }
 
-        return hadCollision;
+        if (this.debug && hadCollision) {
+            console.log(
+                `  TOTAL: in=(${cx.toFixed(4)}, ${cy.toFixed(4)}, ${cz.toFixed(4)})` +
+                ` push=(${totalPushX.toFixed(4)}, ${totalPushY.toFixed(4)}, ${totalPushZ.toFixed(4)})` +
+                ` |push|=${Math.sqrt(totalPushSq).toFixed(6)}` +
+                ` out=(${resolvedX.toFixed(4)}, ${resolvedY.toFixed(4)}, ${resolvedZ.toFixed(4)})` +
+                (hasSignificantPush ? '' : ' [SUPPRESSED - below epsilon]')
+            );
+        }
+
+        return hasSignificantPush;
     }
 
     /**
@@ -232,8 +316,12 @@ class VoxelCollider {
         let bestPushX = 0;
         let bestPushY = 0;
         let bestPushZ = 0;
-        let bestPenetration = 0;
+        let bestPenetration = PENETRATION_EPSILON;
+        let bestIx = 0;
+        let bestIy = 0;
+        let bestIz = 0;
         let found = false;
+        let solidCount = 0;
 
         for (let iz = izMin; iz <= izMax; iz++) {
             for (let iy = iyMin; iy <= iyMax; iy++) {
@@ -241,6 +329,7 @@ class VoxelCollider {
                     if (!this.isVoxelSolid(ix, iy, iz)) {
                         continue;
                     }
+                    solidCount++;
 
                     // Compute the world-space AABB of this voxel
                     const vMinX = gridMinX + ix * voxelResolution;
@@ -315,16 +404,25 @@ class VoxelCollider {
                         bestPushX = px;
                         bestPushY = py;
                         bestPushZ = pz;
+                        bestIx = ix;
+                        bestIy = iy;
+                        bestIz = iz;
                         found = true;
                     }
                 }
             }
         }
 
+        this._debugSolidCount = solidCount;
+
         if (found) {
             this._push.x = bestPushX;
             this._push.y = bestPushY;
             this._push.z = bestPushZ;
+            this._debugPenetration = bestPenetration;
+            this._debugVoxelIx = bestIx;
+            this._debugVoxelIy = bestIy;
+            this._debugVoxelIz = bestIz;
         }
 
         return found;
