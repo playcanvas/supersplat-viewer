@@ -12,6 +12,7 @@ type Config = {
     skyboxUrl?: string;
     contentUrl?: string;
     contents?: Promise<Response>;
+    voxelUrl?: string;
 
     noui: boolean;
     noanim: boolean;

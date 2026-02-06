@@ -31,6 +31,7 @@ import { nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { Global } from './types';
+import type { VoxelCollider } from './voxel-collider';
 
 // override global pick to pack depth instead of meshInstance id
 const pickDepthGlsl = /* glsl */ `
@@ -134,7 +135,7 @@ class Viewer {
 
     forceRenderNextFrame = false;
 
-    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void>) {
+    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void>, voxelLoad: Promise<VoxelCollider | null> = Promise.resolve(null)) {
         this.global = global;
 
         const { app, settings, config, events, state, camera } = global;
@@ -307,6 +308,13 @@ class Viewer {
 
             this.cameraManager = new CameraManager(global, sceneBound);
             applyCamera(this.cameraManager.camera);
+
+            // Wire up voxel collider for fly camera collision
+            voxelLoad.then((collider) => {
+                if (collider && this.cameraManager) {
+                    this.cameraManager.collider = collider;
+                }
+            });
 
             const { instance } = gsplat;
             if (instance) {

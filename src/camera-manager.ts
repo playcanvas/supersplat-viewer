@@ -11,6 +11,7 @@ import { OrbitController } from './cameras/orbit-controller';
 import { easeOut } from './core/math';
 import { Annotation } from './settings';
 import { CameraMode, Global } from './types';
+import type { VoxelCollider } from './voxel-collider';
 
 const tmpCamera = new Camera();
 const tmpv = new Vec3();
@@ -38,6 +39,25 @@ class CameraManager {
     // holds the camera state
     camera = new Camera();
 
+    // reference to the fly controller for setting the collider
+    private _flyController: FlyController;
+
+    /**
+     * Set the voxel collider on the fly camera controller.
+     */
+    set collider(value: VoxelCollider | null) {
+        this._flyController.collider = value;
+    }
+
+    /**
+     * Get the voxel collider from the fly camera controller.
+     *
+     * @returns The current voxel collider, or null.
+     */
+    get collider(): VoxelCollider | null {
+        return this._flyController.collider;
+    }
+
     constructor(global: Global, bbox: BoundingBox) {
         const { events, settings, state } = global;
 
@@ -64,9 +84,11 @@ class CameraManager {
         const isObjectExperience = !bbox.containsPoint(resetCamera.position);
         const animTrack = getAnimTrack(settings.hasStartPose ? resetCamera : frameCamera, isObjectExperience);
 
+        this._flyController = new FlyController();
+
         const controllers = {
             orbit: new OrbitController(),
-            fly: new FlyController(),
+            fly: this._flyController,
             anim: animTrack ? new AnimController(animTrack) : null
         };
 

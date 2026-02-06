@@ -15,6 +15,7 @@ import { importSettings } from './settings';
 import type { Config, Global } from './types';
 import { initPoster, initUI } from './ui';
 import { Viewer } from './viewer';
+import { VoxelCollider } from './voxel-collider';
 import { initXr } from './xr';
 import { version as appVersion } from '../package.json';
 
@@ -140,6 +141,13 @@ const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) =
             app.scene.envAtlas = asset.resource as Texture;
         });
 
+    // Load voxel collision data
+    const voxelLoad = config.voxelUrl ?
+        VoxelCollider.load(config.voxelUrl).catch((err: Error) => {
+            console.warn('Failed to load voxel data:', err);
+            return null;
+        }) : Promise.resolve(null);
+
     // Load and play sound
     if (global.settings.soundUrl) {
         const sound = new Audio(global.settings.soundUrl);
@@ -155,7 +163,7 @@ const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) =
     }
 
     // Create the viewer
-    return new Viewer(global, gsplatLoad, skyboxLoad);
+    return new Viewer(global, gsplatLoad, skyboxLoad, voxelLoad);
 };
 
 console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engineRevision})`);
