@@ -81,10 +81,6 @@ class FlyController implements CameraController {
                 pose.position.x += -pushOut.x;
                 pose.position.y += -pushOut.y;
                 pose.position.z += pushOut.z;
-
-                // Also snap target to the corrected pose to kill any residual
-                // momentum (the gap between target and current drives the lerp).
-                target.position.copy(pose.position);
             }
         }
 
