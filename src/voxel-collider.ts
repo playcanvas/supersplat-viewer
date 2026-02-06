@@ -56,6 +56,13 @@ class VoxelCollider {
 
     private gridMinZ: number;
 
+    /** Number of voxels along each axis */
+    private numVoxelsX: number;
+
+    private numVoxelsY: number;
+
+    private numVoxelsZ: number;
+
     /** Size of each voxel in world units */
     private voxelResolution: number;
 
@@ -74,6 +81,9 @@ class VoxelCollider {
     /** Leaf voxel masks: pairs of (lo, hi) Uint32 per mixed leaf */
     private leafData: Uint32Array;
 
+    /** Pre-allocated scratch push-out vector to avoid per-frame allocations */
+    private readonly _push: PushOut = { x: 0, y: 0, z: 0 };
+
     constructor(
         metadata: VoxelMetadata,
         nodes: Uint32Array,
@@ -82,9 +92,13 @@ class VoxelCollider {
         this.gridMinX = metadata.gridBounds.min[0];
         this.gridMinY = metadata.gridBounds.min[1];
         this.gridMinZ = metadata.gridBounds.min[2];
-        this.voxelResolution = metadata.voxelResolution;
+        const res = metadata.voxelResolution;
+        this.numVoxelsX = Math.round((metadata.gridBounds.max[0] - metadata.gridBounds.min[0]) / res);
+        this.numVoxelsY = Math.round((metadata.gridBounds.max[1] - metadata.gridBounds.min[1]) / res);
+        this.numVoxelsZ = Math.round((metadata.gridBounds.max[2] - metadata.gridBounds.min[2]) / res);
+        this.voxelResolution = res;
         this.leafSize = metadata.leafSize;
-        this.blockSize = metadata.leafSize * metadata.voxelResolution;
+        this.blockSize = metadata.leafSize * res;
         this.treeDepth = metadata.treeDepth;
         this.nodes = nodes;
         this.leafData = leafData;
@@ -121,14 +135,14 @@ class VoxelCollider {
     }
 
     /**
-     * Test whether a world-space point lies inside a solid voxel.
+     * Query whether a world-space point lies inside a solid voxel.
      *
      * @param x - World X coordinate.
      * @param y - World Y coordinate.
      * @param z - World Z coordinate.
      * @returns True if the point is inside a solid voxel.
      */
-    isPointSolid(x: number, y: number, z: number): boolean {
+    queryPoint(x: number, y: number, z: number): boolean {
         const ix = Math.floor((x - this.gridMinX) / this.voxelResolution);
         const iy = Math.floor((y - this.gridMinY) / this.voxelResolution);
         const iz = Math.floor((z - this.gridMinZ) / this.voxelResolution);
@@ -136,23 +150,25 @@ class VoxelCollider {
     }
 
     /**
-     * Query a sphere against the voxel grid and return a push-out vector to resolve penetration.
+     * Query a sphere against the voxel grid and write a push-out vector to resolve penetration.
      * Uses iterative single-voxel resolution: each iteration finds the deepest penetrating voxel,
      * resolves it, then re-checks. This avoids over-push from summing multiple voxels and
      * naturally handles corners (2 iterations) and flat walls (1 iteration).
      *
-     * @param cx - Sphere center X in voxel space.
-     * @param cy - Sphere center Y in voxel space.
-     * @param cz - Sphere center Z in voxel space.
+     * @param cx - Sphere center X in world units.
+     * @param cy - Sphere center Y in world units.
+     * @param cz - Sphere center Z in world units.
      * @param radius - Sphere radius in world units.
-     * @returns Push-out vector to resolve penetration, or null if no collision.
+     * @param out - Object to receive the push-out vector.
+     * @returns True if a collision was detected and out was written.
      */
     querySphere(
         cx: number, cy: number, cz: number,
-        radius: number
-    ): PushOut | null {
+        radius: number,
+        out: PushOut
+    ): boolean {
         if (this.nodes.length === 0) {
-            return null;
+            return false;
         }
 
         const maxIterations = 4;
@@ -164,9 +180,10 @@ class VoxelCollider {
         let totalPushZ = 0;
         let hadCollision = false;
 
+        const push = this._push;
+
         for (let iter = 0; iter < maxIterations; iter++) {
-            const push = this.resolveDeepestPenetration(resolvedX, resolvedY, resolvedZ, radius);
-            if (!push) {
+            if (!this.resolveDeepestPenetration(resolvedX, resolvedY, resolvedZ, radius)) {
                 break;
             }
             hadCollision = true;
@@ -178,22 +195,29 @@ class VoxelCollider {
             totalPushZ += push.z;
         }
 
-        return hadCollision ? { x: totalPushX, y: totalPushY, z: totalPushZ } : null;
+        if (hadCollision) {
+            out.x = totalPushX;
+            out.y = totalPushY;
+            out.z = totalPushZ;
+        }
+
+        return hadCollision;
     }
 
     /**
-     * Find the single deepest penetrating voxel for the given sphere and return its push-out.
+     * Find the single deepest penetrating voxel for the given sphere.
+     * Writes the push-out vector into this._push.
      *
      * @param cx - Sphere center X.
      * @param cy - Sphere center Y.
      * @param cz - Sphere center Z.
      * @param radius - Sphere radius.
-     * @returns Push-out vector for the deepest penetrating voxel, or null if none.
+     * @returns True if a penetrating voxel was found.
      */
     private resolveDeepestPenetration(
         cx: number, cy: number, cz: number,
         radius: number
-    ): PushOut | null {
+    ): boolean {
         const { voxelResolution, gridMinX, gridMinY, gridMinZ } = this;
         const radiusSq = radius * radius;
 
@@ -297,7 +321,13 @@ class VoxelCollider {
             }
         }
 
-        return found ? { x: bestPushX, y: bestPushY, z: bestPushZ } : null;
+        if (found) {
+            this._push.x = bestPushX;
+            this._push.y = bestPushY;
+            this._push.z = bestPushZ;
+        }
+
+        return found;
     }
 
     /**
@@ -309,7 +339,9 @@ class VoxelCollider {
      * @returns True if the voxel is solid.
      */
     private isVoxelSolid(ix: number, iy: number, iz: number): boolean {
-        if (this.nodes.length === 0 || ix < 0 || iy < 0 || iz < 0) {
+        if (this.nodes.length === 0 ||
+            ix < 0 || iy < 0 || iz < 0 ||
+            ix >= this.numVoxelsX || iy >= this.numVoxelsY || iz >= this.numVoxelsZ) {
             return false;
         }
 

@@ -4,13 +4,16 @@ import {
     Vec2
 } from 'playcanvas';
 
-import type { VoxelCollider } from '../voxel-collider';
+import type { PushOut, VoxelCollider } from '../voxel-collider';
 import type { CameraFrame, Camera, CameraController } from './camera';
 
 /** Radius of the camera collision sphere (meters) */
 const CAMERA_RADIUS = 0.2;
 
 const p = new Pose();
+
+/** Pre-allocated push-out vector for sphere collision */
+const pushOut: PushOut = { x: 0, y: 0, z: 0 };
 
 class FlyController implements CameraController {
     controller: FlyControllerPC;
@@ -44,9 +47,7 @@ class FlyController implements CameraController {
             const vy = -pose.position.y;
             const vz = pose.position.z;
 
-            const pushOut = this.collider.querySphere(vx, vy, vz, CAMERA_RADIUS);
-
-            if (pushOut) {
+            if (this.collider.querySphere(vx, vy, vz, CAMERA_RADIUS, pushOut)) {
                 // Apply push-out: convert back from voxel space to world space (negate X and Y)
                 pose.position.x += -pushOut.x;
                 pose.position.y += -pushOut.y;
@@ -59,11 +60,9 @@ class FlyController implements CameraController {
                 target.position.y += -pushOut.y;
                 target.position.z += pushOut.z;
             }
-
-            camera.position.copy(pose.position);
-        } else {
-            camera.position.copy(pose.position);
         }
+
+        camera.position.copy(pose.position);
     }
 
     onExit(camera: Camera): void {
