@@ -65,14 +65,13 @@ class CameraManager {
         const isObjectExperience = !bbox.containsPoint(resetCamera.position);
         const animTrack = getAnimTrack(settings.hasStartPose ? resetCamera : frameCamera, isObjectExperience);
 
-        const flyController = new FlyController();
-        flyController.collider = collider;
-
         const controllers = {
             orbit: new OrbitController(),
-            fly: flyController,
+            fly: new FlyController(),
             anim: animTrack ? new AnimController(animTrack) : null
         };
+
+        controllers.fly.collider = collider;
 
         const getController = (cameraMode: 'orbit' | 'anim' | 'fly'): CameraController => {
             return controllers[cameraMode];
