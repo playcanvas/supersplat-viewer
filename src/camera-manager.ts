@@ -39,26 +39,7 @@ class CameraManager {
     // holds the camera state
     camera = new Camera();
 
-    // reference to the fly controller for setting the collider
-    private _flyController: FlyController;
-
-    /**
-     * Set the voxel collider on the fly camera controller.
-     */
-    set collider(value: VoxelCollider | null) {
-        this._flyController.collider = value;
-    }
-
-    /**
-     * Get the voxel collider from the fly camera controller.
-     *
-     * @returns The current voxel collider, or null.
-     */
-    get collider(): VoxelCollider | null {
-        return this._flyController.collider;
-    }
-
-    constructor(global: Global, bbox: BoundingBox) {
+    constructor(global: Global, bbox: BoundingBox, collider: VoxelCollider | null = null) {
         const { events, settings, state } = global;
 
         const camera0 = settings.cameras[0].initial;
@@ -84,11 +65,12 @@ class CameraManager {
         const isObjectExperience = !bbox.containsPoint(resetCamera.position);
         const animTrack = getAnimTrack(settings.hasStartPose ? resetCamera : frameCamera, isObjectExperience);
 
-        this._flyController = new FlyController();
+        const flyController = new FlyController();
+        flyController.collider = collider;
 
         const controllers = {
             orbit: new OrbitController(),
-            fly: this._flyController,
+            fly: flyController,
             anim: animTrack ? new AnimController(animTrack) : null
         };
 
