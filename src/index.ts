@@ -143,7 +143,7 @@ const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) =
 
     // Load voxel collision data
     const voxelLoad = config.voxelUrl ?
-        VoxelCollider.load(config.voxelUrl).catch((err: Error) => {
+        VoxelCollider.load(config.voxelUrl).catch((err: Error): null => {
             console.warn('Failed to load voxel data:', err);
             return null;
         }) : Promise.resolve(null);

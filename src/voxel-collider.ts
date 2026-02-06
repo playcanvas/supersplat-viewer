@@ -15,7 +15,7 @@ interface VoxelMetadata {
 }
 
 /**
- * Per-axis push-out vector returned by queryAABB.
+ * Push-out vector returned by querySphere.
  */
 interface PushOut {
     x: number;
@@ -46,7 +46,7 @@ function popcount(n: number): number {
  * Runtime sparse voxel octree collider.
  *
  * Loads the two-file format (.voxel.json + .voxel.bin) produced by
- * splat-transform's writeVoxel and provides point and AABB collision queries.
+ * splat-transform's writeVoxel and provides point and sphere collision queries.
  */
 class VoxelCollider {
     /** Grid-aligned bounds (min xyz) */
@@ -136,40 +136,81 @@ class VoxelCollider {
     }
 
     /**
-     * Query an AABB against the voxel grid and return a push-out vector to resolve penetration.
+     * Query a sphere against the voxel grid and return a push-out vector to resolve penetration.
+     * Uses iterative single-voxel resolution: each iteration finds the deepest penetrating voxel,
+     * resolves it, then re-checks. This avoids over-push from summing multiple voxels and
+     * naturally handles corners (2 iterations) and flat walls (1 iteration).
      *
-     * @param minX - AABB minimum X in world space.
-     * @param minY - AABB minimum Y in world space.
-     * @param minZ - AABB minimum Z in world space.
-     * @param maxX - AABB maximum X in world space.
-     * @param maxY - AABB maximum Y in world space.
-     * @param maxZ - AABB maximum Z in world space.
+     * @param cx - Sphere center X in voxel space.
+     * @param cy - Sphere center Y in voxel space.
+     * @param cz - Sphere center Z in voxel space.
+     * @param radius - Sphere radius in world units.
      * @returns Push-out vector to resolve penetration, or null if no collision.
      */
-    queryAABB(
-        minX: number, minY: number, minZ: number,
-        maxX: number, maxY: number, maxZ: number
+    querySphere(
+        cx: number, cy: number, cz: number,
+        radius: number
     ): PushOut | null {
         if (this.nodes.length === 0) {
             return null;
         }
 
+        const maxIterations = 4;
+        let resolvedX = cx;
+        let resolvedY = cy;
+        let resolvedZ = cz;
+        let totalPushX = 0;
+        let totalPushY = 0;
+        let totalPushZ = 0;
+        let hadCollision = false;
+
+        for (let iter = 0; iter < maxIterations; iter++) {
+            const push = this.resolveDeepestPenetration(resolvedX, resolvedY, resolvedZ, radius);
+            if (!push) {
+                break;
+            }
+            hadCollision = true;
+            resolvedX += push.x;
+            resolvedY += push.y;
+            resolvedZ += push.z;
+            totalPushX += push.x;
+            totalPushY += push.y;
+            totalPushZ += push.z;
+        }
+
+        return hadCollision ? { x: totalPushX, y: totalPushY, z: totalPushZ } : null;
+    }
+
+    /**
+     * Find the single deepest penetrating voxel for the given sphere and return its push-out.
+     *
+     * @param cx - Sphere center X.
+     * @param cy - Sphere center Y.
+     * @param cz - Sphere center Z.
+     * @param radius - Sphere radius.
+     * @returns Push-out vector for the deepest penetrating voxel, or null if none.
+     */
+    private resolveDeepestPenetration(
+        cx: number, cy: number, cz: number,
+        radius: number
+    ): PushOut | null {
         const { voxelResolution, gridMinX, gridMinY, gridMinZ } = this;
+        const radiusSq = radius * radius;
 
-        // Convert AABB to voxel index range
-        const ixMin = Math.floor((minX - gridMinX) / voxelResolution);
-        const iyMin = Math.floor((minY - gridMinY) / voxelResolution);
-        const izMin = Math.floor((minZ - gridMinZ) / voxelResolution);
-        const ixMax = Math.floor((maxX - gridMinX) / voxelResolution);
-        const iyMax = Math.floor((maxY - gridMinY) / voxelResolution);
-        const izMax = Math.floor((maxZ - gridMinZ) / voxelResolution);
+        // Compute bounding box of the sphere in voxel indices
+        const ixMin = Math.floor((cx - radius - gridMinX) / voxelResolution);
+        const iyMin = Math.floor((cy - radius - gridMinY) / voxelResolution);
+        const izMin = Math.floor((cz - radius - gridMinZ) / voxelResolution);
+        const ixMax = Math.floor((cx + radius - gridMinX) / voxelResolution);
+        const iyMax = Math.floor((cy + radius - gridMinY) / voxelResolution);
+        const izMax = Math.floor((cz + radius - gridMinZ) / voxelResolution);
 
-        let pushX = 0;
-        let pushY = 0;
-        let pushZ = 0;
-        let hasCollision = false;
+        let bestPushX = 0;
+        let bestPushY = 0;
+        let bestPushZ = 0;
+        let bestPenetration = 0;
+        let found = false;
 
-        // Iterate all voxels overlapping the AABB
         for (let iz = izMin; iz <= izMax; iz++) {
             for (let iy = iyMin; iy <= iyMax; iy++) {
                 for (let ix = ixMin; ix <= ixMax; ix++) {
@@ -177,9 +218,7 @@ class VoxelCollider {
                         continue;
                     }
 
-                    hasCollision = true;
-
-                    // Compute the voxel-space AABB of this voxel
+                    // Compute the world-space AABB of this voxel
                     const vMinX = gridMinX + ix * voxelResolution;
                     const vMinY = gridMinY + iy * voxelResolution;
                     const vMinZ = gridMinZ + iz * voxelResolution;
@@ -187,51 +226,78 @@ class VoxelCollider {
                     const vMaxY = vMinY + voxelResolution;
                     const vMaxZ = vMinZ + voxelResolution;
 
-                    // Compute overlap depth from both sides on each axis
-                    const overlapNegX = maxX - vMinX;
-                    const overlapPosX = vMaxX - minX;
-                    const overlapNegY = maxY - vMinY;
-                    const overlapPosY = vMaxY - minY;
-                    const overlapNegZ = maxZ - vMinZ;
-                    const overlapPosZ = vMaxZ - minZ;
+                    // Find the nearest point on the voxel AABB to the sphere center
+                    const nearX = Math.max(vMinX, Math.min(cx, vMaxX));
+                    const nearY = Math.max(vMinY, Math.min(cy, vMaxY));
+                    const nearZ = Math.max(vMinZ, Math.min(cz, vMaxZ));
 
-                    // Pick the minimum overlap side per axis (shortest escape direction)
-                    const escapeX = overlapNegX < overlapPosX ? -overlapNegX : overlapPosX;
-                    const escapeY = overlapNegY < overlapPosY ? -overlapNegY : overlapPosY;
-                    const escapeZ = overlapNegZ < overlapPosZ ? -overlapNegZ : overlapPosZ;
+                    // Vector from nearest point to sphere center
+                    const dx = cx - nearX;
+                    const dy = cy - nearY;
+                    const dz = cz - nearZ;
+                    const distSq = dx * dx + dy * dy + dz * dz;
 
-                    // Only push on the axis with the smallest absolute escape (collision normal axis)
-                    const absX = Math.abs(escapeX);
-                    const absY = Math.abs(escapeY);
-                    const absZ = Math.abs(escapeZ);
+                    if (distSq >= radiusSq) {
+                        continue;
+                    }
 
-                    let px = 0;
-                    let py = 0;
-                    let pz = 0;
+                    let px: number;
+                    let py: number;
+                    let pz: number;
+                    let penetration: number;
 
-                    if (absX <= absY && absX <= absZ) {
-                        px = escapeX;
-                    } else if (absY <= absZ) {
-                        py = escapeY;
+                    if (distSq > 1e-12) {
+                        // Center is outside the voxel: push radially outward
+                        const dist = Math.sqrt(distSq);
+                        penetration = radius - dist;
+                        const invDist = 1.0 / dist;
+                        px = dx * invDist * penetration;
+                        py = dy * invDist * penetration;
+                        pz = dz * invDist * penetration;
                     } else {
-                        pz = escapeZ;
+                        // Center is inside the voxel: fallback to nearest-face push
+                        const distNegX = cx - vMinX;
+                        const distPosX = vMaxX - cx;
+                        const distNegY = cy - vMinY;
+                        const distPosY = vMaxY - cy;
+                        const distNegZ = cz - vMinZ;
+                        const distPosZ = vMaxZ - cz;
+
+                        const escapeX = distNegX < distPosX ? -distNegX : distPosX;
+                        const escapeY = distNegY < distPosY ? -distNegY : distPosY;
+                        const escapeZ = distNegZ < distPosZ ? -distNegZ : distPosZ;
+
+                        const absX = Math.abs(escapeX);
+                        const absY = Math.abs(escapeY);
+                        const absZ = Math.abs(escapeZ);
+
+                        px = 0;
+                        py = 0;
+                        pz = 0;
+                        if (absX <= absY && absX <= absZ) {
+                            px = escapeX;
+                            penetration = absX;
+                        } else if (absY <= absZ) {
+                            py = escapeY;
+                            penetration = absY;
+                        } else {
+                            pz = escapeZ;
+                            penetration = absZ;
+                        }
                     }
 
-                    // Accumulate maximum absolute push-out per axis across all voxels
-                    if (Math.abs(px) > Math.abs(pushX)) {
-                        pushX = px;
-                    }
-                    if (Math.abs(py) > Math.abs(pushY)) {
-                        pushY = py;
-                    }
-                    if (Math.abs(pz) > Math.abs(pushZ)) {
-                        pushZ = pz;
+                    if (penetration > bestPenetration) {
+                        bestPenetration = penetration;
+                        bestPushX = px;
+                        bestPushY = py;
+                        bestPushZ = pz;
+                        found = true;
                     }
                 }
             }
         }
 
-        return hasCollision ? { x: pushX, y: pushY, z: pushZ } : null;
+        return found ? { x: bestPushX, y: bestPushY, z: bestPushZ } : null;
     }
 
     /**

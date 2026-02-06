@@ -3,3 +3,4 @@ dist
 public
 .DS_Store
 .npmrc
+.cursor

@@ -7,15 +7,15 @@ import {
 import type { VoxelCollider } from '../voxel-collider';
 import type { CameraFrame, Camera, CameraController } from './camera';
 
-/** Half-extent of the camera AABB on each axis (meters) */
-const CAMERA_HALF_EXTENT = 0.05;
+/** Radius of the camera collision sphere (meters) */
+const CAMERA_RADIUS = 0.2;
 
 const p = new Pose();
 
 class FlyController implements CameraController {
     controller: FlyControllerPC;
 
-    /** Optional voxel collider for AABB collision with sliding */
+    /** Optional voxel collider for sphere collision with sliding */
     collider: VoxelCollider | null = null;
 
     constructor() {
@@ -44,33 +44,23 @@ class FlyController implements CameraController {
             const vy = -pose.position.y;
             const vz = pose.position.z;
 
-            // Build AABB in voxel space
-            const minX = vx - CAMERA_HALF_EXTENT;
-            const minY = vy - CAMERA_HALF_EXTENT;
-            const minZ = vz - CAMERA_HALF_EXTENT;
-            const maxX = vx + CAMERA_HALF_EXTENT;
-            const maxY = vy + CAMERA_HALF_EXTENT;
-            const maxZ = vz + CAMERA_HALF_EXTENT;
-
-            const pushOut = this.collider.queryAABB(
-                minX, minY, minZ,
-                maxX, maxY, maxZ
-            );
+            const pushOut = this.collider.querySphere(vx, vy, vz, CAMERA_RADIUS);
 
             if (pushOut) {
                 // Apply push-out: convert back from voxel space to world space (negate X and Y)
                 pose.position.x += -pushOut.x;
                 pose.position.y += -pushOut.y;
                 pose.position.z += pushOut.z;
+
+                // Also correct the target pose position to prevent drift back into the voxel.
+                // Only position is touched -- angles are left intact to preserve rotation momentum.
+                const target = (this.controller as any)._targetPose;
+                target.position.x += -pushOut.x;
+                target.position.y += -pushOut.y;
+                target.position.z += pushOut.z;
             }
 
             camera.position.copy(pose.position);
-
-            // Re-sync the internal controller pose so damping continues from the resolved position
-            p.position.copy(pose.position);
-            p.angles.copy(pose.angles);
-            p.distance = pose.distance;
-            this.controller.attach(p, false);
         } else {
             camera.position.copy(pose.position);
         }
