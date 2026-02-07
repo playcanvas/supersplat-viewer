@@ -23,11 +23,12 @@ interface PushOut {
     z: number;
 }
 
-/** Solid leaf node marker: high byte = 0x00, no children, no leaf data */
-const SOLID_LEAF_MARKER = 0x00000000 >>> 0;
-
-/** Mixed leaf node marker: high byte = 0x00, bit 23 set */
-const MIXED_LEAF_FLAG = 0x00800000 >>> 0;
+/**
+ * Solid leaf node marker: childMask = 0xFF, baseOffset = 0.
+ * Unambiguous because BFS layout guarantees children always come after their parent,
+ * so baseOffset = 0 is never valid for an interior node.
+ */
+const SOLID_LEAF_MARKER = 0xFF000000 >>> 0;
 
 /** Minimum penetration depth to report a collision (avoids floating-point noise at corners) */
 const PENETRATION_EPSILON = 1e-4;
@@ -403,9 +404,15 @@ class VoxelCollider {
 
         for (let level = treeDepth - 1; level >= 0; level--) {
             const node = this.nodes[nodeIndex] >>> 0;
+
+            // Check for solid leaf sentinel first (has nonzero high byte)
+            if (node === SOLID_LEAF_MARKER) {
+                return true;
+            }
+
             const childMask = (node >>> 24) & 0xFF;
 
-            // If childMask is 0, this is a leaf node
+            // If childMask is 0, this is a mixed leaf node
             if (childMask === 0) {
                 return this.checkLeafByIndex(node, ix, iy, iz);
             }
@@ -430,47 +437,40 @@ class VoxelCollider {
 
         // We've reached the leaf level
         const node = this.nodes[nodeIndex] >>> 0;
+        if (node === SOLID_LEAF_MARKER) {
+            return true;
+        }
         return this.checkLeafByIndex(node, ix, iy, iz);
     }
 
     /**
-     * Check a leaf node using voxel grid indices.
+     * Check a mixed leaf node using voxel grid indices.
+     * The solid leaf sentinel must be checked before calling this method.
      *
-     * @param node - The leaf node value from the octree.
+     * @param node - The mixed leaf node value (lower 24 bits = leafData index).
      * @param ix - Global voxel X index.
      * @param iy - Global voxel Y index.
      * @param iz - Global voxel Z index.
      * @returns True if the voxel is solid.
      */
     private checkLeafByIndex(node: number, ix: number, iy: number, iz: number): boolean {
-        // Solid leaf: all voxels in the 4x4x4 block are solid
-        if (node === SOLID_LEAF_MARKER) {
-            return true;
+        const leafDataIndex = node & 0x00FFFFFF;
+
+        // Compute voxel coordinates within the 4x4x4 block
+        const vx = ix & 3;
+        const vy = iy & 3;
+        const vz = iz & 3;
+
+        // Bit index within the 64-bit mask: z * 16 + y * 4 + x
+        const bitIndex = vz * 16 + vy * 4 + vx;
+
+        // Read the appropriate 32-bit word (lo or hi)
+        if (bitIndex < 32) {
+            const lo = this.leafData[leafDataIndex * 2] >>> 0;
+            return ((lo >>> bitIndex) & 1) === 1;
         }
-
-        // Mixed leaf: check the specific voxel bit
-        if ((node & MIXED_LEAF_FLAG) !== 0) {
-            const leafDataIndex = node & 0x007FFFFF;
-
-            // Compute voxel coordinates within the 4x4x4 block
-            const vx = ix & 3;
-            const vy = iy & 3;
-            const vz = iz & 3;
-
-            // Bit index within the 64-bit mask: z * 16 + y * 4 + x
-            const bitIndex = vz * 16 + vy * 4 + vx;
-
-            // Read the appropriate 32-bit word (lo or hi)
-            if (bitIndex < 32) {
-                const lo = this.leafData[leafDataIndex * 2] >>> 0;
-                return ((lo >>> bitIndex) & 1) === 1;
-            }
-            const hi = this.leafData[leafDataIndex * 2 + 1] >>> 0;
-            return ((hi >>> (bitIndex - 32)) & 1) === 1;
-        }
-
-        // Unknown/empty node
-        return false;
+        const hi = this.leafData[leafDataIndex * 2 + 1] >>> 0;
+        return ((hi >>> (bitIndex - 32)) & 1) === 1;
     }
 }
 
