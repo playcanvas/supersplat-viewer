@@ -15,7 +15,7 @@ interface VoxelMetadata {
 }
 
 /**
- * Push-out vector returned by querySphere.
+ * Push-out vector returned by querySphere / queryCapsule.
  */
 interface PushOut {
     x: number;
@@ -252,6 +252,99 @@ class VoxelCollider {
     }
 
     /**
+     * Query a vertical capsule against the voxel grid and write a push-out vector to resolve
+     * penetration. The capsule is a line segment from (cx, cy - halfHeight, cz) to
+     * (cx, cy + halfHeight, cz) swept by radius. Uses the same iterative deepest-penetration
+     * approach as querySphere.
+     *
+     * @param cx - Capsule center X in world units.
+     * @param cy - Capsule center Y in world units.
+     * @param cz - Capsule center Z in world units.
+     * @param halfHeight - Half-height of the capsule's inner line segment in world units.
+     * @param radius - Capsule radius in world units.
+     * @param out - Object to receive the push-out vector.
+     * @returns True if a collision was detected and out was written.
+     */
+    queryCapsule(
+        cx: number, cy: number, cz: number,
+        halfHeight: number,
+        radius: number,
+        out: PushOut
+    ): boolean {
+        if (this.nodes.length === 0) {
+            return false;
+        }
+
+        const maxIterations = 4;
+        let resolvedX = cx;
+        let resolvedY = cy;
+        let resolvedZ = cz;
+        let totalPushX = 0;
+        let totalPushY = 0;
+        let totalPushZ = 0;
+        let hadCollision = false;
+
+        const push = this._push;
+
+        // Constraint normals from previous iterations - prevents oscillation at corners
+        // by ensuring subsequent pushes don't undo previous ones
+        const normals = this._constraintNormals;
+        let numNormals = 0;
+
+        for (let iter = 0; iter < maxIterations; iter++) {
+            if (!this.resolveDeepestPenetrationCapsule(resolvedX, resolvedY, resolvedZ, halfHeight, radius)) {
+                break;
+            }
+            hadCollision = true;
+
+            let px = push.x;
+            let py = push.y;
+            let pz = push.z;
+
+            // Project out components that contradict previous constraint normals
+            for (let i = 0; i < numNormals; i++) {
+                const n = normals[i];
+                const dot = px * n.x + py * n.y + pz * n.z;
+                if (dot < 0) {
+                    px -= dot * n.x;
+                    py -= dot * n.y;
+                    pz -= dot * n.z;
+                }
+            }
+
+            // Record this push direction as a constraint normal
+            const len = Math.sqrt(push.x * push.x + push.y * push.y + push.z * push.z);
+            if (len > PENETRATION_EPSILON && numNormals < 3) {
+                const invLen = 1.0 / len;
+                const n = normals[numNormals];
+                n.x = push.x * invLen;
+                n.y = push.y * invLen;
+                n.z = push.z * invLen;
+                numNormals++;
+            }
+
+            resolvedX += px;
+            resolvedY += py;
+            resolvedZ += pz;
+            totalPushX += px;
+            totalPushY += py;
+            totalPushZ += pz;
+        }
+
+        // Only report collision if the total push is meaningful
+        const totalPushSq = totalPushX * totalPushX + totalPushY * totalPushY + totalPushZ * totalPushZ;
+        const hasSignificantPush = hadCollision && totalPushSq > PENETRATION_EPSILON * PENETRATION_EPSILON;
+
+        if (hasSignificantPush) {
+            out.x = totalPushX;
+            out.y = totalPushY;
+            out.z = totalPushZ;
+        }
+
+        return hasSignificantPush;
+    }
+
+    /**
      * Find the single deepest penetrating voxel for the given sphere.
      * Writes the push-out vector into this._push.
      *
@@ -331,6 +424,155 @@ class VoxelCollider {
                         const distPosX = vMaxX - cx;
                         const distNegY = cy - vMinY;
                         const distPosY = vMaxY - cy;
+                        const distNegZ = cz - vMinZ;
+                        const distPosZ = vMaxZ - cz;
+
+                        const escapeX = distNegX < distPosX ? -distNegX : distPosX;
+                        const escapeY = distNegY < distPosY ? -distNegY : distPosY;
+                        const escapeZ = distNegZ < distPosZ ? -distNegZ : distPosZ;
+
+                        const absX = Math.abs(escapeX);
+                        const absY = Math.abs(escapeY);
+                        const absZ = Math.abs(escapeZ);
+
+                        px = 0;
+                        py = 0;
+                        pz = 0;
+                        if (absX <= absY && absX <= absZ) {
+                            px = escapeX;
+                            penetration = absX;
+                        } else if (absY <= absZ) {
+                            py = escapeY;
+                            penetration = absY;
+                        } else {
+                            pz = escapeZ;
+                            penetration = absZ;
+                        }
+                    }
+
+                    if (penetration > bestPenetration) {
+                        bestPenetration = penetration;
+                        bestPushX = px;
+                        bestPushY = py;
+                        bestPushZ = pz;
+                        found = true;
+                    }
+                }
+            }
+        }
+
+        if (found) {
+            this._push.x = bestPushX;
+            this._push.y = bestPushY;
+            this._push.z = bestPushZ;
+        }
+
+        return found;
+    }
+
+    /**
+     * Find the single deepest penetrating voxel for the given vertical capsule.
+     * The capsule is a line segment from (cx, cy - halfHeight, cz) to (cx, cy + halfHeight, cz)
+     * swept by radius. For each voxel, the closest point on the segment to the AABB is found,
+     * then a sphere-AABB penetration test is performed from that point.
+     * Writes the push-out vector into this._push.
+     *
+     * @param cx - Capsule center X.
+     * @param cy - Capsule center Y.
+     * @param cz - Capsule center Z.
+     * @param halfHeight - Half-height of the capsule's inner line segment.
+     * @param radius - Capsule radius.
+     * @returns True if a penetrating voxel was found.
+     */
+    private resolveDeepestPenetrationCapsule(
+        cx: number, cy: number, cz: number,
+        halfHeight: number,
+        radius: number
+    ): boolean {
+        const { voxelResolution, gridMinX, gridMinY, gridMinZ } = this;
+        const radiusSq = radius * radius;
+
+        const segBottomY = cy - halfHeight;
+        const segTopY = cy + halfHeight;
+
+        // Compute bounding box of the capsule in voxel indices
+        const ixMin = Math.floor((cx - radius - gridMinX) / voxelResolution);
+        const iyMin = Math.floor((segBottomY - radius - gridMinY) / voxelResolution);
+        const izMin = Math.floor((cz - radius - gridMinZ) / voxelResolution);
+        const ixMax = Math.floor((cx + radius - gridMinX) / voxelResolution);
+        const iyMax = Math.floor((segTopY + radius - gridMinY) / voxelResolution);
+        const izMax = Math.floor((cz + radius - gridMinZ) / voxelResolution);
+
+        let bestPushX = 0;
+        let bestPushY = 0;
+        let bestPushZ = 0;
+        let bestPenetration = PENETRATION_EPSILON;
+        let found = false;
+
+        for (let iz = izMin; iz <= izMax; iz++) {
+            for (let iy = iyMin; iy <= iyMax; iy++) {
+                for (let ix = ixMin; ix <= ixMax; ix++) {
+                    if (!this.isVoxelSolid(ix, iy, iz)) {
+                        continue;
+                    }
+
+                    // Compute the world-space AABB of this voxel
+                    const vMinX = gridMinX + ix * voxelResolution;
+                    const vMinY = gridMinY + iy * voxelResolution;
+                    const vMinZ = gridMinZ + iz * voxelResolution;
+                    const vMaxX = vMinX + voxelResolution;
+                    const vMaxY = vMinY + voxelResolution;
+                    const vMaxZ = vMinZ + voxelResolution;
+
+                    // Find the closest Y on the capsule segment to this AABB.
+                    // For a vertical segment, X and Z are fixed so we only optimize Y.
+                    let segY: number;
+                    if (segTopY < vMinY) {
+                        // segment entirely below AABB
+                        segY = segTopY;
+                    } else if (segBottomY > vMaxY) {
+                        // segment entirely above AABB
+                        segY = segBottomY;
+                    } else {
+                        // ranges overlap - pick segment Y closest to AABB center
+                        const aabbCenterY = (vMinY + vMaxY) * 0.5;
+                        segY = Math.max(segBottomY, Math.min(segTopY, aabbCenterY));
+                    }
+
+                    // Now do sphere-AABB penetration from (cx, segY, cz)
+                    const nearX = Math.max(vMinX, Math.min(cx, vMaxX));
+                    const nearY = Math.max(vMinY, Math.min(segY, vMaxY));
+                    const nearZ = Math.max(vMinZ, Math.min(cz, vMaxZ));
+
+                    // Vector from nearest point to sphere center on segment
+                    const dx = cx - nearX;
+                    const dy = segY - nearY;
+                    const dz = cz - nearZ;
+                    const distSq = dx * dx + dy * dy + dz * dz;
+
+                    if (distSq >= radiusSq) {
+                        continue;
+                    }
+
+                    let px: number;
+                    let py: number;
+                    let pz: number;
+                    let penetration: number;
+
+                    if (distSq > 1e-12) {
+                        // Sphere center is outside the voxel: push radially outward
+                        const dist = Math.sqrt(distSq);
+                        penetration = radius - dist;
+                        const invDist = 1.0 / dist;
+                        px = dx * invDist * penetration;
+                        py = dy * invDist * penetration;
+                        pz = dz * invDist * penetration;
+                    } else {
+                        // Sphere center is inside the voxel: fallback to nearest-face push
+                        const distNegX = cx - vMinX;
+                        const distPosX = vMaxX - cx;
+                        const distNegY = segY - vMinY;
+                        const distPosY = vMaxY - segY;
                         const distNegZ = cz - vMinZ;
                         const distPosZ = vMaxZ - cz;
 

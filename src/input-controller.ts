@@ -236,7 +236,7 @@ class InputController {
         const { touch, pinch, count } = this._orbitInput.read();
         const { leftStick, rightStick } = this._gamepadInput.read();
 
-        const { state } = this.global;
+        const { state, events } = this.global;
         const { camera } = this.global.camera;
 
         // update state
@@ -252,12 +252,13 @@ class InputController {
         this._state.shift += key[keyCode.SHIFT];
         this._state.ctrl += key[keyCode.CTRL];
 
-        if (state.cameraMode !== 'fly' && this._state.axis.length() > 0) {
-            state.cameraMode = 'fly';
+        const isFirstPerson = state.cameraMode === 'fly' || state.cameraMode === 'fps';
+        if (!isFirstPerson && this._state.axis.length() > 0) {
+            events.fire('inputEvent', 'requestFirstPerson');
         }
 
         const orbit = +(state.cameraMode === 'orbit');
-        const fly = +(state.cameraMode === 'fly');
+        const fly = +isFirstPerson;
         const double = +(this._state.touches > 1);
         const pan = this._state.mouse[2] || +(button[2] === -1) || double;
 
