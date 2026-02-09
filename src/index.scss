@@ -58,6 +58,40 @@ button {
     pointer-events: auto;
 }
 
+/* branding link for third-party embeds */
+
+#supersplatBranding {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top));
+    left: max(12px, env(safe-area-inset-left));
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+
+    color: $clr-text-light;
+    background-color: rgba(black, 0.3);
+
+    &:hover {
+        background-color: rgba(black, 0.5);
+    }
+
+    > svg {
+        height: 24px;
+        width: auto;
+        flex-shrink: 0;
+    }
+
+    > span {
+        font-size: 14px;
+        font-weight: bold;
+    }
+}
+
 /* poster */
 
 #poster {
@@ -243,6 +277,7 @@ button {
                 }
             }
         }
+
     }
 }
 
