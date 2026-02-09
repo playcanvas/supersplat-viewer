@@ -127,7 +127,6 @@ export class Annotation extends Script {
                 opacity: 0;
                 transition: opacity 0.2s ease-in-out;
                 visibility: hidden;
-                transform: translate(25px, -50%);
             }
 
             .pc-annotation-title {
@@ -135,18 +134,25 @@ export class Annotation extends Script {
                 margin-bottom: 4px;
             }
 
-            /* Add a little triangular arrow on the left edge of the tooltip */
-            .pc-annotation::before {
+            /* Tooltip arrow */
+            .pc-annotation.arrow-right::before,
+            .pc-annotation.arrow-left::before {
                 content: "";
                 position: absolute;
-                left: -8px;
                 top: 50%;
                 transform: translateY(-50%);
-                width: 0;
-                height: 0;
                 border-top: 8px solid transparent;
                 border-bottom: 8px solid transparent;
+            }
+
+            .pc-annotation.arrow-right::before {
+                left: -8px;
                 border-right: 8px solid rgba(0, 0, 0, 0.8);
+            }
+
+            .pc-annotation.arrow-left::before {
+                right: -8px;
+                border-left: 8px solid rgba(0, 0, 0, 0.8);
             }
 
             .pc-annotation-hotspot {
@@ -523,10 +529,38 @@ export class Annotation extends Script {
         this.hotspotDom.style.left = `${screenPos.x}px`;
         this.hotspotDom.style.top = `${screenPos.y}px`;
 
-        // Position tooltip
+        // Position tooltip, clamped to viewport
         if (Annotation.activeAnnotation === this) {
-            Annotation.tooltipDom.style.left = `${screenPos.x}px`;
-            Annotation.tooltipDom.style.top = `${screenPos.y}px`;
+            const tooltip = Annotation.tooltipDom;
+            const margin = 8;
+            const arrowOffset = 25;
+            const tw = tooltip.offsetWidth;
+            const th = tooltip.offsetHeight;
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+
+            // Default position: to the right of hotspot, vertically centered
+            let left = screenPos.x + arrowOffset;
+            let top = screenPos.y - th / 2;
+            let flipped = false;
+
+            // If tooltip overflows right edge, flip to left side of hotspot
+            if (left + tw > vw - margin) {
+                left = screenPos.x - arrowOffset - tw;
+                flipped = true;
+            }
+
+            // Clamp horizontal
+            left = Math.max(margin, Math.min(left, vw - tw - margin));
+
+            // Clamp vertical
+            top = Math.max(margin, Math.min(top, vh - th - margin));
+
+            tooltip.classList.toggle('arrow-right', !flipped);
+            tooltip.classList.toggle('arrow-left', flipped);
+            tooltip.style.transform = 'none';
+            tooltip.style.left = `${left}px`;
+            tooltip.style.top = `${top}px`;
         }
     }
 
