@@ -146,18 +146,20 @@ const initAnnotationNav = (
     if (annotations.length < 2) return;
 
     let currentIndex = 0;
+    let ready = false;
 
     const updateDisplay = () => {
-        dom.annotationIndex.textContent = `${currentIndex + 1} / ${annotations.length}`;
         dom.annotationNavTitle.textContent = annotations[currentIndex].title || '';
     };
 
     const updateMode = () => {
+        if (!ready) return;
         dom.annotationNav.classList.remove('desktop', 'touch', 'hidden');
         dom.annotationNav.classList.add(state.inputMode);
     };
 
     const updateFade = () => {
+        if (!ready) return;
         dom.annotationNav.classList.toggle('faded-in', !state.controlsHidden);
         dom.annotationNav.classList.toggle('faded-out', state.controlsHidden);
     };
@@ -192,10 +194,15 @@ const initAnnotationNav = (
     events.on('inputMode:changed', updateMode);
     events.on('controlsHidden:changed', updateFade);
 
+    // Defer visibility until first frame is rendered
+    events.on('firstFrame', () => {
+        ready = true;
+        updateMode();
+        updateFade();
+    });
+
     // Initial state
     updateDisplay();
-    updateMode();
-    updateFade();
 };
 
 // update the poster image to start blurry and then resolve to sharp during loading
@@ -235,7 +242,7 @@ const initUI = (global: Global) => {
         'loadingText', 'loadingBar',
         'joystickBase', 'joystick',
         'tooltip',
-        'annotationNav', 'annotationPrev', 'annotationNext', 'annotationInfo', 'annotationIndex', 'annotationNavTitle',
+        'annotationNav', 'annotationPrev', 'annotationNext', 'annotationInfo', 'annotationNavTitle',
         'supersplatBranding'
     ].reduce((acc: Record<string, HTMLElement>, id) => {
         acc[id] = document.getElementById(id);
@@ -260,9 +267,11 @@ const initUI = (global: Global) => {
         }
     });
 
-    // Hide loading bar once first frame is rendered
+    // Hide loading bar and show controls once first frame is rendered
     events.on('firstFrame', () => {
         document.getElementById('loadingWrap').classList.add('hidden');
+        dom.controlsWrap.classList.remove('hidden');
+        showUI();
     });
 
     // Fullscreen support
@@ -411,7 +420,6 @@ const initUI = (global: Global) => {
             }
         }, 4000);
     };
-    showUI();
 
     events.on('inputEvent', showUI);
 

@@ -74,15 +74,27 @@ button {
     color: $clr-text-light;
 
     > svg {
-        height: 24px;
+        height: 16px;
         width: auto;
         flex-shrink: 0;
         padding: 8px;
         border-radius: 6px;
         background-color: rgba(black, 0.3);
-        filter:
-            drop-shadow(0 0 1px rgba(black, 0.4))
-            drop-shadow(0 0 2px rgba(black, 0.4));
+
+        > g {
+            &.stroke {
+                fill: black;
+                stroke: black;
+                stroke-width: 2;
+                stroke-linejoin: round;
+                opacity: 0.4;
+            }
+
+            &.fill {
+                fill: currentColor;
+                stroke: none;
+            }
+        }
     }
 
     > span {
@@ -215,8 +227,8 @@ button {
         /* controlButton */
 
         .controlButton {
-            width: 40px;
-            height: 40px;
+            width: 34px;
+            height: 34px;
             padding: 0;
             margin: 0;
             border: 0;
@@ -311,7 +323,8 @@ button {
 
         > button {
             flex-grow: 1;
-            padding: 10px 20px;
+            height: 34px;
+            padding: 0 20px;
             border: 0;
             cursor: pointer;
 
@@ -324,7 +337,10 @@ button {
         }
 
         > div {
-            padding: 8px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
             cursor: pointer;
 
             color: $clr-text-dark;
@@ -581,11 +597,11 @@ button {
 
         border-radius: 6px;
         overflow: hidden;
-        background-color: rgba(black, 0.7);
+        background-color: rgba(black, 0.6);
 
         > button {
-            width: 40px;
-            height: 40px;
+            width: 34px;
+            height: 34px;
             background-color: transparent;
 
             &:hover {
@@ -597,21 +613,14 @@ button {
             pointer-events: none;
             display: flex;
             align-items: center;
-            gap: 8px;
+            justify-content: center;
             padding: 0 12px;
             white-space: nowrap;
             width: 240px;
 
-            > #annotationIndex {
-                font-size: 12px;
-                color: $clr-text-dark;
-            }
-
             > #annotationNavTitle {
                 font-size: 14px;
-                font-weight: bold;
                 color: $clr-text-light;
-                flex: 1;
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
@@ -636,7 +645,7 @@ button {
             transform: translateY(-50%);
             width: 44px;
             height: 80px;
-            background-color: rgba(black, 0.2);
+            background-color: rgba(black, 0.3);
 
             &:active {
                 background-color: rgba(black, 0.4);
