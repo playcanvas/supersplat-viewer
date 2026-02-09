@@ -267,11 +267,9 @@ const initUI = (global: Global) => {
         }
     });
 
-    // Hide loading bar and show controls once first frame is rendered
+    // Hide loading bar once first frame is rendered
     events.on('firstFrame', () => {
         document.getElementById('loadingWrap').classList.add('hidden');
-        dom.controlsWrap.classList.remove('hidden');
-        showUI();
     });
 
     // Fullscreen support
@@ -420,6 +418,12 @@ const initUI = (global: Global) => {
             }
         }, 4000);
     };
+
+    // Show controls once first frame is rendered
+    events.on('firstFrame', () => {
+        dom.controlsWrap.classList.remove('hidden');
+        showUI();
+    });
 
     events.on('inputEvent', showUI);
 
