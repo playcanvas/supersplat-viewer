@@ -58,6 +58,56 @@ button {
     pointer-events: auto;
 }
 
+/* branding link for third-party embeds */
+
+#supersplatBranding {
+    position: absolute;
+    top: max(16px, env(safe-area-inset-top));
+    left: max(16px, env(safe-area-inset-left));
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+
+    color: $clr-text-light;
+
+    > svg {
+        height: 16px;
+        width: auto;
+        flex-shrink: 0;
+        padding: 8px;
+        border-radius: 6px;
+        background-color: rgba(black, 0.3);
+
+        > g {
+            &.stroke {
+                fill: black;
+                stroke: black;
+                stroke-width: 2;
+                stroke-linejoin: round;
+                opacity: 0.4;
+            }
+
+            &.fill {
+                fill: currentColor;
+                stroke: none;
+            }
+        }
+    }
+
+    > span {
+        font-size: 14px;
+        font-weight: bold;
+        text-shadow:
+            -1px -1px 0 rgba(black, 0.4),
+             1px -1px 0 rgba(black, 0.4),
+            -1px  1px 0 rgba(black, 0.4),
+             1px  1px 0 rgba(black, 0.4);
+    }
+}
+
 /* poster */
 
 #poster {
@@ -164,11 +214,21 @@ button {
         display: flex;
         gap: 8px;
 
+        .buttonGroup {
+            display: flex;
+            background-color: rgba(black, 0.3);
+            border-radius: 6px;
+
+            &:not(:has(> :not(.hidden))) {
+                display: none;
+            }
+        }
+
         /* controlButton */
 
         .controlButton {
-            width: 40px;
-            height: 40px;
+            width: 34px;
+            height: 34px;
             padding: 0;
             margin: 0;
             border: 0;
@@ -217,7 +277,6 @@ button {
                 transition: background-position 0.1s ease-in-out;
 
                 &.left {
-                    margin-right: -4px;
                     border-radius: 4px 0px 0px 4px;
 
                     &:not(.active) {
@@ -226,8 +285,6 @@ button {
                 }
 
                 &.right {
-                    margin-left: -4px;
-                    margin-right: 20px;
                     border-radius: 0px 4px 4px 0px;
 
                     &:not(.active) {
@@ -236,6 +293,7 @@ button {
                 }
             }
         }
+
     }
 }
 
@@ -265,7 +323,8 @@ button {
 
         > button {
             flex-grow: 1;
-            padding: 10px 20px;
+            height: 34px;
+            padding: 0 20px;
             border: 0;
             cursor: pointer;
 
@@ -278,7 +337,10 @@ button {
         }
 
         > div {
-            padding: 8px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
             cursor: pointer;
 
             color: $clr-text-dark;
@@ -455,8 +517,149 @@ button {
     width: 100%;
     height: 100%;
     pointer-events: none;
+    z-index: -1;
 }
 
 #annotations * {
     pointer-events: auto;
+}
+
+/* annotationNav */
+
+#annotationNav {
+    pointer-events: none;
+
+    &.faded-in {
+        visibility: visible;
+        opacity: 1;
+        transition: opacity 0.5s ease-out;
+    }
+
+    &.faded-out {
+        visibility: hidden;
+        opacity: 0;
+        transition: visibility 0s 0.5s, opacity 0.5s ease-out;
+    }
+
+    > button {
+        pointer-events: auto;
+        appearance: none;
+        border: 0;
+        padding: 0;
+        margin: 0;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        color: $clr-text;
+        background-color: rgba(black, 0.3);
+
+        &:hover {
+            color: $clr-text-light;
+            background-color: rgba(black, 0.5);
+        }
+
+        > svg {
+            display: block;
+
+            > g {
+                &.stroke {
+                    fill: none;
+                    stroke: black;
+                    stroke-width: 3;
+                    stroke-linecap: round;
+                    stroke-linejoin: round;
+                    opacity: 0.4;
+                }
+
+                &.fill {
+                    fill: none;
+                    stroke: currentColor;
+                    stroke-width: 2;
+                    stroke-linecap: round;
+                    stroke-linejoin: round;
+                }
+            }
+        }
+    }
+
+    // Desktop mode: horizontal bar at top center
+    &.desktop {
+        position: absolute;
+        top: max(16px, env(safe-area-inset-top));
+        left: 50%;
+        transform: translateX(-50%);
+
+        display: flex;
+        align-items: center;
+        gap: 0;
+
+        border-radius: 6px;
+        overflow: hidden;
+        background-color: rgba(black, 0.6);
+
+        > button {
+            width: 34px;
+            height: 34px;
+            background-color: transparent;
+
+            &:hover {
+                background-color: rgba(white, 0.1);
+            }
+        }
+
+        > #annotationInfo {
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 12px;
+            white-space: nowrap;
+            width: 240px;
+
+            > #annotationNavTitle {
+                font-size: 14px;
+                color: $clr-text-light;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
+    }
+
+    // Touch mode: buttons at left/right screen edges
+    &.touch {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+
+        > #annotationInfo {
+            display: none;
+        }
+
+        > button {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 44px;
+            height: 80px;
+            background-color: rgba(black, 0.3);
+
+            &:active {
+                background-color: rgba(black, 0.4);
+            }
+        }
+
+        > #annotationPrev {
+            left: max(0px, env(safe-area-inset-left));
+            border-radius: 0 6px 6px 0;
+        }
+
+        > #annotationNext {
+            right: max(0px, env(safe-area-inset-right));
+            border-radius: 6px 0 0 6px;
+        }
+    }
 }
