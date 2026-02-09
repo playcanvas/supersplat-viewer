@@ -567,18 +567,10 @@ const initUI = (global: Global) => {
     tooltip.register(dom.exitFullscreen, 'Fullscreen', 'top');
 
     const isThirdPartyEmbedded = () => {
-        // Show branding link when embedded in a third-party iframe
-        const servers = ['superspl.at'];
-        const hostname = window.location.hostname;
-        const isSuperSplatDomain = servers.includes(hostname);
-
-        if (!isSuperSplatDomain) {
-            return false;
-        }
-
         try {
-            return !servers.includes(window.parent.location.hostname);
+            return window.location.hostname !== window.parent.location.hostname;
         } catch (e) {
+            // cross-origin iframe — parent location is inaccessible
             return true;
         }
     };
