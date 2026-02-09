@@ -551,6 +551,8 @@ const initUI = (global: Global) => {
     tooltip.register(dom.exitFullscreen, 'Fullscreen', 'top');
 
     const isThirdPartyEmbedded = () => {
+        return true;
+
         // Show branding link when embedded in a third-party iframe
         const servers = ['superspl.at', 'dev.superspl.at'];
         const hostname = window.location.hostname;

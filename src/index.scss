@@ -62,33 +62,37 @@ button {
 
 #supersplatBranding {
     position: absolute;
-    top: max(12px, env(safe-area-inset-top));
-    left: max(12px, env(safe-area-inset-left));
+    top: max(16px, env(safe-area-inset-top));
+    left: max(16px, env(safe-area-inset-left));
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 10px;
-    border-radius: 6px;
     text-decoration: none;
     white-space: nowrap;
     cursor: pointer;
 
     color: $clr-text-light;
-    background-color: rgba(black, 0.3);
-
-    &:hover {
-        background-color: rgba(black, 0.5);
-    }
 
     > svg {
         height: 24px;
         width: auto;
         flex-shrink: 0;
+        padding: 8px;
+        border-radius: 6px;
+        background-color: rgba(black, 0.3);
+        filter:
+            drop-shadow(0 0 1px rgba(black, 0.4))
+            drop-shadow(0 0 2px rgba(black, 0.4));
     }
 
     > span {
         font-size: 14px;
         font-weight: bold;
+        text-shadow:
+            -1px -1px 0 rgba(black, 0.4),
+             1px -1px 0 rgba(black, 0.4),
+            -1px  1px 0 rgba(black, 0.4),
+             1px  1px 0 rgba(black, 0.4);
     }
 }
 
@@ -567,7 +571,7 @@ button {
     // Desktop mode: horizontal bar at top center
     &.desktop {
         position: absolute;
-        top: max(12px, env(safe-area-inset-top));
+        top: max(16px, env(safe-area-inset-top));
         left: 50%;
         transform: translateX(-50%);
 
