@@ -139,7 +139,7 @@ export class Annotation extends Script {
             .pc-annotation.arrow-left::before {
                 content: "";
                 position: absolute;
-                top: 50%;
+                top: var(--arrow-top, 50%);
                 transform: translateY(-50%);
                 border-top: 8px solid transparent;
                 border-bottom: 8px solid transparent;
@@ -420,7 +420,9 @@ export class Annotation extends Script {
         this.hotspotDom.addEventListener('pointerleave', leave);
 
         document.addEventListener('click', () => {
-            this.hideTooltip();
+            if (Annotation.activeAnnotation === this) {
+                this.hideTooltip();
+            }
         });
 
         Annotation.parentDom.appendChild(this.hotspotDom);
@@ -500,8 +502,8 @@ export class Annotation extends Script {
         setTimeout(() => {
             if (Annotation.tooltipDom.style.opacity === '0') {
                 Annotation.tooltipDom.style.visibility = 'hidden';
+                this.fire('hide');
             }
-            this.fire('hide');
         }, 200); // Match the transition duration
     }
 
@@ -555,6 +557,10 @@ export class Annotation extends Script {
 
             // Clamp vertical
             top = Math.max(margin, Math.min(top, vh - th - margin));
+
+            // Position arrow to point at the hotspot, clamped within the tooltip
+            const arrowY = Math.max(16, Math.min(screenPos.y - top, th - 16));
+            tooltip.style.setProperty('--arrow-top', `${arrowY}px`);
 
             tooltip.classList.toggle('arrow-right', !flipped);
             tooltip.classList.toggle('arrow-left', flipped);
