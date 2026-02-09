@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+
 import json from '@rollup/plugin-json';
 import resolve from '@rollup/plugin-node-resolve';
 import typescript from '@rollup/plugin-typescript';
@@ -9,7 +10,6 @@ import scss from 'rollup-plugin-scss';
 import { string } from 'rollup-plugin-string';
 import sass from 'sass';
 
-/** Custom plugin that copies index.html and watches it for changes. */
 function htmlPlugin() {
     return {
         name: 'html',
