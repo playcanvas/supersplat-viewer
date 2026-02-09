@@ -58,6 +58,10 @@ class Annotations {
                 global.events.fire('annotation.activate', ann);
             });
 
+            script.annotation.on('hide', () => {
+                global.events.fire('annotation.deactivate');
+            });
+
             // re-render if hover state changes
             script.annotation.on('hover', (hover: boolean) => {
                 global.app.renderNextFrame = true;
