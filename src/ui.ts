@@ -568,7 +568,7 @@ const initUI = (global: Global) => {
 
     const isThirdPartyEmbedded = () => {
         // Show branding link when embedded in a third-party iframe
-        const servers = ['superspl.at', 'dev.superspl.at'];
+        const servers = ['superspl.at'];
         const hostname = window.location.hostname;
         const isSuperSplatDomain = servers.includes(hostname);
 
