@@ -242,6 +242,14 @@ const initUI = (global: Global) => {
         return acc;
     }, {});
 
+    // Forward wheel events from UI overlays to the canvas so the camera zooms
+    // instead of the page scrolling (e.g. annotation nav, tooltips, hotspots)
+    const canvas = global.app.graphicsDevice.canvas as HTMLCanvasElement;
+    dom.ui.addEventListener('wheel', (event: WheelEvent) => {
+        event.preventDefault();
+        canvas.dispatchEvent(new WheelEvent(event.type, event));
+    }, { passive: false });
+
     // Handle loading progress updates
     events.on('progress:changed', (progress) => {
         dom.loadingText.textContent = `${progress}%`;
