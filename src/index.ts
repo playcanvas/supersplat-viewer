@@ -88,6 +88,7 @@ const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) =
     const events = new EventHandler();
 
     const state = observe(events, {
+        loaded: false,
         readyToRender: false,
         hqMode: true,
         progress: 0,

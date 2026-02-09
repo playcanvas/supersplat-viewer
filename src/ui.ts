@@ -139,27 +139,26 @@ const initJoystick = (
 const initAnnotationNav = (
     dom: Record<string, HTMLElement>,
     events: EventHandler,
-    state: { inputMode: string; controlsHidden: boolean },
+    state: { loaded: boolean; inputMode: string; controlsHidden: boolean },
     annotations: Annotation[]
 ) => {
     // Only show navigator when there are at least 2 annotations
     if (annotations.length < 2) return;
 
     let currentIndex = 0;
-    let ready = false;
 
     const updateDisplay = () => {
         dom.annotationNavTitle.textContent = annotations[currentIndex].title || '';
     };
 
     const updateMode = () => {
-        if (!ready) return;
+        if (!state.loaded) return;
         dom.annotationNav.classList.remove('desktop', 'touch', 'hidden');
         dom.annotationNav.classList.add(state.inputMode);
     };
 
     const updateFade = () => {
-        if (!ready) return;
+        if (!state.loaded) return;
         dom.annotationNav.classList.toggle('faded-in', !state.controlsHidden);
         dom.annotationNav.classList.toggle('faded-out', state.controlsHidden);
     };
@@ -190,16 +189,13 @@ const initAnnotationNav = (
         }
     });
 
-    // React to input mode and fade changes
-    events.on('inputMode:changed', updateMode);
-    events.on('controlsHidden:changed', updateFade);
-
-    // Defer visibility until first frame is rendered
-    events.on('firstFrame', () => {
-        ready = true;
+    // React to state changes
+    events.on('loaded:changed', () => {
         updateMode();
         updateFade();
     });
+    events.on('inputMode:changed', updateMode);
+    events.on('controlsHidden:changed', updateFade);
 
     // Initial state
     updateDisplay();
@@ -209,7 +205,7 @@ const initAnnotationNav = (
 const initPoster = (events: EventHandler) => {
     const poster = document.getElementById('poster');
 
-    events.on('firstFrame', () => {
+    events.on('loaded:changed', () => {
         poster.style.display = 'none';
         document.documentElement.style.setProperty('--canvas-opacity', '1');
     });
@@ -267,8 +263,8 @@ const initUI = (global: Global) => {
         }
     });
 
-    // Hide loading bar once first frame is rendered
-    events.on('firstFrame', () => {
+    // Hide loading bar once loaded
+    events.on('loaded:changed', () => {
         document.getElementById('loadingWrap').classList.add('hidden');
     });
 
@@ -419,8 +415,8 @@ const initUI = (global: Global) => {
         }, 4000);
     };
 
-    // Show controls once first frame is rendered
-    events.on('firstFrame', () => {
+    // Show controls once loaded
+    events.on('loaded:changed', () => {
         dom.controlsWrap.classList.remove('hidden');
         showUI();
     });

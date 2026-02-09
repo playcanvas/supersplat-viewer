@@ -23,6 +23,7 @@ type Config = {
 
 // observable state that can change at runtime
 type State = {
+    loaded: boolean;                            // true once first frame is rendered
     readyToRender: boolean;                     // don't render till this is set
     hqMode: boolean;
     progress: number;                           // content loading progress 0-100

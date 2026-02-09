@@ -284,8 +284,9 @@ class Viewer {
             }
         });
 
-        // unpause the animation on first frame
+        // update state on first frame
         events.on('firstFrame', () => {
+            state.loaded = true;
             state.animationPaused = !!config.noanim;
         });
 
