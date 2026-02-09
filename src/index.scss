@@ -164,6 +164,16 @@ button {
         display: flex;
         gap: 8px;
 
+        .buttonGroup {
+            display: flex;
+            background-color: rgba(black, 0.3);
+            border-radius: 6px;
+
+            &:not(:has(> :not(.hidden))) {
+                display: none;
+            }
+        }
+
         /* controlButton */
 
         .controlButton {
@@ -217,7 +227,6 @@ button {
                 transition: background-position 0.1s ease-in-out;
 
                 &.left {
-                    margin-right: -4px;
                     border-radius: 4px 0px 0px 4px;
 
                     &:not(.active) {
@@ -226,8 +235,6 @@ button {
                 }
 
                 &.right {
-                    margin-left: -4px;
-                    margin-right: 20px;
                     border-radius: 0px 4px 4px 0px;
 
                     &:not(.active) {
