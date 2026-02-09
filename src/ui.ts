@@ -1,5 +1,6 @@
 import { EventHandler } from 'playcanvas';
 
+import type { Annotation } from './settings';
 import { Tooltip } from './tooltip';
 import { Global } from './types';
 
@@ -134,6 +135,69 @@ const initJoystick = (
     dom.joystickBase.addEventListener('pointercancel', endJoystickTouch);
 };
 
+// Initialize the annotation navigator for stepping between annotations
+const initAnnotationNav = (
+    dom: Record<string, HTMLElement>,
+    events: EventHandler,
+    state: { inputMode: string; controlsHidden: boolean },
+    annotations: Annotation[]
+) => {
+    // Only show navigator when there are at least 2 annotations
+    if (annotations.length < 2) return;
+
+    let currentIndex = 0;
+
+    const updateDisplay = () => {
+        dom.annotationIndex.textContent = `${currentIndex + 1} / ${annotations.length}`;
+        dom.annotationNavTitle.textContent = annotations[currentIndex].title || '';
+    };
+
+    const updateMode = () => {
+        dom.annotationNav.classList.remove('desktop', 'touch', 'hidden');
+        dom.annotationNav.classList.add(state.inputMode);
+    };
+
+    const updateFade = () => {
+        dom.annotationNav.classList.toggle('faded-in', !state.controlsHidden);
+        dom.annotationNav.classList.toggle('faded-out', state.controlsHidden);
+    };
+
+    const goTo = (index: number) => {
+        currentIndex = index;
+        updateDisplay();
+        events.fire('annotation.navigate', annotations[currentIndex]);
+    };
+
+    // Prev / Next
+    dom.annotationPrev.addEventListener('click', (e) => {
+        e.stopPropagation();
+        goTo((currentIndex - 1 + annotations.length) % annotations.length);
+    });
+
+    dom.annotationNext.addEventListener('click', (e) => {
+        e.stopPropagation();
+        goTo((currentIndex + 1) % annotations.length);
+    });
+
+    // Sync when an annotation is activated externally (e.g. hotspot click)
+    events.on('annotation.activate', (annotation: Annotation) => {
+        const idx = annotations.indexOf(annotation);
+        if (idx !== -1) {
+            currentIndex = idx;
+            updateDisplay();
+        }
+    });
+
+    // React to input mode and fade changes
+    events.on('inputMode:changed', updateMode);
+    events.on('controlsHidden:changed', updateFade);
+
+    // Initial state
+    updateDisplay();
+    updateMode();
+    updateFade();
+};
+
 // update the poster image to start blurry and then resolve to sharp during loading
 const initPoster = (events: EventHandler) => {
     const poster = document.getElementById('poster');
@@ -170,7 +234,8 @@ const initUI = (global: Global) => {
         'reset', 'frame',
         'loadingText', 'loadingBar',
         'joystickBase', 'joystick',
-        'tooltip'
+        'tooltip',
+        'annotationNav', 'annotationPrev', 'annotationNext', 'annotationInfo', 'annotationIndex', 'annotationNavTitle'
     ].reduce((acc: Record<string, HTMLElement>, id) => {
         acc[id] = document.getElementById(id);
         return acc;
@@ -445,6 +510,9 @@ const initUI = (global: Global) => {
     // Initialize touch joystick for fly mode
     initJoystick(dom, events, state);
 
+    // Initialize annotation navigator
+    initAnnotationNav(dom, events, state, global.settings.annotations);
+
     // Hide all UI (poster, loading bar, controls)
     if (config.noui) {
         dom.ui.classList.add('hidden');
@@ -484,6 +552,7 @@ const initUI = (global: Global) => {
     };
 
     const isThirdPartyEmbedded = () => {
+        return true;
         // Show branding link when embedded in a third-party iframe
         const servers = ['superspl.at', 'dev.superspl.at'];
         const hostname = window.location.hostname;
