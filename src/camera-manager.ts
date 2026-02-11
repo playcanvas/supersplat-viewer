@@ -159,7 +159,9 @@ class CameraManager {
 
         // handle camera mode switching
         events.on('cameraMode:changed', (value, prev) => {
-            // store previous camera mode and pose
+            // snapshot the current pose before any controller mutation
+            startTransition();
+
             target.copy(this.camera);
             fromMode = prev;
 
@@ -170,8 +172,6 @@ class CameraManager {
             // enter new controller
             const newController = getController(value);
             newController.onEnter(this.camera);
-
-            startTransition();
         });
 
         // handle user scrubbing the animation timeline
