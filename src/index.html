@@ -17,12 +17,17 @@
 
             const posterUrl = url.searchParams.get('poster');
             const skyboxUrl = url.searchParams.get('skybox');
+            const skydomeUrl = url.searchParams.get('skydome');
+            const skyboxProjection = url.searchParams.get('skyprojection');
+            const resolvedSkyboxUrl = skyboxUrl || skydomeUrl;
+            const resolvedProjection = skyboxProjection || (skydomeUrl ? 'dome' : undefined);
             const settingsUrl = url.searchParams.has('settings') ? url.searchParams.get('settings') : './settings.json';
             const contentUrl = url.searchParams.has('content') ? url.searchParams.get('content') : './scene.compressed.ply';
 
             const sseConfig = {
                 poster: posterUrl && createImage(posterUrl),
-                skyboxUrl,
+                skyboxUrl: resolvedSkyboxUrl,
+                skyboxProjection: resolvedProjection,
                 contentUrl,
                 contents: fetch(contentUrl),
                 noui: url.searchParams.has('noui'),
