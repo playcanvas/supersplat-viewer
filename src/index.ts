@@ -108,45 +108,6 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
         keyboard: new Keyboard(window)
     });
 
-    app.start();
-
-    // Configure application canvas resizing
-    let canvasResize: { width: number; height: number } | null = null;
-
-    const resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
-        if (entries.length > 0) {
-            const entry = entries[0];
-            if (entry) {
-                if (entry.devicePixelContentBoxSize) {
-                    // on non-safari browsers, we are given the pixel-perfect canvas size
-                    canvasResize = {
-                        width: entry.devicePixelContentBoxSize[0].inlineSize,
-                        height: entry.devicePixelContentBoxSize[0].blockSize
-                    };
-                } else if (entry.contentBoxSize.length > 0) {
-                    // on safari browsers we must calculate pixel size from CSS size ourselves
-                    // and hope the browser performs the same calculation.
-                    const pixelRatio = window.devicePixelRatio;
-                    canvasResize = {
-                        width: Math.ceil(entry.contentBoxSize[0].inlineSize * pixelRatio),
-                        height: Math.ceil(entry.contentBoxSize[0].blockSize * pixelRatio)
-                    };
-                }
-            }
-            app.renderNextFrame = true;
-        }
-    });
-
-    resizeObserver.observe(canvas);
-
-    app.on('prerender', () => {
-        if (canvasResize) {
-            canvas.width = canvasResize.width;
-            canvas.height = canvasResize.height;
-            canvasResize = null;
-        }
-    });
-
     // Create entity hierarchy
     const cameraRoot = new Entity('camera root');
     app.root.addChild(cameraRoot);
@@ -165,10 +126,63 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
     return { app, camera };
 };
 
+// initialize canvas sizing and start the application
+const initCanvas = (global: Global) => {
+    const { app, events, state } = global;
+    const { canvas } = app.graphicsDevice;
+
+    // maximum pixel dimension we will allow along the shortest screen dimension based on platform
+    const maxPixelDim = platform.mobile ? 1080 : 2160;
+
+    // cap pixel ratio to limit resolution on high-DPI devices
+    const calcPixelRatio = () => Math.min(maxPixelDim / Math.min(screen.width, screen.height), window.devicePixelRatio);
+
+    // last known device pixel size (full resolution, before any quality scaling)
+    const deviceSize = { width: 0, height: 0 };
+
+    const set = (width: number, height: number) => {
+        const ratio = calcPixelRatio();
+        deviceSize.width = width * ratio;
+        deviceSize.height = height * ratio;
+    };
+
+    const apply = () => {
+        const s = state.hqMode ? 1.0 : 0.5;
+        const w = Math.ceil(deviceSize.width * s);
+        const h = Math.ceil(deviceSize.height * s);
+        if (w !== canvas.width || h !== canvas.height) {
+            canvas.width = w;
+            canvas.height = h;
+        }
+    };
+
+    const resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
+        const e = entries[0]?.contentBoxSize?.[0];
+        if (e) {
+            set(e.inlineSize, e.blockSize);
+            app.renderNextFrame = true;
+        }
+    });
+    resizeObserver.observe(canvas);
+
+    events.on('hqMode:changed', () => {
+        app.renderNextFrame = true;
+    });
+
+    // Resize canvas before render() so the swap chain texture is acquired at the correct size.
+    app.on('framerender', apply);
+
+    // Disable the engine's built-in canvas resize — we handle it via ResizeObserver
+    // @ts-ignore
+    app._allowResize = false;
+    set(canvas.clientWidth, canvas.clientHeight);
+    apply();
+}
+
 const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config) => {
     const { app, camera } = await createApp(canvas, config);
 
-    // Set up application state
+    // create events
     const events = new EventHandler();
 
     const state = observe(events, {
@@ -197,6 +211,11 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
         camera
     };
 
+    initCanvas(global);
+
+    // start the application
+    app.start();
+
     // Initialize the load-time poster
     if (config.poster) {
         initPoster(events);
@@ -205,7 +224,9 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
     camera.addComponent('camera');
 
     // Initialize XR support
-    initXr(global);
+    if (!config.webgpu) {
+        initXr(global);
+    }
 
     // Initialize user interface
     initUI(global);

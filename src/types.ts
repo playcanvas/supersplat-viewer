@@ -20,6 +20,7 @@ type Config = {
     unified: boolean;                           // force unified rendering mode
     aa: boolean;                                // render with antialiasing
     webgpu: boolean;                            // use WebGPU device
+    gpusort: boolean;                           // use GPU sorting for splats
 };
 
 // observable state that can change at runtime

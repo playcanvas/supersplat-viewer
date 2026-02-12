@@ -32,29 +32,10 @@ import { InputController } from './input-controller';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { Global } from './types';
 
-// override global pick to pack depth instead of meshInstance id
-const pickDepthGlsl = /* glsl */ `
-uniform vec4 camera_params;     // 1/far, far, near, isOrtho
-vec4 getPickOutput() {
-    float linearDepth = 1.0 / gl_FragCoord.w;
-    float normalizedDepth = (linearDepth - camera_params.z) / (camera_params.y - camera_params.z);
-    return vec4(gaussianColor.a * normalizedDepth, 0.0, 0.0, gaussianColor.a);
-}
-`;
-
 const gammaChunk = `
 vec3 prepareOutputFromGamma(vec3 gammaColor) {
     return gammaColor;
 }
-`;
-
-const pickDepthWgsl = /* wgsl */ `
-    uniform camera_params: vec4f;       // 1/far, far, near, isOrtho
-    fn getPickOutput() -> vec4f {
-        let linearDepth = 1.0 / pcPosition.w;
-        let normalizedDepth = (linearDepth - uniform.camera_params.z) / (uniform.camera_params.y - uniform.camera_params.z);
-        return vec4f(gaussianColor.a * normalizedDepth, 0.0, 0.0, gaussianColor.a);
-    }
 `;
 
 const tonemapTable: Record<string, number> = {
@@ -146,11 +127,9 @@ class Viewer {
         // render skybox as plain equirect
         const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
         glsl.set('skyboxPS', glsl.get('skyboxPS').replace('mapRoughnessUv(uv, mipLevel)', 'uv'));
-        glsl.set('pickPS', pickDepthGlsl);
 
         const wgsl = ShaderChunks.get(graphicsDevice, 'wgsl');
         wgsl.set('skyboxPS', wgsl.get('skyboxPS').replace('mapRoughnessUv(uv, uniform.mipLevel)', 'uv'));
-        wgsl.set('pickPS', pickDepthWgsl);
 
         // disable auto render, we'll render only when camera changes
         app.autoRender = false;
@@ -172,20 +151,6 @@ class Viewer {
         };
         graphicsDevice.on('resizecanvas', updateHorizontalFov);
         updateHorizontalFov();
-
-        // handle HQ mode changes
-        const updateHqMode = () => {
-            // limit the backbuffer to 4k on desktop and HD on mobile
-            // we use the shorter dimension so ultra-wide (or high) monitors still work correctly.
-            const maxRatio = (platform.mobile ? 1080 : 2160) / Math.min(screen.width, screen.height);
-
-            // half pixel resolution with hq mode disabled
-            graphicsDevice.maxPixelRatio = (state.hqMode ? 1.0 : 0.5) * Math.min(maxRatio, window.devicePixelRatio);
-
-            app.renderNextFrame = true;
-        };
-        events.on('hqMode:changed', updateHqMode);
-        updateHqMode();
 
         // construct debug ministats
         if (config.ministats) {
