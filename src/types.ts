@@ -15,6 +15,8 @@ type Config = {
 
     noui: boolean;
     noanim: boolean;
+    nofx: boolean;                              // disable post effects
+    hpr?: boolean;                              // override highPrecisionRendering (undefined = use settings)
     ministats: boolean;
     colorize: boolean;                          // render with LOD colorization
     unified: boolean;                           // force unified rendering mode

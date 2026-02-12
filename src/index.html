@@ -27,6 +27,8 @@
                 contents: fetch(contentUrl),
                 noui: url.searchParams.has('noui'),
                 noanim: url.searchParams.has('noanim'),
+                nofx: url.searchParams.has('nofx'),
+                hpr: url.searchParams.has('hpr') ? ['', '1', 'true', 'enable'].includes(url.searchParams.get('hpr')) : undefined,
                 ministats: url.searchParams.has('ministats'),
                 colorize: url.searchParams.has('colorize'),
                 unified: url.searchParams.has('unified'),

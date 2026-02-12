@@ -383,11 +383,14 @@ class Viewer {
     // configure camera based on application mode and post process settings
     configureCamera(settings: ExperienceSettings) {
         const { global } = this;
-        const { app, camera } = global;
+        const { app, config, camera } = global;
         const { postEffectSettings } = settings;
         const { background } = settings;
 
-        const enableCameraFrame = !app.xr.active && (anyPostEffectEnabled(postEffectSettings) || settings.highPrecisionRendering);
+        // hpr override takes precedence over settings.highPrecisionRendering
+        const highPrecisionRendering = config.hpr ?? settings.highPrecisionRendering;
+
+        const enableCameraFrame = !app.xr.active && !config.nofx && (anyPostEffectEnabled(postEffectSettings) || highPrecisionRendering);
 
         if (enableCameraFrame) {
             // create instance
@@ -398,7 +401,7 @@ class Viewer {
             const { cameraFrame } = this;
             cameraFrame.enabled = true;
             cameraFrame.rendering.toneMapping = tonemapTable[settings.tonemapping];
-            cameraFrame.rendering.renderFormats = settings.highPrecisionRendering ? [PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F] : [];
+            cameraFrame.rendering.renderFormats = highPrecisionRendering ? [PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F] : [];
             applyPostEffectSettings(cameraFrame, postEffectSettings);
             cameraFrame.update();
 
