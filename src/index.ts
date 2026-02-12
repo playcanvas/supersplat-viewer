@@ -126,7 +126,7 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
     return { app, camera };
 };
 
-// initialize canvas sizing and start the application
+// initialize canvas size and resizing
 const initCanvas = (global: Global) => {
     const { app, events, state } = global;
     const { canvas } = app.graphicsDevice;
