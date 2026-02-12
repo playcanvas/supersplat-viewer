@@ -96,7 +96,7 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
         antialias: false,
         depth: true,
         stencil: false,
-        xrCompatible: true,
+        xrCompatible: !config.webgpu,
         powerPreference: 'high-performance'
     });
 

@@ -359,6 +359,8 @@ class Viewer {
                         // debug colorize lods
                         gsplat.colorizeLod = config.colorize;
 
+                        gsplat.gpuSorting = config.gpusort;
+
                         // wait for the first valid frame to complete rendering
                         app.once('frameend', () => {
                             events.fire('firstFrame');
