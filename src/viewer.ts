@@ -108,6 +108,9 @@ const anyPostEffectEnabled = (settings: PostEffectSettings): boolean => {
 
 const vec = new Vec3();
 
+// store the original isColorBufferSrgb so the override in updatePostEffects is idempotent
+const origIsColorBufferSrgb = RenderTarget.prototype.isColorBufferSrgb;
+
 class Viewer {
     global: Global;
 
@@ -403,9 +406,9 @@ class Viewer {
             ShaderChunks.get(app.graphicsDevice, 'glsl').set('gsplatOutputVS', gammaChunkGlsl);
             ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatOutputVS', gammaChunkWgsl);
 
-            // ensure the final blit doesn't perform linear->gamma conversion
-            RenderTarget.prototype.isColorBufferSrgb = function () {
-                return true;
+            // ensure the final compose blit doesn't perform linear->gamma conversion.
+            RenderTarget.prototype.isColorBufferSrgb = function (index) {
+                return this === app.graphicsDevice.backBuffer ? true : origIsColorBufferSrgb.call(this, index);
             };
 
             camera.camera.clearColor = new Color(background.color);
