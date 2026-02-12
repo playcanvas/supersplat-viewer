@@ -177,7 +177,7 @@ const initCanvas = (global: Global) => {
     app._allowResize = false;
     set(canvas.clientWidth, canvas.clientHeight);
     apply();
-}
+};
 
 const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config) => {
     const { app, camera } = await createApp(canvas, config);
