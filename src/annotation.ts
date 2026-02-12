@@ -528,9 +528,8 @@ export class Annotation extends Script {
     _hideElements() {
         this.hotspotDom.style.display = 'none';
         if (Annotation.activeAnnotation === this) {
-            if (Annotation.tooltipDom.style.visibility !== 'hidden') {
-                this.hideTooltip();
-            }
+            Annotation.tooltipDom.style.visibility = 'hidden';
+            Annotation.tooltipDom.style.opacity = '0';
         }
     }
 
@@ -544,6 +543,12 @@ export class Annotation extends Script {
         this.hotspotDom.style.display = 'block';
         this.hotspotDom.style.left = `${screenPos.x}px`;
         this.hotspotDom.style.top = `${screenPos.y}px`;
+
+        // Re-show tooltip if it was hidden while behind camera
+        if (Annotation.activeAnnotation === this) {
+            Annotation.tooltipDom.style.visibility = 'visible';
+            Annotation.tooltipDom.style.opacity = '1';
+        }
 
         // Position tooltip, clamped to viewport
         if (Annotation.activeAnnotation === this) {
