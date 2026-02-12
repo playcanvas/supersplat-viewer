@@ -32,8 +32,14 @@ import { InputController } from './input-controller';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { Global } from './types';
 
-const gammaChunk = `
+const gammaChunkGlsl = `
 vec3 prepareOutputFromGamma(vec3 gammaColor) {
+    return gammaColor;
+}
+`;
+
+const gammaChunkWgsl = `
+fn prepareOutputFromGamma(gammaColor: vec3f) -> vec3f {
     return gammaColor;
 }
 `;
@@ -394,7 +400,8 @@ class Viewer {
             cameraFrame.update();
 
             // force gsplat shader to write gamma-space colors
-            ShaderChunks.get(app.graphicsDevice, 'glsl').set('gsplatOutputVS', gammaChunk);
+            ShaderChunks.get(app.graphicsDevice, 'glsl').set('gsplatOutputVS', gammaChunkGlsl);
+            ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatOutputVS', gammaChunkWgsl);
 
             // ensure the final blit doesn't perform linear->gamma conversion
             RenderTarget.prototype.isColorBufferSrgb = function () {
