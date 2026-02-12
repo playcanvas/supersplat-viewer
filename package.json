@@ -38,7 +38,6 @@
   ],
   "devDependencies": {
     "@playcanvas/eslint-config": "2.1.0",
-    "@playcanvas/web-components": "0.3.0",
     "@rollup/plugin-json": "6.1.0",
     "@rollup/plugin-node-resolve": "16.0.3",
     "@rollup/plugin-typescript": "12.3.0",

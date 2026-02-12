@@ -1,15 +1,20 @@
-import '@playcanvas/web-components';
 import {
     Asset,
+    Color,
+    createGraphicsDevice,
     Entity,
     EventHandler,
+    Keyboard,
+    Mouse,
     platform,
+    TouchDevice,
     type Texture,
     type AppBase,
     revision as engineRevision,
     version as engineVersion
 } from 'playcanvas';
 
+import { App } from './app';
 import { observe } from './core/observe';
 import { importSettings } from './settings';
 import type { Config, Global } from './types';
@@ -84,7 +89,86 @@ const loadSkybox = (app: AppBase, url: string) => {
     });
 };
 
-const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) => {
+const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
+    // Create the graphics device
+    const device = await createGraphicsDevice(canvas, {
+        deviceTypes: config.webgpu ? ['webgpu'] : [],
+        antialias: false,
+        depth: true,
+        stencil: false,
+        xrCompatible: true,
+        powerPreference: 'high-performance'
+    });
+
+    // Create the application
+    const app = new App(canvas, {
+        graphicsDevice: device,
+        mouse: new Mouse(canvas),
+        touch: new TouchDevice(canvas),
+        keyboard: new Keyboard(window)
+    });
+
+    app.start();
+
+    // Configure application canvas resizing
+    let canvasResize: { width: number; height: number } | null = null;
+
+    const resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
+        if (entries.length > 0) {
+            const entry = entries[0];
+            if (entry) {
+                if (entry.devicePixelContentBoxSize) {
+                    // on non-safari browsers, we are given the pixel-perfect canvas size
+                    canvasResize = {
+                        width: entry.devicePixelContentBoxSize[0].inlineSize,
+                        height: entry.devicePixelContentBoxSize[0].blockSize
+                    };
+                } else if (entry.contentBoxSize.length > 0) {
+                    // on safari browsers we must calculate pixel size from CSS size ourselves
+                    // and hope the browser performs the same calculation.
+                    const pixelRatio = window.devicePixelRatio;
+                    canvasResize = {
+                        width: Math.ceil(entry.contentBoxSize[0].inlineSize * pixelRatio),
+                        height: Math.ceil(entry.contentBoxSize[0].blockSize * pixelRatio)
+                    };
+                }
+            }
+            app.renderNextFrame = true;
+        }
+    });
+
+    resizeObserver.observe(canvas);
+
+    app.on('prerender', () => {
+        if (canvasResize) {
+            canvas.width = canvasResize.width;
+            canvas.height = canvasResize.height;
+            canvasResize = null;
+        }
+    });
+
+    // Create entity hierarchy
+    const cameraRoot = new Entity('camera root');
+    app.root.addChild(cameraRoot);
+
+    const camera = new Entity('camera');
+    cameraRoot.addChild(camera);
+
+    const light = new Entity('light');
+    light.setEulerAngles(35, 45, 0);
+    light.addComponent('light', {
+        color: new Color(1, 1, 1),
+        intensity: 1.5
+    });
+    app.root.addChild(light);
+
+    return { app, camera };
+};
+
+const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config) => {
+    const { app, camera } = await createApp(canvas, config);
+
+    // Set up application state
     const events = new EventHandler();
 
     const state = observe(events, {
