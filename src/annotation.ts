@@ -22,12 +22,21 @@ import {
 } from 'playcanvas';
 
 // clamp the vertices of the hotspot so it is never clipped by the near or far plane
-const depthClamp = `
+const depthClampGlsl = `
     float f = gl_Position.z / gl_Position.w;
     if (f > 1.0) {
         gl_Position.z = gl_Position.w;
     } else if (f < -1.0) {
         gl_Position.z = -gl_Position.w;
+    }
+`;
+
+const depthClampWgsl = `
+    let f = output.position.z / output.position.w;
+    if (f > 1.0) {
+        output.position.z = output.position.w;
+    } else if (f < -1.0) {
+        output.position.z = -output.position.w;
     }
 `;
 
@@ -344,7 +353,10 @@ export class Annotation extends Script {
         material.useLighting = false;
 
         material.shaderChunks.glsl.add({
-            'litUserMainEndVS': depthClamp
+            'litUserMainEndVS': depthClampGlsl
+        });
+        material.shaderChunks.wgsl.add({
+            'litUserMainEndVS': depthClampWgsl
         });
 
         material.update();
