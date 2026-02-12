@@ -3,6 +3,7 @@ import {
     AppOptions,
     CameraComponentSystem,
     LightComponentSystem,
+    RenderComponentSystem,
     GSplatComponentSystem,
     ScriptComponentSystem,
     TextureHandler,
@@ -33,6 +34,7 @@ class App extends AppBase {
         appOptions.componentSystems = [
             CameraComponentSystem,
             LightComponentSystem,
+            RenderComponentSystem,
             GSplatComponentSystem,
             ScriptComponentSystem
         ];
