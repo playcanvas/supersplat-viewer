@@ -213,6 +213,10 @@
                                 <span class="control-action">Reset Camera</span>
                                 <span class="control-key">R</span>
                             </div>
+                            <div class="control-item">
+                                <span class="control-action">Toggle Camera Info</span>
+                                <span class="control-key">I</span>
+                            </div>
                         </div>
                         <div id="touchInfoPanel" class="hidden">
                             <div class="control-spacer"></div>
@@ -245,6 +249,29 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Camera Info Panel -->
+            <div id="cameraInfoPanel" class="hidden" onpointerdown="event.stopPropagation()">
+                <h1>Camera</h1>
+                <div class="control-item">
+                    <span class="control-action">Position</span>
+                    <span id="cameraPosition" class="control-key">0.00, 0.00, 0.00</span>
+                </div>
+                <div class="control-item">
+                    <span class="control-action">Target</span>
+                    <span id="cameraTarget" class="control-key">0.00, 0.00, 0.00</span>
+                </div>
+                <div class="control-item">
+                    <span class="control-action">Zoom</span>
+                    <span id="cameraZoom" class="control-key">0.00</span>
+                </div>
+                <div class="control-spacer"></div>
+                <h1>Scene</h1>
+                <div class="control-item">
+                    <span class="control-action">Splat Count</span>
+                    <span id="splatCount" class="control-key">0</span>
                 </div>
             </div>
 

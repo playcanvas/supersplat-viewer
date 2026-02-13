@@ -228,6 +228,7 @@ const initUI = (global: Global) => {
         'arMode', 'vrMode',
         'enterFullscreen', 'exitFullscreen',
         'info', 'infoPanel', 'desktopTab', 'touchTab', 'desktopInfoPanel', 'touchInfoPanel',
+        'cameraInfoPanel', 'cameraPosition', 'cameraTarget', 'cameraZoom', 'splatCount',
         'timelineContainer', 'handle', 'time',
         'buttonContainer',
         'play', 'pause',
@@ -378,10 +379,15 @@ const initUI = (global: Global) => {
         dom.infoPanel.classList.add('hidden');
     });
 
+    dom.cameraInfoPanel.addEventListener('pointerdown', () => {
+        dom.cameraInfoPanel.classList.add('hidden');
+    });
+
     events.on('inputEvent', (event) => {
         if (event === 'cancel') {
             // close info panel on cancel
             dom.infoPanel.classList.add('hidden');
+            dom.cameraInfoPanel.classList.add('hidden');
             dom.settingsPanel.classList.add('hidden');
 
             // close fullscreen on cancel
@@ -390,6 +396,17 @@ const initUI = (global: Global) => {
             }
         } else if (event === 'interrupt') {
             dom.settingsPanel.classList.add('hidden');
+            dom.cameraInfoPanel.classList.add('hidden');
+        }
+    });
+
+    const toggleCameraInfo = () => {
+        dom.cameraInfoPanel.classList.toggle('hidden');
+    };
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key.toLowerCase() === 'i') {
+            toggleCameraInfo();
         }
     });
 
@@ -549,6 +566,16 @@ const initUI = (global: Global) => {
     if (config.noui) {
         dom.ui.classList.add('hidden');
     }
+
+    const formatVec = (value: number) => value.toFixed(2);
+    const formatVec3 = (x: number, y: number, z: number) => `${formatVec(x)}, ${formatVec(y)}, ${formatVec(z)}`;
+
+    events.on('cameraInfo', (position, target, zoom, splatCount) => {
+        dom.cameraPosition.textContent = formatVec3(position.x, position.y, position.z);
+        dom.cameraTarget.textContent = formatVec3(target.x, target.y, target.z);
+        dom.cameraZoom.textContent = formatVec(zoom);
+        dom.splatCount.textContent = splatCount.toString();
+    });
 
     // tooltips
     const tooltip = new Tooltip(dom.tooltip);
