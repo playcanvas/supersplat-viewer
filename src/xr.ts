@@ -71,6 +71,14 @@ const initXr = (global: Global) => {
         if (app.xr.type === 'immersive-ar') {
             camera.camera.clearColor = clearColor;
         }
+
+        // Restore the canvas to the correct position in the DOM after exiting XR. In
+        // some browsers (e.g. Chrome on Android) the canvas is moved to a new root
+        // during XR, and needs to be moved back on exit.
+        requestAnimationFrame(() => {
+            document.body.prepend(app.graphicsDevice.canvas);
+            app.renderNextFrame = true;
+        });
     });
 
     events.on('startAR', () => {

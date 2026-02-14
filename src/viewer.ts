@@ -124,6 +124,15 @@ class Viewer {
 
     forceRenderNextFrame = false;
 
+    origChunks: {
+        glsl: {
+            gsplatOutputVS: string
+        },
+        wgsl: {
+            gsplatOutputVS: string
+        }
+    };
+
     constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void>) {
         this.global = global;
 
@@ -132,6 +141,15 @@ class Viewer {
 
         // enable anonymous CORS for image loading in safari
         (app.loader.getHandler('texture') as TextureHandler).imgParser.crossOrigin = 'anonymous';
+
+        this.origChunks = {
+            glsl: {
+                gsplatOutputVS: ShaderChunks.get(graphicsDevice, 'glsl').get('gsplatOutputVS')
+            },
+            wgsl: {
+                gsplatOutputVS: ShaderChunks.get(graphicsDevice, 'wgsl').get('gsplatOutputVS')
+            }
+        };
 
         // render skybox as plain equirect
         const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
@@ -423,6 +441,13 @@ class Viewer {
                 this.cameraFrame.destroy();
                 this.cameraFrame = null;
             }
+
+            // restore gsplat output shader chunks to engine defaults
+            ShaderChunks.get(app.graphicsDevice, 'glsl').set('gsplatOutputVS', this.origChunks.glsl.gsplatOutputVS);
+            ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatOutputVS', this.origChunks.wgsl.gsplatOutputVS);
+
+            // restore original isColorBufferSrgb behavior
+            RenderTarget.prototype.isColorBufferSrgb = origIsColorBufferSrgb;
 
             if (!app.xr.active) {
                 camera.camera.toneMapping = tonemapTable[settings.tonemapping];

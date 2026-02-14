@@ -100,6 +100,10 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
         powerPreference: 'high-performance'
     });
 
+    // Set maxPixelRatio so the XR framebuffer scale factor is computed correctly.
+    // Regular rendering bypasses maxPixelRatio via the custom initCanvas sizing.
+    device.maxPixelRatio = window.devicePixelRatio;
+
     // Create the application
     const app = new App(canvas, {
         graphicsDevice: device,
@@ -118,10 +122,12 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
     const light = new Entity('light');
     light.setEulerAngles(35, 45, 0);
     light.addComponent('light', {
-        color: new Color(1, 1, 1),
-        intensity: 1.5
+        color: new Color(1.0, 0.98, 0.957),
+        intensity: 1
     });
     app.root.addChild(light);
+
+    app.scene.ambientLight.set(0.51, 0.55, 0.65);
 
     return { app, camera };
 };
@@ -147,6 +153,10 @@ const initCanvas = (global: Global) => {
     };
 
     const apply = () => {
+        // don't resize the canvas during XR - the XR system manages its own framebuffers
+        // and resetting canvas dimensions can invalidate the XRWebGLLayer
+        if (app.xr?.active) return;
+
         const s = state.hqMode ? 1.0 : 0.5;
         const w = Math.ceil(deviceSize.width * s);
         const h = Math.ceil(deviceSize.height * s);

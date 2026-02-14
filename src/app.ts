@@ -6,6 +6,7 @@ import {
     RenderComponentSystem,
     GSplatComponentSystem,
     ScriptComponentSystem,
+    ContainerHandler,
     TextureHandler,
     GSplatHandler,
     BinaryHandler,
@@ -40,6 +41,7 @@ class App extends AppBase {
         ];
 
         appOptions.resourceHandlers = [
+            ContainerHandler,
             TextureHandler,
             GSplatHandler,
             BinaryHandler
