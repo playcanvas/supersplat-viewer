@@ -81,13 +81,14 @@ const initXr = (global: Global) => {
         });
     });
 
-    events.on('startAR', () => {
-        app.xr.start(app.root.findComponent('camera') as CameraComponent, 'immersive-ar', 'local-floor');
-    });
+    const start = (type: string) => {
+        camera.camera.nearClip = 0.01;
+        camera.camera.farClip = 1000;
+        app.xr.start(app.root.findComponent('camera') as CameraComponent, type, 'local-floor');
+    };
 
-    events.on('startVR', () => {
-        app.xr.start(app.root.findComponent('camera') as CameraComponent, 'immersive-vr', 'local-floor');
-    });
+    events.on('startAR', () => start('immersive-ar'));
+    events.on('startVR', () => start('immersive-vr'));
 
     events.on('inputEvent', (event) => {
         if (event === 'cancel' && app.xr.active) {
