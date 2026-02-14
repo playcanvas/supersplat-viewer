@@ -43,7 +43,7 @@ class OrbitController implements CameraController {
         p.position.copy(camera.position);
         p.angles.copy(camera.angles);
         p.distance = camera.distance;
-        this.controller.attach(p, true);
+        this.controller.attach(p, false);
     }
 }
 

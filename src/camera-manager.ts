@@ -92,9 +92,15 @@ class CameraManager {
         // enter the initial controller
         getController(state.cameraMode).onEnter(this.camera);
 
-        // transition time between cameras
-        const transitionSpeed = 2.0;
+        // transition state
+        const transitionSpeed = 1.0;
         let transitionTimer = 1;
+
+        // start a new camera transition from the current pose
+        const startTransition = () => {
+            from.copy(this.camera);
+            transitionTimer = 0;
+        };
 
         // application update
         this.update = (deltaTime: number, frame: CameraFrame) => {
@@ -128,10 +134,12 @@ class CameraManager {
                 case 'frame':
                     state.cameraMode = 'orbit';
                     controllers.orbit.goto(frameCamera);
+                    startTransition();
                     break;
                 case 'reset':
                     state.cameraMode = 'orbit';
                     controllers.orbit.goto(resetCamera);
+                    startTransition();
                     break;
                 case 'playPause':
                     if (state.hasAnimation) {
@@ -154,9 +162,10 @@ class CameraManager {
 
         // handle camera mode switching
         events.on('cameraMode:changed', (value, prev) => {
-            // store previous camera mode and pose
+            // snapshot the current pose before any controller mutation
+            startTransition();
+
             target.copy(this.camera);
-            from.copy(this.camera);
             fromMode = prev;
 
             // exit the old controller
@@ -166,9 +175,6 @@ class CameraManager {
             // enter new controller
             const newController = getController(value);
             newController.onEnter(this.camera);
-
-            // reset camera transition timer
-            transitionTimer = 0;
         });
 
         // handle user scrubbing the animation timeline
@@ -190,6 +196,7 @@ class CameraManager {
             tmpCamera.look(this.camera.position, position);
 
             controllers.orbit.goto(tmpCamera);
+            startTransition();
         });
 
         events.on('annotation.activate', (annotation: Annotation) => {
@@ -206,6 +213,8 @@ class CameraManager {
             );
 
             controllers.orbit.goto(tmpCamera);
+            target.fov = tmpCamera.fov;
+            startTransition();
         });
     }
 }

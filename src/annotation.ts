@@ -22,12 +22,21 @@ import {
 } from 'playcanvas';
 
 // clamp the vertices of the hotspot so it is never clipped by the near or far plane
-const depthClamp = `
+const depthClampGlsl = `
     float f = gl_Position.z / gl_Position.w;
     if (f > 1.0) {
         gl_Position.z = gl_Position.w;
     } else if (f < -1.0) {
         gl_Position.z = -gl_Position.w;
+    }
+`;
+
+const depthClampWgsl = `
+    let f = output.position.z / output.position.w;
+    if (f > 1.0) {
+        output.position.z = output.position.w;
+    } else if (f < -1.0) {
+        output.position.z = -output.position.w;
     }
 `;
 
@@ -344,7 +353,10 @@ export class Annotation extends Script {
         material.useLighting = false;
 
         material.shaderChunks.glsl.add({
-            'litUserMainEndVS': depthClamp
+            'litUserMainEndVS': depthClampGlsl
+        });
+        material.shaderChunks.wgsl.add({
+            'litUserMainEndVS': depthClampWgsl
         });
 
         material.update();
@@ -442,28 +454,38 @@ export class Annotation extends Script {
         });
 
         this.app.on('prerender', () => {
-            if (!Annotation.camera) return;
-
-            const position = this.entity.getPosition();
-            const screenPos = Annotation.camera.camera.worldToScreen(position);
-
-            const { viewMatrix } = Annotation.camera.camera;
-            viewMatrix.transformPoint(position, vec);
-            if (vec.z >= 0) {
-                this._hideElements();
-                return;
-            }
-
-            this._updatePositions(screenPos);
-            this._updateRotationAndScale();
-
-            // update material opacity and also directly on the uniform so we
-            // can avoid a full material update
-            this.materials[0].opacity = Annotation.opacity;
-            this.materials[1].opacity = 0.25 * Annotation.opacity;
-            this.materials[0].setParameter('material_opacity', Annotation.opacity);
-            this.materials[1].setParameter('material_opacity', 0.25 * Annotation.opacity);
+            this._update();
         });
+    }
+
+    /**
+     * Update screen-space elements and materials for this annotation. Called each frame from the
+     * prerender callback, and also directly from showTooltip to ensure the tooltip is positioned
+     * correctly even when the camera hasn't moved (e.g. annotations sharing the same camera pose).
+     * @private
+     */
+    _update() {
+        if (!Annotation.camera) return;
+
+        const position = this.entity.getPosition();
+        const screenPos = Annotation.camera.camera.worldToScreen(position);
+
+        const { viewMatrix } = Annotation.camera.camera;
+        viewMatrix.transformPoint(position, vec);
+        if (vec.z >= 0) {
+            this._hideElements();
+            return;
+        }
+
+        this._updatePositions(screenPos);
+        this._updateRotationAndScale();
+
+        // update material opacity and also directly on the uniform so we
+        // can avoid a full material update
+        this.materials[0].opacity = Annotation.opacity;
+        this.materials[1].opacity = 0.25 * Annotation.opacity;
+        this.materials[0].setParameter('material_opacity', Annotation.opacity);
+        this.materials[1].setParameter('material_opacity', 0.25 * Annotation.opacity);
     }
 
     /**
@@ -488,6 +510,10 @@ export class Annotation extends Script {
         Annotation.tooltipDom.style.opacity = '1';
         Annotation.titleDom.textContent = this.title;
         Annotation.textDom.textContent = this.text;
+
+        // Immediately update incase the camera doesn't move
+        this._update();
+
         this.fire('show', this);
     }
 
@@ -514,9 +540,8 @@ export class Annotation extends Script {
     _hideElements() {
         this.hotspotDom.style.display = 'none';
         if (Annotation.activeAnnotation === this) {
-            if (Annotation.tooltipDom.style.visibility !== 'hidden') {
-                this.hideTooltip();
-            }
+            Annotation.tooltipDom.style.visibility = 'hidden';
+            Annotation.tooltipDom.style.opacity = '0';
         }
     }
 
@@ -530,6 +555,12 @@ export class Annotation extends Script {
         this.hotspotDom.style.display = 'block';
         this.hotspotDom.style.left = `${screenPos.x}px`;
         this.hotspotDom.style.top = `${screenPos.y}px`;
+
+        // Re-show tooltip if it was hidden while behind camera
+        if (Annotation.activeAnnotation === this) {
+            Annotation.tooltipDom.style.visibility = 'visible';
+            Annotation.tooltipDom.style.opacity = '1';
+        }
 
         // Position tooltip, clamped to viewport
         if (Annotation.activeAnnotation === this) {

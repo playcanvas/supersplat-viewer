@@ -29,10 +29,14 @@
                 voxelUrl,
                 noui: url.searchParams.has('noui'),
                 noanim: url.searchParams.has('noanim'),
+                nofx: url.searchParams.has('nofx'),
+                hpr: url.searchParams.has('hpr') ? ['', '1', 'true', 'enable'].includes(url.searchParams.get('hpr')) : undefined,
                 ministats: url.searchParams.has('ministats'),
                 colorize: url.searchParams.has('colorize'),
                 unified: url.searchParams.has('unified'),
-                aa: url.searchParams.has('aa')
+                webgpu: url.searchParams.has('webgpu'),
+                gpusort: url.searchParams.has('gpusort'),
+                aa: url.searchParams.has('aa'),
             };
 
             window.sse = {
@@ -42,21 +46,7 @@
         </script>
     </head>
     <body>
-        <pc-app antialias="false" depth="true" high-resolution="true" stencil="false">
-            <pc-scene>
-                <!-- Camera (with XR support) -->
-                <pc-entity name="camera root">
-                    <pc-entity name="camera"></pc-entity>
-                </pc-entity>
-                <!-- Light (for XR controllers) -->
-                <pc-entity name="light" rotation="35 45 0">
-                    <pc-light color="white" intensity="1.5"></pc-light>
-                </pc-entity>
-                <!-- Splat -->
-                <pc-entity name="splat" rotation="0 0 180">
-                </pc-entity>
-            </pc-scene>
-        </pc-app>
+        <canvas id="application-canvas"></canvas>
 
         <div id="ui">
             <div id="poster"></div>
@@ -364,13 +354,9 @@
             }
 
             document.addEventListener('DOMContentLoaded', async () => {
-                const [appElement, cameraElement, settingsJson] = await Promise.all([
-                    document.querySelector('pc-app').ready(),
-                    document.querySelector('pc-entity[name="camera"]').ready(),
-                    settings
-                ]);
-
-                const viewer = await main(appElement.app, cameraElement.entity, settingsJson, config);
+                const canvas = document.getElementById('application-canvas');
+                const settingsJson = await settings;
+                const viewer = await main(canvas, settingsJson, config);
             });
         </script>
     </body>

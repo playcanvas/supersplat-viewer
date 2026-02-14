@@ -13,11 +13,31 @@ import {
     Ray,
     RenderPassPicker,
     RenderTarget,
+    ShaderChunks,
     Texture,
     Vec3,
     BlendState,
     PROJECTION_ORTHOGRAPHIC
 } from 'playcanvas';
+
+// override global pick to pack depth instead of meshInstance id
+const pickDepthGlsl = /* glsl */ `
+uniform vec4 camera_params;     // 1/far, far, near, isOrtho
+vec4 getPickOutput() {
+    float linearDepth = 1.0 / gl_FragCoord.w;
+    float normalizedDepth = (linearDepth - camera_params.z) / (camera_params.y - camera_params.z);
+    return vec4(gaussianColor.a * normalizedDepth, 0.0, 0.0, gaussianColor.a);
+}
+`;
+
+const pickDepthWgsl = /* wgsl */ `
+    uniform camera_params: vec4f;       // 1/far, far, near, isOrtho
+    fn getPickOutput() -> vec4f {
+        let linearDepth = 1.0 / pcPosition.w;
+        let normalizedDepth = (linearDepth - uniform.camera_params.z) / (uniform.camera_params.y - uniform.camera_params.z);
+        return vec4f(gaussianColor.a * normalizedDepth, 0.0, 0.0, gaussianColor.a);
+    }
+`;
 
 const vec = new Vec3();
 const vecb = new Vec3();
@@ -86,6 +106,10 @@ class Picker {
     constructor(app: AppBase, camera: Entity) {
         const { graphicsDevice } = app;
 
+        // register pick depth shader chunks
+        ShaderChunks.get(graphicsDevice, 'glsl').set('pickPS', pickDepthGlsl);
+        ShaderChunks.get(graphicsDevice, 'wgsl').set('pickPS', pickDepthWgsl);
+
         let colorBuffer: Texture;
         let renderTarget: RenderTarget;
         let renderPass: RenderPassPicker;
@@ -146,7 +170,7 @@ class Picker {
             renderPass.render();
 
             // read pixel using texture coordinates
-            const pixels = await colorBuffer.read(texX, texY, 1, 1, { renderTarget });
+            const pixels = await colorBuffer.read(texX, texY, 1, 1, { renderTarget, immediate: true });
 
             // convert half-float values to floats
             // R channel: accumulated depth * alpha
