@@ -29,10 +29,14 @@
                 voxelUrl,
                 noui: url.searchParams.has('noui'),
                 noanim: url.searchParams.has('noanim'),
+                nofx: url.searchParams.has('nofx'),
+                hpr: url.searchParams.has('hpr') ? ['', '1', 'true', 'enable'].includes(url.searchParams.get('hpr')) : undefined,
                 ministats: url.searchParams.has('ministats'),
                 colorize: url.searchParams.has('colorize'),
                 unified: url.searchParams.has('unified'),
-                aa: url.searchParams.has('aa')
+                webgpu: url.searchParams.has('webgpu'),
+                gpusort: url.searchParams.has('gpusort'),
+                aa: url.searchParams.has('aa'),
             };
 
             window.sse = {
@@ -42,24 +46,19 @@
         </script>
     </head>
     <body>
-        <pc-app antialias="false" depth="true" high-resolution="true" stencil="false">
-            <pc-scene>
-                <!-- Camera (with XR support) -->
-                <pc-entity name="camera root">
-                    <pc-entity name="camera"></pc-entity>
-                </pc-entity>
-                <!-- Light (for XR controllers) -->
-                <pc-entity name="light" rotation="35 45 0">
-                    <pc-light color="white" intensity="1.5"></pc-light>
-                </pc-entity>
-                <!-- Splat -->
-                <pc-entity name="splat" rotation="0 0 180">
-                </pc-entity>
-            </pc-scene>
-        </pc-app>
+        <canvas id="application-canvas"></canvas>
 
         <div id="ui">
             <div id="poster"></div>
+
+            <!-- SuperSplat Branding -->
+            <a id="supersplatBranding" class="hidden" target="_blank" rel="noopener noreferrer">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 32 32">
+                    <g class='stroke'><use href="#supersplatIcon"/></g>
+                    <g class='fill'><use href="#supersplatIcon"/></g>
+                </svg>
+                <span>SuperSplat</span>
+            </a>
 
             <!-- Loading Indicator -->
             <div id="loadingWrap">
@@ -67,7 +66,7 @@
                 <div id="loadingBar"></div>
             </div>
 
-            <div id="controlsWrap" class="faded-in">
+            <div id="controlsWrap" class="hidden">
 
                 <!-- Timeline Panel -->
                 <div id="timelineContainer" class="hidden">
@@ -78,72 +77,78 @@
 
                 <!-- Buttons Panel -->
                 <div id="buttonsContainer">
-                    <button id="play" class="controlButton hidden">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                            <g class='stroke'><use href="#playIcon"/></g>
-                            <g class='fill'><use href="#playIcon"/></g>
-                        </svg>
-                    </button>
-                    <button id="pause" class="controlButton hidden">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24px" height="24px">
-                            <g class='stroke'><use href="#pauseIcon"/></g>
-                            <g class='fill'><use href="#pauseIcon"/></g>
-                        </svg>
-                    </button>
+                    <div class="buttonGroup">
+                        <button id="play" class="controlButton hidden">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                                <g class='stroke'><use href="#playIcon"/></g>
+                                <g class='fill'><use href="#playIcon"/></g>
+                            </svg>
+                        </button>
+                        <button id="pause" class="controlButton hidden">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24px" height="24px">
+                                <g class='stroke'><use href="#pauseIcon"/></g>
+                                <g class='fill'><use href="#pauseIcon"/></g>
+                            </svg>
+                        </button>
+                    </div>
 
                     <div class="spacer"></div>
 
-                    <button id="orbitCamera" class="controlButton toggle left">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                            <g class='stroke'><use href="#orbitIcon"/></g>
-                            <g class='fill'><use href="#orbitIcon"/></g>
-                        </svg>
-                    </button>
-                    <button id="flyCamera" class="controlButton toggle right">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                            <g class='stroke'><use href="#flyIcon"/></g>
-                            <g class='fill'><use href="#flyIcon"/></g>
-                        </svg>
-                    </button>
+                    <div class="buttonGroup">
+                        <button id="orbitCamera" class="controlButton toggle left">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                                <g class='stroke'><use href="#orbitIcon"/></g>
+                                <g class='fill'><use href="#orbitIcon"/></g>
+                            </svg>
+                        </button>
+                        <button id="flyCamera" class="controlButton toggle right">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                                <g class='stroke'><use href="#flyIcon"/></g>
+                                <g class='fill'><use href="#flyIcon"/></g>
+                            </svg>
+                        </button>
+                    </div>
 
-                    <button id="arMode" class="controlButton hidden">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28">
-                            <g class='stroke'><use href="#arIcon"/></g>
-                            <g class='fill'><use href="#arIcon"/></g>
-                        </svg>
-                    </button>
-                    <button id="vrMode" class="controlButton hidden">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28">
-                            <g class='stroke'><use href="#vrIcon"/></g>
-                            <g class='fill'><use href="#vrIcon"/></g>
-                        </svg>
-                    </button>
+                    <div class="buttonGroup">
+                        <button id="arMode" class="controlButton hidden">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                                <g class='stroke'><use href="#arIcon"/></g>
+                                <g class='fill'><use href="#arIcon"/></g>
+                            </svg>
+                        </button>
+                        <button id="vrMode" class="controlButton hidden">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                                <g class='stroke'><use href="#vrIcon"/></g>
+                                <g class='fill'><use href="#vrIcon"/></g>
+                            </svg>
+                        </button>
 
-                    <button id="info" class="controlButton">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                            <g class='stroke'><use href="#infoIcon"/></g>
-                            <g class='fill'><use href="#infoIcon"/></g>
-                        </svg>
-                    </button>
-                    <button id="settings" class="controlButton">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                            <g class='stroke'><use href="#settingsIcon"/></g>
-                            <g class='fill'><use href="#settingsIcon"/></g>
-                        </svg>
-                    </button>
+                        <button id="info" class="controlButton">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                                <g class='stroke'><use href="#infoIcon"/></g>
+                                <g class='fill'><use href="#infoIcon"/></g>
+                            </svg>
+                        </button>
+                        <button id="settings" class="controlButton">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                                <g class='stroke'><use href="#settingsIcon"/></g>
+                                <g class='fill'><use href="#settingsIcon"/></g>
+                            </svg>
+                        </button>
 
-                    <button id="enterFullscreen" class="controlButton">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                            <g class='stroke'><use href="#enterFullscreenIcon"/></g>
-                            <g class='fill'><use href="#enterFullscreenIcon"/></g>
-                        </svg>
-                    </button>
-                    <button id="exitFullscreen" class="controlButton hidden">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                            <g class='stroke'><use href="#exitFullscreenIcon"/></g>
-                            <g class='fill'><use href="#exitFullscreenIcon"/></g>
-                        </svg>
-                    </button>
+                        <button id="enterFullscreen" class="controlButton">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                                <g class='stroke'><use href="#enterFullscreenIcon"/></g>
+                                <g class='fill'><use href="#enterFullscreenIcon"/></g>
+                            </svg>
+                        </button>
+                        <button id="exitFullscreen" class="controlButton hidden">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                                <g class='stroke'><use href="#exitFullscreenIcon"/></g>
+                                <g class='fill'><use href="#exitFullscreenIcon"/></g>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -250,12 +255,36 @@
                 <div id="joystick"></div>
             </div>
 
+            <!-- Annotation Navigator -->
+            <div id="annotationNav" class="hidden">
+                <button id="annotationPrev">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+                        <g class='stroke'><use href="#chevronLeftIcon"/></g>
+                        <g class='fill'><use href="#chevronLeftIcon"/></g>
+                    </svg>
+                </button>
+                <div id="annotationInfo">
+                    <span id="annotationNavTitle"></span>
+                </div>
+                <button id="annotationNext">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+                        <g class='stroke'><use href="#chevronRightIcon"/></g>
+                        <g class='fill'><use href="#chevronRightIcon"/></g>
+                    </svg>
+                </button>
+            </div>
+
             <!-- Tooltip -->
             <div id="tooltip"></div>
         </div>
 
         <!-- SVG Icons -->
         <svg>
+            <symbol id="supersplatIcon" viewBox="0 0 32 32">
+                <path d="M4.2638 11.4207C5.15691 11.4207 5.87964 10.697 5.87964 9.80481C5.87964 8.91262 5.15599 8.18896 4.2638 8.18896C3.3716 8.18896 2.64795 8.91262 2.64795 9.80481C2.64795 10.697 3.3716 11.4207 4.2638 11.4207Z"/>
+                <path d="M27.9805 14.8047C26.8392 14.8047 25.9131 15.7308 25.9131 16.8721C25.9131 18.0135 26.8392 18.9396 27.9805 18.9396C29.1219 18.9396 30.048 18.0135 30.048 16.8721C30.048 15.7308 29.1219 14.8047 27.9805 14.8047Z"/>
+                <path d="M23.9977 6.30034H23.9995C24.0334 6.29576 24.059 6.28019 24.0883 6.27011C25.6254 6.05759 26.8135 4.75228 26.8135 3.15658C26.8135 1.41249 25.4001 0 23.6569 0C21.9137 0 20.5003 1.41341 20.5003 3.15658C20.5003 3.54955 20.5809 3.92145 20.7128 4.26862C20.7165 4.27961 20.7119 4.29152 20.7165 4.30343C21.6829 6.97636 18.671 6.46705 17.1376 6.20324C17.0928 6.195 17.057 6.19683 17.0167 6.19316C16.6256 6.14187 16.2299 6.10431 15.8232 6.10431C10.8831 6.10431 6.87921 10.1082 6.87921 15.0483C6.87921 15.9496 7.01478 16.818 7.26393 17.6387C7.2676 17.6479 7.26393 17.6543 7.26851 17.6635C8.09018 20.4253 5.91006 19.9984 4.93085 20.0167C4.83558 20.0048 4.7394 19.9874 4.63955 19.9874C3.40202 19.9874 2.3999 20.9895 2.3999 22.2271C2.3999 23.4646 3.40202 24.4667 4.63955 24.4667C5.71037 24.4667 6.60349 23.7137 6.82424 22.7089H6.82608C7.40408 20.275 9.19855 21.0582 9.67946 21.5483C9.69778 21.5666 9.7161 21.5721 9.7335 21.5868C11.331 23.0753 13.4663 23.9922 15.8222 23.9922C15.8836 23.9922 15.945 23.984 16.0064 23.9831C16.0668 23.984 16.1264 23.9867 16.1932 23.9867C17.0818 23.9831 17.8256 24.9861 16.6457 26.7054H16.6576C16.2528 27.256 16.0073 27.9292 16.0073 28.6666C16.0073 30.5069 17.4995 32 19.3406 32C21.1818 32 22.674 30.5078 22.674 28.6666C22.674 27.256 21.7937 26.0569 20.5562 25.5696C20.5269 25.5558 20.5003 25.543 20.4664 25.5284C19.3416 25.0759 18.137 23.9079 19.8353 23.046L19.8316 23.0368C22.7565 21.5657 24.7671 18.5465 24.7671 15.0492C24.7671 13.1118 24.1442 11.3228 23.0972 9.85905C23.0853 9.83798 23.0761 9.816 23.0569 9.79126C20.9363 6.89025 22.8398 6.4872 24.0004 6.30217H23.9995L23.9977 6.30034ZM13.5121 17.6232C13.5121 18.3514 12.9221 18.9404 12.1948 18.9404C11.4675 18.9404 10.8776 18.3505 10.8776 17.6232V15.5209C10.8776 14.7927 11.4675 14.2037 12.1948 14.2037C12.9221 14.2037 13.5121 14.7936 13.5121 15.5209V17.6232ZM20.7476 17.6232C20.7476 18.3514 20.1577 18.9404 19.4304 18.9404C18.7031 18.9404 18.1132 18.3505 18.1132 17.6232V15.5209C18.1132 14.7927 18.7031 14.2037 19.4304 14.2037C20.1577 14.2037 20.7476 14.7936 20.7476 15.5209V17.6232Z"/>
+            </symbol>
             <symbol id="playIcon" viewBox="-2 0 24 24">
                 <path
                     d="M1 1.98725C1 1.20022 1.87789 0.730421 2.5332 1.16694L14.5605 9.18061C15.146 9.57066 15.146 10.4302 14.5605 10.8203L2.5332 18.833C1.87788 19.2695 1 18.7997 1 18.0126V1.98725Z"
@@ -271,15 +300,11 @@
             <symbol id="flyIcon" viewBox="-2 -2 20 20">
                 <path fill-rule="evenodd" clip-rule="evenodd" d="M12 1.33337C13.4727 1.33337 14.6666 2.52728 14.6666 4.00004C14.6666 5.4728 13.4727 6.66671 12 6.66671C11.4931 6.66671 11.0194 6.52491 10.6159 6.27934L10.2721 6.62374C10.0345 6.86142 9.90102 7.18411 9.90102 7.52022V8.47986C9.90102 8.81597 10.0345 9.13866 10.2721 9.37634L10.6159 9.72009C11.0193 9.47463 11.4932 9.33337 12 9.33337C13.4727 9.33337 14.6666 10.5273 14.6666 12C14.6666 13.4728 13.4727 14.6667 12 14.6667C10.5272 14.6667 9.33331 13.4728 9.33331 12C9.33331 11.4932 9.47457 11.0194 9.72003 10.6159L9.37628 10.2722C9.1386 10.0345 8.81591 9.90108 8.4798 9.90108H7.52016C7.18405 9.90108 6.86136 10.0345 6.62368 10.2722L6.27928 10.6159C6.52485 11.0195 6.66665 11.4931 6.66665 12C6.66665 13.4728 5.47274 14.6667 3.99998 14.6667C2.52722 14.6667 1.33331 13.4728 1.33331 12C1.33331 10.5273 2.52722 9.33337 3.99998 9.33337C4.50658 9.33337 4.98008 9.47481 5.38344 9.72009L5.72784 9.37634C5.9655 9.13866 6.09894 8.81597 6.09894 8.47986V7.52022C6.09894 7.18411 5.9655 6.86142 5.72784 6.62374L5.38344 6.27934C4.98001 6.52473 4.5067 6.66671 3.99998 6.66671C2.52722 6.66671 1.33331 5.4728 1.33331 4.00004C1.33331 2.52728 2.52722 1.33337 3.99998 1.33337C5.47274 1.33337 6.66665 2.52728 6.66665 4.00004C6.66665 4.50676 6.52467 4.98008 6.27928 5.3835L6.62368 5.72791C6.86136 5.96556 7.18405 6.099 7.52016 6.099H8.4798C8.81591 6.099 9.1386 5.96556 9.37628 5.72791L9.72003 5.3835C9.47475 4.98014 9.33331 4.50664 9.33331 4.00004C9.33331 2.52728 10.5272 1.33337 12 1.33337ZM3.99998 10.3998C3.11632 10.3998 2.39972 11.1164 2.39972 12C2.39972 12.8837 3.11632 13.6003 3.99998 13.6003C4.88364 13.6003 5.60024 12.8837 5.60024 12C5.60024 11.7911 5.55917 11.5919 5.48631 11.4089L4.41469 12.4812C4.16723 12.7284 3.76625 12.7286 3.51886 12.4812C3.27147 12.2338 3.27158 11.8328 3.51886 11.5853L4.59047 10.5131C4.40769 10.4404 4.20862 10.3998 3.99998 10.3998ZM12 10.3998C11.7911 10.3998 11.5918 10.4403 11.4088 10.5131L12.4811 11.5853C12.7284 11.8328 12.7285 12.2338 12.4811 12.4812C12.2337 12.7286 11.8327 12.7284 11.5853 12.4812L10.513 11.4089C10.4402 11.5918 10.3997 11.7912 10.3997 12C10.3997 12.8837 11.1163 13.6003 12 13.6003C12.8836 13.6003 13.6002 12.8837 13.6002 12C13.6002 11.1164 12.8836 10.3998 12 10.3998ZM3.99998 2.39978C3.11632 2.39978 2.39972 3.11639 2.39972 4.00004C2.39972 4.8837 3.11632 5.6003 3.99998 5.6003C4.20871 5.6003 4.40763 5.55909 4.59047 5.48637L3.51886 4.41475C3.27158 4.16729 3.27147 3.76631 3.51886 3.51892C3.76625 3.27153 4.16723 3.27164 4.41469 3.51892L5.48631 4.59054C5.55903 4.40769 5.60024 4.20877 5.60024 4.00004C5.60024 3.11639 4.88364 2.39978 3.99998 2.39978ZM12 2.39978C11.1163 2.39978 10.3997 3.11639 10.3997 4.00004C10.3997 4.20868 10.4403 4.40775 10.513 4.59054L11.5853 3.51892C11.8327 3.27164 12.2337 3.27153 12.4811 3.51892C12.7285 3.76631 12.7284 4.16729 12.4811 4.41475L11.4088 5.48637C11.5918 5.55923 11.791 5.6003 12 5.6003C12.8836 5.6003 13.6002 4.8837 13.6002 4.00004C13.6002 3.11639 12.8836 2.39978 12 2.39978Z"/>
             </symbol>
-            <symbol id="arIcon" viewBox="-2 -6 28 28">
-                <path d="M10.9482 16.9199C10.9799 16.9389 11.0201 16.9389 11.0518 16.9199L15.918 14H19.416L11.9775 18.4629C11.3758 18.8239 10.6242 18.8239 10.0225 18.4629L2.58398 14H6.08203L10.9482 16.9199Z"/>
-                <path fill-rule="evenodd" clip-rule="evenodd" d="M12.041 12H9.40527L8.35742 9.27441H3.56055L2.57031 12H0L4.67383 0H7.23633L12.041 12ZM4.30566 7.25195H7.58008L5.92676 2.7998L4.30566 7.25195Z"/>
-                <path fill-rule="evenodd" clip-rule="evenodd" d="M17.0039 0C18.2519 0 19.1577 0.108901 19.7207 0.327148C20.289 0.539972 20.7431 0.922473 21.083 1.47363C21.4229 2.02476 21.5928 2.65491 21.5928 3.36426C21.5928 4.26454 21.3353 5.00931 20.8203 5.59863C20.3051 6.18253 19.5348 6.5513 18.5098 6.7041C19.0196 7.00969 19.4393 7.34532 19.7686 7.71094C20.1031 8.07658 20.5523 8.72611 21.1152 9.65918L22.541 12H19.7207L18.0156 9.38867C17.4104 8.45586 16.9965 7.8691 16.7734 7.62891C16.5505 7.38348 16.3139 7.21724 16.0645 7.12988C15.8148 7.03711 15.4187 6.99023 14.877 6.99023H14.3994V12H12.041V0H17.0039ZM14.3994 5.0752H16.1436C17.2746 5.0752 17.9811 5.02592 18.2627 4.92773C18.5442 4.82951 18.7645 4.66003 18.9238 4.41992C19.0831 4.17982 19.1631 3.87966 19.1631 3.51953C19.163 3.11597 19.057 2.79138 18.8447 2.5459C18.6376 2.29488 18.3424 2.13677 17.96 2.07129C17.7687 2.04401 17.1951 2.03027 16.2393 2.03027H14.3994V5.0752Z"/>
+            <symbol id="arIcon" viewBox="0 0 24 24">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M12 15.3994V6H16.9629C18.2109 6 19.1167 6.1089 19.6797 6.32715C20.248 6.53997 20.7021 6.92247 21.042 7.47363C21.3818 8.02476 21.5518 8.65491 21.5518 9.36426C21.5518 10.2645 21.2943 11.0093 20.7793 11.5986C20.2641 12.1825 19.4938 12.5513 18.4688 12.7041C18.9786 13.0097 19.3983 13.3453 19.7275 13.7109C20.0621 14.0766 20.5113 14.7261 21.0742 15.6592L22.5 18H19.6797L17.9746 15.3887C17.3694 14.4559 16.9555 13.8691 16.7324 13.6289C16.5095 13.3835 16.2729 13.2172 16.0234 13.1299C15.7738 13.0371 15.3777 12.9902 14.8359 12.9902H14.3584V18H10.4053L9.35742 15.2744H4.56055L3.57031 18H1L5.67383 6H8.23633L12 15.3994ZM5.30566 13.252H8.58008L6.92676 8.7998L5.30566 13.252ZM14.3584 11.0752H16.1025C17.2336 11.0752 17.9401 11.0259 18.2217 10.9277C18.5032 10.8295 18.7235 10.66 18.8828 10.4199C19.0421 10.1798 19.1221 9.87966 19.1221 9.51953C19.122 9.11597 19.016 8.79138 18.8037 8.5459C18.5966 8.29488 18.3013 8.13677 17.9189 8.07129C17.7276 8.04401 17.1541 8.03027 16.1982 8.03027H14.3584V11.0752Z"/>
             </symbol>
-            <symbol id="vrIcon" viewBox="-2 -6 28 28">
-                <path d="M7.90039 16C7.90039 16.6075 8.39249 17.0996 9 17.0996H11V18.9004H9C7.39837 18.9004 6.09961 17.6016 6.09961 16V15H7.90039V16Z"/>
-                <path d="M16.9004 16C16.9004 17.6016 15.6016 18.9004 14 18.9004H12V17.0996H14C14.6075 17.0996 15.0996 16.6075 15.0996 16V15H16.9004V16Z"/>
-                <path fill-rule="evenodd" clip-rule="evenodd" d="M4.52148 4.70215L6.15918 9.11328L7.76465 4.70215L8.50195 2.7002L9.4834 0H15.9541C17.1903 0 18.0879 0.108014 18.6455 0.324219C19.2081 0.534989 19.6576 0.913398 19.9941 1.45898C20.3308 2.00484 20.499 2.62946 20.499 3.33203C20.499 4.22386 20.2446 4.96215 19.7344 5.5459C19.2241 6.12424 18.4606 6.48928 17.4453 6.64062C17.9503 6.94331 18.3662 7.27555 18.6924 7.6377C19.0238 7.99986 19.4688 8.64321 20.0264 9.56738L21.4385 11.8857H18.6455L16.9561 9.2998C16.3565 8.3758 15.9466 7.79459 15.7256 7.55664C15.5047 7.31345 15.2706 7.14802 15.0234 7.06152C14.7762 6.96965 14.3841 6.92384 13.8477 6.92383H13.374V11.8857H11.0381V2.54395L7.39941 11.8857H4.86133L0.102539 0H2.71289L4.52148 4.70215ZM13.374 5.02637H15.1025C16.2228 5.02636 16.9224 4.97814 17.2012 4.88086C17.4799 4.78356 17.6986 4.61574 17.8564 4.37793C18.0141 4.14017 18.0928 3.84288 18.0928 3.48633C18.0928 3.08641 17.9877 2.7647 17.7773 2.52148C17.5722 2.27286 17.2801 2.11565 16.9014 2.05078C16.712 2.02376 16.1439 2.01075 15.1973 2.01074H13.374V5.02637Z"/>
+            <symbol id="vrIcon" viewBox="0 0 24 24">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M5.52148 10.7021L7.15918 15.1133L8.76465 10.7021L9.50195 8.7002L10.4834 6H16.9541C18.1903 6 19.0879 6.10801 19.6455 6.32422C20.2081 6.53499 20.6576 6.9134 20.9941 7.45898C21.3308 8.00484 21.499 8.62946 21.499 9.33203C21.499 10.2239 21.2446 10.9622 20.7344 11.5459C20.2241 12.1242 19.4606 12.4893 18.4453 12.6406C18.9503 12.9433 19.3662 13.2756 19.6924 13.6377C20.0238 13.9999 20.4688 14.6432 21.0264 15.5674L22.4385 17.8857H19.6455L17.9561 15.2998C17.3565 14.3758 16.9466 13.7946 16.7256 13.5566C16.5047 13.3135 16.2706 13.148 16.0234 13.0615C15.7762 12.9696 15.3841 12.9238 14.8477 12.9238H14.374V17.8857H12.0381V8.54395L8.39941 17.8857H5.86133L1.10254 6H3.71289L5.52148 10.7021ZM14.374 11.0264H16.1025C17.2228 11.0264 17.9224 10.9781 18.2012 10.8809C18.4799 10.7836 17.6986 10.6157 18.8564 10.3779C19.0141 10.1402 19.0928 9.84288 19.0928 9.48633C19.0928 9.08641 18.9877 8.7647 18.7773 8.52148C18.5722 8.27286 18.2801 8.11565 17.9014 8.05078C17.712 8.02376 17.1439 8.01075 16.1973 8.01074H14.374V11.0264Z"/>
             </symbol>
             <symbol id="infoIcon" viewBox="-2 -2 24 24">
                 <path d="M9.98633 7.58301C10.2598 7.58301 10.4854 7.67643 10.6631 7.86328C10.8408 8.05013 10.9297 8.3099 10.9297 8.64258V14.0361C10.9297 14.4098 10.8408 14.6924 10.6631 14.8838C10.4854 15.0752 10.2598 15.1709 9.98633 15.1709C9.71289 15.1709 9.48958 15.0729 9.31641 14.877C9.14779 14.681 9.06348 14.4007 9.06348 14.0361V8.69727C9.06348 8.32812 9.14779 8.05013 9.31641 7.86328C9.48958 7.67643 9.71289 7.58301 9.98633 7.58301Z"/>
@@ -295,6 +320,12 @@
                 <path d="M21 14.7002C21.4969 14.7002 21.9002 15.1027 21.9004 15.5996V20C21.9004 21.0493 21.0493 21.9004 20 21.9004H15.5996C15.1027 21.9002 14.7002 21.4969 14.7002 21C14.7002 20.5031 15.1027 20.0998 15.5996 20.0996H20C20.0552 20.0996 20.0996 20.0552 20.0996 20V15.5996C20.0998 15.1027 20.5031 14.7002 21 14.7002Z"/>
                 <path d="M8.40039 2.09961C8.89727 2.09982 9.2998 2.50307 9.2998 3C9.2998 3.49693 8.89727 3.90018 8.40039 3.90039H4C3.94477 3.90039 3.90039 3.94477 3.90039 4V8.40039C3.90018 8.89727 3.49693 9.2998 3 9.2998C2.50307 9.2998 2.09982 8.89727 2.09961 8.40039V4C2.09961 2.95066 2.95066 2.09961 4 2.09961H8.40039Z"/>
                 <path d="M20 2.09961C21.0493 2.09961 21.9004 2.95066 21.9004 4V8.40039C21.9002 8.89727 21.4969 9.2998 21 9.2998C20.5031 9.2998 20.0998 8.89727 20.0996 8.40039V4C20.0996 3.94477 20.0552 3.90039 20 3.90039H15.5996C15.1027 3.90018 14.7002 3.49693 14.7002 3C14.7002 2.50307 15.1027 2.09982 15.5996 2.09961H20Z"/>
+            </symbol>
+            <symbol id="chevronLeftIcon" viewBox="0 0 24 24">
+                <path d="M15 19l-7-7 7-7"/>
+            </symbol>
+            <symbol id="chevronRightIcon" viewBox="0 0 24 24">
+                <path d="M9 5l7 7-7 7"/>
             </symbol>
             <symbol id="exitFullscreenIcon" viewBox="0 0 24 24">
                 <path d="M8 15.0996C8.49706 15.0996 8.90039 15.5029 8.90039 16V21C8.90039 21.4971 8.49706 21.9004 8 21.9004C7.50294 21.9004 7.09961 21.4971 7.09961 21V16.9004H3C2.50294 16.9004 2.09961 16.4971 2.09961 16C2.09961 15.5029 2.50294 15.0996 3 15.0996H8Z" />
@@ -323,13 +354,9 @@
             }
 
             document.addEventListener('DOMContentLoaded', async () => {
-                const [appElement, cameraElement, settingsJson] = await Promise.all([
-                    document.querySelector('pc-app').ready(),
-                    document.querySelector('pc-entity[name="camera"]').ready(),
-                    settings
-                ]);
-
-                const viewer = await main(appElement.app, cameraElement.entity, settingsJson, config);
+                const canvas = document.getElementById('application-canvas');
+                const settingsJson = await settings;
+                const viewer = await main(canvas, settingsJson, config);
             });
         </script>
     </body>

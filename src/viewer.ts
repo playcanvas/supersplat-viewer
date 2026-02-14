@@ -33,29 +33,16 @@ import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { Global } from './types';
 import type { VoxelCollider } from './voxel-collider';
 
-// override global pick to pack depth instead of meshInstance id
-const pickDepthGlsl = /* glsl */ `
-uniform vec4 camera_params;     // 1/far, far, near, isOrtho
-vec4 getPickOutput() {
-    float linearDepth = 1.0 / gl_FragCoord.w;
-    float normalizedDepth = (linearDepth - camera_params.z) / (camera_params.y - camera_params.z);
-    return vec4(gaussianColor.a * normalizedDepth, 0.0, 0.0, gaussianColor.a);
-}
-`;
-
-const gammaChunk = `
+const gammaChunkGlsl = `
 vec3 prepareOutputFromGamma(vec3 gammaColor) {
     return gammaColor;
 }
 `;
 
-const pickDepthWgsl = /* wgsl */ `
-    uniform camera_params: vec4f;       // 1/far, far, near, isOrtho
-    fn getPickOutput() -> vec4f {
-        let linearDepth = 1.0 / pcPosition.w;
-        let normalizedDepth = (linearDepth - uniform.camera_params.z) / (uniform.camera_params.y - uniform.camera_params.z);
-        return vec4f(gaussianColor.a * normalizedDepth, 0.0, 0.0, gaussianColor.a);
-    }
+const gammaChunkWgsl = `
+fn prepareOutputFromGamma(gammaColor: vec3f) -> vec3f {
+    return gammaColor;
+}
 `;
 
 const tonemapTable: Record<string, number> = {
@@ -122,6 +109,9 @@ const anyPostEffectEnabled = (settings: PostEffectSettings): boolean => {
 
 const vec = new Vec3();
 
+// store the original isColorBufferSrgb so the override in updatePostEffects is idempotent
+const origIsColorBufferSrgb = RenderTarget.prototype.isColorBufferSrgb;
+
 class Viewer {
     global: Global;
 
@@ -147,11 +137,9 @@ class Viewer {
         // render skybox as plain equirect
         const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
         glsl.set('skyboxPS', glsl.get('skyboxPS').replace('mapRoughnessUv(uv, mipLevel)', 'uv'));
-        glsl.set('pickPS', pickDepthGlsl);
 
         const wgsl = ShaderChunks.get(graphicsDevice, 'wgsl');
         wgsl.set('skyboxPS', wgsl.get('skyboxPS').replace('mapRoughnessUv(uv, uniform.mipLevel)', 'uv'));
-        wgsl.set('pickPS', pickDepthWgsl);
 
         // disable auto render, we'll render only when camera changes
         app.autoRender = false;
@@ -173,20 +161,6 @@ class Viewer {
         };
         graphicsDevice.on('resizecanvas', updateHorizontalFov);
         updateHorizontalFov();
-
-        // handle HQ mode changes
-        const updateHqMode = () => {
-            // limit the backbuffer to 4k on desktop and HD on mobile
-            // we use the shorter dimension so ultra-wide (or high) monitors still work correctly.
-            const maxRatio = (platform.mobile ? 1080 : 2160) / Math.min(screen.width, screen.height);
-
-            // half pixel resolution with hq mode disabled
-            graphicsDevice.maxPixelRatio = (state.hqMode ? 1.0 : 0.5) * Math.min(maxRatio, window.devicePixelRatio);
-
-            app.renderNextFrame = true;
-        };
-        events.on('hqMode:changed', updateHqMode);
-        updateHqMode();
 
         // construct debug ministats
         if (config.ministats) {
@@ -285,8 +259,9 @@ class Viewer {
             }
         });
 
-        // unpause the animation on first frame
+        // update state on first frame
         events.on('firstFrame', () => {
+            state.loaded = true;
             state.animationPaused = !!config.noanim;
         });
 
@@ -344,8 +319,8 @@ class Viewer {
                         high: 2
                     },
                     desktop: {
-                        low: 3,
-                        high: 6
+                        low: 2,
+                        high: 4
                     }
                 };
 
@@ -386,6 +361,8 @@ class Viewer {
                         // debug colorize lods
                         gsplat.colorizeLod = config.colorize;
 
+                        gsplat.gpuSorting = config.gpusort;
+
                         // wait for the first valid frame to complete rendering
                         app.once('frameend', () => {
                             events.fire('firstFrame');
@@ -410,11 +387,14 @@ class Viewer {
     // configure camera based on application mode and post process settings
     configureCamera(settings: ExperienceSettings) {
         const { global } = this;
-        const { app, camera } = global;
+        const { app, config, camera } = global;
         const { postEffectSettings } = settings;
         const { background } = settings;
 
-        const enableCameraFrame = !app.xr.active && (anyPostEffectEnabled(postEffectSettings) || settings.highPrecisionRendering);
+        // hpr override takes precedence over settings.highPrecisionRendering
+        const highPrecisionRendering = config.hpr ?? settings.highPrecisionRendering;
+
+        const enableCameraFrame = !app.xr.active && !config.nofx && (anyPostEffectEnabled(postEffectSettings) || highPrecisionRendering);
 
         if (enableCameraFrame) {
             // create instance
@@ -425,16 +405,17 @@ class Viewer {
             const { cameraFrame } = this;
             cameraFrame.enabled = true;
             cameraFrame.rendering.toneMapping = tonemapTable[settings.tonemapping];
-            cameraFrame.rendering.renderFormats = settings.highPrecisionRendering ? [PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F] : [];
+            cameraFrame.rendering.renderFormats = highPrecisionRendering ? [PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F] : [];
             applyPostEffectSettings(cameraFrame, postEffectSettings);
             cameraFrame.update();
 
             // force gsplat shader to write gamma-space colors
-            ShaderChunks.get(app.graphicsDevice, 'glsl').set('gsplatOutputVS', gammaChunk);
+            ShaderChunks.get(app.graphicsDevice, 'glsl').set('gsplatOutputVS', gammaChunkGlsl);
+            ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatOutputVS', gammaChunkWgsl);
 
-            // ensure the final blit doesn't perform linear->gamma conversion
-            RenderTarget.prototype.isColorBufferSrgb = function () {
-                return true;
+            // ensure the final compose blit doesn't perform linear->gamma conversion.
+            RenderTarget.prototype.isColorBufferSrgb = function (index) {
+                return this === app.graphicsDevice.backBuffer ? true : origIsColorBufferSrgb.call(this, index);
             };
 
             camera.camera.clearColor = new Color(background.color);

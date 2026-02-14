@@ -1,15 +1,20 @@
-import '@playcanvas/web-components';
 import {
     Asset,
+    Color,
+    createGraphicsDevice,
     Entity,
     EventHandler,
+    Keyboard,
+    Mouse,
     platform,
+    TouchDevice,
     type Texture,
     type AppBase,
     revision as engineRevision,
     version as engineVersion
 } from 'playcanvas';
 
+import { App } from './app';
 import { observe } from './core/observe';
 import { importSettings } from './settings';
 import type { Config, Global } from './types';
@@ -85,10 +90,104 @@ const loadSkybox = (app: AppBase, url: string) => {
     });
 };
 
-const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) => {
+const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
+    // Create the graphics device
+    const device = await createGraphicsDevice(canvas, {
+        deviceTypes: config.webgpu ? ['webgpu'] : [],
+        antialias: false,
+        depth: true,
+        stencil: false,
+        xrCompatible: !config.webgpu,
+        powerPreference: 'high-performance'
+    });
+
+    // Create the application
+    const app = new App(canvas, {
+        graphicsDevice: device,
+        mouse: new Mouse(canvas),
+        touch: new TouchDevice(canvas),
+        keyboard: new Keyboard(window)
+    });
+
+    // Create entity hierarchy
+    const cameraRoot = new Entity('camera root');
+    app.root.addChild(cameraRoot);
+
+    const camera = new Entity('camera');
+    cameraRoot.addChild(camera);
+
+    const light = new Entity('light');
+    light.setEulerAngles(35, 45, 0);
+    light.addComponent('light', {
+        color: new Color(1, 1, 1),
+        intensity: 1.5
+    });
+    app.root.addChild(light);
+
+    return { app, camera };
+};
+
+// initialize canvas size and resizing
+const initCanvas = (global: Global) => {
+    const { app, events, state } = global;
+    const { canvas } = app.graphicsDevice;
+
+    // maximum pixel dimension we will allow along the shortest screen dimension based on platform
+    const maxPixelDim = platform.mobile ? 1080 : 2160;
+
+    // cap pixel ratio to limit resolution on high-DPI devices
+    const calcPixelRatio = () => Math.min(maxPixelDim / Math.min(screen.width, screen.height), window.devicePixelRatio);
+
+    // last known device pixel size (full resolution, before any quality scaling)
+    const deviceSize = { width: 0, height: 0 };
+
+    const set = (width: number, height: number) => {
+        const ratio = calcPixelRatio();
+        deviceSize.width = width * ratio;
+        deviceSize.height = height * ratio;
+    };
+
+    const apply = () => {
+        const s = state.hqMode ? 1.0 : 0.5;
+        const w = Math.ceil(deviceSize.width * s);
+        const h = Math.ceil(deviceSize.height * s);
+        if (w !== canvas.width || h !== canvas.height) {
+            canvas.width = w;
+            canvas.height = h;
+        }
+    };
+
+    const resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
+        const e = entries[0]?.contentBoxSize?.[0];
+        if (e) {
+            set(e.inlineSize, e.blockSize);
+            app.renderNextFrame = true;
+        }
+    });
+    resizeObserver.observe(canvas);
+
+    events.on('hqMode:changed', () => {
+        app.renderNextFrame = true;
+    });
+
+    // Resize canvas before render() so the swap chain texture is acquired at the correct size.
+    app.on('framerender', apply);
+
+    // Disable the engine's built-in canvas resize — we handle it via ResizeObserver
+    // @ts-ignore
+    app._allowResize = false;
+    set(canvas.clientWidth, canvas.clientHeight);
+    apply();
+};
+
+const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config) => {
+    const { app, camera } = await createApp(canvas, config);
+
+    // create events
     const events = new EventHandler();
 
     const state = observe(events, {
+        loaded: false,
         readyToRender: false,
         hqMode: true,
         progress: 0,
@@ -113,6 +212,11 @@ const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) =
         camera
     };
 
+    initCanvas(global);
+
+    // start the application
+    app.start();
+
     // Initialize the load-time poster
     if (config.poster) {
         initPoster(events);
@@ -121,7 +225,9 @@ const main = (app: AppBase, camera: Entity, settingsJson: any, config: Config) =
     camera.addComponent('camera');
 
     // Initialize XR support
-    initXr(global);
+    if (!config.webgpu) {
+        initXr(global);
+    }
 
     // Initialize user interface
     initUI(global);

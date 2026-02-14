@@ -34,6 +34,7 @@ class Annotations {
 
         // create annotation entities
         const parent = global.app.root;
+        const scriptMap = new Map<AnnotationSettings, Annotation>();
 
         for (let i = 0; i < this.annotations.length; i++) {
             const ann = this.annotations[i];
@@ -50,9 +51,15 @@ class Annotations {
 
             parent.addChild(entity);
 
+            scriptMap.set(ann, script.annotation);
+
             // handle an annotation being activated/shown
             script.annotation.on('show', () => {
                 global.events.fire('annotation.activate', ann);
+            });
+
+            script.annotation.on('hide', () => {
+                global.events.fire('annotation.deactivate');
             });
 
             // re-render if hover state changes
@@ -60,6 +67,14 @@ class Annotations {
                 global.app.renderNextFrame = true;
             });
         }
+
+        // handle navigator requesting an annotation to be shown
+        global.events.on('annotation.navigate', (ann: AnnotationSettings) => {
+            const script = scriptMap.get(ann);
+            if (script) {
+                script.showTooltip();
+            }
+        });
     }
 }
 
