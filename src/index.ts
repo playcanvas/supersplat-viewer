@@ -258,11 +258,11 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
         });
 
     // Load voxel collision data
-    const voxelLoad = config.voxelUrl ?
+    const voxelLoad = config.voxelUrl &&
         VoxelCollider.load(config.voxelUrl).catch((err: Error): null => {
             console.warn('Failed to load voxel data:', err);
             return null;
-        }) : Promise.resolve(null);
+        });
 
     // Load and play sound
     if (global.settings.soundUrl) {
