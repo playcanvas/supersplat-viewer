@@ -261,7 +261,7 @@ class InputController {
         // update state
         this._state.axis.add(tmpV1.set(
             (key[keyCode.D] - key[keyCode.A]) + (key[keyCode.RIGHT] - key[keyCode.LEFT]),
-            (key[keyCode.E] - key[keyCode.Q]) + key[keyCode.SPACE],
+            (key[keyCode.E] - key[keyCode.Q]) + (state.cameraMode === 'fps' ? key[keyCode.SPACE] : 0),
             (key[keyCode.W] - key[keyCode.S]) + (key[keyCode.UP] - key[keyCode.DOWN])
         ));
         this._state.touches += count[0];
