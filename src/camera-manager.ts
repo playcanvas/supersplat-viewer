@@ -117,6 +117,10 @@ class CameraManager {
             // update transition timer
             transitionTimer = Math.min(1, transitionTimer + deltaTime * transitionSpeed);
 
+            // Suspend FPS physics during camera transitions to prevent gravity
+            // from pulling the target while the displayed camera is lerping.
+            controllers.fps.transitioning = transitionTimer < 1;
+
             const controller = getController(state.cameraMode);
 
             controller.update(dt, frame, target);

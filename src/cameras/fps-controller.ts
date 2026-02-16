@@ -18,6 +18,9 @@ class FpsController implements CameraController {
     /** Optional voxel collider for capsule collision with sliding */
     collider: VoxelCollider | null = null;
 
+    /** When true, physics are suspended (input is consumed but not applied). */
+    transitioning = false;
+
     /** Total capsule height in meters (default: human proportion) */
     capsuleHeight = 1.8;
 
@@ -76,6 +79,10 @@ class FpsController implements CameraController {
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
         const { move, rotate } = inputFrame.read();
 
+        // During camera transitions, consume input but skip physics to prevent
+        // gravity from pulling the target while the camera manager is lerping.
+        if (this.transitioning) return;
+
         // --- Rotation ---
         this._targetYaw -= rotate[0];
         this._targetPitch = math.clamp(this._targetPitch - rotate[1], -90, 90);
@@ -83,6 +90,14 @@ class FpsController implements CameraController {
         const rotateLerp = damp(this.rotateDamping, deltaTime);
         this._yaw = math.lerpAngle(this._yaw, this._targetYaw, rotateLerp);
         this._pitch = math.lerp(this._pitch, this._targetPitch, rotateLerp);
+
+        // Normalize yaw to prevent floating-point drift over long sessions.
+        // Shift both values by the same multiple of 360 to preserve their delta.
+        const yawOffset = Math.round(this._yaw / 360) * 360;
+        if (yawOffset !== 0) {
+            this._yaw -= yawOffset;
+            this._targetYaw -= yawOffset;
+        }
 
         // --- Horizontal movement ---
         // Compute forward/right from yaw only (ignore pitch for movement)
