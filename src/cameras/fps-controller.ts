@@ -18,9 +18,6 @@ class FpsController implements CameraController {
     /** Optional voxel collider for capsule collision with sliding */
     collider: VoxelCollider | null = null;
 
-    /** When true, physics are suspended (input is consumed but not applied). */
-    transitioning = false;
-
     /** Total capsule height in meters (default: human proportion) */
     capsuleHeight = 1.8;
 
@@ -78,10 +75,6 @@ class FpsController implements CameraController {
 
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
         const { move, rotate } = inputFrame.read();
-
-        // During camera transitions, consume input but skip physics to prevent
-        // gravity from pulling the target while the camera manager is lerping.
-        if (this.transitioning) return;
 
         // --- Rotation ---
         this._targetYaw -= rotate[0];

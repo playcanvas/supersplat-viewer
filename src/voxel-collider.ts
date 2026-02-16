@@ -419,7 +419,8 @@ class VoxelCollider {
                         py = dy * invDist * penetration;
                         pz = dz * invDist * penetration;
                     } else {
-                        // Center is inside the voxel: fallback to nearest-face push
+                        // Center is inside the voxel: push to nearest face + radius
+                        // so the sphere surface ends up flush with the face
                         const distNegX = cx - vMinX;
                         const distPosX = vMaxX - cx;
                         const distNegY = cy - vMinY;
@@ -427,9 +428,9 @@ class VoxelCollider {
                         const distNegZ = cz - vMinZ;
                         const distPosZ = vMaxZ - cz;
 
-                        const escapeX = distNegX < distPosX ? -distNegX : distPosX;
-                        const escapeY = distNegY < distPosY ? -distNegY : distPosY;
-                        const escapeZ = distNegZ < distPosZ ? -distNegZ : distPosZ;
+                        const escapeX = distNegX < distPosX ? -(distNegX + radius) : (distPosX + radius);
+                        const escapeY = distNegY < distPosY ? -(distNegY + radius) : (distPosY + radius);
+                        const escapeZ = distNegZ < distPosZ ? -(distNegZ + radius) : (distPosZ + radius);
 
                         const absX = Math.abs(escapeX);
                         const absY = Math.abs(escapeY);
@@ -568,7 +569,8 @@ class VoxelCollider {
                         py = dy * invDist * penetration;
                         pz = dz * invDist * penetration;
                     } else {
-                        // Sphere center is inside the voxel: fallback to nearest-face push
+                        // Segment point is inside the voxel: push to nearest face + radius
+                        // so the capsule surface ends up flush with the face
                         const distNegX = cx - vMinX;
                         const distPosX = vMaxX - cx;
                         const distNegY = segY - vMinY;
@@ -576,9 +578,9 @@ class VoxelCollider {
                         const distNegZ = cz - vMinZ;
                         const distPosZ = vMaxZ - cz;
 
-                        const escapeX = distNegX < distPosX ? -distNegX : distPosX;
-                        const escapeY = distNegY < distPosY ? -distNegY : distPosY;
-                        const escapeZ = distNegZ < distPosZ ? -distNegZ : distPosZ;
+                        const escapeX = distNegX < distPosX ? -(distNegX + radius) : (distPosX + radius);
+                        const escapeY = distNegY < distPosY ? -(distNegY + radius) : (distPosY + radius);
+                        const escapeZ = distNegZ < distPosZ ? -(distNegZ + radius) : (distPosZ + radius);
 
                         const absX = Math.abs(escapeX);
                         const absY = Math.abs(escapeY);

@@ -227,12 +227,7 @@ class InputController {
         events.on('cameraMode:changed', (value: string, prev: string) => {
             if (value === 'fps' && state.inputMode === 'desktop') {
                 (this._desktopInput as any)._pointerLock = true;
-                canvas.requestPointerLock()?.catch(() => {
-                    // Pointer lock request rejected (e.g., no user gesture, document hidden).
-                    // Revert to avoid being stuck in FPS mode without mouse capture.
-                    (this._desktopInput as any)._pointerLock = false;
-                    events.fire('inputEvent', 'cancel');
-                });
+                canvas.requestPointerLock();
             } else if (prev === 'fps') {
                 (this._desktopInput as any)._pointerLock = false;
                 if (document.pointerLockElement === canvas) {
@@ -245,6 +240,13 @@ class InputController {
             if (!document.pointerLockElement && state.cameraMode === 'fps') {
                 events.fire('inputEvent', 'cancel');
             }
+        });
+
+        // Pointer lock request rejected (e.g., no user gesture, document hidden).
+        // Revert to avoid being stuck in FPS mode without mouse capture.
+        document.addEventListener('pointerlockerror', () => {
+            (this._desktopInput as any)._pointerLock = false;
+            events.fire('inputEvent', 'cancel');
         });
     }
 
