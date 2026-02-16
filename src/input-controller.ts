@@ -207,7 +207,7 @@ class InputController {
         window.addEventListener('keydown', (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
                 events.fire('inputEvent', 'cancel', event);
-            } else if (!event.ctrlKey && !event.altKey && !event.metaKey) {
+            } else if (state.cameraMode !== 'fps' && !event.ctrlKey && !event.altKey && !event.metaKey) {
                 switch (event.key) {
                     case 'f':
                         events.fire('inputEvent', 'frame', event);
@@ -219,6 +219,25 @@ class InputController {
                         events.fire('inputEvent', 'playPause', event);
                         break;
                 }
+            }
+        });
+
+        // Pointer lock management for FPS mode on desktop
+        events.on('cameraMode:changed', (value: string, prev: string) => {
+            if (value === 'fps' && state.inputMode === 'desktop') {
+                (this._desktopInput as any)._pointerLock = true;
+                canvas.requestPointerLock();
+            } else if (prev === 'fps') {
+                (this._desktopInput as any)._pointerLock = false;
+                if (document.pointerLockElement === canvas) {
+                    document.exitPointerLock();
+                }
+            }
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            if (!document.pointerLockElement && state.cameraMode === 'fps') {
+                events.fire('inputEvent', 'cancel');
             }
         });
     }
@@ -242,7 +261,7 @@ class InputController {
         // update state
         this._state.axis.add(tmpV1.set(
             (key[keyCode.D] - key[keyCode.A]) + (key[keyCode.RIGHT] - key[keyCode.LEFT]),
-            (key[keyCode.E] - key[keyCode.Q]),
+            (key[keyCode.E] - key[keyCode.Q]) + key[keyCode.SPACE],
             (key[keyCode.W] - key[keyCode.S]) + (key[keyCode.UP] - key[keyCode.DOWN])
         ));
         this._state.touches += count[0];

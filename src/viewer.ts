@@ -300,6 +300,8 @@ class Viewer {
 
             this.inputController = new InputController(global);
 
+            state.hasCollision = !!collider;
+
             this.cameraManager = new CameraManager(global, sceneBound, collider);
             applyCamera(this.cameraManager.camera);
 

@@ -40,6 +40,7 @@ type State = {
     animationPaused: boolean;
     hasAR: boolean;
     hasVR: boolean;
+    hasCollision: boolean;
     isFullscreen: boolean;
     controlsHidden: boolean;
 };

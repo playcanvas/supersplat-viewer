@@ -34,7 +34,7 @@ const initJoystick = (
 
     // Update joystick visibility based on camera mode and input mode
     const updateJoystickVisibility = () => {
-        if (state.cameraMode === 'fly' && state.inputMode === 'touch') {
+        if ((state.cameraMode === 'fly' || state.cameraMode === 'fps') && state.inputMode === 'touch') {
             dom.joystickBase.classList.remove('hidden');
             dom.joystickBase.classList.toggle('mode-2d', joystickMode === '2d');
             dom.joystickBase.style.left = `${joystickFixedX}px`;
@@ -232,7 +232,7 @@ const initUI = (global: Global) => {
         'buttonContainer',
         'play', 'pause',
         'settings', 'settingsPanel',
-        'orbitCamera', 'flyCamera',
+        'orbitCamera', 'flyCamera', 'fpsCamera',
         'hqCheck', 'hqOption', 'lqCheck', 'lqOption',
         'reset', 'frame',
         'loadingText', 'loadingBar',
@@ -244,6 +244,11 @@ const initUI = (global: Global) => {
         acc[id] = document.getElementById(id);
         return acc;
     }, {});
+
+    // Remove focus from buttons after click so keyboard input isn't captured by the UI
+    dom.ui.addEventListener('click', () => {
+        (document.activeElement as HTMLElement)?.blur();
+    });
 
     // Forward wheel events from UI overlays to the canvas so the camera zooms
     // instead of the page scrolling (e.g. annotation nav, tooltips, hotspots)
@@ -395,7 +400,8 @@ const initUI = (global: Global) => {
 
     // fade ui controls after 5 seconds of inactivity
     events.on('controlsHidden:changed', (value) => {
-        dom.controlsWrap.className = value ? 'faded-out' : 'faded-in';
+        dom.controlsWrap.classList.toggle('faded-out', value);
+        dom.controlsWrap.classList.toggle('faded-in', !value);
     });
 
     // show the ui and start a timer to hide it again
@@ -514,9 +520,20 @@ const initUI = (global: Global) => {
     });
 
     // Camera mode UI
-    events.on('cameraMode:changed', () => {
-        dom.orbitCamera.classList[state.cameraMode === 'orbit' ? 'add' : 'remove']('active');
-        dom.flyCamera.classList[state.cameraMode === 'fly' ? 'add' : 'remove']('active');
+    const updateCameraModeUI = () => {
+        dom.orbitCamera.classList.toggle('active', state.cameraMode === 'orbit');
+        dom.flyCamera.classList.toggle('active', state.cameraMode === 'fly');
+        dom.fpsCamera.classList.toggle('active', state.cameraMode === 'fps');
+    };
+
+    events.on('cameraMode:changed', updateCameraModeUI);
+
+    // show/hide the FPS button based on voxel data availability
+    events.on('hasCollision:changed', (value: boolean) => {
+        dom.fpsCamera.classList.toggle('hidden', !value);
+        // adjust fly button shape: middle when FPS is visible, right when hidden
+        dom.flyCamera.classList.toggle('middle', value);
+        dom.flyCamera.classList.toggle('right', !value);
     });
 
     dom.settings.addEventListener('click', () => {
@@ -529,6 +546,10 @@ const initUI = (global: Global) => {
 
     dom.flyCamera.addEventListener('click', () => {
         state.cameraMode = 'fly';
+    });
+
+    dom.fpsCamera.addEventListener('click', () => {
+        events.fire('inputEvent', 'toggleFps');
     });
 
     dom.reset.addEventListener('click', (event) => {
@@ -557,6 +578,7 @@ const initUI = (global: Global) => {
     tooltip.register(dom.pause, 'Pause', 'top');
     tooltip.register(dom.orbitCamera, 'Orbit Camera', 'top');
     tooltip.register(dom.flyCamera, 'Fly Camera', 'top');
+    tooltip.register(dom.fpsCamera, 'Walk Mode', 'top');
     tooltip.register(dom.reset, 'Reset Camera', 'bottom');
     tooltip.register(dom.frame, 'Frame Scene', 'bottom');
     tooltip.register(dom.settings, 'Settings', 'top');

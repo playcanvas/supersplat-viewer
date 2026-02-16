@@ -30,6 +30,9 @@ class FpsController implements CameraController {
     /** Gravity acceleration in m/s^2 */
     gravity = 9.8;
 
+    /** Jump velocity in m/s */
+    jumpSpeed = 5;
+
     /** Movement damping factor (0 = no damping, 1 = full damping) */
     moveDamping = 0.97;
 
@@ -53,6 +56,9 @@ class FpsController implements CameraController {
     // Vertical velocity for gravity
     private _velocityY = 0;
 
+    // Whether the capsule is resting on the ground
+    private _onGround = false;
+
     onEnter(camera: Camera): void {
         this._position.copy(camera.position);
         this._targetPosition.copy(camera.position);
@@ -64,6 +70,7 @@ class FpsController implements CameraController {
         this._targetYaw = camera.angles.y;
 
         this._velocityY = 0;
+        this._onGround = false;
     }
 
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
@@ -93,6 +100,12 @@ class FpsController implements CameraController {
 
         this._targetPosition.x += rightX * move[0] + forwardX * move[2];
         this._targetPosition.z += rightZ * move[0] + forwardZ * move[2];
+
+        // --- Jump ---
+        if (move[1] > 0 && this._onGround) {
+            this._velocityY = this.jumpSpeed;
+            this._onGround = false;
+        }
 
         // --- Gravity ---
         this._velocityY -= this.gravity * deltaTime;
@@ -136,6 +149,7 @@ class FpsController implements CameraController {
         this._yaw = camera.angles.y;
         this._targetYaw = camera.angles.y;
         this._velocityY = 0;
+        this._onGround = false;
     }
 
     /**
@@ -173,6 +187,7 @@ class FpsController implements CameraController {
             if (isTarget) {
                 if (pushPCY > 0 && this._velocityY < 0) {
                     this._velocityY = 0;
+                    this._onGround = true;
                 }
                 // Ceiling detection: if pushed downward and rising, cancel upward velocity
                 if (pushPCY < 0 && this._velocityY > 0) {

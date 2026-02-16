@@ -289,6 +289,14 @@ button {
                     }
                 }
 
+                &.middle {
+                    border-radius: 0;
+
+                    &:not(.active) {
+                        background-position: 0% 0%;
+                    }
+                }
+
                 &.right {
                     border-radius: 0px 4px 4px 0px;
 

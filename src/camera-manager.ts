@@ -76,9 +76,6 @@ class CameraManager {
         controllers.fly.collider = collider;
         controllers.fps.collider = collider;
 
-        /** The preferred first-person mode: 'fps' when a collider is available, 'fly' otherwise */
-        const firstPersonMode: CameraMode = collider ? 'fps' : 'fly';
-
         const getController = (cameraMode: CameraMode): CameraController => {
             return controllers[cameraMode] as CameraController;
         };
@@ -88,12 +85,15 @@ class CameraManager {
         state.animationDuration = controllers.anim ? controllers.anim.animState.cursor.duration : 0;
 
         // initialize camera mode and initial camera position
-        state.cameraMode = state.hasAnimation ? 'anim' : (isObjectExperience ? 'orbit' : firstPersonMode);
+        state.cameraMode = state.hasAnimation ? 'anim' : (isObjectExperience ? 'orbit' : 'fly');
         this.camera.copy(resetCamera);
 
         const target = new Camera(this.camera);             // the active controller updates this
         const from = new Camera(this.camera);               // stores the previous camera state during transition
-        let fromMode: CameraMode = isObjectExperience ? 'orbit' : firstPersonMode;
+        let fromMode: CameraMode = isObjectExperience ? 'orbit' : 'fly';
+
+        // tracks the mode to restore when exiting FPS
+        let preFpsMode: CameraMode = 'fly';
 
         // enter the initial controller
         getController(state.cameraMode).onEnter(this.camera);
@@ -158,9 +158,25 @@ class CameraManager {
                     }
                     break;
                 case 'requestFirstPerson':
-                    state.cameraMode = firstPersonMode;
+                    state.cameraMode = 'fly';
+                    break;
+                case 'toggleFps':
+                    if (collider) {
+                        if (state.cameraMode === 'fps') {
+                            state.cameraMode = preFpsMode;
+                        } else {
+                            preFpsMode = state.cameraMode;
+                            state.cameraMode = 'fps';
+                        }
+                    }
                     break;
                 case 'cancel':
+                    if (state.cameraMode === 'anim') {
+                        state.cameraMode = fromMode;
+                    } else if (state.cameraMode === 'fps') {
+                        state.cameraMode = preFpsMode;
+                    }
+                    break;
                 case 'interrupt':
                     if (state.cameraMode === 'anim') {
                         state.cameraMode = fromMode;

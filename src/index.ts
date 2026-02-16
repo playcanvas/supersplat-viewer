@@ -209,6 +209,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
         animationPaused: true,
         hasAR: false,
         hasVR: false,
+        hasCollision: false,
         isFullscreen: false,
         controlsHidden: false
     });
