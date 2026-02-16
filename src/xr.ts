@@ -71,15 +71,24 @@ const initXr = (global: Global) => {
         if (app.xr.type === 'immersive-ar') {
             camera.camera.clearColor = clearColor;
         }
+
+        // Restore the canvas to the correct position in the DOM after exiting XR. In
+        // some browsers (e.g. Chrome on Android) the canvas is moved to a new root
+        // during XR, and needs to be moved back on exit.
+        requestAnimationFrame(() => {
+            document.body.prepend(app.graphicsDevice.canvas);
+            app.renderNextFrame = true;
+        });
     });
 
-    events.on('startAR', () => {
-        app.xr.start(app.root.findComponent('camera') as CameraComponent, 'immersive-ar', 'local-floor');
-    });
+    const start = (type: string) => {
+        camera.camera.nearClip = 0.01;
+        camera.camera.farClip = 1000;
+        app.xr.start(app.root.findComponent('camera') as CameraComponent, type, 'local-floor');
+    };
 
-    events.on('startVR', () => {
-        app.xr.start(app.root.findComponent('camera') as CameraComponent, 'immersive-vr', 'local-floor');
-    });
+    events.on('startAR', () => start('immersive-ar'));
+    events.on('startVR', () => start('immersive-vr'));
 
     events.on('inputEvent', (event) => {
         if (event === 'cancel' && app.xr.active) {
