@@ -134,7 +134,7 @@ class Viewer {
         }
     };
 
-    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void>, voxelLoad: Promise<VoxelCollider | null> = Promise.resolve(null)) {
+    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void> | undefined, voxelLoad: Promise<VoxelCollider> | undefined) {
         this.global = global;
 
         const { app, settings, config, events, state, camera } = global;
