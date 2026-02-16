@@ -74,7 +74,6 @@ class CameraManager {
         };
 
         controllers.fly.collider = collider;
-        controllers.fps.collider = collider;
 
         const getController = (cameraMode: CameraMode): CameraController => {
             return controllers[cameraMode] as CameraController;
