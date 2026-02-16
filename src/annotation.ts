@@ -478,7 +478,7 @@ export class Annotation extends Script {
         }
 
         this._updatePositions(screenPos);
-        this._updateRotationAndScale();
+        this._updateRotationAndScale(-vec.z);
 
         // update material opacity and also directly on the uniform so we
         // can avoid a full material update
@@ -603,15 +603,16 @@ export class Annotation extends Script {
 
     /**
      * Update 3D rotation and scale of hotspot planes.
+     * @param {number} viewDepth - The view-space depth (positive distance along the camera's forward direction)
      * @private
      */
-    _updateRotationAndScale() {
+    _updateRotationAndScale(viewDepth: number) {
         // Copy camera rotation to align with view plane
         const cameraRotation = Annotation.camera.getRotation();
         this._updateHotspotTransform(this.entity, cameraRotation);
 
-        // Calculate scale based on distance to maintain constant screen size
-        const scale = this._calculateScreenSpaceScale();
+        // Calculate scale based on view depth to maintain constant screen size
+        const scale = this._calculateScreenSpaceScale(viewDepth);
         this.entity.setLocalScale(scale, scale, scale);
     }
 
@@ -628,21 +629,18 @@ export class Annotation extends Script {
 
     /**
      * Calculate scale factor to maintain constant screen-space size.
+     * @param {number} viewDepth - The view-space depth (positive distance along the camera's forward direction)
      * @returns {number} The scale to apply to hotspot entities
      * @private
      */
-    _calculateScreenSpaceScale() {
-        const cameraPos = Annotation.camera.getPosition();
-        const toAnnotation = this.entity.getPosition().sub(cameraPos);
-        const distance = toAnnotation.length();
-
+    _calculateScreenSpaceScale(viewDepth: number) {
         // Use the canvas's CSS/client height instead of graphics device height
         const canvas = this.app.graphicsDevice.canvas;
         const screenHeight = canvas.clientHeight;
 
-        // Get the camera's projection matrix vertical scale factor
+        // Use view-space depth (not Euclidean distance) to match the projection matrix
         const projMatrix = Annotation.camera.camera.projectionMatrix;
-        const worldSize = (Annotation.hotspotSize / screenHeight) * (2 * distance / projMatrix.data[5]);
+        const worldSize = (Annotation.hotspotSize / screenHeight) * (2 * viewDepth / projMatrix.data[5]);
 
         return worldSize;
     }
