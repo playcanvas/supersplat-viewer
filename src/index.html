@@ -17,16 +17,16 @@
 
             const posterUrl = url.searchParams.get('poster');
             const skyboxUrl = url.searchParams.get('skybox');
+            const voxelUrl = url.searchParams.get('voxel');
             const settingsUrl = url.searchParams.has('settings') ? url.searchParams.get('settings') : './settings.json';
             const contentUrl = url.searchParams.has('content') ? url.searchParams.get('content') : './scene.compressed.ply';
-            const voxelUrl = url.searchParams.get('voxel');
 
             const sseConfig = {
                 poster: posterUrl && createImage(posterUrl),
                 skyboxUrl,
+                voxelUrl,
                 contentUrl,
                 contents: fetch(contentUrl),
-                voxelUrl,
                 noui: url.searchParams.has('noui'),
                 noanim: url.searchParams.has('noanim'),
                 nofx: url.searchParams.has('nofx'),
