@@ -237,6 +237,7 @@ const initUI = (global: Global) => {
         'reset', 'frame',
         'loadingText', 'loadingBar',
         'joystickBase', 'joystick',
+        'showVoxels',
         'tooltip',
         'annotationNav', 'annotationPrev', 'annotationNext', 'annotationInfo', 'annotationNavTitle',
         'supersplatBranding'
@@ -536,6 +537,20 @@ const initUI = (global: Global) => {
         dom.flyCamera.classList.toggle('right', !value);
     });
 
+    // Voxel overlay toggle (only visible when overlay is available)
+    events.on('hasVoxelOverlay:changed', (value: boolean) => {
+        dom.showVoxels.classList.toggle('hidden', !value);
+        // Sync initial active state with showvox config
+        if (value && config.showvox) {
+            dom.showVoxels.classList.add('active');
+        }
+    });
+
+    dom.showVoxels.addEventListener('click', () => {
+        events.fire('toggleVoxelOverlay');
+        dom.showVoxels.classList.toggle('active');
+    });
+
     dom.settings.addEventListener('click', () => {
         dom.settingsPanel.classList.toggle('hidden');
     });
@@ -581,6 +596,7 @@ const initUI = (global: Global) => {
     tooltip.register(dom.fpsCamera, 'Walk Mode', 'top');
     tooltip.register(dom.reset, 'Reset Camera', 'bottom');
     tooltip.register(dom.frame, 'Frame Scene', 'bottom');
+    tooltip.register(dom.showVoxels, 'Show Voxels', 'top');
     tooltip.register(dom.settings, 'Settings', 'top');
     tooltip.register(dom.info, 'Help', 'top');
     tooltip.register(dom.arMode, 'Enter AR', 'top');

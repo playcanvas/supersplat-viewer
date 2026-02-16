@@ -281,8 +281,8 @@ class Viewer {
 
         });
 
-        // Render voxel debug overlay after the scene (including splats) has been drawn
-        app.on('postrender', () => {
+        // Render voxel debug overlay
+        app.on('prerender', () => {
             this.voxelOverlay?.update();
         });
 
@@ -311,9 +311,16 @@ class Viewer {
 
             state.hasCollision = !!collider;
 
-            // Create voxel debug overlay (WebGPU only, activated by &showvox URL param)
-            if (config.showvox && config.webgpu && collider && graphicsDevice.supportsCompute) {
+            // Create voxel debug overlay (WebGPU only, toggled via UI or &showvox URL param)
+            if (config.webgpu && collider && graphicsDevice.supportsCompute) {
                 this.voxelOverlay = new VoxelDebugOverlay(app, collider, camera);
+                this.voxelOverlay.enabled = !!config.showvox;
+                state.hasVoxelOverlay = true;
+
+                events.on('toggleVoxelOverlay', () => {
+                    this.voxelOverlay.enabled = !this.voxelOverlay.enabled;
+                    app.renderNextFrame = true;
+                });
             }
 
             this.cameraManager = new CameraManager(global, sceneBound, collider);

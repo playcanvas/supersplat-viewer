@@ -427,6 +427,9 @@ class VoxelDebugOverlay {
     private readonly invVP = new Mat4();
     private readonly vpTemp = new Mat4();
 
+    /** Whether the overlay is currently rendering. */
+    enabled = false;
+
     constructor(app: AppBase, collider: VoxelCollider, camera: Entity) {
         this.app = app;
         this.camera = camera;
@@ -557,6 +560,8 @@ class VoxelDebugOverlay {
     }
 
     update(): void {
+        if (!this.enabled) return;
+
         const { app, camera, compute, collider } = this;
         const device = app.graphicsDevice;
         const width = device.width;

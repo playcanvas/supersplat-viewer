@@ -267,6 +267,11 @@ button {
                 }
             }
 
+            /* active highlight for simple toggle buttons (e.g. voxel overlay) */
+            &.active:not(.toggle) {
+                color: $clr-accent;
+            }
+
             /* camera toggle styling */
             &.toggle {
                 background: linear-gradient(
