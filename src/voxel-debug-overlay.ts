@@ -369,11 +369,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                     isSolid = true;
                 } else {
                     let bitIndex = u32(vz) * 16u + u32(vy) * 4u + u32(vx);
-                    if (bitIndex < 32u) {
-                        isSolid = (maskLo & (1u << bitIndex)) != 0u;
-                    } else {
-                        isSolid = (maskHi & (1u << (bitIndex - 32u))) != 0u;
-                    }
+                    // Branchless bit-check using WGSL select
+                    isSolid = select(
+                        (maskHi & (1u << (bitIndex - 32u))) != 0u,
+                        (maskLo & (1u << bitIndex)) != 0u,
+                        bitIndex < 32u
+                    );
                 }
 
                 if (isSolid) {
