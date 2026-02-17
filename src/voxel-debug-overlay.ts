@@ -74,11 +74,10 @@ struct Uniforms {
 
 // ---- helpers ----
 
-// Traverse the octree for block (bx, by, bz). Returns:
-//   0 = empty subtree (no voxels)
-//   1 = solid leaf (entire 4x4x4 block is solid)
-//   2 + leafDataIndex = mixed leaf (need to check per-voxel bitmask)
-fn queryBlock(bx: i32, by: i32, bz: i32) -> u32 {
+// Traverse the octree for block (bx, by, bz). Returns vec2u(result, emptyLevel):
+//   result: 0 = empty, 1 = solid, 2+ = mixed leaf (2 + leafDataIndex)
+//   emptyLevel: octree level at which emptiness was detected (only meaningful when result == 0)
+fn queryBlock(bx: i32, by: i32, bz: i32) -> vec2u {
     let depth = uniforms.treeDepth;
     var nodeIndex: u32 = 0u;
 
@@ -87,7 +86,7 @@ fn queryBlock(bx: i32, by: i32, bz: i32) -> u32 {
 
         // Solid leaf sentinel
         if (node == SOLID_LEAF_MARKER) {
-            return 1u;
+            return vec2u(1u, 0u);
         }
 
         let childMask = (node >> 24u) & 0xFFu;
@@ -95,7 +94,7 @@ fn queryBlock(bx: i32, by: i32, bz: i32) -> u32 {
         // childMask == 0 means this is a mixed leaf node
         if (childMask == 0u) {
             let leafIdx = node & 0x00FFFFFFu;
-            return 2u + leafIdx;
+            return vec2u(2u + leafIdx, 0u);
         }
 
         // Determine octant at this level
@@ -106,7 +105,7 @@ fn queryBlock(bx: i32, by: i32, bz: i32) -> u32 {
 
         // Check if child exists
         if ((childMask & (1u << octant)) == 0u) {
-            return 0u;
+            return vec2u(0u, level);
         }
 
         // Compute child index
@@ -122,10 +121,10 @@ fn queryBlock(bx: i32, by: i32, bz: i32) -> u32 {
     // Reached leaf level
     let node = nodes[nodeIndex];
     if (node == SOLID_LEAF_MARKER) {
-        return 1u;
+        return vec2u(1u, 0u);
     }
     let leafIdx = node & 0x00FFFFFFu;
-    return 2u + leafIdx;
+    return vec2u(2u + leafIdx, 0u);
 }
 
 // Check a single voxel bit in a mixed leaf
@@ -300,7 +299,37 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             break;
         }
 
-        let blockResult = queryBlock(bx, by, bz);
+        let qResult = queryBlock(bx, by, bz);
+        let blockResult = qResult.x;
+        let emptyLevel = qResult.y;
+
+        // Large empty region: advance the block DDA past the empty cell
+        if (blockResult == 0u && emptyLevel >= 1u) {
+            let cellBlocks = i32(1u << emptyLevel);
+            let cellMask = ~(cellBlocks - 1);
+            let cellXMin = bx & cellMask;
+            let cellYMin = by & cellMask;
+            let cellZMin = bz & cellMask;
+
+            for (var skip: u32 = 0u; skip < 128u; skip++) {
+                if (tMaxX < tMaxY && tMaxX < tMaxZ) {
+                    bx += stepX;
+                    tMaxX += tDeltaX;
+                } else if (tMaxY < tMaxZ) {
+                    by += stepY;
+                    tMaxY += tDeltaY;
+                } else {
+                    bz += stepZ;
+                    tMaxZ += tDeltaZ;
+                }
+                if (bx < cellXMin || bx >= cellXMin + cellBlocks ||
+                    by < cellYMin || by >= cellYMin + cellBlocks ||
+                    bz < cellZMin || bz >= cellZMin + cellBlocks) {
+                    break;
+                }
+            }
+            continue;
+        }
 
         if (blockResult != 0u) {
             let blockOrigin = gridMin + vec3f(f32(bx), f32(by), f32(bz)) * blockRes;
