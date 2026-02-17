@@ -168,6 +168,43 @@ fn edgeFactor(hitPos: vec3f, voxMin: vec3f, voxSize: f32, edgeWidth: f32) -> f32
     return 1.0 - smoothstep(0.0, edgeWidth, edgeDist);
 }
 
+// Shade a voxel hit, returning premultiplied RGBA
+fn shadeVoxelHit(hitPos: vec3f, voxMin: vec3f, voxelRes: f32, ro: vec3f, isSolid: bool) -> vec4f {
+    let dist = length(hitPos - ro);
+    let pixelWorld = 2.0 * dist / (f32(uniforms.screenHeight) * uniforms.projScaleY);
+    let ew = clamp(EDGE_PIXELS * pixelWorld / voxelRes, 0.01, 0.5);
+
+    let ef = edgeFactor(hitPos, voxMin, voxelRes, ew);
+    let distFade = clamp(1.0 - dist * 0.01, 0.2, 1.0);
+
+    let local = (hitPos - voxMin) / voxelRes;
+    let fx = min(local.x, 1.0 - local.x);
+    let fy = min(local.y, 1.0 - local.y);
+    let fz = min(local.z, 1.0 - local.z);
+
+    var faceAxis: u32 = 0u;
+    if (fy <= fx && fy <= fz) {
+        faceAxis = 1u;
+    } else if (fz <= fx) {
+        faceAxis = 2u;
+    }
+
+    var baseColor: vec3f;
+    if (isSolid) {
+        if (faceAxis == 0u) { baseColor = vec3f(1.0, 0.25, 0.2); }
+        else if (faceAxis == 1u) { baseColor = vec3f(0.8, 0.15, 0.1); }
+        else { baseColor = vec3f(0.55, 0.08, 0.05); }
+    } else {
+        if (faceAxis == 0u) { baseColor = vec3f(0.7, 0.7, 0.72); }
+        else if (faceAxis == 1u) { baseColor = vec3f(0.5, 0.5, 0.52); }
+        else { baseColor = vec3f(0.33, 0.33, 0.35); }
+    }
+
+    let alpha = mix(FILL_ALPHA, EDGE_ALPHA, ef) * distFade;
+
+    return vec4f(mix(baseColor, vec3f(0.0), alpha) * alpha, alpha);
+}
+
 // ---- main ----
 
 @compute @workgroup_size(8, 8, 1)
@@ -220,6 +257,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let voxelRes = uniforms.voxelRes;
     let lsf = f32(uniforms.leafSize);
     let blockRes = voxelRes * lsf;
+    let leafSz = i32(uniforms.leafSize);
 
     // Block-level DDA setup
     let entryBlock = (entryWorld - gridMin) / blockRes;
@@ -266,7 +304,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
         if (blockResult != 0u) {
             let blockOrigin = gridMin + vec3f(f32(bx), f32(by), f32(bz)) * blockRes;
-            let leafSz = i32(uniforms.leafSize);
 
             let blockMax = blockOrigin + vec3f(blockRes);
             let bHit = intersectAABB(ro, invDir, blockOrigin, blockMax);
@@ -315,56 +352,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                     let tVoxHit = max(vHit.x, 0.0);
                     let hitPos = ro + rd * (tVoxHit + 0.0001);
 
-                    // Compute edge width in UV space so it's ~EDGE_PIXELS wide on screen
-                    let dist = length(hitPos - ro);
-                    let pixelWorld = 2.0 * dist / (f32(uniforms.screenHeight) * uniforms.projScaleY);
-                    let ew = clamp(EDGE_PIXELS * pixelWorld / voxelRes, 0.01, 0.5);
-
-                    let ef = edgeFactor(hitPos, voxMin, voxelRes, ew);
-                    let distFade = clamp(1.0 - dist * 0.01, 0.2, 1.0);
-
-                    // Determine face axis for orientation shading
-                    let local = (hitPos - voxMin) / voxelRes;
-                    let fx = min(local.x, 1.0 - local.x);
-                    let fy = min(local.y, 1.0 - local.y);
-                    let fz = min(local.z, 1.0 - local.z);
-
-                    // Face axis: 0=X, 1=Y, 2=Z (smallest face distance = face normal)
-                    var faceAxis: u32 = 0u;
-                    if (fy <= fx && fy <= fz) {
-                        faceAxis = 1u;
-                    } else if (fz <= fx) {
-                        faceAxis = 2u;
-                    }
-
-                    // Solid leaves: shades of red. Mixed leaves: shades of grey.
-                    // Three shades per type to distinguish X/Y/Z face orientation.
-                    var baseColor: vec3f;
-                    if (blockResult == 1u) {
-                        // Solid: light / medium / dark red
-                        if (faceAxis == 0u) {
-                            baseColor = vec3f(1.0, 0.25, 0.2);
-                        } else if (faceAxis == 1u) {
-                            baseColor = vec3f(0.8, 0.15, 0.1);
-                        } else {
-                            baseColor = vec3f(0.55, 0.08, 0.05);
-                        }
-                    } else {
-                        // Mixed: light / medium / dark grey
-                        if (faceAxis == 0u) {
-                            baseColor = vec3f(0.7, 0.7, 0.72);
-                        } else if (faceAxis == 1u) {
-                            baseColor = vec3f(0.5, 0.5, 0.52);
-                        } else {
-                            baseColor = vec3f(0.33, 0.33, 0.35);
-                        }
-                    }
-
-                    // Edges are brighter, interior is subtle fill
-                    let alpha = mix(FILL_ALPHA, EDGE_ALPHA, ef) * distFade;
-
-                    hitColor = mix(baseColor, vec3f(0.0), alpha) * alpha;
-                    hitAlpha = alpha;
+                    let shade = shadeVoxelHit(hitPos, voxMin, voxelRes, ro, blockResult == 1u);
+                    hitColor = shade.xyz;
+                    hitAlpha = shade.w;
                     gotHit = true;
                 }
 
@@ -379,6 +369,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                     vz += stepZ;
                     vTMaxZ += vTDeltaZ;
                 }
+
             }
         }
 
