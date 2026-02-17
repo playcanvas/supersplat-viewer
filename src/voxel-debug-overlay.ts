@@ -130,12 +130,10 @@ fn queryBlock(bx: i32, by: i32, bz: i32) -> vec2u {
 // Check a single voxel bit in a mixed leaf
 fn isVoxelSet(leafIdx: u32, vx: u32, vy: u32, vz: u32) -> bool {
     let bitIndex = vz * 16u + vy * 4u + vx;
-    if (bitIndex < 32u) {
-        let lo = leafData[leafIdx * 2u];
-        return ((lo >> bitIndex) & 1u) == 1u;
-    }
-    let hi = leafData[leafIdx * 2u + 1u];
-    return ((hi >> (bitIndex - 32u)) & 1u) == 1u;
+    let wordIndex = bitIndex >> 5u;
+    let bitOffset = bitIndex & 31u;
+    let word = leafData[leafIdx * 2u + wordIndex];
+    return ((word >> bitOffset) & 1u) == 1u;
 }
 
 // Ray-AABB intersection returning (tNear, tFar). If tNear > tFar → miss.
