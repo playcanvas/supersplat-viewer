@@ -370,7 +370,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                     // Edges are brighter, interior is subtle fill
                     let alpha = mix(FILL_ALPHA, EDGE_ALPHA, ef) * distFade;
 
-                    hitColor = baseColor * alpha;
+                    hitColor = mix(baseColor, vec3f(0.0), alpha) * alpha;
                     hitAlpha = alpha;
                     gotHit = true;
                 }
