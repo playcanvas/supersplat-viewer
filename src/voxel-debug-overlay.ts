@@ -74,13 +74,6 @@ struct Uniforms {
 
 // ---- helpers ----
 
-fn popcount8(n: u32) -> u32 {
-    var v = n;
-    v = v - ((v >> 1u) & 0x55555555u);
-    v = (v & 0x33333333u) + ((v >> 2u) & 0x33333333u);
-    return (((v + (v >> 4u)) & 0x0F0F0F0Fu) * 0x01010101u) >> 24u;
-}
-
 // Traverse the octree for block (bx, by, bz). Returns:
 //   0 = empty subtree (no voxels)
 //   1 = solid leaf (entire 4x4x4 block is solid)
@@ -119,7 +112,7 @@ fn queryBlock(bx: i32, by: i32, bz: i32) -> u32 {
         // Compute child index
         let baseOffset = node & 0x00FFFFFFu;
         let prefix = (1u << octant) - 1u;
-        let childOffset = popcount8(childMask & prefix);
+        let childOffset = countOneBits(childMask & prefix);
         nodeIndex = baseOffset + childOffset;
 
         if (level == 0u) { break; }
