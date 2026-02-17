@@ -127,15 +127,6 @@ fn queryBlock(bx: i32, by: i32, bz: i32) -> vec2u {
     return vec2u(2u + leafIdx, 0u);
 }
 
-// Check a single voxel bit in a mixed leaf
-fn isVoxelSet(leafIdx: u32, vx: u32, vy: u32, vz: u32) -> bool {
-    let bitIndex = vz * 16u + vy * 4u + vx;
-    let wordIndex = bitIndex >> 5u;
-    let bitOffset = bitIndex & 31u;
-    let word = leafData[leafIdx * 2u + wordIndex];
-    return ((word >> bitOffset) & 1u) == 1u;
-}
-
 // Ray-AABB intersection returning (tNear, tFar). If tNear > tFar → miss.
 fn intersectAABB(ro: vec3f, invDir: vec3f, bmin: vec3f, bmax: vec3f) -> vec2f {
     let t1 = (bmin - ro) * invDir;
@@ -356,6 +347,15 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             var vTMaxY = (vNextY - ro.y) / rd.y;
             var vTMaxZ = (vNextZ - ro.z) / rd.z;
 
+            // Read the two mask words for this block (or the solid leaf sentinel)
+            var maskLo: u32 = 0u;
+            var maskHi: u32 = 0u;
+            if (blockResult > 1u) {
+                let leafIdx = blockResult - 2u;
+                maskLo = leafData[leafIdx * 2u];
+                maskHi = leafData[leafIdx * 2u + 1u];
+            }
+
             for (var vStep: u32 = 0u; vStep < 12u; vStep++) {
                 if (gotHit) { break; }
                 if (vx < 0 || vy < 0 || vz < 0 ||
@@ -368,8 +368,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                 if (blockResult == 1u) {
                     isSolid = true;
                 } else {
-                    let leafIdx = blockResult - 2u;
-                    isSolid = isVoxelSet(leafIdx, u32(vx), u32(vy), u32(vz));
+                    let bitIndex = u32(vz) * 16u + u32(vy) * 4u + u32(vx);
+                    if (bitIndex < 32u) {
+                        isSolid = (maskLo & (1u << bitIndex)) != 0u;
+                    } else {
+                        isSolid = (maskHi & (1u << (bitIndex - 32u))) != 0u;
+                    }
                 }
 
                 if (isSolid) {
