@@ -70,9 +70,6 @@ class VoxelCollider {
     /** Size of each voxel in world units */
     private _voxelResolution: number;
 
-    /** Block size = leafSize * voxelResolution (world units per 4x4x4 block) */
-    private _blockSize: number;
-
     /** Voxels per leaf dimension (always 4) */
     private _leafSize: number;
 
@@ -109,7 +106,6 @@ class VoxelCollider {
         this._numVoxelsZ = Math.round((metadata.gridBounds.max[2] - metadata.gridBounds.min[2]) / res);
         this._voxelResolution = res;
         this._leafSize = metadata.leafSize;
-        this._blockSize = metadata.leafSize * res;
         this._treeDepth = metadata.treeDepth;
         this._nodes = nodes;
         this._leafData = leafData;
