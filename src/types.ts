@@ -43,6 +43,7 @@ type State = {
     hasVR: boolean;
     hasCollision: boolean;
     hasVoxelOverlay: boolean;
+    voxelOverlayEnabled: boolean;
     isFullscreen: boolean;
     controlsHidden: boolean;
 };

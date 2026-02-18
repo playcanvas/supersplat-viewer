@@ -317,8 +317,8 @@ class Viewer {
                 this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
                 state.hasVoxelOverlay = true;
 
-                events.on('toggleVoxelOverlay', () => {
-                    this.voxelOverlay.enabled = !this.voxelOverlay.enabled;
+                events.on('voxelOverlayEnabled:changed', (value: boolean) => {
+                    this.voxelOverlay.enabled = value;
                     app.renderNextFrame = true;
                 });
             }

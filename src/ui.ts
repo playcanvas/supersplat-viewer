@@ -543,8 +543,11 @@ const initUI = (global: Global) => {
     });
 
     dom.showVoxels.addEventListener('click', () => {
-        events.fire('toggleVoxelOverlay');
-        dom.showVoxels.classList.toggle('active');
+        state.voxelOverlayEnabled = !state.voxelOverlayEnabled;
+    });
+
+    events.on('voxelOverlayEnabled:changed', (value: boolean) => {
+        dom.showVoxels.classList.toggle('active', value);
     });
 
     dom.settings.addEventListener('click', () => {
