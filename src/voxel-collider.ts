@@ -115,38 +115,104 @@ class VoxelCollider {
         this._leafData = leafData;
     }
 
-    /** Grid-aligned bounds minimum X in world units. */
-    get gridMinX(): number { return this._gridMinX; }
+    /**
+     * Grid-aligned bounds minimum X in world units.
+     *
+     * @returns {number} The minimum X coordinate.
+     */
+    get gridMinX(): number {
+        return this._gridMinX;
+    }
 
-    /** Grid-aligned bounds minimum Y in world units. */
-    get gridMinY(): number { return this._gridMinY; }
+    /**
+     * Grid-aligned bounds minimum Y in world units.
+     *
+     * @returns {number} The minimum Y coordinate.
+     */
+    get gridMinY(): number {
+        return this._gridMinY;
+    }
 
-    /** Grid-aligned bounds minimum Z in world units. */
-    get gridMinZ(): number { return this._gridMinZ; }
+    /**
+     * Grid-aligned bounds minimum Z in world units.
+     *
+     * @returns {number} The minimum Z coordinate.
+     */
+    get gridMinZ(): number {
+        return this._gridMinZ;
+    }
 
-    /** Number of voxels along the X axis. */
-    get numVoxelsX(): number { return this._numVoxelsX; }
+    /**
+     * Number of voxels along the X axis.
+     *
+     * @returns {number} The voxel count on X.
+     */
+    get numVoxelsX(): number {
+        return this._numVoxelsX;
+    }
 
-    /** Number of voxels along the Y axis. */
-    get numVoxelsY(): number { return this._numVoxelsY; }
+    /**
+     * Number of voxels along the Y axis.
+     *
+     * @returns {number} The voxel count on Y.
+     */
+    get numVoxelsY(): number {
+        return this._numVoxelsY;
+    }
 
-    /** Number of voxels along the Z axis. */
-    get numVoxelsZ(): number { return this._numVoxelsZ; }
+    /**
+     * Number of voxels along the Z axis.
+     *
+     * @returns {number} The voxel count on Z.
+     */
+    get numVoxelsZ(): number {
+        return this._numVoxelsZ;
+    }
 
-    /** Size of each voxel in world units. */
-    get voxelResolution(): number { return this._voxelResolution; }
+    /**
+     * Size of each voxel in world units.
+     *
+     * @returns {number} The voxel resolution.
+     */
+    get voxelResolution(): number {
+        return this._voxelResolution;
+    }
 
-    /** Voxels per leaf dimension (always 4). */
-    get leafSize(): number { return this._leafSize; }
+    /**
+     * Voxels per leaf dimension (always 4).
+     *
+     * @returns {number} The leaf size.
+     */
+    get leafSize(): number {
+        return this._leafSize;
+    }
 
-    /** Maximum tree depth (number of octree levels above the leaf level). */
-    get treeDepth(): number { return this._treeDepth; }
+    /**
+     * Maximum tree depth (number of octree levels above the leaf level).
+     *
+     * @returns {number} The tree depth.
+     */
+    get treeDepth(): number {
+        return this._treeDepth;
+    }
 
-    /** Flat Laine-Karras node array (read-only access for GPU upload). */
-    get nodes(): Uint32Array { return this._nodes; }
+    /**
+     * Flat Laine-Karras node array (read-only access for GPU upload).
+     *
+     * @returns {Uint32Array} The node array.
+     */
+    get nodes(): Uint32Array {
+        return this._nodes;
+    }
 
-    /** Leaf voxel masks: pairs of (lo, hi) Uint32 per mixed leaf (read-only access for GPU upload). */
-    get leafData(): Uint32Array { return this._leafData; }
+    /**
+     * Leaf voxel masks: pairs of (lo, hi) Uint32 per mixed leaf (read-only access for GPU upload).
+     *
+     * @returns {Uint32Array} The leaf data array.
+     */
+    get leafData(): Uint32Array {
+        return this._leafData;
+    }
 
     /**
      * Load a VoxelCollider from a .voxel.json URL.

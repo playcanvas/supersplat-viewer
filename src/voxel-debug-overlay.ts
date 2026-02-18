@@ -437,18 +437,27 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
 class VoxelDebugOverlay {
     private app: AppBase;
+
     private camera: Entity;
+
     private compute: Compute;
+
     private storageTexture: Texture;
+
     private overlayMaterial: ShaderMaterial;
+
     private nodesBuffer: StorageBuffer;
+
     private leafDataBuffer: StorageBuffer;
+
     private collider: VoxelCollider;
 
     private currentWidth = 0;
+
     private currentHeight = 0;
 
     private readonly invVP = new Mat4();
+
     private readonly vpTemp = new Mat4();
 
     /** Whether the overlay is currently rendering. */
