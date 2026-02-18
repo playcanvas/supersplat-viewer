@@ -24,7 +24,7 @@ type Config = {
     aa: boolean;                                // render with antialiasing
     webgpu: boolean;                            // use WebGPU device
     gpusort: boolean;                           // use GPU sorting for splats
-    showvox: boolean;                           // show voxel collider debug overlay (WebGPU only)
+    heatmap: boolean;                           // render heatmap debug overlay (WebGPU only)
 };
 
 // observable state that can change at runtime

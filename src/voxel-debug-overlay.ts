@@ -63,7 +63,7 @@ struct Uniforms {
     leafSize: u32,
     treeDepth: u32,
     projScaleY: f32,
-    pad1: u32,
+    displayMode: u32,
     pad2: u32
 };
 
@@ -193,6 +193,15 @@ fn shadeVoxelHit(hitPos: vec3f, voxMin: vec3f, voxelRes: f32, ro: vec3f, isSolid
     return vec4f(mix(baseColor, vec3f(0.0), alpha) * alpha, alpha);
 }
 
+// Blue (0) -> Cyan (0.25) -> Green (0.5) -> Yellow (0.75) -> Red (1.0)
+fn heatmap(t: f32) -> vec3f {
+    let c = clamp(t, 0.0, 1.0);
+    let r = clamp(min(c - 0.5, 1.0) * 2.0, 0.0, 1.0);
+    let g = select(clamp(c * 4.0, 0.0, 1.0), clamp((1.0 - c) * 4.0, 0.0, 1.0), c > 0.5);
+    let b = clamp(1.0 - c * 2.0, 0.0, 1.0);
+    return vec3f(r, g, b);
+}
+
 // ---- main ----
 
 @compute @workgroup_size(8, 8, 1)
@@ -275,25 +284,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     var tMaxY = (nextBoundY - ro.y) / rd.y;
     var tMaxZ = (nextBoundZ - ro.z) / rd.z;
 
-    // First-hit result
-    var hitColor = vec3f(0.0);
-    var hitAlpha: f32 = 0.0;
-    var gotHit = false;
+    var totalWork: u32 = 0u;
 
     for (var step: u32 = 0u; step < MAX_STEPS; step++) {
-        if (gotHit) { break; }
-
-        if (bx < 0 || by < 0 || bz < 0 ||
-            bx >= numBlocksX || by >= numBlocksY || bz >= numBlocksZ) {
-            break;
-        }
+        totalWork += 1u;
 
         let qResult = queryBlock(bx, by, bz);
         let blockResult = qResult.x;
         let emptyLevel = qResult.y;
 
-        // Large empty region: advance the block DDA past the empty cell
         if (blockResult == 0u && emptyLevel >= 1u) {
+            // Large empty region: advance the block DDA past the empty cell
             let cellBlocks = i32(1u << emptyLevel);
             let cellMask = ~(cellBlocks - 1);
             let cellXMin = bx & cellMask;
@@ -301,125 +302,132 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let cellZMin = bz & cellMask;
 
             for (var skip: u32 = 0u; skip < 128u; skip++) {
+                totalWork += 1u;
+
                 if (tMaxX < tMaxY && tMaxX < tMaxZ) {
                     bx += stepX;
                     tMaxX += tDeltaX;
+                    if (bx < cellXMin || bx >= cellXMin + cellBlocks) { break; }
                 } else if (tMaxY < tMaxZ) {
                     by += stepY;
                     tMaxY += tDeltaY;
+                    if (by < cellYMin || by >= cellYMin + cellBlocks) { break; }
                 } else {
                     bz += stepZ;
                     tMaxZ += tDeltaZ;
-                }
-                if (bx < cellXMin || bx >= cellXMin + cellBlocks ||
-                    by < cellYMin || by >= cellYMin + cellBlocks ||
-                    bz < cellZMin || bz >= cellZMin + cellBlocks) {
-                    break;
+                    if (bz < cellZMin || bz >= cellZMin + cellBlocks) { break; }
                 }
             }
-            continue;
-        }
-
-        if (blockResult != 0u) {
-            let blockOrigin = gridMin + vec3f(f32(bx), f32(by), f32(bz)) * blockRes;
-
-            let blockMax = blockOrigin + vec3f(blockRes);
-            let bHit = intersectAABB(ro, invDir, blockOrigin, blockMax);
-            let tBlockEntry = max(bHit.x, 0.0);
-
-            // Voxel-level DDA within the block
-            let entryVoxWorld = ro + rd * (tBlockEntry + 0.0001);
-            let entryLocal = (entryVoxWorld - blockOrigin) / voxelRes;
-            var vx = clamp(i32(floor(entryLocal.x)), 0, leafSz - 1);
-            var vy = clamp(i32(floor(entryLocal.y)), 0, leafSz - 1);
-            var vz = clamp(i32(floor(entryLocal.z)), 0, leafSz - 1);
-
-            let vTDeltaX = abs(voxelRes / rd.x);
-            let vTDeltaY = abs(voxelRes / rd.y);
-            let vTDeltaZ = abs(voxelRes / rd.z);
-
-            let voxOrigin = blockOrigin + vec3f(f32(vx), f32(vy), f32(vz)) * voxelRes;
-            let vNextX = select(voxOrigin.x, voxOrigin.x + voxelRes, rd.x >= 0.0);
-            let vNextY = select(voxOrigin.y, voxOrigin.y + voxelRes, rd.y >= 0.0);
-            let vNextZ = select(voxOrigin.z, voxOrigin.z + voxelRes, rd.z >= 0.0);
-
-            var vTMaxX = (vNextX - ro.x) / rd.x;
-            var vTMaxY = (vNextY - ro.y) / rd.y;
-            var vTMaxZ = (vNextZ - ro.z) / rd.z;
-
-            // Read the two mask words for this block (or the solid leaf sentinel)
-            var maskLo: u32 = 0u;
-            var maskHi: u32 = 0u;
-            if (blockResult > 1u) {
-                let leafIdx = blockResult - 2u;
-                maskLo = leafData[leafIdx * 2u];
-                maskHi = leafData[leafIdx * 2u + 1u];
-            }
-
-            for (var vStep: u32 = 0u; vStep < 12u; vStep++) {
-                if (gotHit) { break; }
-                if (vx < 0 || vy < 0 || vz < 0 ||
-                    vx >= leafSz || vy >= leafSz || vz >= leafSz) {
-                    break;
-                }
-
-                var isSolid = false;
-
-                if (blockResult == 1u) {
-                    isSolid = true;
-                } else {
-                    let bitIndex = u32(vz) * 16u + u32(vy) * 4u + u32(vx);
-                    // Branchless bit-check using WGSL select
-                    isSolid = select(
-                        (maskHi & (1u << (bitIndex - 32u))) != 0u,
-                        (maskLo & (1u << bitIndex)) != 0u,
-                        bitIndex < 32u
-                    );
-                }
-
-                if (isSolid) {
-                    let voxMin = blockOrigin + vec3f(f32(vx), f32(vy), f32(vz)) * voxelRes;
-                    let voxMax = voxMin + vec3f(voxelRes);
-                    let vHit = intersectAABB(ro, invDir, voxMin, voxMax);
-                    let tVoxHit = max(vHit.x, 0.0);
-                    let hitPos = ro + rd * (tVoxHit + 0.0001);
-
-                    let shade = shadeVoxelHit(hitPos, voxMin, voxelRes, ro, blockResult == 1u);
-                    hitColor = shade.xyz;
-                    hitAlpha = shade.w;
-                    gotHit = true;
-                }
-
-                // Advance voxel DDA
-                if (vTMaxX < vTMaxY && vTMaxX < vTMaxZ) {
-                    vx += stepX;
-                    vTMaxX += vTDeltaX;
-                } else if (vTMaxY < vTMaxZ) {
-                    vy += stepY;
-                    vTMaxY += vTDeltaY;
-                } else {
-                    vz += stepZ;
-                    vTMaxZ += vTDeltaZ;
-                }
-
-            }
-        }
-
-        // Advance block DDA
-        if (tMaxX < tMaxY && tMaxX < tMaxZ) {
-            bx += stepX;
-            tMaxX += tDeltaX;
-        } else if (tMaxY < tMaxZ) {
-            by += stepY;
-            tMaxY += tDeltaY;
         } else {
-            bz += stepZ;
-            tMaxZ += tDeltaZ;
+            if (blockResult != 0u) {
+                let blockOrigin = gridMin + vec3f(f32(bx), f32(by), f32(bz)) * blockRes;
+
+                let blockMax = blockOrigin + vec3f(blockRes);
+                let bHit = intersectAABB(ro, invDir, blockOrigin, blockMax);
+                let tBlockEntry = max(bHit.x, 0.0);
+
+                // Voxel-level DDA within the block
+                let entryVoxWorld = ro + rd * (tBlockEntry + 0.0001);
+                let entryLocal = (entryVoxWorld - blockOrigin) / voxelRes;
+                var vx = clamp(i32(floor(entryLocal.x)), 0, leafSz - 1);
+                var vy = clamp(i32(floor(entryLocal.y)), 0, leafSz - 1);
+                var vz = clamp(i32(floor(entryLocal.z)), 0, leafSz - 1);
+
+                let vTDeltaX = abs(voxelRes / rd.x);
+                let vTDeltaY = abs(voxelRes / rd.y);
+                let vTDeltaZ = abs(voxelRes / rd.z);
+
+                let voxOrigin = blockOrigin + vec3f(f32(vx), f32(vy), f32(vz)) * voxelRes;
+                let vNextX = select(voxOrigin.x, voxOrigin.x + voxelRes, rd.x >= 0.0);
+                let vNextY = select(voxOrigin.y, voxOrigin.y + voxelRes, rd.y >= 0.0);
+                let vNextZ = select(voxOrigin.z, voxOrigin.z + voxelRes, rd.z >= 0.0);
+
+                var vTMaxX = (vNextX - ro.x) / rd.x;
+                var vTMaxY = (vNextY - ro.y) / rd.y;
+                var vTMaxZ = (vNextZ - ro.z) / rd.z;
+
+                var maskLo: u32 = 0u;
+                var maskHi: u32 = 0u;
+                if (blockResult > 1u) {
+                    let leafIdx = blockResult - 2u;
+                    maskLo = leafData[leafIdx * 2u];
+                    maskHi = leafData[leafIdx * 2u + 1u];
+                }
+
+                for (var vStep: u32 = 0u; vStep < 12u; vStep++) {
+                    totalWork += 1u;
+
+                    var isSolid = false;
+
+                    if (blockResult == 1u) {
+                        isSolid = true;
+                    } else {
+                        let bitIndex = u32(vz) * 16u + u32(vy) * 4u + u32(vx);
+                        isSolid = select(
+                            (maskHi & (1u << (bitIndex - 32u))) != 0u,
+                            (maskLo & (1u << bitIndex)) != 0u,
+                            bitIndex < 32u
+                        );
+                    }
+
+                    if (isSolid) {
+                        if (uniforms.displayMode == 0u) {
+                            let voxMin = blockOrigin + vec3f(f32(vx), f32(vy), f32(vz)) * voxelRes;
+                            let vHit = intersectAABB(ro, invDir, voxMin, voxMin + vec3f(voxelRes));
+                            let hitPos = ro + rd * max(vHit.x, 0.0);
+                            let result = shadeVoxelHit(hitPos, voxMin, voxelRes, ro, blockResult == 1u);
+                            textureStore(outputTexture, vec2i(px, py), result);
+                        } else {
+                            let effort = f32(totalWork) / 256.0;
+                            let color = heatmap(effort);
+                            textureStore(outputTexture, vec2i(px, py), vec4f(color, 1.0));
+                        }
+                        return;
+                    }
+
+                    // Advance voxel DDA
+                    if (vTMaxX < vTMaxY && vTMaxX < vTMaxZ) {
+                        vx += stepX;
+                        vTMaxX += vTDeltaX;
+                        if (vx < 0 || vx >= leafSz) { break; }
+                    } else if (vTMaxY < vTMaxZ) {
+                        vy += stepY;
+                        vTMaxY += vTDeltaY;
+                        if (vy < 0 || vy >= leafSz) { break; }
+                    } else {
+                        vz += stepZ;
+                        vTMaxZ += vTDeltaZ;
+                        if (vz < 0 || vz >= leafSz) { break; }
+                    }
+                }
+            }
+
+            // Advance block DDA
+            if (tMaxX < tMaxY && tMaxX < tMaxZ) {
+                bx += stepX;
+                tMaxX += tDeltaX;
+            } else if (tMaxY < tMaxZ) {
+                by += stepY;
+                tMaxY += tDeltaY;
+            } else {
+                bz += stepZ;
+                tMaxZ += tDeltaZ;
+            }
+        }
+
+        if (bx < 0 || by < 0 || bz < 0 ||
+            bx >= numBlocksX || by >= numBlocksY || bz >= numBlocksZ) {
+            break;
         }
     }
 
-    // Write premultiplied alpha output
-    textureStore(outputTexture, vec2i(px, py), vec4f(hitColor, hitAlpha));
+    if (uniforms.displayMode == 0u) {
+        textureStore(outputTexture, vec2i(px, py), vec4f(0.0));
+    } else {
+        let effort = f32(totalWork) / 256.0;
+        let color = heatmap(effort);
+        textureStore(outputTexture, vec2i(px, py), vec4f(color, 1.0));
+    }
 }
 `;
 
@@ -445,6 +453,9 @@ class VoxelDebugOverlay {
 
     /** Whether the overlay is currently rendering. */
     enabled = false;
+
+    /** Display mode: 'overlay' for wireframe debug, 'heatmap' for effort visualization. */
+    mode: 'overlay' | 'heatmap' = 'overlay';
 
     constructor(app: AppBase, collider: VoxelCollider, camera: Entity) {
         this.app = app;
@@ -494,7 +505,7 @@ class VoxelDebugOverlay {
                     new UniformFormat('leafSize', UNIFORMTYPE_UINT),
                     new UniformFormat('treeDepth', UNIFORMTYPE_UINT),
                     new UniformFormat('projScaleY', UNIFORMTYPE_FLOAT),
-                    new UniformFormat('pad1', UNIFORMTYPE_UINT),
+                    new UniformFormat('displayMode', UNIFORMTYPE_UINT),
                     new UniformFormat('pad2', UNIFORMTYPE_UINT)
                 ])
             },
@@ -616,7 +627,7 @@ class VoxelDebugOverlay {
         compute.setParameter('leafSize', collider.leafSize);
         compute.setParameter('treeDepth', collider.treeDepth);
         compute.setParameter('projScaleY', cam.projectionMatrix.data[5]);
-        compute.setParameter('pad1', 0);
+        compute.setParameter('displayMode', this.mode === 'heatmap' ? 1 : 0);
         compute.setParameter('pad2', 0);
 
         // Set storage buffers and output texture

@@ -311,10 +311,10 @@ class Viewer {
 
             state.hasCollision = !!collider;
 
-            // Create voxel debug overlay (WebGPU only, toggled via UI or &showvox URL param)
+            // Create voxel debug overlay (WebGPU only, toggled via UI or &heatmap URL param)
             if (config.webgpu && collider && graphicsDevice.supportsCompute) {
                 this.voxelOverlay = new VoxelDebugOverlay(app, collider, camera);
-                this.voxelOverlay.enabled = !!config.showvox;
+                this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
                 state.hasVoxelOverlay = true;
 
                 events.on('toggleVoxelOverlay', () => {

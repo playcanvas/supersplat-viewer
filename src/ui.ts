@@ -540,10 +540,6 @@ const initUI = (global: Global) => {
     // Voxel overlay toggle (only visible when overlay is available)
     events.on('hasVoxelOverlay:changed', (value: boolean) => {
         dom.showVoxels.classList.toggle('hidden', !value);
-        // Sync initial active state with showvox config
-        if (value && config.showvox) {
-            dom.showVoxels.classList.add('active');
-        }
     });
 
     dom.showVoxels.addEventListener('click', () => {
