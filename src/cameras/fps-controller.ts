@@ -8,6 +8,7 @@ import type { CameraFrame, Camera, CameraController } from './camera';
 const out: PushOut = { x: 0, y: 0, z: 0 };
 
 const v = new Vec3();
+const d = new Vec3();
 
 const forward = new Vec3();
 const right = new Vec3();
@@ -95,7 +96,6 @@ class FpsController implements CameraController {
 
     onEnter(camera: Camera): void {
         this.goto(camera);
-        this._position.y += this.eyeHeight + this.capsuleHeight * 0.5;
     }
 
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
@@ -132,7 +132,7 @@ class FpsController implements CameraController {
         this._position.add(v.copy(this._velocity).mulScalar(deltaTime));
 
         // collision check
-        this._checkCollision(this._position);
+        this._checkCollision(this._position, d);
 
         // update camera
         camera.position.copy(this._position);
@@ -164,45 +164,42 @@ class FpsController implements CameraController {
     /**
      * Check for collision and apply displacement to the position.
      *
-     * @param position - eye position in playcanvas world space
-     * @returns - the adjusted position after collision resolution
+     * @param pos - eye position in playcanvas world space
+     * @param disp - pre-allocated vector to receive the collision push-out displacement
+     * @returns - the displaced position (same as input position vector for chaining)
      */
-    private _checkCollision(position: Vec3) {
+    private _checkCollision(pos: Vec3, disp: Vec3) {
         // derive capsule center from eye position in PlayCanvas space:
         // bottom of capsule = eyePos.y - eyeHeight
         // capsule center    = eyePos.y - eyeHeight + capsuleHeight / 2
-        const center = position.y - this.eyeHeight + this.capsuleHeight * 0.5;
+        const center = pos.y - this.eyeHeight + this.capsuleHeight * 0.5;
         const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
 
         // convert to voxel space (negate X, negate Y, keep Z)
-        const vx = -position.x;
+        const vx = -pos.x;
         const vy = -center;
-        const vz = position.z;
+        const vz = pos.z;
 
         if (this.collider!.queryCapsule(vx, vy, vz, half, this.capsuleRadius, out)) {
             // push out vector to playcanvas space
-            const dx = -out.x;
-            const dy = -out.y;
-            const dz = out.z;
+            disp.set(-out.x, -out.y, out.z);
 
             // apply displacement
-            position.x += dx;
-            position.y += dy;
-            position.z += dz;
+            pos.add(disp);
 
             // ground collision: if pushed upward and falling, cancel downward velocity and set grounded
-            if (dy > 0 && this._velocity.y < 0) {
+            if (disp.y > 0 && this._velocity.y < 0) {
                 this._velocity.y = 0;
                 this._grounded = true;
             }
 
             // ceiling collision: if pushed downward and rising, cancel upward velocity
-            if (dy < 0 && this._velocity.y > 0) {
+            if (disp.y < 0 && this._velocity.y > 0) {
                 this._velocity.y = 0;
             }
         }
 
-        return position;
+        return disp;
     }
 }
 
