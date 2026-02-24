@@ -98,7 +98,7 @@ class FpsController implements CameraController {
         this._position.y += this.eyeHeight + this.capsuleHeight * 0.5;
     }
 
-    update(dt: number, inputFrame: CameraFrame, camera: Camera) {
+    update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
         const { move, rotate } = inputFrame.read();
 
         // jump
@@ -112,7 +112,7 @@ class FpsController implements CameraController {
         }
 
         // gravity
-        this._velocity.y -= this.gravity * dt;
+        this._velocity.y -= this.gravity * deltaTime;
 
         // rotate
         this._angles.add(v.set(-rotate[1], -rotate[0], 0));
@@ -126,10 +126,10 @@ class FpsController implements CameraController {
         offset.add(forward.mulScalar(move[2]));
         offset.add(right.mulScalar(move[0]));
         this._velocity.add(offset.mulScalar(this._grounded ? this.moveGroundSpeed : this.moveAirSpeed));
-        const alpha = damp(this._grounded ? this.velocityDampingGround : this.velocityDampingAir, dt);
+        const alpha = damp(this._grounded ? this.velocityDampingGround : this.velocityDampingAir, deltaTime);
         this._velocity.x = math.lerp(this._velocity.x, 0, alpha);
         this._velocity.z = math.lerp(this._velocity.z, 0, alpha);
-        this._position.add(v.copy(this._velocity).mulScalar(dt));
+        this._position.add(v.copy(this._velocity).mulScalar(deltaTime));
 
         // collision check
         this._checkCollision(this._position);
