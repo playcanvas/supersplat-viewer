@@ -95,6 +95,7 @@ class FpsController implements CameraController {
 
     onEnter(camera: Camera): void {
         this.goto(camera);
+        this._position.y += this.eyeHeight + this.capsuleHeight * 0.5;
     }
 
     update(dt: number, inputFrame: CameraFrame, camera: Camera) {
