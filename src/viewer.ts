@@ -165,23 +165,12 @@ class Viewer {
         // disable auto render, we'll render only when camera changes
         app.autoRender = false;
 
-        // apply camera animation settings
-        camera.camera.aspectRatio = graphicsDevice.width / graphicsDevice.height;
-
         // configure the camera
         this.configureCamera(settings);
 
         // reconfigure camera when entering/exiting XR
         app.xr.on('start', () => this.configureCamera(settings));
         app.xr.on('end', () => this.configureCamera(settings));
-
-        // handle horizontal fov on canvas resize
-        const updateHorizontalFov = () => {
-            camera.camera.horizontalFov = graphicsDevice.width > graphicsDevice.height;
-            app.renderNextFrame = true;
-        };
-        graphicsDevice.on('resizecanvas', updateHorizontalFov);
-        updateHorizontalFov();
 
         // construct debug ministats
         if (config.ministats) {
@@ -246,6 +235,8 @@ class Viewer {
             cameraEntity.setPosition(camera.position);
             cameraEntity.setEulerAngles(camera.angles);
             cameraEntity.camera.fov = camera.fov;
+
+            cameraEntity.camera.horizontalFov = graphicsDevice.width > graphicsDevice.height;
 
             // fit clipping planes to bounding box
             const boundRadius = sceneBound.halfExtents.length();
