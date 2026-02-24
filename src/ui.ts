@@ -8,7 +8,7 @@ import { Global } from './types';
 const initJoystick = (
     dom: Record<string, HTMLElement>,
     events: EventHandler,
-    state: { cameraMode: string; inputMode: string }
+    state: { cameraMode: string; inputMode: string; loaded: boolean }
 ) => {
     // Joystick dimensions (matches SCSS: base height=120, stick size=48)
     const joystickHeight = 120;
@@ -34,7 +34,7 @@ const initJoystick = (
 
     // Update joystick visibility based on camera mode and input mode
     const updateJoystickVisibility = () => {
-        if ((state.cameraMode === 'fly' || state.cameraMode === 'fps') && state.inputMode === 'touch') {
+        if (state.loaded && (state.cameraMode === 'fly' || state.cameraMode === 'fps') && state.inputMode === 'touch') {
             dom.joystickBase.classList.remove('hidden');
             dom.joystickBase.classList.toggle('mode-2d', joystickMode === '2d');
             dom.joystickBase.style.left = `${joystickFixedX}px`;
@@ -53,6 +53,7 @@ const initJoystick = (
 
     events.on('cameraMode:changed', updateJoystickVisibility);
     events.on('inputMode:changed', updateJoystickVisibility);
+    events.on('loaded:changed', updateJoystickVisibility);
     window.addEventListener('resize', updateJoystickVisibility);
 
     // Handle joystick touch input directly on the joystick element
