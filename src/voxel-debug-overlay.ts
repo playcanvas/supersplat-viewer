@@ -478,7 +478,7 @@ class VoxelDebugOverlay {
         const nodesByteSize = Math.max(nodesData.byteLength, 4);
         this.nodesBuffer = new StorageBuffer(device, nodesByteSize, BUFFERUSAGE_COPY_DST);
         if (nodesData.byteLength > 0) {
-            this.nodesBuffer.write(0, nodesData.buffer, nodesData.byteOffset, nodesData.byteLength);
+            this.nodesBuffer.write(0, nodesData, 0, nodesData.length);
         }
 
         // Upload leaf data as a read-only storage buffer
@@ -486,7 +486,7 @@ class VoxelDebugOverlay {
         const leafByteSize = Math.max(leafDataArr.byteLength, 4);
         this.leafDataBuffer = new StorageBuffer(device, leafByteSize, BUFFERUSAGE_COPY_DST);
         if (leafDataArr.byteLength > 0) {
-            this.leafDataBuffer.write(0, leafDataArr.buffer, leafDataArr.byteOffset, leafDataArr.byteLength);
+            this.leafDataBuffer.write(0, leafDataArr, 0, leafDataArr.length);
         }
 
         // Create the initial storage texture (will be resized on first update)
@@ -495,7 +495,7 @@ class VoxelDebugOverlay {
         this.storageTexture = this.createStorageTexture(this.currentWidth, this.currentHeight);
 
         // Create compute shader
-        const shader = new Shader(device, {
+        const shaderDefinition = {
             name: 'VoxelDebugOverlay',
             shaderLanguage: SHADERLANGUAGE_WGSL,
             cshader: voxelOverlayWGSL,
@@ -524,7 +524,8 @@ class VoxelDebugOverlay {
                 new BindStorageBufferFormat('leafData', SHADERSTAGE_COMPUTE, true),
                 new BindStorageTextureFormat('outputTexture', PIXELFORMAT_RGBA8, TEXTUREDIMENSION_2D)
             ])
-        });
+        };
+        const shader = new Shader(device, shaderDefinition);
 
         // Create compute instance
         this.compute = new Compute(device, shader, 'VoxelDebugOverlay');
