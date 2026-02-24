@@ -1,11 +1,19 @@
-import { math, Vec3 } from 'playcanvas';
+import { math, Vec3, Quat } from 'playcanvas';
 
 import { damp } from '../core/math';
 import type { PushOut, VoxelCollider } from '../voxel-collider';
 import type { CameraFrame, Camera, CameraController } from './camera';
 
 /** Pre-allocated push-out vector for capsule collision */
-const pushOut: PushOut = { x: 0, y: 0, z: 0 };
+const out: PushOut = { x: 0, y: 0, z: 0 };
+
+const v = new Vec3();
+
+const forward = new Vec3();
+const right = new Vec3();
+
+const offset = new Vec3();
+const rotation = new Quat();
 
 /**
  * First-person shooter style camera controller with gravity and capsule collision.
@@ -15,129 +23,119 @@ const pushOut: PushOut = { x: 0, y: 0, z: 0 };
  * voxel grid. The camera is positioned at eye height within the capsule.
  */
 class FpsController implements CameraController {
-    /** Optional voxel collider for capsule collision with sliding */
+    /**
+     * Optional voxel collider for capsule collision with sliding
+     */
     collider: VoxelCollider | null = null;
 
-    /** Total capsule height in meters (default: human proportion) */
+    /**
+     * Total capsule height in meters (default: human proportion)
+     */
     capsuleHeight = 1.8;
 
-    /** Capsule radius in meters */
+    /**
+     * Capsule radius in meters
+     */
     capsuleRadius = 0.3;
 
-    /** Camera height from the bottom of the capsule in meters */
+    /**
+     * Camera height from the bottom of the capsule in meters
+     */
     eyeHeight = 1.6;
 
-    /** Gravity acceleration in m/s^2 */
+    /**
+     * Gravity acceleration in m/s^2
+     */
     gravity = 9.8;
 
-    /** Jump velocity in m/s */
+    /**
+     * Jump velocity in m/s
+     */
     jumpSpeed = 5;
 
-    /** Movement damping factor (0 = no damping, 1 = full damping) */
+    /**
+     * Movement speed in m/s when grounded
+     */
+    moveGroundSpeed = 5;
+
+    /**
+     * Movement speed in m/s when in the air (for air control)
+     */
+    moveAirSpeed = 0.5;
+
+    /**
+     * Movement damping factor (0 = no damping, 1 = full damping)
+     */
     moveDamping = 0.97;
 
-    /** Rotation damping factor (0 = no damping, 1 = full damping) */
+    /**
+     * Rotation damping factor (0 = no damping, 1 = full damping)
+     */
     rotateDamping = 0.97;
 
-    // Target state (where input drives)
-    private _targetPosition = new Vec3();
+    /**
+     * Velocity damping factor when grounded (0 = no damping, 1 = full damping)
+     */
+    velocityDampingGround = 0.99;
 
-    private _targetYaw = 0;
+    /**
+     * Velocity damping factor when in the air (0 = no damping, 1 = full damping)
+     */
+    velocityDampingAir = 0.99925;
 
-    private _targetPitch = 0;
-
-    // Smoothed state (lerps toward target)
     private _position = new Vec3();
 
-    private _yaw = 0;
+    private _angles = new Vec3();
 
-    private _pitch = 0;
+    private _velocity = new Vec3();
 
-    // Vertical velocity for gravity
-    private _velocityY = 0;
+    private _grounded = false;
 
-    // Whether the capsule is resting on the ground
-    private _onGround = false;
+    private _jumping = false;
 
     onEnter(camera: Camera): void {
-        this._position.copy(camera.position);
-        this._targetPosition.copy(camera.position);
-
-        // angles.x = pitch, angles.y = yaw
-        this._pitch = camera.angles.x;
-        this._targetPitch = camera.angles.x;
-        this._yaw = camera.angles.y;
-        this._targetYaw = camera.angles.y;
-
-        this._velocityY = 0;
-        this._onGround = false;
+        this.goto(camera);
     }
 
-    update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
+    update(dt: number, inputFrame: CameraFrame, camera: Camera) {
         const { move, rotate } = inputFrame.read();
 
-        // --- Rotation ---
-        this._targetYaw -= rotate[0];
-        this._targetPitch = math.clamp(this._targetPitch - rotate[1], -90, 90);
-
-        const rotateLerp = damp(this.rotateDamping, deltaTime);
-        this._yaw = math.lerpAngle(this._yaw, this._targetYaw, rotateLerp);
-        this._pitch = math.lerp(this._pitch, this._targetPitch, rotateLerp);
-
-        // Normalize yaw to prevent floating-point drift over long sessions.
-        // Shift both values by the same multiple of 360 to preserve their delta.
-        const yawOffset = Math.round(this._yaw / 360) * 360;
-        if (yawOffset !== 0) {
-            this._yaw -= yawOffset;
-            this._targetYaw -= yawOffset;
+        // jump
+        if (this._velocity.y < 0) {
+            this._jumping = false;
+        }
+        if (move[1] && !this._jumping && this._grounded) {
+            this._jumping = true;
+            this._velocity.y = this.jumpSpeed;
+            this._grounded = false;
         }
 
-        // --- Horizontal movement ---
-        // Compute forward/right from yaw only (ignore pitch for movement)
-        const yawRad = this._targetYaw * math.DEG_TO_RAD;
-        const sinYaw = Math.sin(yawRad);
-        const cosYaw = Math.cos(yawRad);
+        // gravity
+        this._velocity.y -= this.gravity * dt;
 
-        // PlayCanvas convention: forward = -Z, right = +X
-        const forwardX = -sinYaw;
-        const forwardZ = -cosYaw;
-        const rightX = cosYaw;
-        const rightZ = -sinYaw;
+        // rotate
+        this._angles.add(v.set(-rotate[1], -rotate[0], 0));
+        this._angles.x = math.clamp(this._angles.x, -90, 90);
 
-        const moveLerp = damp(this.moveDamping, deltaTime);
+        // move
+        rotation.setFromEulerAngles(0, this._angles.y, 0);
+        rotation.transformVector(Vec3.FORWARD, forward);
+        rotation.transformVector(Vec3.RIGHT, right);
+        offset.set(0, 0, 0);
+        offset.add(forward.mulScalar(move[2]));
+        offset.add(right.mulScalar(move[0]));
+        this._velocity.add(offset.mulScalar(this._grounded ? this.moveGroundSpeed : this.moveAirSpeed));
+        const alpha = damp(this._grounded ? this.velocityDampingGround : this.velocityDampingAir, dt);
+        this._velocity.x = math.lerp(this._velocity.x, 0, alpha);
+        this._velocity.z = math.lerp(this._velocity.z, 0, alpha);
+        this._position.add(v.copy(this._velocity).mulScalar(dt));
 
-        this._targetPosition.x += rightX * move[0] + forwardX * move[2];
-        this._targetPosition.z += rightZ * move[0] + forwardZ * move[2];
+        // collision check
+        this._checkCollision(this._position);
 
-        // --- Jump ---
-        if (move[1] > 0 && this._onGround) {
-            this._velocityY = this.jumpSpeed;
-            this._onGround = false;
-        }
-
-        // --- Gravity ---
-        this._velocityY -= this.gravity * deltaTime;
-        this._targetPosition.y += this._velocityY * deltaTime;
-
-        // --- Capsule collision on target position ---
-        if (this.collider) {
-            this._resolveCapsuleCollision(this._targetPosition, true);
-        }
-
-        // --- Smooth horizontal position toward target ---
-        this._position.x = math.lerp(this._position.x, this._targetPosition.x, moveLerp);
-        this._position.z = math.lerp(this._position.z, this._targetPosition.z, moveLerp);
-        // No smoothing on Y for crisp ground contact
-        this._position.y = this._targetPosition.y;
-
-        // --- Capsule collision on smoothed position ---
-        if (this.collider) {
-            this._resolveCapsuleCollision(this._position, false);
-        }
-
-        // --- Output to camera ---
+        // update camera
         camera.position.copy(this._position);
-        camera.angles.set(this._pitch, this._yaw, 0);
+        camera.angles.set(this._angles.x, this._angles.y, 0);
     }
 
     onExit(_camera: Camera): void {
@@ -150,59 +148,60 @@ class FpsController implements CameraController {
      * @param camera - The camera state to jump to.
      */
     goto(camera: Camera) {
+        // position
         this._position.copy(camera.position);
-        this._targetPosition.copy(camera.position);
-        this._pitch = camera.angles.x;
-        this._targetPitch = camera.angles.x;
-        this._yaw = camera.angles.y;
-        this._targetYaw = camera.angles.y;
-        this._velocityY = 0;
-        this._onGround = false;
+
+        // angles (clamp pitch to avoid gimbal lock)
+        this._angles.set(camera.angles.x, camera.angles.y, 0);
+
+        // reset velocity and state
+        this._velocity.set(0, 0, 0);
+        this._grounded = false;
+        this._jumping = false;
     }
 
     /**
-     * Resolve capsule collision for a given eye position, modifying it in place.
-     * Converts from PlayCanvas space to voxel space, queries the capsule, and
-     * applies the push-out vector back to PlayCanvas space.
+     * Check for collision and apply displacement to the position.
      *
-     * @param eyePos - Eye position to resolve (modified in place).
-     * @param isTarget - Whether this is the target position (updates velocity on ground contact).
+     * @param position - eye position in playcanvas world space
+     * @returns - the adjusted position after collision resolution
      */
-    private _resolveCapsuleCollision(eyePos: Vec3, isTarget: boolean) {
-        // Derive capsule center from eye position in PlayCanvas space:
+    private _checkCollision(position: Vec3) {
+        // derive capsule center from eye position in PlayCanvas space:
         // bottom of capsule = eyePos.y - eyeHeight
         // capsule center    = eyePos.y - eyeHeight + capsuleHeight / 2
-        const capsuleCenterPCY = eyePos.y - this.eyeHeight + this.capsuleHeight * 0.5;
-        const halfHeight = this.capsuleHeight * 0.5 - this.capsuleRadius;
+        const center = position.y - this.eyeHeight + this.capsuleHeight * 0.5;
+        const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
 
-        // Convert to voxel space (negate X, negate Y, keep Z)
-        const vx = -eyePos.x;
-        const vy = -capsuleCenterPCY;
-        const vz = eyePos.z;
+        // convert to voxel space (negate X, negate Y, keep Z)
+        const vx = -position.x;
+        const vy = -center;
+        const vz = position.z;
 
-        if (this.collider!.queryCapsule(vx, vy, vz, halfHeight, this.capsuleRadius, pushOut)) {
-            // Convert push-out back to PlayCanvas space
-            const pushPCX = -pushOut.x;
-            const pushPCY = -pushOut.y;
-            const pushPCZ = pushOut.z;
+        if (this.collider!.queryCapsule(vx, vy, vz, half, this.capsuleRadius, out)) {
+            // push out vector to playcanvas space
+            const dx = -out.x;
+            const dy = -out.y;
+            const dz = out.z;
 
-            eyePos.x += pushPCX;
-            // Push-out applies to capsule center; eye moves by the same amount
-            eyePos.y += pushPCY;
-            eyePos.z += pushPCZ;
+            // apply displacement
+            position.x += dx;
+            position.y += dy;
+            position.z += dz;
 
-            // Ground detection: if pushed upward and falling, cancel downward velocity
-            if (isTarget) {
-                if (pushPCY > 0 && this._velocityY < 0) {
-                    this._velocityY = 0;
-                    this._onGround = true;
-                }
-                // Ceiling detection: if pushed downward and rising, cancel upward velocity
-                if (pushPCY < 0 && this._velocityY > 0) {
-                    this._velocityY = 0;
-                }
+            // ground collision: if pushed upward and falling, cancel downward velocity and set grounded
+            if (dy > 0 && this._velocity.y < 0) {
+                this._velocity.y = 0;
+                this._grounded = true;
+            }
+
+            // ceiling collision: if pushed downward and rising, cancel upward velocity
+            if (dy < 0 && this._velocity.y > 0) {
+                this._velocity.y = 0;
             }
         }
+
+        return position;
     }
 }
 
