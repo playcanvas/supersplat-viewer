@@ -165,9 +165,6 @@ class Viewer {
         // disable auto render, we'll render only when camera changes
         app.autoRender = false;
 
-        // apply camera animation settings
-        camera.camera.aspectRatio = graphicsDevice.width / graphicsDevice.height;
-
         // configure the camera
         this.configureCamera(settings);
 
