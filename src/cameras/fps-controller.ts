@@ -57,12 +57,12 @@ class FpsController implements CameraController {
     /**
      * Movement speed in m/s when grounded
      */
-    moveGroundSpeed = 5;
+    moveGroundSpeed = 10;
 
     /**
      * Movement speed in m/s when in the air (for air control)
      */
-    moveAirSpeed = 0.5;
+    moveAirSpeed = 1;
 
     /**
      * Movement damping factor (0 = no damping, 1 = full damping)
