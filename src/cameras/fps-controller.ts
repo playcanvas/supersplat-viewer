@@ -96,10 +96,13 @@ class FpsController implements CameraController {
 
     onEnter(camera: Camera): void {
         this.goto(camera);
-
-        // FIXME: for some reason the displacement has no y component to check if grounded on the
-        // first frame so move the camera up regardless if which direction it's pushed to ensure the
-        // player is above the ground and can jump immediately
+        if (this.collider) {
+            this._checkCollision(this._position, d);
+            if (d.y > 0) {
+                this._grounded = true;
+                this._velocity.y = 0;
+            }
+        }
     }
 
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
