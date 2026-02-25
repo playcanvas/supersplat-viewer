@@ -214,7 +214,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
         voxelOverlayEnabled: false,
         isFullscreen: false,
         controlsHidden: false,
-        touchControlScheme: (localStorage.getItem('touchControlScheme') as TouchControlScheme) || 'joystick'
+        touchControlScheme: (localStorage.getItem('touchControlScheme') as TouchControlScheme) || 'pinch'
     });
 
     const global: Global = {
