@@ -8,7 +8,7 @@ import { Global } from './types';
 const initJoystick = (
     dom: Record<string, HTMLElement>,
     events: EventHandler,
-    state: { cameraMode: string; inputMode: string }
+    state: { cameraMode: string; inputMode: string; touchControlScheme: string }
 ) => {
     // Joystick dimensions (matches SCSS: base height=120, stick size=48)
     const joystickHeight = 120;
@@ -34,7 +34,7 @@ const initJoystick = (
 
     // Update joystick visibility based on camera mode and input mode
     const updateJoystickVisibility = () => {
-        if ((state.cameraMode === 'fly' || state.cameraMode === 'fps') && state.inputMode === 'touch') {
+        if ((state.cameraMode === 'fly' || state.cameraMode === 'fps') && state.inputMode === 'touch' && state.touchControlScheme === 'joystick') {
             dom.joystickBase.classList.remove('hidden');
             dom.joystickBase.classList.toggle('mode-2d', joystickMode === '2d');
             dom.joystickBase.style.left = `${joystickFixedX}px`;
@@ -53,6 +53,7 @@ const initJoystick = (
 
     events.on('cameraMode:changed', updateJoystickVisibility);
     events.on('inputMode:changed', updateJoystickVisibility);
+    events.on('touchControlScheme:changed', updateJoystickVisibility);
     window.addEventListener('resize', updateJoystickVisibility);
 
     // Handle joystick touch input directly on the joystick element
@@ -234,6 +235,9 @@ const initUI = (global: Global) => {
         'settings', 'settingsPanel',
         'orbitCamera', 'flyCamera', 'fpsCamera',
         'hqCheck', 'hqOption', 'lqCheck', 'lqOption',
+        'touchControlsDivider', 'joystickSchemeRow', 'pinchSchemeRow',
+        'joystickSchemeCheck', 'joystickSchemeOption', 'pinchSchemeCheck', 'pinchSchemeOption',
+        'touchFlyJoystick', 'touchFlyPinch',
         'reset', 'frame',
         'loadingText', 'loadingBar',
         'joystickBase', 'joystick',
@@ -338,6 +342,35 @@ const initUI = (global: Global) => {
         updateHQ();
     });
     updateHQ();
+
+    // Touch control scheme toggle (only visible on touch devices)
+    dom.joystickSchemeOption.addEventListener('click', () => {
+        state.touchControlScheme = 'joystick';
+    });
+    dom.pinchSchemeOption.addEventListener('click', () => {
+        state.touchControlScheme = 'pinch';
+    });
+
+    const updateTouchControlScheme = () => {
+        const isJoystick = state.touchControlScheme === 'joystick';
+        dom.joystickSchemeCheck.classList.toggle('active', isJoystick);
+        dom.pinchSchemeCheck.classList.toggle('active', !isJoystick);
+        dom.touchFlyJoystick.classList.toggle('hidden', !isJoystick);
+        dom.touchFlyPinch.classList.toggle('hidden', isJoystick);
+        localStorage.setItem('touchControlScheme', state.touchControlScheme);
+    };
+
+    const updateTouchControlsVisibility = () => {
+        const isTouch = state.inputMode === 'touch';
+        dom.touchControlsDivider.classList.toggle('hidden', !isTouch);
+        dom.joystickSchemeRow.classList.toggle('hidden', !isTouch);
+        dom.pinchSchemeRow.classList.toggle('hidden', !isTouch);
+    };
+
+    events.on('touchControlScheme:changed', updateTouchControlScheme);
+    events.on('inputMode:changed', updateTouchControlsVisibility);
+    updateTouchControlScheme();
+    updateTouchControlsVisibility();
 
     // AR/VR
     const arChanged = () => dom.arMode.classList[state.hasAR ? 'remove' : 'add']('hidden');

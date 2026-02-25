@@ -176,6 +176,15 @@
                     <div id="lqCheck" class="checkMark">✓</div>
                     <div id="lqOption">Low Quality Render</div>
                 </div>
+                <div id="touchControlsDivider" class="divider hidden"></div>
+                <div id="joystickSchemeRow" class="settingsRow hidden">
+                    <div id="joystickSchemeCheck" class="checkMark">&#10003;</div>
+                    <div id="joystickSchemeOption">Joystick Controls</div>
+                </div>
+                <div id="pinchSchemeRow" class="settingsRow hidden">
+                    <div id="pinchSchemeCheck" class="checkMark">&#10003;</div>
+                    <div id="pinchSchemeOption">Pinch Controls</div>
+                </div>
                 <div class="divider"></div>
                 <div class="settingsRow">
                     <button id="frame">Frame</button>
@@ -251,13 +260,25 @@
                             </div>
                             <div class="control-spacer"></div>
                             <h1>Fly Mode</h1>
-                            <div class="control-item">
-                                <span class="control-action">Look Around</span>
-                                <span class="control-key">Touch on Right</span>
+                            <div id="touchFlyJoystick">
+                                <div class="control-item">
+                                    <span class="control-action">Look Around</span>
+                                    <span class="control-key">Touch on Right</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Fly</span>
+                                    <span class="control-key">Touch on Left</span>
+                                </div>
                             </div>
-                            <div class="control-item">
-                                <span class="control-action">Fly</span>
-                                <span class="control-key">Touch on Left</span>
+                            <div id="touchFlyPinch" class="hidden">
+                                <div class="control-item">
+                                    <span class="control-action">Look Around</span>
+                                    <span class="control-key">One Finger Drag</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Speed</span>
+                                    <span class="control-key">Pinch</span>
+                                </div>
                             </div>
                         </div>
                     </div>

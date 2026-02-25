@@ -126,6 +126,11 @@ class InputController {
 
     private _touchJoystickY: number = 0; // negative = forward, positive = backward
 
+    // Accumulated pinch offset used as velocity in 'pinch' control scheme
+    private _pinchVelocity: number = 0;
+
+    private _wasPinching: boolean = false;
+
     // this gets overridden by the viewer based on scene size
     moveSpeed: number = 4;
 
@@ -323,13 +328,32 @@ class InputController {
         v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * orbitFactor * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
 
+        // pinch velocity tracking for 'pinch' control scheme
+        const isPinching = this._state.touches > 1;
+        if (isFirstPerson && state.touchControlScheme === 'pinch') {
+            if (isPinching) {
+                this._pinchVelocity -= pinch[0] * 0.01;
+                this._wasPinching = true;
+            } else if (this._wasPinching) {
+                this._pinchVelocity = 0;
+                this._wasPinching = false;
+            }
+        }
+
         // mobile move
         v.set(0, 0, 0);
         const orbitMove = screenToWorld(camera, touch[0], touch[1], distance);
         v.add(orbitMove.mulScalar(orbit * pan));
-        // Use touch joystick values for fly movement (X = strafe, Y = forward/backward)
-        flyMove.set(this._touchJoystickX, 0, -this._touchJoystickY);
-        v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
+        if (state.touchControlScheme === 'joystick') {
+            flyMove.set(this._touchJoystickX, 0, -this._touchJoystickY);
+            v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
+        } else {
+            flyMove.set(0, 0, this._pinchVelocity);
+            v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
+        }
+        // two-finger swipe strafes in fly/fps mode
+        const flyStrafe = screenToWorld(camera, touch[0], touch[1], distance);
+        v.add(flyStrafe.mulScalar(fly * double));
         pinchMove.set(0, 0, pinch[0]);
         v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * dt));
         deltas.move.append([v.x, v.y, v.z]);
@@ -338,10 +362,9 @@ class InputController {
         v.set(0, 0, 0);
         orbitRotate.set(touch[0], touch[1], 0);
         v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * dt));
-        // In fly mode, use any touch for look-around (joystick captures its own touches)
-        // Exclude multi-touch (double) to avoid interference with pinch gestures
-        // 1.25x sensitivity for touch look-around
-        flyRotate.set(touch[0], touch[1], 0);
+        // In fly mode, use single touch for look-around (inverted direction)
+        // Exclude multi-touch (double) to avoid interference with pinch/strafe gestures
+        flyRotate.set(-touch[0], -touch[1], 0);
         v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * 1.25 * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
 
