@@ -303,9 +303,10 @@ class InputController {
             keyMove.y = 0;
         }
         keyMove.normalize();
-        const speed = this.moveSpeed * (this._state.shift ? 4 : this._state.ctrl ? 0.25 : 1);
-        const speedFps = this.moveSpeed * (this._state.shift ? 2 : this._state.ctrl ? 0.5 : 1);
-        v.add(keyMove.mulScalar(fly * (isFps ? speedFps : speed) * dt));
+        const shiftMul = isFps ? 2 : 4;
+        const ctrlMul = isFps ? 0.5 : 0.25;
+        const speed = this.moveSpeed * (this._state.shift ? shiftMul : this._state.ctrl ? ctrlMul : 1);
+        v.add(keyMove.mulScalar(fly * speed * dt));
         if (isFps) {
             // Pass jump signal as raw Y; FPS controller uses move[1] > 0 as boolean trigger
             v.y = this._state.jump > 0 ? 1 : 0;
