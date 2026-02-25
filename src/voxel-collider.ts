@@ -674,7 +674,7 @@ class VoxelCollider {
                         const distPosZ = vMaxZ - cz;
 
                         const escapeX = distNegX < distPosX ? -(distNegX + radius) : (distPosX + radius);
-                        const escapeY = distNegY < distPosY ? -(distNegY + radius) : (distPosY + radius);
+                        const escapeY = distNegY <= distPosY ? -(distNegY + radius) : (distPosY + radius);
                         const escapeZ = distNegZ < distPosZ ? -(distNegZ + radius) : (distPosZ + radius);
 
                         const absX = Math.abs(escapeX);
@@ -684,12 +684,12 @@ class VoxelCollider {
                         px = 0;
                         py = 0;
                         pz = 0;
-                        if (absX <= absY && absX <= absZ) {
-                            px = escapeX;
-                            penetration = absX;
-                        } else if (absY <= absZ) {
+                        if (absY <= absX && absY <= absZ) {
                             py = escapeY;
                             penetration = absY;
+                        } else if (absX <= absZ) {
+                            px = escapeX;
+                            penetration = absX;
                         } else {
                             pz = escapeZ;
                             penetration = absZ;
@@ -703,6 +703,26 @@ class VoxelCollider {
                         bestPushZ = pz;
                         found = true;
                     }
+                }
+            }
+        }
+
+        // Column-based Y fallback: the per-voxel sphere test loses Y information
+        // when the capsule segment passes through a voxel (segY lands inside the
+        // AABB, zeroing dy). Recover it by finding the topmost solid voxel in the
+        // capsule-center column and computing a direct capsule-bottom push.
+        if (found && Math.abs(bestPushY) <= PENETRATION_EPSILON) {
+            const icx = Math.floor((cx - gridMinX) / voxelResolution);
+            const icz = Math.floor((cz - gridMinZ) / voxelResolution);
+            const capsuleBottom = segTopY + radius;
+
+            for (let iy = iyMin; iy <= iyMax; iy++) {
+                if (this.isVoxelSolid(icx, iy, icz)) {
+                    const surfaceY = gridMinY + iy * voxelResolution;
+                    if (capsuleBottom > surfaceY + PENETRATION_EPSILON) {
+                        bestPushY = surfaceY - capsuleBottom;
+                    }
+                    break;
                 }
             }
         }
