@@ -57,12 +57,12 @@ class FpsController implements CameraController {
     /**
      * Movement speed in m/s when grounded
      */
-    moveGroundSpeed = 5;
+    moveGroundSpeed = 10;
 
     /**
      * Movement speed in m/s when in the air (for air control)
      */
-    moveAirSpeed = 0.5;
+    moveAirSpeed = 1;
 
     /**
      * Movement damping factor (0 = no damping, 1 = full damping)
@@ -100,10 +100,6 @@ class FpsController implements CameraController {
         // FIXME: for some reason the displacement has no y component to check if grounded on the
         // first frame so move the camera up regardless if which direction it's pushed to ensure the
         // player is above the ground and can jump immediately
-        const disp = this._checkCollision(this._position, d);
-        if (disp.lengthSq() > 0) {
-            this._position.y += this.eyeHeight + this.capsuleHeight * 0.5;
-        }
     }
 
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
