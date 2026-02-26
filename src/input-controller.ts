@@ -155,7 +155,6 @@ class InputController {
 
     private _tapJump: boolean = false;
 
-    // this gets overridden by the viewer based on scene size
     moveSpeed: number = 4;
 
     orbitSpeed: number = 18;
@@ -163,6 +162,14 @@ class InputController {
     pinchSpeed: number = 0.4;
 
     wheelSpeed: number = 0.06;
+
+    mouseRotateSensitivity: number = 0.75;
+
+    touchRotateSensitivity: number = 1.25;
+
+    gamepadRotateSensitivity: number = 1.0;
+
+    touchPinchMoveSensitivity: number = 1.5;
 
     constructor(global: Global) {
         const { app, camera, events, state } = global;
@@ -447,7 +454,7 @@ class InputController {
         // desktop rotate
         v.set(0, 0, 0);
         mouseRotate.set(mouse[0], mouse[1], 0);
-        v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * orbitFactor * DISPLACEMENT_SCALE));
+        v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * orbitFactor * this.mouseRotateSensitivity * DISPLACEMENT_SCALE));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // mobile move
@@ -461,10 +468,10 @@ class InputController {
         } else {
             // Pan velocity → strafe (X) and vertical (Y, fly only — FPS uses gravity)
             flyTouchPan.set(this._panVelocity[0], isFps ? 0 : -this._panVelocity[1], 0);
-            v.add(flyTouchPan.mulScalar(fly * 1.5 * this.moveSpeed * dt));
+            v.add(flyTouchPan.mulScalar(fly * this.touchPinchMoveSensitivity * this.moveSpeed * dt));
             // Pinch velocity → forward/backward
             flyMove.set(0, 0, this._pinchVelocity);
-            v.add(flyMove.mulScalar(fly * 1.5 * this.moveSpeed * dt));
+            v.add(flyMove.mulScalar(fly * this.touchPinchMoveSensitivity * this.moveSpeed * dt));
         }
         pinchMove.set(0, 0, pinch[0]);
         v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * DISPLACEMENT_SCALE));
@@ -478,11 +485,11 @@ class InputController {
         // mobile rotate
         v.set(0, 0, 0);
         orbitRotate.set(touch[0], touch[1], 0);
-        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * DISPLACEMENT_SCALE));
+        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * this.touchRotateSensitivity * DISPLACEMENT_SCALE));
         // In fly mode, use single touch for look-around (inverted direction)
         // Exclude multi-touch (double) to avoid interference with pinch/strafe gestures
         flyRotate.set(touch[0], touch[1], 0);
-        v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * 1.25 * DISPLACEMENT_SCALE));
+        v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * this.touchRotateSensitivity * DISPLACEMENT_SCALE));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // gamepad move
@@ -494,7 +501,7 @@ class InputController {
         // gamepad rotate
         v.set(0, 0, 0);
         stickRotate.set(rightStick[0], rightStick[1], 0);
-        v.add(stickRotate.mulScalar(this.orbitSpeed * orbitFactor * dt));
+        v.add(stickRotate.mulScalar(this.orbitSpeed * orbitFactor * this.gamepadRotateSensitivity * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
     }
 }
