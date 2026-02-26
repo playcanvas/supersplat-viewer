@@ -337,11 +337,11 @@ const initUI = (global: Global) => {
         dom.exitFullscreen.classList[value ? 'remove' : 'add']('hidden');
     });
 
-    // HQ mode
-    dom.hqOption.addEventListener('click', () => {
+    // HQ mode (click anywhere in the row, not just the label)
+    dom.hqOption.parentElement.addEventListener('click', () => {
         state.hqMode = true;
     });
-    dom.lqOption.addEventListener('click', () => {
+    dom.lqOption.parentElement.addEventListener('click', () => {
         state.hqMode = false;
     });
 
@@ -356,10 +356,10 @@ const initUI = (global: Global) => {
     updateHQ();
 
     // Touch control scheme toggle (only visible on touch devices)
-    dom.joystickSchemeOption.addEventListener('click', () => {
+    dom.joystickSchemeRow.addEventListener('click', () => {
         state.touchControlScheme = 'joystick';
     });
-    dom.pinchSchemeOption.addEventListener('click', () => {
+    dom.pinchSchemeRow.addEventListener('click', () => {
         state.touchControlScheme = 'pinch';
     });
 
