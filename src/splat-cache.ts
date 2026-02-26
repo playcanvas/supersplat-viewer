@@ -216,9 +216,17 @@ class SplatCache {
         });
 
         for (let face = 0; face < 6; face++) {
+            let faceIndex = FACE_INDICES[face];
+            // On WebGL (no flipY), faces are stored upside-down. The composite
+            // shader compensates by negating viewDir.y, which also swaps +Y/-Y
+            // face selection. Counter that by swapping which face we render into.
+            if (!device.isWebGPU) {
+                if (faceIndex === CUBEFACE_POSY) faceIndex = CUBEFACE_NEGY;
+                else if (faceIndex === CUBEFACE_NEGY) faceIndex = CUBEFACE_POSY;
+            }
             const rt = new RenderTarget({
                 colorBuffer: this.cubemapTexture,
-                face: FACE_INDICES[face],
+                face: faceIndex,
                 depth: true
             });
             this.faceRenderTargets.push(rt);
