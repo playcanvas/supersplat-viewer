@@ -195,6 +195,7 @@ class InputController {
         events.on('inputEvent', async (eventName, event) => {
             switch (eventName) {
                 case 'dblclick': {
+                    if (state.cameraMode === 'fps') break;
                     if (!picker) {
                         picker = new Picker(app, camera);
                     }
