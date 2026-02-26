@@ -167,9 +167,9 @@ class InputController {
 
     touchRotateSensitivity: number = 1.25;
 
-    gamepadRotateSensitivity: number = 1.0;
-
     touchPinchMoveSensitivity: number = 1.5;
+
+    gamepadRotateSensitivity: number = 1.0;
 
     constructor(global: Global) {
         const { app, camera, events, state } = global;
