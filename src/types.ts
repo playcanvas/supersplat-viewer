@@ -6,6 +6,8 @@ type CameraMode = 'orbit' | 'anim' | 'fly' | 'fps';
 
 type InputMode = 'desktop' | 'touch';
 
+type TouchControlScheme = 'joystick' | 'pinch';
+
 // configuration options are immutable at runtime
 type Config = {
     poster?: HTMLImageElement;
@@ -46,6 +48,7 @@ type State = {
     voxelOverlayEnabled: boolean;
     isFullscreen: boolean;
     controlsHidden: boolean;
+    touchControlScheme: TouchControlScheme;
 };
 
 type Global = {
@@ -57,4 +60,4 @@ type Global = {
     camera: Entity;
 };
 
-export { CameraMode, InputMode, Config, State, Global };
+export { CameraMode, InputMode, TouchControlScheme, Config, State, Global };
