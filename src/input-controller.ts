@@ -17,6 +17,7 @@ const tmpV1 = new Vec3();
 const tmpV2 = new Vec3();
 const mouseRotate = new Vec3();
 const flyMove = new Vec3();
+const flyTouchPan = new Vec3();
 const pinchMove = new Vec3();
 const orbitRotate = new Vec3();
 const flyRotate = new Vec3();
@@ -121,15 +122,20 @@ class InputController {
         rotate: [0, 0, 0]
     });
 
-    // Touch joystick input values (-1 to 1)
-    private _touchJoystickX: number = 0; // negative = left, positive = right
+    // Touch joystick input values [x, y] (-1 to 1)
+    private _touchJoystick: number[] = [0, 0];
 
-    private _touchJoystickY: number = 0; // negative = forward, positive = backward
-
-    // Accumulated pinch offset used as velocity in 'pinch' control scheme
+    // Accumulated forward/backward velocity from pinch gesture (-1 to 1)
     private _pinchVelocity: number = 0;
 
-    private _wasPinching: boolean = false;
+    // Accumulated strafe/vertical velocity from two-finger pan [x, y] (-1 to 1)
+    private _panVelocity: number[] = [0, 0];
+
+    // Sensitivity for pinch delta → velocity conversion
+    pinchVelocitySensitivity: number = 0.006;
+
+    // Sensitivity for two-finger pan delta → velocity conversion
+    panVelocitySensitivity: number = 0.005;
 
     // this gets overridden by the viewer based on scene size
     moveSpeed: number = 4;
@@ -151,8 +157,8 @@ class InputController {
 
         // Listen for joystick input from the UI (touch joystick element)
         events.on('joystickInput', (value: { x: number; y: number }) => {
-            this._touchJoystickX = value.x;
-            this._touchJoystickY = value.y;
+            this._touchJoystick[0] = value.x;
+            this._touchJoystick[1] = value.y;
         });
 
         this.global = global;
@@ -287,6 +293,23 @@ class InputController {
 
         const isFps = state.cameraMode === 'fps';
         const isFirstPerson = state.cameraMode === 'fly' || isFps;
+
+        // Accumulate pinch and pan deltas into velocity when using pinch control scheme
+        // pinch[0] = oldDist - newDist: negative when spreading, positive when closing
+        // Spreading = forward → subtract pinch delta
+        if (isFirstPerson && state.touchControlScheme === 'pinch' && this._state.touches > 1) {
+            this._pinchVelocity -= pinch[0] * this.pinchVelocitySensitivity;
+            this._pinchVelocity = math.clamp(this._pinchVelocity, -1.0, 1.0);
+            this._panVelocity[0] += touch[0] * this.panVelocitySensitivity;
+            this._panVelocity[0] = math.clamp(this._panVelocity[0], -1.0, 1.0);
+            this._panVelocity[1] += touch[1] * this.panVelocitySensitivity;
+            this._panVelocity[1] = math.clamp(this._panVelocity[1], -1.0, 1.0);
+        } else if (isFirstPerson && this._state.touches <= 1) {
+            this._pinchVelocity = 0;
+            this._panVelocity[0] = 0;
+            this._panVelocity[1] = 0;
+        }
+
         if (!isFirstPerson && this._state.axis.length() > 0) {
             events.fire('inputEvent', 'requestFirstPerson');
         }
@@ -328,32 +351,22 @@ class InputController {
         v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * orbitFactor * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
 
-        // pinch velocity tracking for 'pinch' control scheme
-        const isPinching = this._state.touches > 1;
-        if (isFirstPerson && state.touchControlScheme === 'pinch') {
-            if (isPinching) {
-                this._pinchVelocity -= pinch[0] * 0.01;
-                this._wasPinching = true;
-            } else if (this._wasPinching) {
-                this._pinchVelocity = 0;
-                this._wasPinching = false;
-            }
-        }
-
         // mobile move
         v.set(0, 0, 0);
         const orbitMove = screenToWorld(camera, touch[0], touch[1], distance);
         v.add(orbitMove.mulScalar(orbit * pan));
         if (state.touchControlScheme === 'joystick') {
-            flyMove.set(this._touchJoystickX, 0, -this._touchJoystickY);
+            // Use touch joystick values for fly movement (X = strafe, Y = forward/backward)
+            flyMove.set(this._touchJoystick[0], 0, -this._touchJoystick[1]);
             v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
         } else {
+            // Pan velocity → strafe (X) and vertical (Y, fly only — FPS uses gravity)
+            flyTouchPan.set(this._panVelocity[0], isFps ? 0 : -this._panVelocity[1], 0);
+            v.add(flyTouchPan.mulScalar(fly * 1.5 * this.moveSpeed * dt));
+            // Pinch velocity → forward/backward
             flyMove.set(0, 0, this._pinchVelocity);
-            v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
+            v.add(flyMove.mulScalar(fly * 1.5 * this.moveSpeed * dt));
         }
-        // two-finger swipe strafes in fly/fps mode
-        const flyStrafe = screenToWorld(camera, touch[0], touch[1], distance);
-        v.add(flyStrafe.mulScalar(fly * double));
         pinchMove.set(0, 0, pinch[0]);
         v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * dt));
         deltas.move.append([v.x, v.y, v.z]);
