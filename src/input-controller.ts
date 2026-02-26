@@ -141,11 +141,11 @@ class InputController {
     panVelocitySensitivity: number = 0.005;
 
     // Tap-to-jump state (uses existing MultiTouchSource count/touch deltas)
-    private _activeTouchCount: number = 0;
+    private _tapTouches: number = 0;
 
-    private _touchAccumulatedDelta: number = 0;
+    private _tapDelta: number = 0;
 
-    private _touchJumpPending: boolean = false;
+    private _tapJump: boolean = false;
 
     // this gets overridden by the viewer based on scene size
     moveSpeed: number = 4;
@@ -358,26 +358,28 @@ class InputController {
         const isFps = state.cameraMode === 'fps';
 
         // Tap-to-jump detection using existing MultiTouchSource deltas
-        const prevTouchCount = this._activeTouchCount;
-        this._activeTouchCount += count[0];
-
         if (isFps) {
+            const prevTaps = this._tapTouches;
+            this._tapTouches = Math.max(0, this._tapTouches + count[0]);
+
             // Touch just started (0 → 1+)
-            if (prevTouchCount === 0 && this._activeTouchCount > 0) {
-                this._touchAccumulatedDelta = 0;
+            if (prevTaps === 0 && this._tapTouches > 0) {
+                this._tapDelta = 0;
             }
 
             // Accumulate movement while touch is active
-            if (this._activeTouchCount > 0) {
-                this._touchAccumulatedDelta += Math.abs(touch[0]) + Math.abs(touch[1]);
+            if (this._tapTouches > 0) {
+                this._tapDelta += Math.abs(touch[0]) + Math.abs(touch[1]);
             }
 
             // Touch just ended (1+ → 0): check if it was a tap
-            if (prevTouchCount > 0 && this._activeTouchCount === 0) {
-                if (this._touchAccumulatedDelta < TAP_EPSILON) {
-                    this._touchJumpPending = true;
+            if (prevTaps > 0 && this._tapTouches === 0) {
+                if (this._tapDelta < TAP_EPSILON) {
+                    this._tapJump = true;
                 }
             }
+        } else {
+            this._tapTouches = 0;
         }
 
         const isFirstPerson = state.cameraMode === 'fly' || isFps;
@@ -459,9 +461,9 @@ class InputController {
         pinchMove.set(0, 0, pinch[0]);
         v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * dt));
         // Tap-to-jump for mobile FPS mode
-        if (isFps && this._touchJumpPending) {
+        if (isFps && this._tapJump) {
             v.y = 1;
-            this._touchJumpPending = false;
+            this._tapJump = false;
         }
         deltas.move.append([v.x, v.y, v.z]);
 
