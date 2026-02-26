@@ -218,38 +218,89 @@ class InputController {
         // handle keyboard events
         window.addEventListener('keydown', (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
-                events.fire('inputEvent', 'cancel', event);
-            } else if (state.cameraMode !== 'fps' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+                if (recentlyExitedFps) {
+                    // Already handled by pointerlockchange
+                } else if (state.cameraMode === 'fps') {
+                    events.fire('inputEvent', 'exitFps', event);
+                } else {
+                    events.fire('inputEvent', 'cancel', event);
+                }
+            } else if (!event.ctrlKey && !event.altKey && !event.metaKey) {
                 switch (event.key) {
-                    case 'f':
-                        events.fire('inputEvent', 'frame', event);
+                    case '1':
+                        state.cameraMode = 'orbit';
                         break;
-                    case 'r':
-                        events.fire('inputEvent', 'reset', event);
+                    case '2':
+                        state.cameraMode = 'fly';
                         break;
-                    case ' ':
-                        events.fire('inputEvent', 'playPause', event);
+                    case '3':
+                        events.fire('inputEvent', 'toggleFps');
                         break;
+                }
+                if (state.cameraMode !== 'fps') {
+                    switch (event.key) {
+                        case 'f':
+                            events.fire('inputEvent', 'frame', event);
+                            break;
+                        case 'r':
+                            events.fire('inputEvent', 'reset', event);
+                            break;
+                        case ' ':
+                            events.fire('inputEvent', 'playPause', event);
+                            break;
+                    }
                 }
             }
         });
+
+        // Lock/unlock Escape key in fullscreen to prevent the browser from
+        // exiting both pointer lock and fullscreen on the same Escape press.
+        const lockEscape = () => {
+            if ('keyboard' in navigator && 'lock' in (navigator as any).keyboard) {
+                (navigator as any).keyboard.lock(['Escape']).catch(() => {});
+            }
+        };
+
+        const unlockKeyboard = () => {
+            if ('keyboard' in navigator && 'unlock' in (navigator as any).keyboard) {
+                (navigator as any).keyboard.unlock();
+            }
+        };
 
         // Pointer lock management for FPS mode on desktop
         events.on('cameraMode:changed', (value: string, prev: string) => {
             if (value === 'fps' && state.inputMode === 'desktop') {
                 (this._desktopInput as any)._pointerLock = true;
                 canvas.requestPointerLock();
+                if (state.isFullscreen) {
+                    lockEscape();
+                }
             } else if (prev === 'fps') {
+                unlockKeyboard();
                 (this._desktopInput as any)._pointerLock = false;
                 if (document.pointerLockElement === canvas) {
+                    if (state.isFullscreen) {
+                        events.fire('restoreFullscreen');
+                    }
                     document.exitPointerLock();
                 }
             }
         });
 
+        // Also lock Escape if entering fullscreen while already in FPS mode
+        events.on('isFullscreen:changed', (value: boolean) => {
+            if (value && state.cameraMode === 'fps' && state.inputMode === 'desktop') {
+                lockEscape();
+            }
+        });
+
+        let recentlyExitedFps = false;
+
         document.addEventListener('pointerlockchange', () => {
             if (!document.pointerLockElement && state.cameraMode === 'fps') {
-                events.fire('inputEvent', 'cancel');
+                recentlyExitedFps = true;
+                requestAnimationFrame(() => { recentlyExitedFps = false; });
+                events.fire('inputEvent', 'exitFps');
             }
         });
 
@@ -257,7 +308,7 @@ class InputController {
         // Revert to avoid being stuck in FPS mode without mouse capture.
         document.addEventListener('pointerlockerror', () => {
             (this._desktopInput as any)._pointerLock = false;
-            events.fire('inputEvent', 'cancel');
+            events.fire('inputEvent', 'exitFps');
         });
     }
 

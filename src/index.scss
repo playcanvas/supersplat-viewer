@@ -321,8 +321,9 @@ button {
     position: fixed;
     right: max(16px, env(safe-area-inset-right));
     bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
-    padding: 10px;
-    border-radius: 8px;
+    padding: 12px;
+    border-radius: 16px;
+    border: 1px solid rgba(white, 0.08);
 
     display: flex;
     flex-direction: column;
@@ -332,7 +333,9 @@ button {
     font-size: 14px;
 
     color: $clr-text;
-    background-color: $clr-bkg;
+    background-color: rgba($clr-bkg, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
 
     > .settingsRow {
         display: flex;
@@ -343,14 +346,18 @@ button {
             flex-grow: 1;
             height: 34px;
             padding: 0 20px;
-            border: 0;
+            border: 1px solid rgba(white, 0.1);
+            border-radius: 8px;
+            font-size: 13px;
             cursor: pointer;
 
-            color: $clr-text;
-            background-color: $clr-bkg-darkest;
+            color: $clr-text-dark;
+            background-color: rgba(white, 0.04);
+            transition: background-color 250ms ease, color 250ms ease;
 
             &:hover {
                 color: $clr-text-light;
+                background-color: rgba(white, 0.1);
             }
         }
 
@@ -365,9 +372,11 @@ button {
 
             &.checkMark {
                 width: 16px;
+                opacity: 0.2;
 
-                &:not(.active) {
-                    color: $clr-bkg;
+                &.active {
+                    opacity: 1;
+                    color: $clr-accent;
                 }
             }
 
@@ -382,7 +391,7 @@ button {
         height: 1px;
         margin: 8px 0;
 
-        background-color: $clr-text-darkest;
+        background-color: rgba(white, 0.08);
     }
 }
 
@@ -399,46 +408,51 @@ button {
 
     > #infoPanelContent {
         position: absolute;
-        top: 40px;
+        top: 50%;
         left: 50%;
-        transform: translate(-50%, 0);
+        transform: translate(-50%, -50%);
         min-height: 280px;
         min-width: 320px;
         padding: 8px;
-        border-radius: 24px;
+        border-radius: 16px;
+        border: 1px solid rgba(white, 0.08);
         display: flex;
         flex-direction: column;
 
         color: $clr-text;
         background-color: rgba($clr-bkg, 0.8);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
 
         > #tabs {
             display: flex;
-            gap: 16px;
-            padding: 8px;
-            border-radius: 22px;
+            gap: 4px;
+            padding: 4px;
+            border-radius: 12px;
 
             background-color: $clr-bkg-dark;
 
             > .tab {
-                padding: 8px;
-                border-radius: 16px;
+                padding: 8px 12px;
+                border-radius: 10px;
                 cursor: pointer;
                 flex-grow: 1;
                 text-align: center;
                 font-weight: bold;
                 font-size: 14px;
 
-                color: $clr-text;
-                transition: background-color 250ms ease;
+                color: $clr-text-dark;
+                transition: background-color 250ms ease, color 250ms ease;
             }
 
             > .tab:hover {
-                background-color: $clr-bkg-light;
+                color: $clr-text-light;
+                background-color: rgba(white, 0.06);
             }
 
             > .tab.active {
-                background-color: $clr-bkg-light;
+                color: $clr-text-light;
+                background-color: rgba(white, 0.1);
             }
         }
 
@@ -446,17 +460,23 @@ button {
             padding: 16px;
 
             h1 {
-                font-size: 14px;
+                font-size: 11px;
                 font-weight: bold;
-                padding: 0 0 6px 0;
-                color: $clr-text-light;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                padding: 4px 0 8px 0;
+                color: $clr-accent;
             }
 
             .control-item {
                 display: flex;
                 justify-content: space-between;
+                align-items: center;
                 gap: 32px;
-                line-height: 1.5;
+                padding: 5px 8px;
+                margin: 0 -8px;
+                border-radius: 6px;
+                font-size: 13px;
 
                 > .control-action {
                     text-align: left;
@@ -464,12 +484,17 @@ button {
 
                 > .control-key {
                     text-align: right;
+                    color: $clr-text-dark;
+                    font-size: 12px;
+                }
+
+                &:nth-child(odd) {
+                    background-color: rgba(white, 0.03);
                 }
             }
 
             .control-spacer {
-                border-bottom: 1px dashed #666;
-                margin: 10px 0;
+                margin: 14px 0;
             }
         }
     }

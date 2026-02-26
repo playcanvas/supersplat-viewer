@@ -301,9 +301,20 @@ const initUI = (global: Global) => {
         }
     };
 
+    let shouldRestoreFullscreen = false;
+
+    events.on('restoreFullscreen', () => {
+        shouldRestoreFullscreen = true;
+    });
+
     if (hasFullscreenAPI) {
         document.addEventListener('fullscreenchange', () => {
             state.isFullscreen = !!document.fullscreenElement;
+
+            if (!document.fullscreenElement && shouldRestoreFullscreen) {
+                shouldRestoreFullscreen = false;
+                requestFullscreen();
+            }
         });
     }
 
@@ -338,8 +349,9 @@ const initUI = (global: Global) => {
         dom.hqCheck.classList[state.hqMode ? 'add' : 'remove']('active');
         dom.lqCheck.classList[state.hqMode ? 'remove' : 'add']('active');
     };
-    events.on('hqMode:changed', (value) => {
+    events.on('hqMode:changed', () => {
         updateHQ();
+        localStorage.setItem('hqMode', String(state.hqMode));
     });
     updateHQ();
 

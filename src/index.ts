@@ -199,7 +199,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
     const state = observe(events, {
         loaded: false,
         readyToRender: false,
-        hqMode: true,
+        hqMode: localStorage.getItem('hqMode') !== 'false',
         progress: 0,
         inputMode: platform.mobile ? 'touch' : 'desktop',
         cameraMode: 'orbit',
@@ -214,7 +214,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
         voxelOverlayEnabled: false,
         isFullscreen: false,
         controlsHidden: false,
-        touchControlScheme: (localStorage.getItem('touchControlScheme') as TouchControlScheme) || 'pinch'
+        touchControlScheme: (localStorage.getItem('touchControlScheme') as TouchControlScheme) || 'joystick'
     });
 
     const global: Global = {
