@@ -215,6 +215,8 @@ class InputController {
             });
         });
 
+        let recentlyExitedFps = false;
+
         // handle keyboard events
         window.addEventListener('keydown', (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
@@ -294,12 +296,12 @@ class InputController {
             }
         });
 
-        let recentlyExitedFps = false;
-
         document.addEventListener('pointerlockchange', () => {
             if (!document.pointerLockElement && state.cameraMode === 'fps') {
                 recentlyExitedFps = true;
-                requestAnimationFrame(() => { recentlyExitedFps = false; });
+                requestAnimationFrame(() => {
+                    recentlyExitedFps = false;
+                });
                 events.fire('inputEvent', 'exitFps');
             }
         });
