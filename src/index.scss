@@ -477,10 +477,10 @@ button {
 
 #joystickBase {
     position: absolute;
-    width: 64px;
-    height: 120px;
+    width: 56px;
+    height: 100px;
     transform: translate(-50%, -50%);
-    border-radius: 32px;
+    border-radius: 28px;
     touch-action: none;
 
     background: linear-gradient(180deg, #0004 0%, #0000 30%, #0000 70%, #0004 100%);
@@ -491,9 +491,9 @@ button {
 
     > #joystick {
         position: absolute;
-        left: 8px;  // (64 - 48) / 2 = 8px to center horizontally
-        width: 48px;
-        height: 48px;
+        left: 8px;  // (56 - 40) / 2 = 8px to center horizontally
+        width: 40px;
+        height: 40px;
         border-radius: 50%;
         touch-action: none;
 
@@ -505,14 +505,14 @@ button {
 
     // 2D mode: square joystick with full directional movement
     &.mode-2d {
-        width: 120px;
-        height: 120px;
-        border-radius: 60px;
+        width: 100px;
+        height: 100px;
+        border-radius: 50px;
         background: radial-gradient(circle, #0000 40%, #0004 100%);
         background-color: #0003;
 
         > #joystick {
-            left: 36px;  // (120 - 48) / 2 = 36px to center horizontally
+            left: 30px;  // (100 - 40) / 2 = 30px to center horizontally
         }
     }
 }

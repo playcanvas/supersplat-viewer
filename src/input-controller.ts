@@ -364,7 +364,7 @@ class InputController {
         v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * dt));
         // In fly mode, use single touch for look-around (inverted direction)
         // Exclude multi-touch (double) to avoid interference with pinch/strafe gestures
-        flyRotate.set(-touch[0], -touch[1], 0);
+        flyRotate.set(touch[0], touch[1], 0);
         v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * 1.25 * dt));
         deltas.rotate.append([v.x, v.y, v.z]);
 

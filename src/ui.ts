@@ -10,12 +10,12 @@ const initJoystick = (
     events: EventHandler,
     state: { cameraMode: string; inputMode: string; touchControlScheme: string }
 ) => {
-    // Joystick dimensions (matches SCSS: base height=120, stick size=48)
-    const joystickHeight = 120;
-    const stickSize = 48;
-    const stickCenterY = (joystickHeight - stickSize) / 2; // 36px - top position when centered
-    const stickCenterX = (joystickHeight - stickSize) / 2; // 36px - left position when centered (for 2D mode)
-    const maxStickTravel = stickCenterY; // can travel 36px up or down from center
+    // Joystick dimensions (matches SCSS: base height=100, stick size=40)
+    const joystickHeight = 100;
+    const stickSize = 40;
+    const stickCenterY = (joystickHeight - stickSize) / 2; // 30px - top position when centered
+    const stickCenterX = (joystickHeight - stickSize) / 2; // 30px - left position when centered (for 2D mode)
+    const maxStickTravel = stickCenterY; // can travel 30px up or down from center
 
     // Fixed joystick position (bottom-left corner with safe area)
     const joystickFixedX = 70;
