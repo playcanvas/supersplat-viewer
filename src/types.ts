@@ -27,6 +27,7 @@ type Config = {
     webgpu: boolean;                            // use WebGPU device
     gpusort: boolean;                           // use GPU sorting for splats
     heatmap: boolean;                           // render heatmap debug overlay (WebGPU only)
+    splatcache: boolean;                        // enable cubemap-based splat caching
 };
 
 // observable state that can change at runtime

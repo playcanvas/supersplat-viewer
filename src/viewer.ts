@@ -30,6 +30,7 @@ import { Camera } from './cameras/camera';
 import { nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
+import { SplatCache } from './splat-cache';
 import type { Global } from './types';
 import type { VoxelCollider } from './voxel-collider';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
@@ -128,6 +129,8 @@ class Viewer {
 
     voxelOverlay: VoxelDebugOverlay | null = null;
 
+    splatCache: SplatCache | null = null;
+
     origChunks: {
         glsl: {
             gsplatOutputVS: string
@@ -221,6 +224,12 @@ class Viewer {
 
             if (this.forceRenderNextFrame) {
                 app.renderNextFrame = true;
+            }
+
+            // when splat cache is active, always render and let it manage face pass enablement
+            if (this.splatCache) {
+                app.renderNextFrame = true;
+                this.splatCache.frameUpdate();
             }
 
             if (app.renderNextFrame) {
@@ -337,6 +346,10 @@ class Viewer {
 
                             // emit first frame event on window
                             window.firstFrame?.();
+
+                            if (config.splatcache) {
+                                this.splatCache = new SplatCache(app, results[0], camera);
+                            }
                         });
                     }
                 });
