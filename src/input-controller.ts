@@ -28,6 +28,14 @@ const stickRotate = new Vec3();
 const TAP_EPSILON = 15;
 
 /**
+ * Displacement-based inputs (mouse, touch, wheel, pinch) return accumulated pixel
+ * offsets that already scale with frame time. This factor converts rate-based speed
+ * constants (tuned for degrees-per-second) to work with per-frame displacements,
+ * making them frame-rate-independent.
+ */
+const DISPLACEMENT_SCALE = 1 / 60;
+
+/**
  * Converts screen space mouse deltas to world space pan vector.
  *
  * @param camera - The camera component.
@@ -432,14 +440,14 @@ class InputController {
         const panMove = screenToWorld(camera, mouse[0], mouse[1], distance);
         v.add(panMove.mulScalar(pan));
         const wheelMove = new Vec3(0, 0, -wheel[0]);
-        v.add(wheelMove.mulScalar(this.wheelSpeed * dt));
+        v.add(wheelMove.mulScalar(this.wheelSpeed * DISPLACEMENT_SCALE));
         // FIXME: need to flip z axis for orbit camera
         deltas.move.append([v.x, v.y, orbit ? -v.z : v.z]);
 
         // desktop rotate
         v.set(0, 0, 0);
         mouseRotate.set(mouse[0], mouse[1], 0);
-        v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * orbitFactor * dt));
+        v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * orbitFactor * DISPLACEMENT_SCALE));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // mobile move
@@ -459,7 +467,7 @@ class InputController {
             v.add(flyMove.mulScalar(fly * 1.5 * this.moveSpeed * dt));
         }
         pinchMove.set(0, 0, pinch[0]);
-        v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * dt));
+        v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * DISPLACEMENT_SCALE));
         // Tap-to-jump for mobile FPS mode
         if (isFps && this._tapJump) {
             v.y = 1;
@@ -470,11 +478,11 @@ class InputController {
         // mobile rotate
         v.set(0, 0, 0);
         orbitRotate.set(touch[0], touch[1], 0);
-        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * dt));
+        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * DISPLACEMENT_SCALE));
         // In fly mode, use single touch for look-around (inverted direction)
         // Exclude multi-touch (double) to avoid interference with pinch/strafe gestures
         flyRotate.set(touch[0], touch[1], 0);
-        v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * 1.25 * dt));
+        v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * 1.25 * DISPLACEMENT_SCALE));
         deltas.rotate.append([v.x, v.y, v.z]);
 
         // gamepad move
