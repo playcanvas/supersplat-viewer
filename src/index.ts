@@ -17,7 +17,7 @@ import {
 import { App } from './app';
 import { observe } from './core/observe';
 import { importSettings } from './settings';
-import type { Config, Global } from './types';
+import type { Config, Global, TouchControlScheme } from './types';
 import { initPoster, initUI } from './ui';
 import { Viewer } from './viewer';
 import { VoxelCollider } from './voxel-collider';
@@ -199,7 +199,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
     const state = observe(events, {
         loaded: false,
         readyToRender: false,
-        hqMode: true,
+        hqMode: localStorage.getItem('hqMode') !== 'false',
         progress: 0,
         inputMode: platform.mobile ? 'touch' : 'desktop',
         cameraMode: 'orbit',
@@ -213,7 +213,8 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
         hasVoxelOverlay: false,
         voxelOverlayEnabled: false,
         isFullscreen: false,
-        controlsHidden: false
+        controlsHidden: false,
+        touchControlScheme: (localStorage.getItem('touchControlScheme') as TouchControlScheme) || 'joystick'
     });
 
     const global: Global = {

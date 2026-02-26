@@ -176,6 +176,15 @@
                     <div id="lqCheck" class="checkMark">✓</div>
                     <div id="lqOption">Low Quality Render</div>
                 </div>
+                <div id="touchControlsDivider" class="divider hidden"></div>
+                <div id="joystickSchemeRow" class="settingsRow hidden">
+                    <div id="joystickSchemeCheck" class="checkMark">✓</div>
+                    <div id="joystickSchemeOption">Joystick Controls</div>
+                </div>
+                <div id="pinchSchemeRow" class="settingsRow hidden">
+                    <div id="pinchSchemeCheck" class="checkMark">✓</div>
+                    <div id="pinchSchemeOption">Pinch Controls</div>
+                </div>
                 <div class="divider"></div>
                 <div class="settingsRow">
                     <button id="frame">Frame</button>
@@ -210,17 +219,6 @@
                                 <span class="control-action">Set Focus</span>
                                 <span class="control-key">Double Click</span>
                             </div>
-                            <div class="control-spacer"></div>
-                            <h1>Fly Mode</h1>
-                            <div class="control-item">
-                                <span class="control-action">Look Around</span>
-                                <span class="control-key">Left Mouse</span>
-                            </div>
-                            <div class="control-item">
-                                <span class="control-action">Fly</span>
-                                <span class="control-key">W,S,A,D</span>
-                            </div>
-                            <div class="control-spacer"></div>
                             <div class="control-item">
                                 <span class="control-action">Frame Scene</span>
                                 <span class="control-key">F</span>
@@ -228,6 +226,34 @@
                             <div class="control-item">
                                 <span class="control-action">Reset Camera</span>
                                 <span class="control-key">R</span>
+                            </div>
+                            <div class="control-spacer"></div>
+                            <h1>Fly / Walk Mode</h1>
+                            <div class="control-item">
+                                <span class="control-action">Look Around</span>
+                                <span class="control-key">Mouse</span>
+                            </div>
+                            <div class="control-item">
+                                <span class="control-action">Move</span>
+                                <span class="control-key">W,S,A,D</span>
+                            </div>
+                            <div class="control-item">
+                                <span class="control-action">Jump (Walk)</span>
+                                <span class="control-key">Space</span>
+                            </div>
+                            <div class="control-spacer"></div>
+                            <h1>Mode Switching</h1>
+                            <div class="control-item">
+                                <span class="control-action">Orbit Mode</span>
+                                <span class="control-key">1</span>
+                            </div>
+                            <div class="control-item">
+                                <span class="control-action">Fly Mode</span>
+                                <span class="control-key">2</span>
+                            </div>
+                            <div class="control-item">
+                                <span class="control-action">Walk Mode</span>
+                                <span class="control-key">3</span>
                             </div>
                         </div>
                         <div id="touchInfoPanel" class="hidden">
@@ -250,14 +276,30 @@
                                 <span class="control-key">Double Tap</span>
                             </div>
                             <div class="control-spacer"></div>
-                            <h1>Fly Mode</h1>
-                            <div class="control-item">
-                                <span class="control-action">Look Around</span>
-                                <span class="control-key">Touch on Right</span>
+                            <h1>Fly / Walk Mode</h1>
+                            <div id="touchFlyJoystick">
+                                <div class="control-item">
+                                    <span class="control-action">Look Around</span>
+                                    <span class="control-key">Touch + Drag</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Move</span>
+                                    <span class="control-key">Joystick</span>
+                                </div>
                             </div>
-                            <div class="control-item">
-                                <span class="control-action">Fly</span>
-                                <span class="control-key">Touch on Left</span>
+                            <div id="touchFlyPinch" class="hidden">
+                                <div class="control-item">
+                                    <span class="control-action">Look Around</span>
+                                    <span class="control-key">One Finger Drag</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Move Forward/Back</span>
+                                    <span class="control-key">Pinch</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Strafe</span>
+                                    <span class="control-key">Two Finger Drag</span>
+                                </div>
                             </div>
                         </div>
                     </div>

@@ -17,6 +17,7 @@ const tmpV1 = new Vec3();
 const tmpV2 = new Vec3();
 const mouseRotate = new Vec3();
 const flyMove = new Vec3();
+const flyTouchPan = new Vec3();
 const pinchMove = new Vec3();
 const orbitRotate = new Vec3();
 const flyRotate = new Vec3();
@@ -121,10 +122,20 @@ class InputController {
         rotate: [0, 0, 0]
     });
 
-    // Touch joystick input values (-1 to 1)
-    private _touchJoystickX: number = 0; // negative = left, positive = right
+    // Touch joystick input values [x, y] (-1 to 1)
+    private _touchJoystick: number[] = [0, 0];
 
-    private _touchJoystickY: number = 0; // negative = forward, positive = backward
+    // Accumulated forward/backward velocity from pinch gesture (-1 to 1)
+    private _pinchVelocity: number = 0;
+
+    // Accumulated strafe/vertical velocity from two-finger pan [x, y] (-1 to 1)
+    private _panVelocity: number[] = [0, 0];
+
+    // Sensitivity for pinch delta → velocity conversion
+    pinchVelocitySensitivity: number = 0.006;
+
+    // Sensitivity for two-finger pan delta → velocity conversion
+    panVelocitySensitivity: number = 0.005;
 
     // this gets overridden by the viewer based on scene size
     moveSpeed: number = 4;
@@ -146,8 +157,8 @@ class InputController {
 
         // Listen for joystick input from the UI (touch joystick element)
         events.on('joystickInput', (value: { x: number; y: number }) => {
-            this._touchJoystickX = value.x;
-            this._touchJoystickY = value.y;
+            this._touchJoystick[0] = value.x;
+            this._touchJoystick[1] = value.y;
         });
 
         this.global = global;
@@ -204,41 +215,94 @@ class InputController {
             });
         });
 
+        let recentlyExitedFps = false;
+
         // handle keyboard events
         window.addEventListener('keydown', (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
-                events.fire('inputEvent', 'cancel', event);
-            } else if (state.cameraMode !== 'fps' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+                if (recentlyExitedFps) {
+                    // Already handled by pointerlockchange
+                } else if (state.cameraMode === 'fps') {
+                    events.fire('inputEvent', 'exitFps', event);
+                } else {
+                    events.fire('inputEvent', 'cancel', event);
+                }
+            } else if (!event.ctrlKey && !event.altKey && !event.metaKey) {
                 switch (event.key) {
-                    case 'f':
-                        events.fire('inputEvent', 'frame', event);
+                    case '1':
+                        state.cameraMode = 'orbit';
                         break;
-                    case 'r':
-                        events.fire('inputEvent', 'reset', event);
+                    case '2':
+                        state.cameraMode = 'fly';
                         break;
-                    case ' ':
-                        events.fire('inputEvent', 'playPause', event);
+                    case '3':
+                        events.fire('inputEvent', 'toggleFps');
                         break;
+                }
+                if (state.cameraMode !== 'fps') {
+                    switch (event.key) {
+                        case 'f':
+                            events.fire('inputEvent', 'frame', event);
+                            break;
+                        case 'r':
+                            events.fire('inputEvent', 'reset', event);
+                            break;
+                        case ' ':
+                            events.fire('inputEvent', 'playPause', event);
+                            break;
+                    }
                 }
             }
         });
+
+        // Lock/unlock Escape key in fullscreen to prevent the browser from
+        // exiting both pointer lock and fullscreen on the same Escape press.
+        const lockEscape = () => {
+            if ('keyboard' in navigator && 'lock' in (navigator as any).keyboard) {
+                (navigator as any).keyboard.lock(['Escape']).catch(() => {});
+            }
+        };
+
+        const unlockKeyboard = () => {
+            if ('keyboard' in navigator && 'unlock' in (navigator as any).keyboard) {
+                (navigator as any).keyboard.unlock();
+            }
+        };
 
         // Pointer lock management for FPS mode on desktop
         events.on('cameraMode:changed', (value: string, prev: string) => {
             if (value === 'fps' && state.inputMode === 'desktop') {
                 (this._desktopInput as any)._pointerLock = true;
                 canvas.requestPointerLock();
+                if (state.isFullscreen) {
+                    lockEscape();
+                }
             } else if (prev === 'fps') {
+                unlockKeyboard();
                 (this._desktopInput as any)._pointerLock = false;
                 if (document.pointerLockElement === canvas) {
+                    if (state.isFullscreen) {
+                        events.fire('restoreFullscreen');
+                    }
                     document.exitPointerLock();
                 }
             }
         });
 
+        // Also lock Escape if entering fullscreen while already in FPS mode
+        events.on('isFullscreen:changed', (value: boolean) => {
+            if (value && state.cameraMode === 'fps' && state.inputMode === 'desktop') {
+                lockEscape();
+            }
+        });
+
         document.addEventListener('pointerlockchange', () => {
             if (!document.pointerLockElement && state.cameraMode === 'fps') {
-                events.fire('inputEvent', 'cancel');
+                recentlyExitedFps = true;
+                requestAnimationFrame(() => {
+                    recentlyExitedFps = false;
+                });
+                events.fire('inputEvent', 'exitFps');
             }
         });
 
@@ -246,7 +310,7 @@ class InputController {
         // Revert to avoid being stuck in FPS mode without mouse capture.
         document.addEventListener('pointerlockerror', () => {
             (this._desktopInput as any)._pointerLock = false;
-            events.fire('inputEvent', 'cancel');
+            events.fire('inputEvent', 'exitFps');
         });
     }
 
@@ -282,6 +346,23 @@ class InputController {
 
         const isFps = state.cameraMode === 'fps';
         const isFirstPerson = state.cameraMode === 'fly' || isFps;
+
+        // Accumulate pinch and pan deltas into velocity when using pinch control scheme
+        // pinch[0] = oldDist - newDist: negative when spreading, positive when closing
+        // Spreading = forward → subtract pinch delta
+        if (isFirstPerson && state.touchControlScheme === 'pinch' && this._state.touches > 1) {
+            this._pinchVelocity -= pinch[0] * this.pinchVelocitySensitivity;
+            this._pinchVelocity = math.clamp(this._pinchVelocity, -1.0, 1.0);
+            this._panVelocity[0] += touch[0] * this.panVelocitySensitivity;
+            this._panVelocity[0] = math.clamp(this._panVelocity[0], -1.0, 1.0);
+            this._panVelocity[1] += touch[1] * this.panVelocitySensitivity;
+            this._panVelocity[1] = math.clamp(this._panVelocity[1], -1.0, 1.0);
+        } else if (isFirstPerson && this._state.touches <= 1) {
+            this._pinchVelocity = 0;
+            this._panVelocity[0] = 0;
+            this._panVelocity[1] = 0;
+        }
+
         if (!isFirstPerson && this._state.axis.length() > 0) {
             events.fire('inputEvent', 'requestFirstPerson');
         }
@@ -328,9 +409,18 @@ class InputController {
         v.set(0, 0, 0);
         const orbitMove = screenToWorld(camera, touch[0], touch[1], distance);
         v.add(orbitMove.mulScalar(orbit * pan));
-        // Use touch joystick values for fly movement (X = strafe, Y = forward/backward)
-        flyMove.set(this._touchJoystickX, 0, -this._touchJoystickY);
-        v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
+        if (state.touchControlScheme === 'joystick') {
+            // Use touch joystick values for fly movement (X = strafe, Y = forward/backward)
+            flyMove.set(this._touchJoystick[0], 0, -this._touchJoystick[1]);
+            v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
+        } else {
+            // Pan velocity → strafe (X) and vertical (Y, fly only — FPS uses gravity)
+            flyTouchPan.set(this._panVelocity[0], isFps ? 0 : -this._panVelocity[1], 0);
+            v.add(flyTouchPan.mulScalar(fly * 1.5 * this.moveSpeed * dt));
+            // Pinch velocity → forward/backward
+            flyMove.set(0, 0, this._pinchVelocity);
+            v.add(flyMove.mulScalar(fly * 1.5 * this.moveSpeed * dt));
+        }
         pinchMove.set(0, 0, pinch[0]);
         v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * dt));
         deltas.move.append([v.x, v.y, v.z]);
@@ -339,9 +429,8 @@ class InputController {
         v.set(0, 0, 0);
         orbitRotate.set(touch[0], touch[1], 0);
         v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * dt));
-        // In fly mode, use any touch for look-around (joystick captures its own touches)
-        // Exclude multi-touch (double) to avoid interference with pinch gestures
-        // 1.25x sensitivity for touch look-around
+        // In fly mode, use single touch for look-around (inverted direction)
+        // Exclude multi-touch (double) to avoid interference with pinch/strafe gestures
         flyRotate.set(touch[0], touch[1], 0);
         v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * 1.25 * dt));
         deltas.rotate.append([v.x, v.y, v.z]);

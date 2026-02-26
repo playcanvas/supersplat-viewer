@@ -170,11 +170,14 @@ class CameraManager {
                         }
                     }
                     break;
+                case 'exitFps':
+                    if (state.cameraMode === 'fps') {
+                        state.cameraMode = preFpsMode;
+                    }
+                    break;
                 case 'cancel':
                     if (state.cameraMode === 'anim') {
                         state.cameraMode = fromMode;
-                    } else if (state.cameraMode === 'fps') {
-                        state.cameraMode = preFpsMode;
                     }
                     break;
                 case 'interrupt':
