@@ -23,6 +23,9 @@ const flyRotate = new Vec3();
 const stickMove = new Vec3();
 const stickRotate = new Vec3();
 
+/** Maximum accumulated touch movement (px) to still count as a tap */
+const TAP_EPSILON = 15;
+
 /**
  * Converts screen space mouse deltas to world space pan vector.
  *
@@ -125,6 +128,13 @@ class InputController {
     private _touchJoystickX: number = 0; // negative = left, positive = right
 
     private _touchJoystickY: number = 0; // negative = forward, positive = backward
+
+    // Tap-to-jump state (uses existing MultiTouchSource count/touch deltas)
+    private _activeTouchCount: number = 0;
+
+    private _touchAccumulatedDelta: number = 0;
+
+    private _touchJumpPending: boolean = false;
 
     // this gets overridden by the viewer based on scene size
     moveSpeed: number = 4;
@@ -281,6 +291,30 @@ class InputController {
         this._state.ctrl += key[keyCode.CTRL];
 
         const isFps = state.cameraMode === 'fps';
+
+        // Tap-to-jump detection using existing MultiTouchSource deltas
+        const prevTouchCount = this._activeTouchCount;
+        this._activeTouchCount += count[0];
+
+        if (isFps) {
+            // Touch just started (0 → 1+)
+            if (prevTouchCount === 0 && this._activeTouchCount > 0) {
+                this._touchAccumulatedDelta = 0;
+            }
+
+            // Accumulate movement while touch is active
+            if (this._activeTouchCount > 0) {
+                this._touchAccumulatedDelta += Math.abs(touch[0]) + Math.abs(touch[1]);
+            }
+
+            // Touch just ended (1+ → 0): check if it was a tap
+            if (prevTouchCount > 0 && this._activeTouchCount === 0) {
+                if (this._touchAccumulatedDelta < TAP_EPSILON) {
+                    this._touchJumpPending = true;
+                }
+            }
+        }
+
         const isFirstPerson = state.cameraMode === 'fly' || isFps;
         if (!isFirstPerson && this._state.axis.length() > 0) {
             events.fire('inputEvent', 'requestFirstPerson');
@@ -333,6 +367,11 @@ class InputController {
         v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
         pinchMove.set(0, 0, pinch[0]);
         v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * dt));
+        // Tap-to-jump for mobile FPS mode
+        if (isFps && this._touchJumpPending) {
+            v.y = 1;
+            this._touchJumpPending = false;
+        }
         deltas.move.append([v.x, v.y, v.z]);
 
         // mobile rotate
