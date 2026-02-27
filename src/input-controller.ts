@@ -160,9 +160,6 @@ class InputController {
 
     private _lastTouchOffsetY = 0;
 
-    // Whether a tap-to-walk auto-walk is currently active
-    private _isWalking = false;
-
     private _picker: Picker | null = null;
 
     moveSpeed: number = 4;
@@ -216,9 +213,8 @@ class InputController {
             this._lastTouchOffsetX = event.offsetX;
             this._lastTouchOffsetY = event.offsetY;
 
-            // Cancel any active walk on new touch input
-            if (this._isWalking && event.pointerType === 'touch') {
-                this._isWalking = false;
+            // Cancel any active auto-walk on new touch input
+            if (state.cameraMode === 'fps' && event.pointerType === 'touch') {
                 events.fire('walkCancel');
             }
 
@@ -251,11 +247,6 @@ class InputController {
                     break;
                 }
             }
-        });
-
-        // Reset walking state when FPS controller completes a walk
-        events.on('walkComplete', () => {
-            this._isWalking = false;
         });
 
         // update input mode based on pointer event
@@ -396,6 +387,11 @@ class InputController {
 
         const isFps = state.cameraMode === 'fps';
 
+        // Cancel any active auto-walk when the user provides WASD/arrow input
+        if (isFps && (this._state.axis.x !== 0 || this._state.axis.z !== 0)) {
+            events.fire('walkCancel');
+        }
+
         // Tap detection using existing MultiTouchSource deltas
         if (isFps) {
             const prevTaps = this._tapTouches;
@@ -425,7 +421,6 @@ class InputController {
                         const pickY = this._lastTouchOffsetY / canvas.clientHeight;
                         this._picker.pick(pickX, pickY).then((result) => {
                             if (result && state.cameraMode === 'fps') {
-                                this._isWalking = true;
                                 events.fire('walkTo', result);
                             }
                         });
