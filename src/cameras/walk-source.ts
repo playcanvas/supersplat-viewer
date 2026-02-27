@@ -1,7 +1,7 @@
 import { Vec3 } from 'playcanvas';
 
-import { damp } from '../core/math';
 import type { CameraFrame } from './camera';
+import { damp } from '../core/math';
 
 const RAD_TO_DEG = 180 / Math.PI;
 
@@ -75,7 +75,7 @@ class WalkSource {
 
     /**
      * Compute walk deltas and append them to the frame. Must be called
-     * *before* the camera controller reads the frame.
+     * before* the camera controller reads the frame.
      *
      * @param dt - Frame delta time in seconds.
      * @param cameraPosition - Camera world position (previous frame output).
