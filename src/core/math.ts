@@ -32,8 +32,9 @@ const nearlyEquals = (a: Float32Array<ArrayBufferLike>, b: Float32Array<ArrayBuf
 
 const vecToAngles = (result: Vec3, vec: Vec3) => {
     const radToDeg = 180 / Math.PI;
-    result.x = Math.asin(vec.y) * radToDeg;
-    result.y = Math.atan2(-vec.x, -vec.z) * radToDeg;
+    const horizLenSq = vec.x * vec.x + vec.z * vec.z;
+    result.x = Math.asin(Math.max(-1, Math.min(1, vec.y))) * radToDeg;
+    result.y = horizLenSq > 1e-8 ? Math.atan2(-vec.x, -vec.z) * radToDeg : 0;
     result.z = 0;
     return result;
 };
