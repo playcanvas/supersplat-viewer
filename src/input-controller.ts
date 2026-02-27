@@ -163,9 +163,9 @@ class InputController {
 
     wheelSpeed: number = 0.06;
 
-    mouseRotateSensitivity: number = 0.75;
+    mouseRotateSensitivity: number = 0.5;
 
-    touchRotateSensitivity: number = 1.25;
+    touchRotateSensitivity: number = 1.5;
 
     touchPinchMoveSensitivity: number = 1.5;
 
