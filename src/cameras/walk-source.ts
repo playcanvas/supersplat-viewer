@@ -8,11 +8,11 @@ const RAD_TO_DEG = 180 / Math.PI;
 /** XZ distance below which the walker considers itself arrived */
 const ARRIVAL_DIST = 0.5;
 
-/** Minimum XZ progress per frame (meters) to not count as blocked */
-const PROGRESS_EPSILON = 0.01;
+/** Minimum XZ speed (m/s) to not count as blocked */
+const BLOCKED_SPEED = 0.6;
 
-/** Number of consecutive low-progress frames before stopping the walk */
-const BLOCKED_THRESHOLD = 10;
+/** Seconds of continuous low-progress before stopping the walk */
+const BLOCKED_DURATION = 0.167;
 
 /**
  * Generates synthetic move/rotate input to auto-walk toward a target position.
@@ -40,7 +40,7 @@ class WalkSource {
 
     private _target: Vec3 | null = null;
 
-    private _blockedFrames = 0;
+    private _blockedTime = 0;
 
     private _prevDist = Infinity;
 
@@ -58,7 +58,7 @@ class WalkSource {
             this._target = new Vec3();
         }
         this._target.copy(target);
-        this._blockedFrames = 0;
+        this._blockedTime = 0;
         this._prevDist = Infinity;
     }
 
@@ -68,7 +68,7 @@ class WalkSource {
     cancelWalk() {
         if (this._target) {
             this._target = null;
-            this._blockedFrames = 0;
+            this._blockedTime = 0;
             this.onComplete?.();
         }
     }
@@ -98,16 +98,16 @@ class WalkSource {
         }
 
         // blocked detection: compare with previous frame's distance
-        if (this._prevDist !== Infinity) {
-            const progress = this._prevDist - xzDist;
-            if (progress < PROGRESS_EPSILON) {
-                this._blockedFrames++;
-                if (this._blockedFrames >= BLOCKED_THRESHOLD) {
+        if (this._prevDist !== Infinity && dt > 0) {
+            const speed = (this._prevDist - xzDist) / dt;
+            if (speed < BLOCKED_SPEED) {
+                this._blockedTime += dt;
+                if (this._blockedTime >= BLOCKED_DURATION) {
                     this.cancelWalk();
                     return;
                 }
             } else {
-                this._blockedFrames = 0;
+                this._blockedTime = 0;
             }
         }
         this._prevDist = xzDist;
