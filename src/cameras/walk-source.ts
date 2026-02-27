@@ -12,7 +12,7 @@ const ARRIVAL_DIST = 0.5;
 const BLOCKED_SPEED = 0.6;
 
 /** Seconds of continuous low-progress before stopping the walk */
-const BLOCKED_DURATION = 0.167;
+const BLOCKED_DURATION = 0.2;
 
 /**
  * Generates synthetic move/rotate input to auto-walk toward a target position.
