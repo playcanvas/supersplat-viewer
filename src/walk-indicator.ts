@@ -113,19 +113,23 @@ void main(void) {
             opacityDither(alpha, id * 0.013);
         #endif
 
-        vec3 walkWorldPos = walkReconstructWorldPos();
-        float xzDist = length(walkWorldPos.xz - walk_target.xz);
+        if (walk_radius > 0.0) {
+            vec3 walkWorldPos = walkReconstructWorldPos();
+            float xzDist = length(walkWorldPos.xz - walk_target.xz);
 
-        float columnFade = 1.0 - smoothstep(walk_radius * 0.6, walk_radius, xzDist);
+            float columnFade = 1.0 - smoothstep(walk_radius * 0.6, walk_radius, xzDist);
 
-        float ringPhase = fract(walk_time * 0.5);
-        float ringDist = abs(xzDist / max(walk_radius, 0.001) - ringPhase);
-        float ring = smoothstep(0.12, 0.0, ringDist) * 0.4;
+            float ringPhase = fract(walk_time * 0.5);
+            float ringDist = abs(xzDist / walk_radius - ringPhase);
+            float ring = smoothstep(0.12, 0.0, ringDist) * 0.4;
 
-        float glow = (columnFade * 0.3 + ring) * alpha;
+            float glow = (columnFade * 0.3 + ring) * alpha;
 
-        vec3 glowColor = mix(vec3(0.2, 0.6, 1.0), vec3(1.0), 0.3);
-        gl_FragColor = vec4(gaussianColor.xyz * alpha + glowColor * glow, alpha);
+            vec3 glowColor = mix(vec3(0.2, 0.6, 1.0), vec3(1.0), 0.3);
+            gl_FragColor = vec4(gaussianColor.xyz * alpha + glowColor * glow, alpha);
+        } else {
+            gl_FragColor = vec4(gaussianColor.xyz * alpha, alpha);
+        }
     #endif
 }
 `;
@@ -147,15 +151,15 @@ const gsplatPSWgsl = /* wgsl */`
     #include "floatAsUintPS"
 #endif
 
-const EXP4: half = exp(half(-4.0));
-const INV_EXP4: half = half(1.0) / (half(1.0) - EXP4);
+const EXP4_F: f32 = exp(-4.0);
+const INV_EXP4_F: f32 = 1.0 / (1.0 - EXP4_F);
 
-fn normExp(x: half) -> half {
-    return (exp(x * half(-4.0)) - EXP4) * INV_EXP4;
+fn normExp(x: f32) -> f32 {
+    return (exp(x * -4.0) - EXP4_F) * INV_EXP4_F;
 }
 
-varying gaussianUV: half2;
-varying gaussianColor: half4;
+varying gaussianUV: vec2f;
+varying gaussianColor: vec4f;
 
 #if defined(GSPLAT_UNIFIED_ID) && defined(PICK_PASS)
     varying @interpolate(flat) vPickId: u32;
@@ -194,16 +198,16 @@ fn walkReconstructWorldPos(fragCoord: vec4f) -> vec3f {
 fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     var output: FragmentOutput;
 
-    let A: half = dot(gaussianUV, gaussianUV);
-    if (A > half(1.0)) {
+    let A: f32 = f32(dot(gaussianUV, gaussianUV));
+    if (A > 1.0) {
         discard;
         return output;
     }
 
-    var alpha: half = normExp(A) * gaussianColor.a;
+    var alpha: f32 = normExp(A) * f32(gaussianColor.a);
 
     #if defined(SHADOW_PASS) || defined(PICK_PASS) || defined(PREPASS_PASS)
-        if (alpha < half(uniform.alphaClip)) {
+        if (alpha < uniform.alphaClip) {
             discard;
             return output;
         }
@@ -230,28 +234,34 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
 
     #else
 
-        if (alpha < half(1.0 / 255.0)) {
+        if (alpha < 1.0 / 255.0) {
             discard;
             return output;
         }
 
         #ifndef DITHER_NONE
-            opacityDither(f32(alpha), id * 0.013);
+            opacityDither(alpha, id * 0.013);
         #endif
 
-        let walkWorldPos = walkReconstructWorldPos(pcPosition);
-        let xzDist = length(walkWorldPos.xz - uniform.walk_target.xz);
+        let gc = vec3f(gaussianColor.xyz);
 
-        let columnFade = 1.0 - smoothstep(uniform.walk_radius * 0.6, uniform.walk_radius, xzDist);
+        if (uniform.walk_radius > 0.0) {
+            let walkWorldPos = walkReconstructWorldPos(pcPosition);
+            let xzDist = length(walkWorldPos.xz - uniform.walk_target.xz);
 
-        let ringPhase = fract(uniform.walk_time * 0.5);
-        let ringDist = abs(xzDist / max(uniform.walk_radius, 0.001) - ringPhase);
-        let ring = smoothstep(0.12, 0.0, ringDist) * 0.4;
+            let columnFade = 1.0 - smoothstep(uniform.walk_radius * 0.6, uniform.walk_radius, xzDist);
 
-        let glow = half((columnFade * 0.3 + ring) * f32(alpha));
+            let ringPhase = fract(uniform.walk_time * 0.5);
+            let ringDist = abs(xzDist / uniform.walk_radius - ringPhase);
+            let ring = smoothstep(0.12, 0.0, ringDist) * 0.4;
 
-        let glowColor = mix(vec3f(0.2, 0.6, 1.0), vec3f(1.0), 0.3);
-        output.color = vec4f(vec3f(gaussianColor.xyz * alpha) + glowColor * f32(glow), f32(alpha));
+            let glow = (columnFade * 0.3 + ring) * alpha;
+
+            let glowColor = mix(vec3f(0.2, 0.6, 1.0), vec3f(1.0), 0.3);
+            output.color = vec4f(gc * alpha + glowColor * glow, alpha);
+        } else {
+            output.color = vec4f(gc * alpha, alpha);
+        }
     #endif
 
     return output;
