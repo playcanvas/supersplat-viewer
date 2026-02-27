@@ -1,5 +1,4 @@
 import {
-    Mat4,
     Vec3
 } from 'playcanvas';
 
@@ -21,21 +20,26 @@ const createRotateTrack = (position: Vec3, target: Vec3, fov: number, keys: numb
     const targets: number[] = [];
     const fovs = new Array(keys).fill(fov);
 
-    const mat = new Mat4();
-    const vec = new Vec3();
-    const dif = new Vec3(
-        position.x - target.x,
-        position.y - target.y,
-        position.z - target.z
-    );
+    const dx = position.x - target.x;
+    const dy = position.y - target.y;
+    const dz = position.z - target.z;
+
+    const horizontalRadius = Math.sqrt(dx * dx + dz * dz);
+    const totalDist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    // when the offset is nearly vertical, use a fraction of the total distance
+    // as the orbit radius so the camera actually moves in a circle
+    const minRadius = totalDist * 0.3;
+    const radius = Math.max(horizontalRadius, minRadius);
+
+    const startAngle = Math.atan2(dx, dz);
 
     for (let i = 0; i < keys; ++i) {
-        mat.setFromEulerAngles(0, -i / keys * 360, 0);
-        mat.transformPoint(dif, vec);
+        const angle = startAngle - i / keys * Math.PI * 2;
 
-        positions.push(target.x + vec.x);
-        positions.push(target.y + vec.y);
-        positions.push(target.z + vec.z);
+        positions.push(target.x + radius * Math.sin(angle));
+        positions.push(target.y + dy);
+        positions.push(target.z + radius * Math.cos(angle));
 
         targets.push(target.x);
         targets.push(target.y);
