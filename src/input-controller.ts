@@ -155,6 +155,16 @@ class InputController {
 
     private _tapJump: boolean = false;
 
+    // Screen coordinates of the last touch start (for tap-to-walk picking)
+    private _lastTouchOffsetX = 0;
+
+    private _lastTouchOffsetY = 0;
+
+    // Whether a tap-to-walk auto-walk is currently active
+    private _isWalking = false;
+
+    private _picker: Picker | null = null;
+
     moveSpeed: number = 4;
 
     orbitSpeed: number = 18;
@@ -202,6 +212,16 @@ class InputController {
         // Detect double taps manually because iOS doesn't send dblclick events
         const lastTap = { time: 0, x: 0, y: 0 };
         canvas.addEventListener('pointerdown', (event) => {
+            // Store touch coordinates for tap-to-walk picking
+            this._lastTouchOffsetX = event.offsetX;
+            this._lastTouchOffsetY = event.offsetY;
+
+            // Cancel any active walk on new touch input
+            if (this._isWalking && event.pointerType === 'touch') {
+                this._isWalking = false;
+                events.fire('walkCancel');
+            }
+
             const now = Date.now();
             const delay = Math.max(0, now - lastTap.time);
             if (delay < 300 &&
@@ -217,21 +237,25 @@ class InputController {
         });
 
         // Calculate pick location on double click
-        let picker: Picker | null = null;
         events.on('inputEvent', async (eventName, event) => {
             switch (eventName) {
                 case 'dblclick': {
                     if (state.cameraMode === 'fps') break;
-                    if (!picker) {
-                        picker = new Picker(app, camera);
+                    if (!this._picker) {
+                        this._picker = new Picker(app, camera);
                     }
-                    const result = await picker.pick(event.offsetX / canvas.clientWidth, event.offsetY / canvas.clientHeight);
+                    const result = await this._picker.pick(event.offsetX / canvas.clientWidth, event.offsetY / canvas.clientHeight);
                     if (result) {
                         events.fire('pick', result);
                     }
                     break;
                 }
             }
+        });
+
+        // Reset walking state when FPS controller completes a walk
+        events.on('walkComplete', () => {
+            this._isWalking = false;
         });
 
         // update input mode based on pointer event
@@ -372,7 +396,7 @@ class InputController {
 
         const isFps = state.cameraMode === 'fps';
 
-        // Tap-to-jump detection using existing MultiTouchSource deltas
+        // Tap detection using existing MultiTouchSource deltas
         if (isFps) {
             const prevTaps = this._tapTouches;
             this._tapTouches = Math.max(0, this._tapTouches + count[0]);
@@ -390,7 +414,24 @@ class InputController {
             // Touch just ended (1+ → 0): check if it was a tap
             if (prevTaps > 0 && this._tapTouches === 0) {
                 if (this._tapDelta < TAP_EPSILON) {
-                    this._tapJump = true;
+                    if (state.touchControlScheme === 'pinch') {
+                        // Tap-to-walk: pick the 3D location and auto-walk toward it
+                        const { app, camera } = this.global;
+                        const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
+                        if (!this._picker) {
+                            this._picker = new Picker(app, camera);
+                        }
+                        const pickX = this._lastTouchOffsetX / canvas.clientWidth;
+                        const pickY = this._lastTouchOffsetY / canvas.clientHeight;
+                        this._picker.pick(pickX, pickY).then((result) => {
+                            if (result && state.cameraMode === 'fps') {
+                                this._isWalking = true;
+                                events.fire('walkTo', result);
+                            }
+                        });
+                    } else {
+                        this._tapJump = true;
+                    }
                 }
             }
         } else {

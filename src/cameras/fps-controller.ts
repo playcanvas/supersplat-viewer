@@ -16,6 +16,18 @@ const right = new Vec3();
 const offset = new Vec3();
 const rotation = new Quat();
 
+/** Radians-to-degrees constant */
+const RAD_TO_DEG = 180 / Math.PI;
+
+/** XZ distance below which the walker considers itself arrived */
+const WALK_ARRIVAL_DIST = 0.5;
+
+/** Minimum XZ progress per frame (meters) to not count as blocked */
+const WALK_PROGRESS_EPSILON = 0.01;
+
+/** Number of consecutive low-progress frames before stopping the walk */
+const WALK_BLOCKED_THRESHOLD = 10;
+
 /**
  * First-person shooter style camera controller with gravity and capsule collision.
  *
@@ -84,6 +96,22 @@ class FpsController implements CameraController {
      */
     velocityDampingAir = 0.99925;
 
+    /**
+     * Forward input scale for auto-walk (matches InputController.moveSpeed for
+     * consistent speed with regular WASD walking).
+     */
+    walkSpeed = 4;
+
+    /**
+     * Yaw rotation damping while auto-walking toward a target.
+     */
+    walkRotateDamping = 0.95;
+
+    /**
+     * Callback fired when an auto-walk completes (arrival or obstacle).
+     */
+    onWalkComplete: (() => void) | null = null;
+
     private _position = new Vec3();
 
     private _angles = new Vec3();
@@ -93,6 +121,10 @@ class FpsController implements CameraController {
     private _grounded = false;
 
     private _jumping = false;
+
+    private _walkTarget: Vec3 | null = null;
+
+    private _walkBlockedFrames = 0;
 
     onEnter(camera: Camera): void {
         this.goto(camera);
@@ -105,8 +137,48 @@ class FpsController implements CameraController {
         }
     }
 
+    /**
+     * Whether the controller is currently auto-walking toward a target.
+     *
+     * @returns True if walking toward a target.
+     */
+    get isWalking(): boolean {
+        return this._walkTarget !== null;
+    }
+
+    /**
+     * Begin auto-walking toward a world-space target position.
+     *
+     * @param target - The destination in PlayCanvas world space (XZ used for navigation).
+     */
+    walkTo(target: Vec3) {
+        if (!this._walkTarget) {
+            this._walkTarget = new Vec3();
+        }
+        this._walkTarget.copy(target);
+        this._walkBlockedFrames = 0;
+    }
+
+    /**
+     * Cancel any active auto-walk.
+     */
+    cancelWalk() {
+        if (this._walkTarget) {
+            this._walkTarget = null;
+            this._walkBlockedFrames = 0;
+            this._velocity.x = 0;
+            this._velocity.z = 0;
+            this.onWalkComplete?.();
+        }
+    }
+
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
         const { move, rotate } = inputFrame.read();
+
+        if (this._walkTarget) {
+            this._updateWalk(deltaTime, camera);
+            return;
+        }
 
         // jump
         if (this._velocity.y < 0) {
@@ -147,7 +219,8 @@ class FpsController implements CameraController {
     }
 
     onExit(_camera: Camera): void {
-        // nothing to clean up
+        this._walkTarget = null;
+        this._walkBlockedFrames = 0;
     }
 
     /**
@@ -166,6 +239,80 @@ class FpsController implements CameraController {
         this._velocity.set(0, 0, 0);
         this._grounded = false;
         this._jumping = false;
+        this._walkTarget = null;
+        this._walkBlockedFrames = 0;
+    }
+
+    /**
+     * Auto-walk toward `_walkTarget`: rotate to face the target, move forward,
+     * and stop on arrival or when blocked by an obstacle.
+     *
+     * @param deltaTime - Frame delta time in seconds.
+     * @param camera - Camera state to update.
+     */
+    private _updateWalk(deltaTime: number, camera: Camera) {
+        const target = this._walkTarget!;
+
+        // gravity
+        this._velocity.y -= this.gravity * deltaTime;
+
+        // XZ direction and distance to target
+        const dx = target.x - this._position.x;
+        const dz = target.z - this._position.z;
+        const xzDist = Math.sqrt(dx * dx + dz * dz);
+
+        if (xzDist < WALK_ARRIVAL_DIST) {
+            this.cancelWalk();
+            this._position.add(v.set(0, this._velocity.y * deltaTime, 0));
+            this._checkCollision(this._position, d);
+            camera.position.copy(this._position);
+            camera.angles.set(this._angles.x, this._angles.y, 0);
+            return;
+        }
+
+        // smoothly rotate yaw toward target
+        const targetYaw = Math.atan2(-dx, -dz) * RAD_TO_DEG;
+        let yawDiff = targetYaw - this._angles.y;
+        // wrap to [-180, 180]
+        yawDiff = ((yawDiff % 360) + 540) % 360 - 180;
+        const rotAlpha = damp(this.walkRotateDamping, deltaTime);
+        this._angles.y += yawDiff * rotAlpha;
+
+        // move forward along current facing direction
+        rotation.setFromEulerAngles(0, this._angles.y, 0);
+        rotation.transformVector(Vec3.FORWARD, forward);
+
+        const distBefore = xzDist;
+
+        offset.copy(forward).mulScalar(this.walkSpeed * deltaTime);
+        this._velocity.add(offset.mulScalar(this._grounded ? this.moveGroundSpeed : this.moveAirSpeed));
+        const alpha = damp(this._grounded ? this.velocityDampingGround : this.velocityDampingAir, deltaTime);
+        this._velocity.x = math.lerp(this._velocity.x, 0, alpha);
+        this._velocity.z = math.lerp(this._velocity.z, 0, alpha);
+        this._position.add(v.copy(this._velocity).mulScalar(deltaTime));
+
+        // collision check
+        this._checkCollision(this._position, d);
+
+        // detect horizontal blocking: if we're not making progress toward the
+        // target after collision resolution, an obstacle is in the way
+        const adx = target.x - this._position.x;
+        const adz = target.z - this._position.z;
+        const distAfter = Math.sqrt(adx * adx + adz * adz);
+        const progress = distBefore - distAfter;
+
+        if (progress < WALK_PROGRESS_EPSILON) {
+            this._walkBlockedFrames++;
+            if (this._walkBlockedFrames >= WALK_BLOCKED_THRESHOLD) {
+                this.cancelWalk();
+            }
+        } else {
+            this._walkBlockedFrames = 0;
+        }
+
+        // update camera
+        camera.position.copy(this._position);
+        camera.angles.set(this._angles.x, this._angles.y, 0);
     }
 
     /**

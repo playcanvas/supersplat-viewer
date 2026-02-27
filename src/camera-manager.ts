@@ -76,6 +76,10 @@ class CameraManager {
         controllers.fly.collider = collider;
         controllers.fps.collider = collider;
 
+        controllers.fps.onWalkComplete = () => {
+            events.fire('walkComplete');
+        };
+
         const getController = (cameraMode: CameraMode): CameraController => {
             return controllers[cameraMode] as CameraController;
         };
@@ -243,6 +247,24 @@ class CameraManager {
             controllers.orbit.goto(tmpCamera);
             target.fov = tmpCamera.fov;
             startTransition();
+        });
+
+        // tap-to-walk: start auto-walking toward a picked 3D position
+        events.on('walkTo', (position: Vec3) => {
+            if (state.cameraMode === 'fps') {
+                controllers.fps.walkTo(position);
+                events.fire('walkIndicator:setTarget', position);
+            }
+        });
+
+        // cancel any active auto-walk
+        events.on('walkCancel', () => {
+            controllers.fps.cancelWalk();
+            events.fire('walkIndicator:setTarget', null);
+        });
+
+        events.on('walkComplete', () => {
+            events.fire('walkIndicator:setTarget', null);
         });
     }
 }
