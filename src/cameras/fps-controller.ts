@@ -147,6 +147,7 @@ class FpsController implements CameraController {
     }
 
     onExit(_camera: Camera): void {
+        // nothing to clean up
     }
 
     /**
