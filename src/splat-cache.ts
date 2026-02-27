@@ -23,8 +23,13 @@ import {
     Vec3
 } from 'playcanvas';
 
-const CUBEMAP_SIZE = 512;
-const MOVE_THRESHOLD = 0.05;
+const CUBEMAP_SIZE = 1024;
+
+const LAYER_CONFIG = [
+    { nearDist: 0,  farDist: 5,     moveThreshold: 0.05 },
+    { nearDist: 5,  farDist: 25,    moveThreshold: 0.5  },
+    { nearDist: 25, farDist: 10000, moveThreshold: 2.5  }
+];
 
 const FACE_EULER_ANGLES: [number, number, number][] = [
     [0, 90, 0],      // CUBEFACE_POSX: look +X
@@ -41,15 +46,13 @@ const FACE_INDICES = [
     CUBEFACE_POSZ, CUBEFACE_NEGZ
 ];
 
-// axis index (0=X, 1=Y, 2=Z) and whether to reverse (descending)
-// sort direction matches actual camera forward: back-to-front = farthest first
 const FACE_SORT_MAP: { axis: number; descending: boolean }[] = [
-    { axis: 0, descending: false },  // +X cubemap: camera looks -X, farthest = lowest X
-    { axis: 0, descending: true },   // -X cubemap: camera looks +X, farthest = highest X
-    { axis: 1, descending: true },   // +Y: camera looks +Y, farthest = highest Y
-    { axis: 1, descending: false },  // -Y: camera looks -Y, farthest = lowest Y
-    { axis: 2, descending: true },   // +Z: camera looks +Z, farthest = highest Z
-    { axis: 2, descending: false }   // -Z: camera looks -Z, farthest = lowest Z
+    { axis: 0, descending: false },  // +X cubemap: camera looks -X
+    { axis: 0, descending: true },   // -X cubemap: camera looks +X
+    { axis: 1, descending: true },   // +Y: camera looks +Y
+    { axis: 1, descending: false },  // -Y: camera looks -Y
+    { axis: 2, descending: true },   // +Z: camera looks +Z
+    { axis: 2, descending: false }   // -Z: camera looks -Z
 ];
 
 const compositeVsGlsl = /* glsl */`
@@ -64,7 +67,9 @@ void main() {
 const compositeFsGlsl = /* glsl */`
 precision highp float;
 varying vec2 vUv;
-uniform samplerCube uCubemap;
+uniform samplerCube uCubemapNear;
+uniform samplerCube uCubemapMid;
+uniform samplerCube uCubemapFar;
 uniform mat4 uInvViewProj;
 uniform vec3 uCameraPos;
 
@@ -72,7 +77,14 @@ void main() {
     vec4 clip = vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
     vec4 world = uInvViewProj * clip;
     vec3 viewDir = normalize(world.xyz / world.w - uCameraPos);
-    gl_FragColor = textureCube(uCubemap, vec3(-viewDir.x, -viewDir.y, viewDir.z));
+    vec3 dir = vec3(-viewDir.x, -viewDir.y, viewDir.z);
+
+    vec4 result = textureCube(uCubemapFar, dir);
+    vec4 mid = textureCube(uCubemapMid, dir);
+    result = mid + (1.0 - mid.a) * result;
+    vec4 near = textureCube(uCubemapNear, dir);
+    result = near + (1.0 - near.a) * result;
+    gl_FragColor = result;
 }
 `;
 
@@ -90,8 +102,12 @@ varying vUv: vec2f;
 
 const compositeFsWgsl = /* wgsl */`
 varying vUv: vec2f;
-var uCubemap: texture_cube<f32>;
-var uCubemap_sampler: sampler;
+var uCubemapNear: texture_cube<f32>;
+var uCubemapNear_sampler: sampler;
+var uCubemapMid: texture_cube<f32>;
+var uCubemapMid_sampler: sampler;
+var uCubemapFar: texture_cube<f32>;
+var uCubemapFar_sampler: sampler;
 uniform uInvViewProj: mat4x4f;
 uniform uCameraPos: vec3f;
 
@@ -99,8 +115,15 @@ uniform uCameraPos: vec3f;
     let clip = vec4f(input.vUv * 2.0 - 1.0, 1.0, 1.0);
     let world = uniform.uInvViewProj * clip;
     let viewDir = normalize(world.xyz / world.w - uniform.uCameraPos);
+    let dir = vec3f(-viewDir.x, viewDir.y, viewDir.z);
+
+    var result = textureSampleLevel(uCubemapFar, uCubemapFar_sampler, dir, 0.0);
+    let mid = textureSampleLevel(uCubemapMid, uCubemapMid_sampler, dir, 0.0);
+    result = mid + (1.0 - mid.a) * result;
+    let near = textureSampleLevel(uCubemapNear, uCubemapNear_sampler, dir, 0.0);
+    result = near + (1.0 - near.a) * result;
     var output: FragmentOutput;
-    output.color = textureSampleLevel(uCubemap, uCubemap_sampler, vec3f(-viewDir.x, viewDir.y, viewDir.z), 0.0);
+    output.color = result;
     return output;
 }
 `;
@@ -109,23 +132,30 @@ const tmpVec = new Vec3();
 const tmpMat = new Mat4();
 const instanceSize = 128;
 
+interface CacheLayer {
+    cubemapTexture: Texture;
+    faceRenderTargets: RenderTarget[];
+    facePasses: RenderPassForward[];
+    capturePosition: Vec3;
+    stale: boolean;
+    nearDist: number;
+    farDist: number;
+    moveThreshold: number;
+}
+
 class SplatCache {
     private app: AppBase;
     private gsplatEntity: Entity;
     private cameraEntity: Entity;
 
-    private cubemapTexture: Texture;
-    private faceRenderTargets: RenderTarget[] = [];
-    private facePasses: RenderPassForward[] = [];
+    private layers: CacheLayer[] = [];
     private compositePass: RenderPassShaderQuad;
 
-    // precomputed sort orders in world space
-    private sortAsc: Uint32Array[] = [];   // [axisX, axisY, axisZ]
-    private sortDesc: Uint32Array[] = [];  // [axisX, axisY, axisZ]
+    private sortAsc: Uint32Array[] = [];
+    private sortDesc: Uint32Array[] = [];
     private worldCenters: Float32Array;
     private numSplats: number;
 
-    // saved camera state
     private savedPosition = new Vec3();
     private savedRotation = new Quat();
     private savedFov = 0;
@@ -135,11 +165,6 @@ class SplatCache {
     private savedAspectRatioMode = 0;
     private savedAspectRatio = 1;
 
-    // cache invalidation
-    private capturePosition = new Vec3();
-    private stale = true;
-
-    // saved sorter reference
     private originalSorter: any = null;
 
     constructor(app: AppBase, gsplatEntity: Entity, cameraEntity: Entity) {
@@ -154,7 +179,6 @@ class SplatCache {
         const centers: Float32Array = resource.centers;
         this.numSplats = centers.length / 3;
 
-        // pre-transform centers to world space so sorts align with face directions
         const modelMat = gsplatEntity.getWorldTransform();
         this.worldCenters = new Float32Array(centers.length);
         const tmp = new Vec3();
@@ -166,7 +190,6 @@ class SplatCache {
             this.worldCenters[i * 3 + 2] = tmp.z;
         }
 
-        // disable the normal async sorter
         this.originalSorter = instance.sorter;
         if (instance.sorter) {
             instance.sorter.destroy();
@@ -174,10 +197,15 @@ class SplatCache {
         }
 
         this.precomputeSortOrders();
-        this.createCubemap();
-        this.createRenderPasses();
 
-        console.log(`SplatCache: initialized with ${this.numSplats} splats, cubemap ${CUBEMAP_SIZE}x${CUBEMAP_SIZE}`);
+        for (let i = 0; i < LAYER_CONFIG.length; i++) {
+            this.layers.push(this.createLayer(LAYER_CONFIG[i], i));
+        }
+
+        this.createCompositePass();
+        this.wireRenderPasses();
+
+        console.log(`SplatCache: ${this.numSplats} splats, ${LAYER_CONFIG.length} layers, cubemap ${CUBEMAP_SIZE}x${CUBEMAP_SIZE}`);
     }
 
     private precomputeSortOrders() {
@@ -203,11 +231,16 @@ class SplatCache {
         }
     }
 
-    private createCubemap() {
+    private createLayer(config: typeof LAYER_CONFIG[number], layerIndex: number): CacheLayer {
         const device = this.app.graphicsDevice;
+        const scene = this.app.scene;
+        const renderer = (this.app as any).renderer;
+        const composition = scene.layers;
+        const cameraComponent = this.cameraEntity.camera as CameraComponent;
+        const worldLayer = composition.getLayerById(LAYERID_WORLD);
 
-        this.cubemapTexture = new Texture(device, {
-            name: 'SplatCacheCubemap',
+        const cubemapTexture = new Texture(device, {
+            name: `SplatCacheLayer${layerIndex}`,
             width: CUBEMAP_SIZE,
             height: CUBEMAP_SIZE,
             format: PIXELFORMAT_RGBA8,
@@ -215,72 +248,47 @@ class SplatCache {
             mipmaps: false
         });
 
+        const faceRenderTargets: RenderTarget[] = [];
         for (let face = 0; face < 6; face++) {
             let faceIndex = FACE_INDICES[face];
-            // On WebGL (no flipY), faces are stored upside-down. The composite
-            // shader compensates by negating viewDir.y, which also swaps +Y/-Y
-            // face selection. Counter that by swapping which face we render into.
             if (!device.isWebGPU) {
                 if (faceIndex === CUBEFACE_POSY) faceIndex = CUBEFACE_NEGY;
                 else if (faceIndex === CUBEFACE_NEGY) faceIndex = CUBEFACE_POSY;
             }
-            const rt = new RenderTarget({
-                colorBuffer: this.cubemapTexture,
+            faceRenderTargets.push(new RenderTarget({
+                colorBuffer: cubemapTexture,
                 face: faceIndex,
                 depth: true
-            });
-            this.faceRenderTargets.push(rt);
+            }));
         }
-    }
 
-    private createRenderPasses() {
-        const { app, cameraEntity } = this;
-        const device = app.graphicsDevice;
-        const scene = app.scene;
-        const renderer = (app as any).renderer;
-        const composition = scene.layers;
-        const cameraComponent = cameraEntity.camera as CameraComponent;
-        const worldLayer = composition.getLayerById(LAYERID_WORLD);
-
-        // create 6 face render passes
+        const facePasses: RenderPassForward[] = [];
         for (let face = 0; face < 6; face++) {
             const pass = new RenderPassForward(device, composition, scene, renderer);
-            pass.init(this.faceRenderTargets[face]);
-
-            // clear with transparent black for each face
+            pass.init(faceRenderTargets[face]);
             pass.setClearColor(new Color(0, 0, 0, 0));
             pass.setClearDepth(1.0);
-
-            // store color after rendering
             if (pass.colorArrayOps && pass.colorArrayOps.length > 0) {
                 pass.colorArrayOps[0].store = true;
             }
-
             pass.addLayer(cameraComponent, worldLayer!, false);
             pass.addLayer(cameraComponent, worldLayer!, true);
-
             pass.enabled = false;
-
-            this.facePasses.push(pass);
+            facePasses.push(pass);
         }
 
-        // wrap the face passes' before/after to manage camera state and sort injection
         const cache = this;
         for (let face = 0; face < 6; face++) {
-            const origBefore = this.facePasses[face].before.bind(this.facePasses[face]);
-            const origAfter = this.facePasses[face].after.bind(this.facePasses[face]);
+            const origBefore = facePasses[face].before.bind(facePasses[face]);
+            const origAfter = facePasses[face].after.bind(facePasses[face]);
 
-            this.facePasses[face].before = function () {
-                if (face === 0) {
-                    cache.saveCamera();
-                }
+            facePasses[face].before = function () {
+                cache.saveCamera();
                 cache.setupCameraForFace(face);
-                cache.writeOrderForFace(face);
+                cache.writeOrderForFace(face, config.nearDist, config.farDist);
                 origBefore();
 
-                // re-apply clear settings after origBefore(), since updateClears()
-                // overwrites them with the camera's defaults during frame graph construction
-                const pass = cache.facePasses[face];
+                const pass = facePasses[face];
                 if (pass.colorArrayOps && pass.colorArrayOps.length > 0) {
                     const colorOps = pass.colorArrayOps[0];
                     colorOps.clear = true;
@@ -294,15 +302,27 @@ class SplatCache {
                 }
             };
 
-            this.facePasses[face].after = function () {
+            facePasses[face].after = function () {
                 origAfter();
-                if (face === 5) {
-                    cache.restoreCamera();
-                }
+                cache.restoreCamera();
             };
         }
 
-        // composite pass
+        return {
+            cubemapTexture,
+            faceRenderTargets,
+            facePasses,
+            capturePosition: new Vec3(),
+            stale: true,
+            nearDist: config.nearDist,
+            farDist: config.farDist,
+            moveThreshold: config.moveThreshold
+        };
+    }
+
+    private createCompositePass() {
+        const device = this.app.graphicsDevice;
+
         this.compositePass = new RenderPassShaderQuad(device);
         this.compositePass.init(null);
         this.compositePass.setClearColor(new Color(0, 0, 0, 1));
@@ -316,17 +336,24 @@ class SplatCache {
             fragmentGLSL: compositeFsGlsl,
             fragmentWGSL: compositeFsWgsl
         });
-
         this.compositePass.shader = shader;
 
-        const origCompositeBefore = this.compositePass.before.bind(this.compositePass);
+        const cache = this;
+        const origBefore = this.compositePass.before.bind(this.compositePass);
         this.compositePass.before = () => {
             cache.updateCompositeUniforms();
-            origCompositeBefore();
+            origBefore();
         };
+    }
 
-        // set all passes on the camera
-        cameraComponent.renderPasses = [...this.facePasses, this.compositePass];
+    private wireRenderPasses() {
+        const cameraComponent = this.cameraEntity.camera as CameraComponent;
+        const allPasses: any[] = [];
+        for (const layer of this.layers) {
+            allPasses.push(...layer.facePasses);
+        }
+        allPasses.push(this.compositePass);
+        cameraComponent.renderPasses = allPasses;
     }
 
     private saveCamera() {
@@ -355,8 +382,6 @@ class SplatCache {
         cc.aspectRatio = this.savedAspectRatio;
     }
 
-    private debugFrame = 0;
-
     private setupCameraForFace(face: number) {
         const cam = this.cameraEntity;
         const cc = cam.camera!;
@@ -367,11 +392,11 @@ class SplatCache {
         cc.horizontalFov = false;
         cc.nearClip = 0.01;
         cc.farClip = 10000;
-        cc.aspectRatioMode = 1; // ASPECT_MANUAL
+        cc.aspectRatioMode = 1;
         cc.aspectRatio = 1.0;
     }
 
-    private writeOrderForFace(face: number) {
+    private writeOrderForFace(face: number, nearDist: number, farDist: number) {
         const gsplatComponent = this.gsplatEntity.gsplat as GSplatComponent;
         const instance = gsplatComponent.instance!;
         const orderTexture = (instance as any).orderTexture;
@@ -381,41 +406,12 @@ class SplatCache {
             ? this.sortDesc[sortInfo.axis]
             : this.sortAsc[sortInfo.axis];
 
-        const count = this.computeCountForFace(face, order);
-
-        const faceNames = ['+X', '-X', '+Y', '-Y', '+Z', '-Z'];
-        const doLog = this.debugFrame < 3;
-
-        if (doLog) {
-            const worldEuler = this.cameraEntity.getEulerAngles();
-            const worldPos = this.cameraEntity.getPosition();
-            const fwd = new Vec3();
-            this.cameraEntity.getWorldTransform().getZ(fwd);
-            console.log(
-                `[F${this.debugFrame}] Face ${face} (${faceNames[face]}):\n` +
-                `  euler=(${FACE_EULER_ANGLES[face]})\n` +
-                `  worldEuler=(${worldEuler.x.toFixed(1)}, ${worldEuler.y.toFixed(1)}, ${worldEuler.z.toFixed(1)})\n` +
-                `  camPos=(${worldPos.x.toFixed(3)}, ${worldPos.y.toFixed(3)}, ${worldPos.z.toFixed(3)})\n` +
-                `  camFwd=(${(-fwd.x).toFixed(3)}, ${(-fwd.y).toFixed(3)}, ${(-fwd.z).toFixed(3)})\n` +
-                `  sort: axis=${sortInfo.axis} desc=${sortInfo.descending}\n` +
-                `  count=${count}/${this.numSplats} (${(100 * count / this.numSplats).toFixed(1)}%)\n` +
-                `  instancing=${Math.ceil(count / instanceSize)}`
-            );
-
-            if (count > 0) {
-                const firstIdx = order[0];
-                const lastIdx = order[count - 1];
-                const axis = sortInfo.axis;
-                console.log(
-                    `  order[0]=${firstIdx} worldCenter[${axis}]=${this.worldCenters[firstIdx * 3 + axis].toFixed(3)}\n` +
-                    `  order[${count - 1}]=${lastIdx} worldCenter[${axis}]=${this.worldCenters[lastIdx * 3 + axis].toFixed(3)}`
-                );
-            }
-        }
+        const { startIdx, endIdx } = this.computeShellRange(face, order, nearDist, farDist);
+        const count = endIdx - startIdx;
 
         const data = orderTexture.lock({ mode: TEXTURELOCK_WRITE });
         for (let i = 0; i < count; i++) {
-            data[i] = order[i];
+            data[i] = order[startIdx + i];
         }
         for (let i = count; i < data.length; i++) {
             data[i] = 0;
@@ -424,46 +420,95 @@ class SplatCache {
 
         (instance as any).meshInstance.instancingCount = Math.ceil(count / instanceSize);
         (instance as any).material.setParameter('numSplats', count);
-
-        if (face === 5) {
-            this.debugFrame++;
-        }
     }
 
-    private computeCountForFace(face: number, order: Uint32Array): number {
+    private computeShellRange(
+        face: number,
+        order: Uint32Array,
+        nearDist: number,
+        farDist: number
+    ): { startIdx: number; endIdx: number } {
         const { worldCenters, numSplats } = this;
-
         const worldPos = this.cameraEntity.getPosition();
-
         const sortInfo = FACE_SORT_MAP[face];
         const axis = sortInfo.axis;
-        const camAxisVal = axis === 0 ? worldPos.x : axis === 1 ? worldPos.y : worldPos.z;
+        const camVal = axis === 0 ? worldPos.x : axis === 1 ? worldPos.y : worldPos.z;
 
-        let lo = 0;
-        let hi = numSplats;
+        let startIdx: number;
+        let endIdx: number;
 
         if (sortInfo.descending) {
-            while (lo < hi) {
-                const mid = (lo + hi) >> 1;
-                const idx = order[mid];
-                if (worldCenters[idx * 3 + axis] > camAxisVal) {
-                    lo = mid + 1;
-                } else {
-                    hi = mid;
-                }
-            }
+            // Descending order (highest first). Splats in front have value > camVal.
+            // Shell: camVal + nearDist <= value <= camVal + farDist
+            // startIdx: first index where value <= camVal + farDist
+            startIdx = this.bsFirstLE(order, axis, camVal + farDist);
+            // endIdx: first index where value < camVal + nearDist
+            endIdx = this.bsFirstLT(order, axis, camVal + nearDist);
         } else {
-            while (lo < hi) {
-                const mid = (lo + hi) >> 1;
-                const idx = order[mid];
-                if (worldCenters[idx * 3 + axis] < camAxisVal) {
-                    lo = mid + 1;
-                } else {
-                    hi = mid;
-                }
-            }
+            // Ascending order (lowest first). Splats in front have value < camVal.
+            // Shell: camVal - farDist <= value <= camVal - nearDist
+            // startIdx: first index where value >= camVal - farDist
+            startIdx = this.bsFirstGE(order, axis, camVal - farDist);
+            // endIdx: first index where value > camVal - nearDist
+            endIdx = this.bsFirstGT(order, axis, camVal - nearDist);
         }
 
+        return { startIdx, endIdx };
+    }
+
+    private bsFirstLE(order: Uint32Array, axis: number, thresh: number): number {
+        const { worldCenters, numSplats } = this;
+        let lo = 0, hi = numSplats;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (worldCenters[order[mid] * 3 + axis] > thresh) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        return lo;
+    }
+
+    private bsFirstLT(order: Uint32Array, axis: number, thresh: number): number {
+        const { worldCenters, numSplats } = this;
+        let lo = 0, hi = numSplats;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (worldCenters[order[mid] * 3 + axis] >= thresh) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        return lo;
+    }
+
+    private bsFirstGE(order: Uint32Array, axis: number, thresh: number): number {
+        const { worldCenters, numSplats } = this;
+        let lo = 0, hi = numSplats;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (worldCenters[order[mid] * 3 + axis] < thresh) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        return lo;
+    }
+
+    private bsFirstGT(order: Uint32Array, axis: number, thresh: number): number {
+        const { worldCenters, numSplats } = this;
+        let lo = 0, hi = numSplats;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (worldCenters[order[mid] * 3 + axis] <= thresh) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
         return lo;
     }
 
@@ -479,7 +524,9 @@ class SplatCache {
         tmpMat.invert();
 
         const scope = device.scope;
-        scope.resolve('uCubemap').setValue(this.cubemapTexture);
+        scope.resolve('uCubemapNear').setValue(this.layers[0].cubemapTexture);
+        scope.resolve('uCubemapMid').setValue(this.layers[1].cubemapTexture);
+        scope.resolve('uCubemapFar').setValue(this.layers[2].cubemapTexture);
         scope.resolve('uInvViewProj').setValue(tmpMat.data);
 
         const pos = cam.getPosition();
@@ -488,39 +535,38 @@ class SplatCache {
 
     frameUpdate(): boolean {
         const cameraPos = this.cameraEntity.getPosition();
-        const dist = tmpVec.sub2(cameraPos, this.capturePosition).length();
 
-        if (this.stale || dist > MOVE_THRESHOLD) {
-            // enable face passes for this frame
-            for (const pass of this.facePasses) {
-                pass.enabled = true;
+        for (const layer of this.layers) {
+            const dist = tmpVec.sub2(cameraPos, layer.capturePosition).length();
+            const needsUpdate = layer.stale || dist > layer.moveThreshold;
+
+            for (const pass of layer.facePasses) {
+                pass.enabled = needsUpdate;
             }
-            this.capturePosition.copy(cameraPos);
-            this.stale = false;
-            return true;
+
+            if (needsUpdate) {
+                layer.capturePosition.copy(cameraPos);
+                layer.stale = false;
+            }
         }
 
-        // cache is valid, disable face passes
-        for (const pass of this.facePasses) {
-            pass.enabled = false;
-        }
         return true;
     }
 
     destroy() {
-        // restore sorter
         const gsplatComponent = this.gsplatEntity.gsplat as GSplatComponent;
         if (gsplatComponent?.instance && this.originalSorter) {
             (gsplatComponent.instance as any).sorter = this.originalSorter;
         }
 
-        for (const rt of this.faceRenderTargets) {
-            rt.destroy();
-        }
-        this.cubemapTexture.destroy();
-
-        for (const pass of this.facePasses) {
-            pass.destroy();
+        for (const layer of this.layers) {
+            for (const rt of layer.faceRenderTargets) {
+                rt.destroy();
+            }
+            layer.cubemapTexture.destroy();
+            for (const pass of layer.facePasses) {
+                pass.destroy();
+            }
         }
         this.compositePass.destroy();
     }
