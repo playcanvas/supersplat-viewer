@@ -78,7 +78,7 @@ type ExperienceSettings = {
     cameras: Camera[],
     annotations: Annotation[],
 
-    startMode: 'default' | 'animTrack' | 'annotation',
+    startMode: 'default' | 'animTrack' | 'annotation' | 'none',
 
     hasStartPose?: boolean
 };

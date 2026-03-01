@@ -55,7 +55,7 @@ class CameraManager {
             if (animTracks?.length > 0 && settings.startMode === 'animTrack') {
                 // use the first animTrack
                 return animTracks[0];
-            } else if (isObjectExperience) {
+            } else if (isObjectExperience && settings.startMode !== 'none') {
                 // create basic rotation animation if no anim track is specified
                 initial.calcFocusPoint(tmpv);
                 return createRotateTrack(initial.position, tmpv, initial.fov);
