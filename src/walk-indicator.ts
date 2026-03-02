@@ -417,21 +417,22 @@ const particleVS = /* glsl */`
     uniform float walk_time;
 
     varying vec2 vUV;
+    varying float vFade;
 
     void main() {
         float rand0 = vertex_position.x;
+        float rand1 = vertex_position.y;
         float rand2 = vertex_position.z;
 
-        float startAngle = rand0 * 6.28318530718;
-        float rBase = rand2 * rand2 * 0.5;
-        float expand = smoothstep(0.0, 0.5, walk_time);
-        float r = rBase * expand;
+        float angle = rand0 * 6.28318530718;
+        float rBase = rand2 * rand2 * rand2 * 0.5;
+        float r = rBase * smoothstep(0.0, 0.5, walk_time);
 
-        float nd = max(rBase, 0.01);
-        float speed = 0.375 / (nd * sqrt(nd));
-        float theta = startAngle + walk_time * speed;
+        float riseSpeed = 0.3 + rand2 * 0.4;
+        float t = fract(max(walk_time - rand1 * 2.0, 0.0) * riseSpeed);
+        float y = t * 1.5;
 
-        vec3 center = walk_target + vec3(r * cos(theta), 0.0, r * sin(theta));
+        vec3 center = walk_target + vec3(r * cos(angle), y, r * sin(angle));
 
         vec3 camRight = walk_viewInverse[0].xyz;
         vec3 camUp = walk_viewInverse[1].xyz;
@@ -443,6 +444,8 @@ const particleVS = /* glsl */`
 
         gl_Position = matrix_viewProjection * vec4(worldPos, 1.0);
         vUV = aQuadCorner;
+        float maxT = 1.0 - rBase;
+        vFade = smoothstep(0.0, 0.1, t) * smoothstep(maxT, maxT - 0.15, t);
     }
 `;
 
@@ -456,23 +459,24 @@ const particleVS_WGSL = /* wgsl */`
     uniform walk_time: f32;
 
     varying vUV: vec2f;
+    varying vFade: f32;
 
     @vertex fn vertexMain(input: VertexInput) -> VertexOutput {
         var output: VertexOutput;
 
         let rand0 = input.vertex_position.x;
+        let rand1 = input.vertex_position.y;
         let rand2 = input.vertex_position.z;
 
-        let startAngle = rand0 * 6.28318530718;
-        let rBase = rand2 * rand2 * 0.5;
-        let expand = smoothstep(0.0, 0.5, uniform.walk_time);
-        let r = rBase * expand;
+        let angle = rand0 * 6.28318530718;
+        let rBase = rand2 * rand2 * rand2 * 0.5;
+        let r = rBase * smoothstep(0.0, 0.5, uniform.walk_time);
 
-        let nd = max(rBase, 0.01);
-        let speed = 0.375 / (nd * sqrt(nd));
-        let theta = startAngle + uniform.walk_time * speed;
+        let riseSpeed = 0.3 + rand2 * 0.4;
+        let t = fract(max(uniform.walk_time - rand1 * 2.0, 0.0) * riseSpeed);
+        let y = t * 1.5;
 
-        let center = uniform.walk_target + vec3f(r * cos(theta), 0.0, r * sin(theta));
+        let center = uniform.walk_target + vec3f(r * cos(angle), y, r * sin(angle));
 
         let camRight = uniform.walk_viewInverse[0].xyz;
         let camUp = uniform.walk_viewInverse[1].xyz;
@@ -484,6 +488,8 @@ const particleVS_WGSL = /* wgsl */`
 
         output.position = uniform.matrix_viewProjection * vec4f(worldPos, 1.0);
         output.vUV = input.aQuadCorner;
+        let maxT = 1.0 - rBase;
+        output.vFade = smoothstep(0.0, 0.1, t) * smoothstep(maxT, maxT - 0.15, t);
         return output;
     }
 `;
@@ -492,22 +498,24 @@ const particleFS = /* glsl */`
     precision highp float;
 
     varying vec2 vUV;
+    varying float vFade;
 
     void main() {
         float r = length(vUV);
-        if (r > 1.0) discard;
+        if (r > 1.0 || vFade < 0.5) discard;
         gl_FragColor = vec4(2.55, 2.76, 3.0, 1.0);
     }
 `;
 
 const particleFS_WGSL = /* wgsl */`
     varying vUV: vec2f;
+    varying vFade: f32;
 
     @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         var output: FragmentOutput;
 
         let r = length(input.vUV);
-        if (r > 1.0) {
+        if (r > 1.0 || input.vFade < 0.5) {
             discard;
             return output;
         }
