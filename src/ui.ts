@@ -584,8 +584,11 @@ const initUI = (global: Global) => {
         }
     });
 
-    dom.walkHint.addEventListener('click', () => {
-        dom.walkHint.classList.add('hidden');
+    const dismissWalkHint = () => dom.walkHint.classList.add('hidden');
+
+    dom.walkHint.addEventListener('click', dismissWalkHint);
+    events.on('inputEvent', (type: string) => {
+        if (type === 'interrupt') dismissWalkHint();
     });
 
     // show/hide the FPS button based on voxel data availability
