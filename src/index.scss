@@ -76,13 +76,6 @@ button {
     cursor: pointer;
     pointer-events: auto;
     white-space: nowrap;
-    opacity: 1;
-    transition: opacity 300ms ease;
-
-    &.hidden {
-        opacity: 0;
-        pointer-events: none;
-    }
 }
 
 /* branding link for third-party embeds */
