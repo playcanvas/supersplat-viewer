@@ -63,6 +63,28 @@ button {
     pointer-events: auto;
 }
 
+.walkHint {
+    position: absolute;
+    top: max(60px, env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(black, 0.7);
+    color: $clr-text-light;
+    font-size: 14px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    pointer-events: auto;
+    white-space: nowrap;
+    opacity: 1;
+    transition: opacity 300ms ease;
+
+    &.hidden {
+        opacity: 0;
+        pointer-events: none;
+    }
+}
+
 /* branding link for third-party embeds */
 
 #supersplatBranding {

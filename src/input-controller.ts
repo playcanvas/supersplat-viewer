@@ -529,6 +529,7 @@ class InputController {
         const pan = this._state.mouse[2] || +(button[2] === -1) || double;
 
         const orbitFactor = fly ? camera.fov / 120 : 1;
+        const dragInvert = (isFps && !state.gamingControls) ? -1 : 1;
 
         const { deltas } = this.frame;
 
@@ -557,7 +558,7 @@ class InputController {
 
         // desktop rotate
         v.set(0, 0, 0);
-        mouseRotate.set(mouse[0], mouse[1], 0);
+        mouseRotate.set(mouse[0] * dragInvert, mouse[1] * dragInvert, 0);
         v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * orbitFactor * this.mouseRotateSensitivity * DISPLACEMENT_SCALE));
         deltas.rotate.append([v.x, v.y, v.z]);
 
@@ -592,7 +593,7 @@ class InputController {
         v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * this.touchRotateSensitivity * DISPLACEMENT_SCALE));
         // In fly mode, use single touch for look-around (inverted direction)
         // Exclude multi-touch (double) to avoid interference with pinch/strafe gestures
-        flyRotate.set(touch[0], touch[1], 0);
+        flyRotate.set(touch[0] * dragInvert, touch[1] * dragInvert, 0);
         v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * this.touchRotateSensitivity * DISPLACEMENT_SCALE));
         deltas.rotate.append([v.x, v.y, v.z]);
 
