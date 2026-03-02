@@ -416,19 +416,25 @@ const particleVS = /* glsl */`
     uniform vec3 walk_target;
     uniform float walk_time;
     uniform float walk_radius;
+    uniform float walk_cameraY;
+    uniform vec4 viewport_size;
 
     varying vec2 vUV;
     varying float vBrightness;
 
     void main() {
-        float startAngle = vertex_position.x;
-        float yPos = vertex_position.y;
-        float normalizedDist = vertex_position.z;
+        float rand0 = vertex_position.x;
+        float rand1 = vertex_position.y;
+        float rand2 = vertex_position.z;
 
-        float angle = startAngle + walk_time * 0.75;
-        float r = normalizedDist * walk_radius;
+        float startAngle = rand0 * 6.28318530718;
+        float r = rand2 * rand2 * 0.5;
 
-        vec3 center = walk_target + vec3(r * cos(angle), yPos, r * sin(angle));
+        float nd = max(r, 0.01);
+        float speed = 0.375 / (nd * sqrt(nd));
+        float theta = startAngle + walk_time * speed;
+
+        vec3 center = walk_target + vec3(r * cos(theta), 0.0, r * sin(theta));
 
         vBrightness = 1.0;
 
@@ -454,6 +460,8 @@ const particleVS_WGSL = /* wgsl */`
     uniform walk_target: vec3f;
     uniform walk_time: f32;
     uniform walk_radius: f32;
+    uniform walk_cameraY: f32;
+    uniform viewport_size: vec4f;
 
     varying vUV: vec2f;
     varying vBrightness: f32;
@@ -461,14 +469,18 @@ const particleVS_WGSL = /* wgsl */`
     @vertex fn vertexMain(input: VertexInput) -> VertexOutput {
         var output: VertexOutput;
 
-        let startAngle = input.vertex_position.x;
-        let yPos = input.vertex_position.y;
-        let normalizedDist = input.vertex_position.z;
+        let rand0 = input.vertex_position.x;
+        let rand1 = input.vertex_position.y;
+        let rand2 = input.vertex_position.z;
 
-        let angle = startAngle + uniform.walk_time * 0.75;
-        let r = normalizedDist * uniform.walk_radius;
+        let startAngle = rand0 * 6.28318530718;
+        let r = rand2 * rand2 * 0.5;
 
-        let center = uniform.walk_target + vec3f(r * cos(angle), yPos, r * sin(angle));
+        let nd = max(r, 0.01);
+        let speed = 0.375 / (nd * sqrt(nd));
+        let theta = startAngle + uniform.walk_time * speed;
+
+        let center = uniform.walk_target + vec3f(r * cos(theta), 0.0, r * sin(theta));
 
         output.vBrightness = 1.0;
 
@@ -493,11 +505,7 @@ const particleFS = /* glsl */`
     varying float vBrightness;
 
     void main() {
-        float r = length(vUV);
-        float edge = fwidth(r);
-        float mask = 1.0 - smoothstep(1.0 - edge, 1.0, r);
-        if (mask < 0.5) discard;
-        gl_FragColor = vec4(vec3(2.55, 2.76, 3.0) * vBrightness * mask, 1.0);
+        gl_FragColor = vec4(vec3(2.55, 2.76, 3.0) * vBrightness, 1.0);
     }
 `;
 
@@ -508,14 +516,7 @@ const particleFS_WGSL = /* wgsl */`
     @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         var output: FragmentOutput;
 
-        let r = length(input.vUV);
-        let edge = fwidth(r);
-        let mask = 1.0 - smoothstep(1.0 - edge, 1.0, r);
-        if (mask < 0.5) {
-            discard;
-            return output;
-        }
-        output.color = vec4f(vec3f(2.55, 2.76, 3.0) * input.vBrightness * mask, 1.0);
+        output.color = vec4f(vec3f(2.55, 2.76, 3.0) * input.vBrightness, 1.0);
         return output;
     }
 `;
@@ -523,14 +524,8 @@ const particleFS_WGSL = /* wgsl */`
 // ── Constants & helpers ─────────────────────────────────────────────────────
 
 const CORE_HALF_HEIGHT = 20.0;
-const PARTICLE_COUNT = 8000;
+const PARTICLE_COUNT = 250;
 const PARTICLE_RADIUS = 1.5;
-
-const HELIX_ARMS = 3;
-const HELIX_TURNS = 5;
-const HELIX_RADIUS_CENTER = 0.5;
-const HELIX_RADIUS_SCATTER = 0.12;
-const HELIX_ANGLE_SCATTER = 0.25;
 
 const QUAD_CORNERS = [-1, -1, 1, -1, 1, 1, -1, 1];
 
@@ -555,6 +550,10 @@ class WalkIndicator {
     private target: Vec3 | null = null;
 
     private startTime = 0;
+
+    private cameraYAtClick = 0;
+
+    private needsCameraY = false;
 
     private origGlsl: string;
 
@@ -636,21 +635,17 @@ class WalkIndicator {
         const indices = new Uint16Array(totalIndices);
 
         for (let i = 0; i < PARTICLE_COUNT; i++) {
-            const arm = i % HELIX_ARMS;
-            const armOffset = arm * (2 * Math.PI / HELIX_ARMS);
-            const t = i / PARTICLE_COUNT;
-            const yPos = (t * 2 - 1) * CORE_HALF_HEIGHT;
-            const helixAngle = armOffset + t * HELIX_TURNS * 2 * Math.PI;
-            const startAngle = helixAngle + (rng() * 2 - 1) * HELIX_ANGLE_SCATTER;
-            const normalizedDist = Math.max(0.01, Math.min(1, HELIX_RADIUS_CENTER + (rng() * 2 - 1) * HELIX_RADIUS_SCATTER));
+            const rand0 = rng();
+            const rand1 = rng();
+            const rand2 = rng();
 
             const base = i * 4;
             for (let j = 0; j < 4; j++) {
                 const vi = base + j;
 
-                particleData[vi * 3] = startAngle;
-                particleData[vi * 3 + 1] = yPos;
-                particleData[vi * 3 + 2] = normalizedDist;
+                particleData[vi * 3] = rand0;
+                particleData[vi * 3 + 1] = rand1;
+                particleData[vi * 3 + 2] = rand2;
 
                 corners[vi * 2] = QUAD_CORNERS[j * 2];
                 corners[vi * 2 + 1] = QUAD_CORNERS[j * 2 + 1];
@@ -710,6 +705,7 @@ class WalkIndicator {
         this.target = pos ? pos.clone() : null;
         if (pos) {
             this.startTime = performance.now() / 1000;
+            this.needsCameraY = true;
         }
         this.coreEntity.enabled = !!pos;
         this.particleEntity.enabled = !!pos;
@@ -732,14 +728,28 @@ class WalkIndicator {
         scope.resolve('walk_viewInverse').setValue(invViewMat.data);
 
         if (this.target) {
+            if (this.needsCameraY) {
+                this.cameraYAtClick = camera.getPosition().y;
+                this.needsCameraY = false;
+            }
+
+            const camPos = camera.getPosition();
+            const dist = camPos.distance(this.target);
+            const visible = dist > 2.0;
+
+            this.coreEntity.enabled = visible;
+            this.particleEntity.enabled = visible;
+
             const elapsed = performance.now() / 1000 - this.startTime;
             scope.resolve('walk_target').setValue([this.target.x, this.target.y, this.target.z]);
-            scope.resolve('walk_radius').setValue(1.5);
+            scope.resolve('walk_radius').setValue(visible ? 1.5 : 0);
             scope.resolve('walk_time').setValue(elapsed);
+            scope.resolve('walk_cameraY').setValue(this.cameraYAtClick);
         } else {
             scope.resolve('walk_target').setValue([0, 0, 0]);
             scope.resolve('walk_radius').setValue(0);
             scope.resolve('walk_time').setValue(0);
+            scope.resolve('walk_cameraY').setValue(0);
         }
     }
 
