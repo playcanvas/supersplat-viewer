@@ -8,7 +8,6 @@ import {
     MeshInstance,
     PRIMITIVE_TRIANGLES,
     SEMANTIC_POSITION,
-    SEMANTIC_TEXCOORD0,
     SEMANTIC_TEXCOORD1,
     ShaderChunks,
     ShaderMaterial,
@@ -127,12 +126,9 @@ void main(void) {
         if (walk_radius > 0.0) {
             vec3 walkWorldPos = walkReconstructWorldPos();
             float xzDist = length(walkWorldPos.xz - walk_target.xz);
-            float yDist = abs(walkWorldPos.y - walk_target.y);
 
             float nd = xzDist / walk_radius;
             float lightFalloff = 1.0 / (1.0 + nd * nd * 8.0);
-
-            float heightAtten = 1.0 / (1.0 + yDist * yDist * 0.02);
 
             float pulse = 1.0 + 0.1 * sin(walk_time * 3.0);
 
@@ -140,10 +136,9 @@ void main(void) {
             float ringDist = abs(xzDist / walk_radius - ringPhase);
             float ring = smoothstep(0.1, 0.0, ringDist) * 0.2 * (1.0 - ringPhase);
 
-            float intensity = (lightFalloff * heightAtten * 0.8 + ring) * pulse;
+            float intensity = (lightFalloff * 0.8 + ring) * pulse;
 
-            vec3 litColor = gaussianColor.xyz * (1.0 + intensity * 3.0);
-            litColor = mix(litColor, vec3(0.85, 0.92, 1.0), intensity * 0.5);
+            vec3 litColor = gaussianColor.xyz * (1.0 + vec3(2.55, 2.76, 3.0) * intensity);
 
             gl_FragColor = vec4(litColor * alpha, alpha);
         } else {
@@ -269,12 +264,9 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         if (uniform.walk_radius > 0.0) {
             let walkWorldPos = walkReconstructWorldPos(pcPosition);
             let xzDist = length(walkWorldPos.xz - uniform.walk_target.xz);
-            let yDist = abs(walkWorldPos.y - uniform.walk_target.y);
 
             let nd = xzDist / uniform.walk_radius;
             let lightFalloff = 1.0 / (1.0 + nd * nd * 8.0);
-
-            let heightAtten = 1.0 / (1.0 + yDist * yDist * 0.02);
 
             let pulse = 1.0 + 0.1 * sin(uniform.walk_time * 3.0);
 
@@ -282,10 +274,9 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             let ringDist = abs(xzDist / uniform.walk_radius - ringPhase);
             let ring = smoothstep(0.1, 0.0, ringDist) * 0.2 * (1.0 - ringPhase);
 
-            let intensity = (lightFalloff * heightAtten * 0.8 + ring) * pulse;
+            let intensity = (lightFalloff * 0.8 + ring) * pulse;
 
-            var litColor = gc * (1.0 + intensity * 3.0);
-            litColor = mix(litColor, vec3f(0.85, 0.92, 1.0), intensity * 0.5);
+            let litColor = gc * (1.0 + vec3f(2.55, 2.76, 3.0) * intensity);
 
             output.color = vec4f(litColor * alpha, alpha);
         } else {
@@ -370,7 +361,7 @@ const coreFS = /* glsl */`
         if (abs(vUV.y) > 0.95) discard;
 
         float pulse = 1.0 + 0.08 * sin(walk_time * 3.0);
-        vec3 color = vec3(0.85, 0.92, 1.0) * pulse;
+        vec3 color = vec3(2.55, 2.76, 3.0) * pulse;
 
         gl_FragColor = vec4(color, 1.0);
     }
@@ -389,7 +380,7 @@ const coreFS_WGSL = /* wgsl */`
         }
 
         let pulse = 1.0 + 0.08 * sin(uniform.walk_time * 3.0);
-        let color = vec3f(0.85, 0.92, 1.0) * pulse;
+        let color = vec3f(2.55, 2.76, 3.0) * pulse;
 
         output.color = vec4f(color, 1.0);
         return output;
@@ -400,35 +391,28 @@ const coreFS_WGSL = /* wgsl */`
 
 const particleVS = /* glsl */`
     attribute vec3 vertex_position;
-    attribute vec4 aRandomData;
     attribute vec2 aQuadCorner;
 
     uniform mat4 matrix_viewProjection;
     uniform mat4 walk_viewInverse;
     uniform vec3 walk_target;
     uniform float walk_time;
+    uniform float walk_radius;
 
     varying vec2 vUV;
     varying float vBrightness;
 
     void main() {
-        float seed = aRandomData.x;
-        float speed = aRandomData.y;
-        float amp = aRandomData.z;
-        float phase = aRandomData.w;
+        float startAngle = vertex_position.x;
+        float yPos = vertex_position.y;
+        float normalizedDist = vertex_position.z;
 
-        float t = walk_time;
+        float angle = startAngle + walk_time * 0.75;
+        float r = normalizedDist * walk_radius;
 
-        float dx = amp * (sin(t * 0.7 * speed + seed * 6.283)
-                 + 0.5 * sin(t * 1.3 * speed + phase * 2.0));
-        float dy = amp * 0.3 * sin(t * 0.5 * speed + seed * 9.42 + phase);
-        float dz = amp * (sin(t * 0.9 * speed + seed * 4.189 + phase * 1.3)
-                 + 0.5 * cos(t * 1.1 * speed + phase * 3.0));
+        vec3 center = walk_target + vec3(r * cos(angle), yPos, r * sin(angle));
 
-        vec3 center = walk_target + vertex_position + vec3(dx, dy, dz);
-
-        float dist = length(vertex_position.xz);
-        vBrightness = 1.0 - dist / 1.5 * 0.8;
+        vBrightness = 1.0;
 
         vec3 camRight = walk_viewInverse[0].xyz;
         vec3 camUp = walk_viewInverse[1].xyz;
@@ -445,13 +429,13 @@ const particleVS = /* glsl */`
 
 const particleVS_WGSL = /* wgsl */`
     attribute vertex_position: vec3f;
-    attribute aRandomData: vec4f;
     attribute aQuadCorner: vec2f;
 
     uniform matrix_viewProjection: mat4x4f;
     uniform walk_viewInverse: mat4x4f;
     uniform walk_target: vec3f;
     uniform walk_time: f32;
+    uniform walk_radius: f32;
 
     varying vUV: vec2f;
     varying vBrightness: f32;
@@ -459,23 +443,16 @@ const particleVS_WGSL = /* wgsl */`
     @vertex fn vertexMain(input: VertexInput) -> VertexOutput {
         var output: VertexOutput;
 
-        let seed = input.aRandomData.x;
-        let speed = input.aRandomData.y;
-        let amp = input.aRandomData.z;
-        let phase = input.aRandomData.w;
+        let startAngle = input.vertex_position.x;
+        let yPos = input.vertex_position.y;
+        let normalizedDist = input.vertex_position.z;
 
-        let t = uniform.walk_time;
+        let angle = startAngle + uniform.walk_time * 0.75;
+        let r = normalizedDist * uniform.walk_radius;
 
-        let dx = amp * (sin(t * 0.7 * speed + seed * 6.283)
-                 + 0.5 * sin(t * 1.3 * speed + phase * 2.0));
-        let dy = amp * 0.3 * sin(t * 0.5 * speed + seed * 9.42 + phase);
-        let dz = amp * (sin(t * 0.9 * speed + seed * 4.189 + phase * 1.3)
-                 + 0.5 * cos(t * 1.1 * speed + phase * 3.0));
+        let center = uniform.walk_target + vec3f(r * cos(angle), yPos, r * sin(angle));
 
-        let center = uniform.walk_target + input.vertex_position + vec3f(dx, dy, dz);
-
-        let dist = length(input.vertex_position.xz);
-        output.vBrightness = 1.0 - dist / 1.5 * 0.8;
+        output.vBrightness = 1.0;
 
         let camRight = uniform.walk_viewInverse[0].xyz;
         let camUp = uniform.walk_viewInverse[1].xyz;
@@ -499,7 +476,7 @@ const particleFS = /* glsl */`
 
     void main() {
         if (dot(vUV, vUV) > 1.0) discard;
-        gl_FragColor = vec4(vec3(0.85, 0.92, 1.0) * vBrightness, 1.0);
+        gl_FragColor = vec4(vec3(2.55, 2.76, 3.0) * vBrightness, 1.0);
     }
 `;
 
@@ -514,7 +491,7 @@ const particleFS_WGSL = /* wgsl */`
             discard;
             return output;
         }
-        output.color = vec4f(vec3f(0.85, 0.92, 1.0) * input.vBrightness, 1.0);
+        output.color = vec4f(vec3f(2.55, 2.76, 3.0) * input.vBrightness, 1.0);
         return output;
     }
 `;
@@ -522,8 +499,14 @@ const particleFS_WGSL = /* wgsl */`
 // ── Constants & helpers ─────────────────────────────────────────────────────
 
 const CORE_HALF_HEIGHT = 20.0;
-const PARTICLE_COUNT = 4000;
+const PARTICLE_COUNT = 8000;
 const PARTICLE_RADIUS = 1.5;
+
+const HELIX_ARMS = 3;
+const HELIX_TURNS = 5;
+const HELIX_RADIUS_CENTER = 0.5;
+const HELIX_RADIUS_SCATTER = 0.12;
+const HELIX_ANGLE_SCATTER = 0.25;
 
 const QUAD_CORNERS = [-1, -1, 1, -1, 1, 1, -1, 1];
 
@@ -624,38 +607,26 @@ class WalkIndicator {
         const totalVerts = PARTICLE_COUNT * 4;
         const totalIndices = PARTICLE_COUNT * 6;
 
-        const positions = new Float32Array(totalVerts * 3);
-        const randomData = new Float32Array(totalVerts * 4);
+        const particleData = new Float32Array(totalVerts * 3);
         const corners = new Float32Array(totalVerts * 2);
         const indices = new Uint16Array(totalIndices);
 
         for (let i = 0; i < PARTICLE_COUNT; i++) {
-            const u = rng();
-            const r = PARTICLE_RADIUS * u * u * u * u * u;
-            const theta = rng() * Math.PI * 2;
-
-            const px = r * Math.cos(theta);
-            const py = (rng() * 2 - 1) * CORE_HALF_HEIGHT;
-            const pz = r * Math.sin(theta);
-
-            const proximity = 1.0 - u * u * u * u * u;
-            const seed = rng();
-            const speed = (0.3 + rng() * 0.7) * (1.0 + proximity * 3.0);
-            const amp = (0.01 + rng() * 0.04) * (1.0 + proximity * 4.0);
-            const phase = rng() * Math.PI * 2;
+            const arm = i % HELIX_ARMS;
+            const armOffset = arm * (2 * Math.PI / HELIX_ARMS);
+            const t = i / PARTICLE_COUNT;
+            const yPos = (t * 2 - 1) * CORE_HALF_HEIGHT;
+            const helixAngle = armOffset + t * HELIX_TURNS * 2 * Math.PI;
+            const startAngle = helixAngle + (rng() * 2 - 1) * HELIX_ANGLE_SCATTER;
+            const normalizedDist = Math.max(0.01, Math.min(1, HELIX_RADIUS_CENTER + (rng() * 2 - 1) * HELIX_RADIUS_SCATTER));
 
             const base = i * 4;
             for (let j = 0; j < 4; j++) {
                 const vi = base + j;
 
-                positions[vi * 3] = px;
-                positions[vi * 3 + 1] = py;
-                positions[vi * 3 + 2] = pz;
-
-                randomData[vi * 4] = seed;
-                randomData[vi * 4 + 1] = speed;
-                randomData[vi * 4 + 2] = amp;
-                randomData[vi * 4 + 3] = phase;
+                particleData[vi * 3] = startAngle;
+                particleData[vi * 3 + 1] = yPos;
+                particleData[vi * 3 + 2] = normalizedDist;
 
                 corners[vi * 2] = QUAD_CORNERS[j * 2];
                 corners[vi * 2 + 1] = QUAD_CORNERS[j * 2 + 1];
@@ -671,8 +642,7 @@ class WalkIndicator {
         }
 
         const mesh = new Mesh(device);
-        mesh.setPositions(positions, 3);
-        mesh.setVertexStream(SEMANTIC_TEXCOORD0, randomData, 4);
+        mesh.setPositions(particleData, 3);
         mesh.setVertexStream(SEMANTIC_TEXCOORD1, corners, 2);
         mesh.setIndices(indices);
         mesh.update(PRIMITIVE_TRIANGLES);
@@ -685,7 +655,6 @@ class WalkIndicator {
             fragmentWGSL: particleFS_WGSL,
             attributes: {
                 vertex_position: SEMANTIC_POSITION,
-                aRandomData: SEMANTIC_TEXCOORD0,
                 aQuadCorner: SEMANTIC_TEXCOORD1
             }
         });
