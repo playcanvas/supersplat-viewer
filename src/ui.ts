@@ -235,7 +235,7 @@ const initUI = (global: Global) => {
         'settings', 'settingsPanel',
         'orbitCamera', 'flyCamera', 'fpsCamera',
         'retinaDisplayRow', 'retinaDisplayCheck', 'retinaDisplayOption',
-        'gamingControlsDivider', 'gamingControlsRow', 'gamingControlsCheck', 'gamingControlsOption',
+        'gamingControlsRow', 'gamingControlsCheck', 'gamingControlsOption',
         'desktopClickToWalk', 'desktopGamingControls',
         'touchFlyClickToWalk', 'touchFlyGamingControls',
         'touchClickToWalk', 'touchGamingControls',
@@ -366,16 +366,8 @@ const initUI = (global: Global) => {
         localStorage.setItem('gamingControls', String(state.gamingControls));
     };
 
-    const updateGamingControlsVisibility = () => {
-        const visible = state.hasCollision;
-        dom.gamingControlsDivider.classList.toggle('hidden', !visible);
-        dom.gamingControlsRow.classList.toggle('hidden', !visible);
-    };
-
     events.on('gamingControls:changed', updateGamingControls);
-    events.on('hasCollision:changed', updateGamingControlsVisibility);
     updateGamingControls();
-    updateGamingControlsVisibility();
 
     // AR/VR
     const arChanged = () => dom.arMode.classList[state.hasAR ? 'remove' : 'add']('hidden');

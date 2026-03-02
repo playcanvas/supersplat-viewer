@@ -271,7 +271,7 @@ class InputController {
                     const pickX = this._lastPointerOffsetX / canvas.clientWidth;
                     const pickY = this._lastPointerOffsetY / canvas.clientHeight;
                     this._picker.pick(pickX, pickY).then((result) => {
-                        if (result && state.cameraMode === 'fps') {
+                        if (result && state.cameraMode === 'fps' && !state.gamingControls) {
                             events.fire('walkTo', result);
                         }
                     });
@@ -488,7 +488,7 @@ class InputController {
                         const pickX = this._lastPointerOffsetX / canvas.clientWidth;
                         const pickY = this._lastPointerOffsetY / canvas.clientHeight;
                         this._picker.pick(pickX, pickY).then((result) => {
-                            if (result && state.cameraMode === 'fps') {
+                            if (result && state.cameraMode === 'fps' && !state.gamingControls) {
                                 events.fire('walkTo', result);
                             }
                         });
