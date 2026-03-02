@@ -129,16 +129,20 @@ void main(void) {
 
             float nd = xzDist / walk_radius;
             float lightFalloff = 1.0 / (1.0 + nd * nd * 8.0);
+            float coreBoost = 1.0 / (1.0 + nd * nd * 200.0);
 
             float pulse = 1.0 + 0.1 * sin(walk_time * 3.0);
 
             float ringPhase = fract(walk_time * 0.5);
             float ringDist = abs(xzDist / walk_radius - ringPhase);
-            float ring = smoothstep(0.1, 0.0, ringDist) * 0.2 * (1.0 - ringPhase);
+            float ringBase = smoothstep(0.1, 0.0, ringDist) * 0.3 * (1.0 - ringPhase);
+            float ring = ringBase * (1.0 + lightFalloff);
 
-            float intensity = (lightFalloff * 0.8 + ring) * pulse;
+            float intensity = (lightFalloff * 0.8 + coreBoost * 1.5 + ring) * pulse;
 
-            vec3 litColor = gaussianColor.xyz * (1.0 + vec3(2.55, 2.76, 3.0) * intensity);
+            float lum = dot(gaussianColor.rgb, vec3(0.299, 0.587, 0.114));
+            float adaptiveIntensity = intensity * (1.0 - lum * 0.7);
+            vec3 litColor = gaussianColor.xyz * (1.0 + vec3(0.85, 0.92, 1.0) * adaptiveIntensity);
 
             gl_FragColor = vec4(litColor * alpha, alpha);
         } else {
@@ -267,16 +271,20 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
 
             let nd = xzDist / uniform.walk_radius;
             let lightFalloff = 1.0 / (1.0 + nd * nd * 8.0);
+            let coreBoost = 1.0 / (1.0 + nd * nd * 200.0);
 
             let pulse = 1.0 + 0.1 * sin(uniform.walk_time * 3.0);
 
             let ringPhase = fract(uniform.walk_time * 0.5);
             let ringDist = abs(xzDist / uniform.walk_radius - ringPhase);
-            let ring = smoothstep(0.1, 0.0, ringDist) * 0.2 * (1.0 - ringPhase);
+            let ringBase = smoothstep(0.1, 0.0, ringDist) * 0.3 * (1.0 - ringPhase);
+            let ring = ringBase * (1.0 + lightFalloff);
 
-            let intensity = (lightFalloff * 0.8 + ring) * pulse;
+            let intensity = (lightFalloff * 0.8 + coreBoost * 1.5 + ring) * pulse;
 
-            let litColor = gc * (1.0 + vec3f(2.55, 2.76, 3.0) * intensity);
+            let lum = dot(gc, vec3f(0.299, 0.587, 0.114));
+            let adaptiveIntensity = intensity * (1.0 - lum * 0.7);
+            let litColor = gc * (1.0 + vec3f(0.85, 0.92, 1.0) * adaptiveIntensity);
 
             output.color = vec4f(litColor * alpha, alpha);
         } else {
