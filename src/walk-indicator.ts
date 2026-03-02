@@ -424,15 +424,17 @@ const particleVS = /* glsl */`
         float rand1 = vertex_position.y;
         float rand2 = vertex_position.z;
 
-        float angle = rand0 * 6.28318530718;
-        float rBase = rand2 * rand2 * rand2 * 0.5;
+        float baseAngle = rand0 * 6.28318530718;
+        float rBase = sqrt(rand2) * 0.5;
         float r = rBase * smoothstep(0.0, 0.5, walk_time);
 
         float riseSpeed = 0.3 + rand2 * 0.4;
         float t = fract(max(walk_time - rand1 * 2.0, 0.0) * riseSpeed);
-        float y = t * 1.5;
+        float y = t * t * 1.5;
 
-        vec3 center = walk_target + vec3(r * cos(angle), y, r * sin(angle));
+        float swirl = baseAngle + t * (0.5 + rand1);
+        float swirlR = r + 0.01;
+        vec3 center = walk_target + vec3(swirlR * cos(swirl), y, swirlR * sin(swirl));
 
         vec3 camRight = walk_viewInverse[0].xyz;
         vec3 camUp = walk_viewInverse[1].xyz;
@@ -468,15 +470,17 @@ const particleVS_WGSL = /* wgsl */`
         let rand1 = input.vertex_position.y;
         let rand2 = input.vertex_position.z;
 
-        let angle = rand0 * 6.28318530718;
-        let rBase = rand2 * rand2 * rand2 * 0.5;
+        let baseAngle = rand0 * 6.28318530718;
+        let rBase = sqrt(rand2) * 0.5;
         let r = rBase * smoothstep(0.0, 0.5, uniform.walk_time);
 
         let riseSpeed = 0.3 + rand2 * 0.4;
         let t = fract(max(uniform.walk_time - rand1 * 2.0, 0.0) * riseSpeed);
-        let y = t * 1.5;
+        let y = t * t * 1.5;
 
-        let center = uniform.walk_target + vec3f(r * cos(angle), y, r * sin(angle));
+        let swirl = baseAngle + t * (0.5 + rand1);
+        let swirlR = r + 0.01;
+        let center = uniform.walk_target + vec3f(swirlR * cos(swirl), y, swirlR * sin(swirl));
 
         let camRight = uniform.walk_viewInverse[0].xyz;
         let camUp = uniform.walk_viewInverse[1].xyz;
@@ -635,7 +639,7 @@ class WalkIndicator {
         const indices = new Uint16Array(totalIndices);
 
         for (let i = 0; i < PARTICLE_COUNT; i++) {
-            const rand0 = rng();
+            const rand0 = i / PARTICLE_COUNT;
             const rand1 = rng();
             const rand2 = rng();
 
