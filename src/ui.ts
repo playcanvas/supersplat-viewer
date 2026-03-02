@@ -565,13 +565,13 @@ const initUI = (global: Global) => {
 
     const getWalkHintText = () => {
         if (state.inputMode === 'desktop') {
-            return state.gamingControls
-                ? 'WASD to move. Mouse to look around. Space to jump.'
-                : 'Click to walk. Click and drag to look around.';
+            return state.gamingControls ?
+                'WASD to move. Mouse to look around. Space to jump.' :
+                'Click to walk. Click and drag to look around.';
         }
-        return state.gamingControls
-            ? 'Use the joystick to move. Drag to look around. Tap to jump.'
-            : 'Tap to walk. Drag to look around.';
+        return state.gamingControls ?
+            'Use the joystick to move. Drag to look around. Tap to jump.' :
+            'Tap to walk. Drag to look around.';
     };
 
     events.on('cameraMode:changed', (value: string) => {
