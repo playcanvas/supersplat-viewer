@@ -428,9 +428,11 @@ const particleVS = /* glsl */`
         float rand2 = vertex_position.z;
 
         float startAngle = rand0 * 6.28318530718;
-        float r = rand2 * rand2 * 0.5;
+        float rBase = rand2 * rand2 * 0.5;
+        float expand = smoothstep(0.0, 0.5, walk_time);
+        float r = rBase * expand;
 
-        float nd = max(r, 0.01);
+        float nd = max(rBase, 0.01);
         float speed = 0.375 / (nd * sqrt(nd));
         float theta = startAngle + walk_time * speed;
 
@@ -474,9 +476,11 @@ const particleVS_WGSL = /* wgsl */`
         let rand2 = input.vertex_position.z;
 
         let startAngle = rand0 * 6.28318530718;
-        let r = rand2 * rand2 * 0.5;
+        let rBase = rand2 * rand2 * 0.5;
+        let expand = smoothstep(0.0, 0.5, uniform.walk_time);
+        let r = rBase * expand;
 
-        let nd = max(r, 0.01);
+        let nd = max(rBase, 0.01);
         let speed = 0.375 / (nd * sqrt(nd));
         let theta = startAngle + uniform.walk_time * speed;
 
