@@ -545,6 +545,8 @@ class WalkIndicator {
 
     private startTime = 0;
 
+    private visible = false;
+
     private origGlsl: string;
 
     private origWgsl: string;
@@ -570,7 +572,7 @@ class WalkIndicator {
         this.particleEntity = this.createParticleEntity();
 
         app.on('framerender', () => {
-            if (this.target) {
+            if (this.target && this.visible) {
                 app.renderNextFrame = true;
             }
         });
@@ -693,11 +695,12 @@ class WalkIndicator {
      */
     setTarget(pos: Vec3 | null) {
         this.target = pos ? pos.clone() : null;
+        this.visible = !!pos;
         if (pos) {
             this.startTime = performance.now() / 1000;
         }
-        this.coreEntity.enabled = !!pos;
-        this.particleEntity.enabled = !!pos;
+        this.coreEntity.enabled = this.visible;
+        this.particleEntity.enabled = this.visible;
         this.app.renderNextFrame = true;
     }
 
@@ -719,17 +722,17 @@ class WalkIndicator {
         if (this.target) {
             const camPos = camera.getPosition();
             const dist = camPos.distance(this.target);
-            const visible = dist > 2.0;
+            this.visible = dist > 2.0;
 
-            this.coreEntity.enabled = visible;
-            this.particleEntity.enabled = visible;
+            this.coreEntity.enabled = this.visible;
+            this.particleEntity.enabled = this.visible;
 
             const elapsed = performance.now() / 1000 - this.startTime;
             targetVec[0] = this.target.x;
             targetVec[1] = this.target.y;
             targetVec[2] = this.target.z;
             scope.resolve('walk_target').setValue(targetVec);
-            scope.resolve('walk_radius').setValue(visible ? 1.5 : 0);
+            scope.resolve('walk_radius').setValue(this.visible ? 1.5 : 0);
             scope.resolve('walk_time').setValue(elapsed);
         } else {
             targetVec[0] = 0;
