@@ -134,9 +134,11 @@ void main(void) {
             float pulse = 1.0 + 0.1 * sin(walk_time * 3.0);
 
             float ringPhase = fract(walk_time * 0.5);
-            float ringDist = abs(xzDist / walk_radius - ringPhase);
-            float ringBase = smoothstep(0.1, 0.0, ringDist) * 0.3 * (1.0 - ringPhase);
-            float ring = ringBase * (1.0 + lightFalloff);
+            float ringPos = xzDist / walk_radius - ringPhase;
+            float ringFade = 1.0 - ringPhase;
+            float crest = smoothstep(0.1, 0.0, abs(ringPos)) * 1.0 * ringFade * (1.0 + lightFalloff);
+            float trough = smoothstep(0.25, 0.0, abs(ringPos + 0.15)) * -1.0 * ringFade;
+            float ring = crest + trough;
 
             float intensity = (lightFalloff * 0.8 + coreBoost * 1.5 + ring) * pulse;
 
@@ -279,9 +281,11 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             let pulse = 1.0 + 0.1 * sin(uniform.walk_time * 3.0);
 
             let ringPhase = fract(uniform.walk_time * 0.5);
-            let ringDist = abs(xzDist / uniform.walk_radius - ringPhase);
-            let ringBase = smoothstep(0.1, 0.0, ringDist) * 0.3 * (1.0 - ringPhase);
-            let ring = ringBase * (1.0 + lightFalloff);
+            let ringPos = xzDist / uniform.walk_radius - ringPhase;
+            let ringFade = 1.0 - ringPhase;
+            let crest = smoothstep(0.1, 0.0, abs(ringPos)) * 1.0 * ringFade * (1.0 + lightFalloff);
+            let trough = smoothstep(0.25, 0.0, abs(ringPos + 0.15)) * -1.0 * ringFade;
+            let ring = crest + trough;
 
             let intensity = (lightFalloff * 0.8 + coreBoost * 1.5 + ring) * pulse;
 
