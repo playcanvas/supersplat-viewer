@@ -143,8 +143,11 @@ void main(void) {
             float lum = dot(gaussianColor.rgb, vec3(0.299, 0.587, 0.114));
             float adaptiveIntensity = intensity * (1.0 - lum * 0.7);
             vec3 litColor = gaussianColor.xyz * (1.0 + vec3(0.85, 0.92, 1.0) * adaptiveIntensity);
+            float spatialFalloff = normExp(A);
+            float boostedBase = mix(gaussianColor.a, 1.0, min(intensity * 0.3, 1.0));
+            float glowAlpha = spatialFalloff * boostedBase;
 
-            gl_FragColor = vec4(litColor * alpha, alpha);
+            gl_FragColor = vec4(litColor * glowAlpha, glowAlpha);
         } else {
             gl_FragColor = vec4(gaussianColor.xyz * alpha, alpha);
         }
@@ -208,7 +211,7 @@ fn walkReconstructWorldPos(fragCoord: vec4f) -> vec3f {
     let ndc = fragCoord.xy * uniform.viewport_size.zw * 2.0 - 1.0;
     let viewPos = vec3f(
         ndc.x * linearDepth / uniform.matrix_projection[0][0],
-        ndc.y * linearDepth / uniform.matrix_projection[1][1],
+        -ndc.y * linearDepth / uniform.matrix_projection[1][1],
         -linearDepth
     );
     return (uniform.walk_viewInverse * vec4f(viewPos, 1.0)).xyz;
@@ -285,8 +288,11 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             let lum = dot(gc, vec3f(0.299, 0.587, 0.114));
             let adaptiveIntensity = intensity * (1.0 - lum * 0.7);
             let litColor = gc * (1.0 + vec3f(0.85, 0.92, 1.0) * adaptiveIntensity);
+            let spatialFalloff = normExp(A);
+            let boostedBase = mix(f32(gaussianColor.a), 1.0, min(intensity * 0.3, 1.0));
+            let glowAlpha = spatialFalloff * boostedBase;
 
-            output.color = vec4f(litColor * alpha, alpha);
+            output.color = vec4f(litColor * glowAlpha, glowAlpha);
         } else {
             output.color = vec4f(gc * alpha, alpha);
         }
@@ -312,12 +318,12 @@ const coreVS = /* glsl */`
         vec3 up = vec3(0.0, 1.0, 0.0);
 
         float halfWidth = 0.0075;
-        float halfHeight = 20.0;
+        float halfHeight = 10000.0;
 
         vec3 centerWorld = walk_target + up * vertex_position.y * halfHeight;
-        vec4 centerClip = matrix_viewProjection * vec4(centerWorld, 1.0);
 
-        float minPixelHalf = 1.0 / viewport_size.x * centerClip.w;
+        vec4 targetClip = matrix_viewProjection * vec4(walk_target, 1.0);
+        float minPixelHalf = 1.0 / viewport_size.x * targetClip.w;
         float effectiveHalfWidth = max(halfWidth, minPixelHalf);
 
         vec3 worldPos = centerWorld + camRight * vertex_position.x * effectiveHalfWidth;
@@ -342,12 +348,12 @@ const coreVS_WGSL = /* wgsl */`
         let up = vec3f(0.0, 1.0, 0.0);
 
         let halfWidth = 0.0075;
-        let halfHeight = 20.0;
+        let halfHeight = 10000.0;
 
         let centerWorld = uniform.walk_target + up * input.vertex_position.y * halfHeight;
-        let centerClip = uniform.matrix_viewProjection * vec4f(centerWorld, 1.0);
 
-        let minPixelHalf = 1.0 / uniform.viewport_size.x * centerClip.w;
+        let targetClip = uniform.matrix_viewProjection * vec4f(uniform.walk_target, 1.0);
+        let minPixelHalf = 1.0 / uniform.viewport_size.x * targetClip.w;
         let effectiveHalfWidth = max(halfWidth, minPixelHalf);
 
         let worldPos = centerWorld + camRight * input.vertex_position.x * effectiveHalfWidth;
@@ -424,7 +430,7 @@ const particleVS = /* glsl */`
 
         vec3 camRight = walk_viewInverse[0].xyz;
         vec3 camUp = walk_viewInverse[1].xyz;
-        float halfSize = 0.005;
+        float halfSize = 0.00625;
 
         vec3 worldPos = center
                       + camRight * aQuadCorner.x * halfSize
@@ -464,7 +470,7 @@ const particleVS_WGSL = /* wgsl */`
 
         let camRight = uniform.walk_viewInverse[0].xyz;
         let camUp = uniform.walk_viewInverse[1].xyz;
-        let halfSize = 0.005;
+        let halfSize = 0.00625;
 
         let worldPos = center
                      + camRight * input.aQuadCorner.x * halfSize
@@ -483,8 +489,11 @@ const particleFS = /* glsl */`
     varying float vBrightness;
 
     void main() {
-        if (dot(vUV, vUV) > 1.0) discard;
-        gl_FragColor = vec4(vec3(2.55, 2.76, 3.0) * vBrightness, 1.0);
+        float r = length(vUV);
+        float edge = fwidth(r);
+        float mask = 1.0 - smoothstep(1.0 - edge, 1.0, r);
+        if (mask < 0.5) discard;
+        gl_FragColor = vec4(vec3(2.55, 2.76, 3.0) * vBrightness * mask, 1.0);
     }
 `;
 
@@ -495,11 +504,14 @@ const particleFS_WGSL = /* wgsl */`
     @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         var output: FragmentOutput;
 
-        if (dot(input.vUV, input.vUV) > 1.0) {
+        let r = length(input.vUV);
+        let edge = fwidth(r);
+        let mask = 1.0 - smoothstep(1.0 - edge, 1.0, r);
+        if (mask < 0.5) {
             discard;
             return output;
         }
-        output.color = vec4f(vec3f(2.55, 2.76, 3.0) * input.vBrightness, 1.0);
+        output.color = vec4f(vec3f(2.55, 2.76, 3.0) * input.vBrightness * mask, 1.0);
         return output;
     }
 `;
