@@ -509,6 +509,8 @@ const particleFS = /* glsl */`
     varying float vBrightness;
 
     void main() {
+        float r = length(vUV);
+        if (r > 1.0) discard;
         gl_FragColor = vec4(vec3(2.55, 2.76, 3.0) * vBrightness, 1.0);
     }
 `;
@@ -520,6 +522,11 @@ const particleFS_WGSL = /* wgsl */`
     @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         var output: FragmentOutput;
 
+        let r = length(input.vUV);
+        if (r > 1.0) {
+            discard;
+            return output;
+        }
         output.color = vec4f(vec3f(2.55, 2.76, 3.0) * input.vBrightness, 1.0);
         return output;
     }
