@@ -134,7 +134,7 @@ void main(void) {
             float pulse = 1.0 + 0.1 * sin(walk_time * 3.0);
 
             float ringPhase = fract(walk_time * 0.5);
-            float ringPos = xzDist / walk_radius - ringPhase;
+            float ringPos = nd - ringPhase;
             float ringFade = 1.0 - ringPhase;
             float crest = smoothstep(0.1, 0.0, abs(ringPos)) * 1.0 * ringFade * (1.0 + lightFalloff);
             float trough = smoothstep(0.25, 0.0, abs(ringPos + 0.15)) * -1.0 * ringFade;
@@ -281,7 +281,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             let pulse = 1.0 + 0.1 * sin(uniform.walk_time * 3.0);
 
             let ringPhase = fract(uniform.walk_time * 0.5);
-            let ringPos = xzDist / uniform.walk_radius - ringPhase;
+            let ringPos = nd - ringPhase;
             let ringFade = 1.0 - ringPhase;
             let crest = smoothstep(0.1, 0.0, abs(ringPos)) * 1.0 * ringFade * (1.0 + lightFalloff);
             let trough = smoothstep(0.25, 0.0, abs(ringPos + 0.15)) * -1.0 * ringFade;
@@ -415,16 +415,11 @@ const particleVS = /* glsl */`
     uniform mat4 walk_viewInverse;
     uniform vec3 walk_target;
     uniform float walk_time;
-    uniform float walk_radius;
-    uniform float walk_cameraY;
-    uniform vec4 viewport_size;
 
     varying vec2 vUV;
-    varying float vBrightness;
 
     void main() {
         float rand0 = vertex_position.x;
-        float rand1 = vertex_position.y;
         float rand2 = vertex_position.z;
 
         float startAngle = rand0 * 6.28318530718;
@@ -437,8 +432,6 @@ const particleVS = /* glsl */`
         float theta = startAngle + walk_time * speed;
 
         vec3 center = walk_target + vec3(r * cos(theta), 0.0, r * sin(theta));
-
-        vBrightness = 1.0;
 
         vec3 camRight = walk_viewInverse[0].xyz;
         vec3 camUp = walk_viewInverse[1].xyz;
@@ -461,18 +454,13 @@ const particleVS_WGSL = /* wgsl */`
     uniform walk_viewInverse: mat4x4f;
     uniform walk_target: vec3f;
     uniform walk_time: f32;
-    uniform walk_radius: f32;
-    uniform walk_cameraY: f32;
-    uniform viewport_size: vec4f;
 
     varying vUV: vec2f;
-    varying vBrightness: f32;
 
     @vertex fn vertexMain(input: VertexInput) -> VertexOutput {
         var output: VertexOutput;
 
         let rand0 = input.vertex_position.x;
-        let rand1 = input.vertex_position.y;
         let rand2 = input.vertex_position.z;
 
         let startAngle = rand0 * 6.28318530718;
@@ -485,8 +473,6 @@ const particleVS_WGSL = /* wgsl */`
         let theta = startAngle + uniform.walk_time * speed;
 
         let center = uniform.walk_target + vec3f(r * cos(theta), 0.0, r * sin(theta));
-
-        output.vBrightness = 1.0;
 
         let camRight = uniform.walk_viewInverse[0].xyz;
         let camUp = uniform.walk_viewInverse[1].xyz;
@@ -506,18 +492,16 @@ const particleFS = /* glsl */`
     precision highp float;
 
     varying vec2 vUV;
-    varying float vBrightness;
 
     void main() {
         float r = length(vUV);
         if (r > 1.0) discard;
-        gl_FragColor = vec4(vec3(2.55, 2.76, 3.0) * vBrightness, 1.0);
+        gl_FragColor = vec4(2.55, 2.76, 3.0, 1.0);
     }
 `;
 
 const particleFS_WGSL = /* wgsl */`
     varying vUV: vec2f;
-    varying vBrightness: f32;
 
     @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         var output: FragmentOutput;
@@ -527,21 +511,20 @@ const particleFS_WGSL = /* wgsl */`
             discard;
             return output;
         }
-        output.color = vec4f(vec3f(2.55, 2.76, 3.0) * input.vBrightness, 1.0);
+        output.color = vec4f(2.55, 2.76, 3.0, 1.0);
         return output;
     }
 `;
 
 // ── Constants & helpers ─────────────────────────────────────────────────────
 
-const CORE_HALF_HEIGHT = 20.0;
 const PARTICLE_COUNT = 250;
-const PARTICLE_RADIUS = 1.5;
 
 const QUAD_CORNERS = [-1, -1, 1, -1, 1, 1, -1, 1];
 
 const viewMat = new Mat4();
 const invViewMat = new Mat4();
+const targetVec = new Float32Array(3);
 
 const mulberry32 = (seed: number) => {
     return () => {
@@ -561,10 +544,6 @@ class WalkIndicator {
     private target: Vec3 | null = null;
 
     private startTime = 0;
-
-    private cameraYAtClick = 0;
-
-    private needsCameraY = false;
 
     private origGlsl: string;
 
@@ -716,7 +695,6 @@ class WalkIndicator {
         this.target = pos ? pos.clone() : null;
         if (pos) {
             this.startTime = performance.now() / 1000;
-            this.needsCameraY = true;
         }
         this.coreEntity.enabled = !!pos;
         this.particleEntity.enabled = !!pos;
@@ -739,11 +717,6 @@ class WalkIndicator {
         scope.resolve('walk_viewInverse').setValue(invViewMat.data);
 
         if (this.target) {
-            if (this.needsCameraY) {
-                this.cameraYAtClick = camera.getPosition().y;
-                this.needsCameraY = false;
-            }
-
             const camPos = camera.getPosition();
             const dist = camPos.distance(this.target);
             const visible = dist > 2.0;
@@ -752,15 +725,19 @@ class WalkIndicator {
             this.particleEntity.enabled = visible;
 
             const elapsed = performance.now() / 1000 - this.startTime;
-            scope.resolve('walk_target').setValue([this.target.x, this.target.y, this.target.z]);
+            targetVec[0] = this.target.x;
+            targetVec[1] = this.target.y;
+            targetVec[2] = this.target.z;
+            scope.resolve('walk_target').setValue(targetVec);
             scope.resolve('walk_radius').setValue(visible ? 1.5 : 0);
             scope.resolve('walk_time').setValue(elapsed);
-            scope.resolve('walk_cameraY').setValue(this.cameraYAtClick);
         } else {
-            scope.resolve('walk_target').setValue([0, 0, 0]);
+            targetVec[0] = 0;
+            targetVec[1] = 0;
+            targetVec[2] = 0;
+            scope.resolve('walk_target').setValue(targetVec);
             scope.resolve('walk_radius').setValue(0);
             scope.resolve('walk_time').setValue(0);
-            scope.resolve('walk_cameraY').setValue(0);
         }
     }
 
