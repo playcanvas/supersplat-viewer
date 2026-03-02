@@ -8,7 +8,7 @@ import { Global } from './types';
 const initJoystick = (
     dom: Record<string, HTMLElement>,
     events: EventHandler,
-    state: { cameraMode: string; inputMode: string; touchControlScheme: string }
+    state: { cameraMode: string; inputMode: string; gamingControls: boolean }
 ) => {
     // Joystick dimensions (matches SCSS: base height=100, stick size=40)
     const joystickHeight = 100;
@@ -34,7 +34,7 @@ const initJoystick = (
 
     // Update joystick visibility based on camera mode and input mode
     const updateJoystickVisibility = () => {
-        if ((state.cameraMode === 'fly' || state.cameraMode === 'fps') && state.inputMode === 'touch' && state.touchControlScheme === 'joystick') {
+        if ((state.cameraMode === 'fly' || state.cameraMode === 'fps') && state.inputMode === 'touch' && state.gamingControls) {
             dom.joystickBase.classList.remove('hidden');
             dom.joystickBase.classList.toggle('mode-2d', joystickMode === '2d');
             dom.joystickBase.style.left = `${joystickFixedX}px`;
@@ -53,7 +53,7 @@ const initJoystick = (
 
     events.on('cameraMode:changed', updateJoystickVisibility);
     events.on('inputMode:changed', updateJoystickVisibility);
-    events.on('touchControlScheme:changed', updateJoystickVisibility);
+    events.on('gamingControls:changed', updateJoystickVisibility);
     window.addEventListener('resize', updateJoystickVisibility);
 
     // Handle joystick touch input directly on the joystick element
@@ -234,10 +234,10 @@ const initUI = (global: Global) => {
         'play', 'pause',
         'settings', 'settingsPanel',
         'orbitCamera', 'flyCamera', 'fpsCamera',
-        'hqCheck', 'hqOption', 'lqCheck', 'lqOption',
-        'touchControlsDivider', 'joystickSchemeRow', 'pinchSchemeRow',
-        'joystickSchemeCheck', 'joystickSchemeOption', 'pinchSchemeCheck', 'pinchSchemeOption',
-        'touchFlyJoystick', 'touchFlyPinch',
+        'retinaDisplayRow', 'retinaDisplayCheck', 'retinaDisplayOption',
+        'gamingControlsDivider', 'gamingControlsRow', 'gamingControlsCheck', 'gamingControlsOption',
+        'desktopClickToWalk', 'desktopGamingControls',
+        'touchClickToWalk', 'touchGamingControls',
         'reset', 'frame',
         'loadingText', 'loadingBar',
         'joystickBase', 'joystick',
@@ -337,52 +337,42 @@ const initUI = (global: Global) => {
         dom.exitFullscreen.classList[value ? 'remove' : 'add']('hidden');
     });
 
-    // HQ mode (click anywhere in the row, not just the label)
-    dom.hqOption.parentElement.addEventListener('click', () => {
-        state.hqMode = true;
-    });
-    dom.lqOption.parentElement.addEventListener('click', () => {
-        state.hqMode = false;
+    // Retina display toggle
+    dom.retinaDisplayRow.addEventListener('click', () => {
+        state.retinaDisplay = !state.retinaDisplay;
     });
 
-    const updateHQ = () => {
-        dom.hqCheck.classList[state.hqMode ? 'add' : 'remove']('active');
-        dom.lqCheck.classList[state.hqMode ? 'remove' : 'add']('active');
+    const updateRetinaDisplay = () => {
+        dom.retinaDisplayCheck.classList.toggle('active', state.retinaDisplay);
+        localStorage.setItem('retinaDisplay', String(state.retinaDisplay));
     };
-    events.on('hqMode:changed', () => {
-        updateHQ();
-        localStorage.setItem('hqMode', String(state.hqMode));
-    });
-    updateHQ();
+    events.on('retinaDisplay:changed', updateRetinaDisplay);
+    updateRetinaDisplay();
 
-    // Touch control scheme toggle (only visible on touch devices)
-    dom.joystickSchemeRow.addEventListener('click', () => {
-        state.touchControlScheme = 'joystick';
-    });
-    dom.pinchSchemeRow.addEventListener('click', () => {
-        state.touchControlScheme = 'pinch';
+    // Gaming mode toggle
+    dom.gamingControlsRow.addEventListener('click', () => {
+        state.gamingControls = !state.gamingControls;
     });
 
-    const updateTouchControlScheme = () => {
-        const isJoystick = state.touchControlScheme === 'joystick';
-        dom.joystickSchemeCheck.classList.toggle('active', isJoystick);
-        dom.pinchSchemeCheck.classList.toggle('active', !isJoystick);
-        dom.touchFlyJoystick.classList.toggle('hidden', !isJoystick);
-        dom.touchFlyPinch.classList.toggle('hidden', isJoystick);
-        localStorage.setItem('touchControlScheme', state.touchControlScheme);
+    const updateGamingControls = () => {
+        dom.gamingControlsCheck.classList.toggle('active', state.gamingControls);
+        dom.desktopClickToWalk.classList.toggle('hidden', state.gamingControls);
+        dom.desktopGamingControls.classList.toggle('hidden', !state.gamingControls);
+        dom.touchClickToWalk.classList.toggle('hidden', state.gamingControls);
+        dom.touchGamingControls.classList.toggle('hidden', !state.gamingControls);
+        localStorage.setItem('gamingControls', String(state.gamingControls));
     };
 
-    const updateTouchControlsVisibility = () => {
-        const isTouch = state.inputMode === 'touch';
-        dom.touchControlsDivider.classList.toggle('hidden', !isTouch);
-        dom.joystickSchemeRow.classList.toggle('hidden', !isTouch);
-        dom.pinchSchemeRow.classList.toggle('hidden', !isTouch);
+    const updateGamingControlsVisibility = () => {
+        const visible = state.hasCollision;
+        dom.gamingControlsDivider.classList.toggle('hidden', !visible);
+        dom.gamingControlsRow.classList.toggle('hidden', !visible);
     };
 
-    events.on('touchControlScheme:changed', updateTouchControlScheme);
-    events.on('inputMode:changed', updateTouchControlsVisibility);
-    updateTouchControlScheme();
-    updateTouchControlsVisibility();
+    events.on('gamingControls:changed', updateGamingControls);
+    events.on('hasCollision:changed', updateGamingControlsVisibility);
+    updateGamingControls();
+    updateGamingControlsVisibility();
 
     // AR/VR
     const arChanged = () => dom.arMode.classList[state.hasAR ? 'remove' : 'add']('hidden');

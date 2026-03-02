@@ -305,106 +305,6 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     return output;
 }`;
 
-// ── Core billboard shaders ──────────────────────────────────────────────────
-
-const coreVS = /* glsl */`
-    attribute vec3 vertex_position;
-
-    uniform mat4 matrix_viewProjection;
-    uniform mat4 walk_viewInverse;
-    uniform vec3 walk_target;
-    uniform vec4 viewport_size;
-
-    varying vec2 vUV;
-
-    void main() {
-        vec3 camRight = normalize(vec3(walk_viewInverse[0][0], 0.0, walk_viewInverse[0][2]));
-        vec3 up = vec3(0.0, 1.0, 0.0);
-
-        float halfWidth = 0.0075;
-        float halfHeight = 10000.0;
-
-        vec3 centerWorld = walk_target + up * vertex_position.y * halfHeight;
-
-        vec4 targetClip = matrix_viewProjection * vec4(walk_target, 1.0);
-        float minPixelHalf = 1.0 / viewport_size.x * targetClip.w;
-        float effectiveHalfWidth = max(halfWidth, minPixelHalf);
-
-        vec3 worldPos = centerWorld + camRight * vertex_position.x * effectiveHalfWidth;
-
-        gl_Position = matrix_viewProjection * vec4(worldPos, 1.0);
-        vUV = vertex_position.xy;
-    }
-`;
-
-const coreVS_WGSL = /* wgsl */`
-    attribute vertex_position: vec3f;
-    uniform matrix_viewProjection: mat4x4f;
-    uniform walk_viewInverse: mat4x4f;
-    uniform walk_target: vec3f;
-    uniform viewport_size: vec4f;
-    varying vUV: vec2f;
-
-    @vertex fn vertexMain(input: VertexInput) -> VertexOutput {
-        var output: VertexOutput;
-
-        let camRight = normalize(vec3f(uniform.walk_viewInverse[0][0], 0.0, uniform.walk_viewInverse[0][2]));
-        let up = vec3f(0.0, 1.0, 0.0);
-
-        let halfWidth = 0.0075;
-        let halfHeight = 10000.0;
-
-        let centerWorld = uniform.walk_target + up * input.vertex_position.y * halfHeight;
-
-        let targetClip = uniform.matrix_viewProjection * vec4f(uniform.walk_target, 1.0);
-        let minPixelHalf = 1.0 / uniform.viewport_size.x * targetClip.w;
-        let effectiveHalfWidth = max(halfWidth, minPixelHalf);
-
-        let worldPos = centerWorld + camRight * input.vertex_position.x * effectiveHalfWidth;
-
-        output.position = uniform.matrix_viewProjection * vec4f(worldPos, 1.0);
-        output.vUV = input.vertex_position.xy;
-        return output;
-    }
-`;
-
-const coreFS = /* glsl */`
-    precision highp float;
-
-    uniform float walk_time;
-
-    varying vec2 vUV;
-
-    void main() {
-        if (abs(vUV.y) > 0.95) discard;
-
-        float pulse = 1.0 + 0.08 * sin(walk_time * 3.0);
-        vec3 color = vec3(2.55, 2.76, 3.0) * pulse;
-
-        gl_FragColor = vec4(color, 1.0);
-    }
-`;
-
-const coreFS_WGSL = /* wgsl */`
-    uniform walk_time: f32;
-    varying vUV: vec2f;
-
-    @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
-        var output: FragmentOutput;
-
-        if (abs(input.vUV.y) > 0.95) {
-            discard;
-            return output;
-        }
-
-        let pulse = 1.0 + 0.08 * sin(uniform.walk_time * 3.0);
-        let color = vec3f(2.55, 2.76, 3.0) * pulse;
-
-        output.color = vec4f(color, 1.0);
-        return output;
-    }
-`;
-
 // ── Particle shaders ────────────────────────────────────────────────────────
 
 const particleVS = /* glsl */`
@@ -563,8 +463,6 @@ class WalkIndicator {
 
     private origWgsl: string;
 
-    private coreEntity: Entity;
-
     private particleEntity: Entity;
 
     constructor(app: AppBase) {
@@ -580,7 +478,6 @@ class WalkIndicator {
         glsl.set('gsplatPS', gsplatPSGlsl);
         wgsl.set('gsplatPS', gsplatPSWgsl);
 
-        this.coreEntity = this.createCoreEntity();
         this.particleEntity = this.createParticleEntity();
 
         app.on('framerender', () => {
@@ -588,43 +485,6 @@ class WalkIndicator {
                 app.renderNextFrame = true;
             }
         });
-    }
-
-    private createCoreEntity(): Entity {
-        const device = this.app.graphicsDevice;
-
-        const mesh = new Mesh(device);
-        mesh.setPositions([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3);
-        mesh.setIndices([0, 1, 2, 0, 2, 3]);
-        mesh.update(PRIMITIVE_TRIANGLES);
-
-        const material = new ShaderMaterial({
-            uniqueName: 'walkCoreMaterial',
-            vertexGLSL: coreVS,
-            fragmentGLSL: coreFS,
-            vertexWGSL: coreVS_WGSL,
-            fragmentWGSL: coreFS_WGSL,
-            attributes: {
-                vertex_position: SEMANTIC_POSITION
-            }
-        });
-        material.blendType = BLEND_NONE;
-        material.depthWrite = true;
-        material.depthTest = true;
-        material.cull = CULLFACE_NONE;
-        material.update();
-
-        const mi = new MeshInstance(mesh, material);
-        mi.cull = false;
-
-        const entity = new Entity('walkCore');
-        entity.addComponent('render', {
-            meshInstances: [mi]
-        });
-        entity.enabled = false;
-
-        this.app.root.addChild(entity);
-        return entity;
     }
 
     private createParticleEntity(): Entity {
@@ -711,7 +571,6 @@ class WalkIndicator {
         if (pos) {
             this.startTime = performance.now() / 1000;
         }
-        this.coreEntity.enabled = this.visible;
         this.particleEntity.enabled = this.visible;
         this.app.renderNextFrame = true;
     }
@@ -736,7 +595,6 @@ class WalkIndicator {
             const dist = camPos.distance(this.target);
             this.visible = dist > 2.0;
 
-            this.coreEntity.enabled = this.visible;
             this.particleEntity.enabled = this.visible;
 
             const elapsed = performance.now() / 1000 - this.startTime;
@@ -760,7 +618,6 @@ class WalkIndicator {
         const device = this.app.graphicsDevice;
         ShaderChunks.get(device, 'glsl').set('gsplatPS', this.origGlsl);
         ShaderChunks.get(device, 'wgsl').set('gsplatPS', this.origWgsl);
-        this.coreEntity.destroy();
         this.particleEntity.destroy();
     }
 }

@@ -168,22 +168,14 @@
 
             <!-- Settings Panel -->
             <div id="settingsPanel" class="hidden">
-                <div class="settingsRow">
-                    <div id="hqCheck" class="checkMark">✓</div>
-                    <div id="hqOption">High Quality Render</div>
+                <div id="retinaDisplayRow" class="settingsRow">
+                    <div id="retinaDisplayOption">Retina Display</div>
+                    <div id="retinaDisplayCheck" class="toggleSwitch"><div class="toggleTrack"><div class="toggleThumb"></div></div></div>
                 </div>
-                <div class="settingsRow">
-                    <div id="lqCheck" class="checkMark">✓</div>
-                    <div id="lqOption">Low Quality Render</div>
-                </div>
-                <div id="touchControlsDivider" class="divider hidden"></div>
-                <div id="joystickSchemeRow" class="settingsRow hidden">
-                    <div id="joystickSchemeCheck" class="checkMark">✓</div>
-                    <div id="joystickSchemeOption">Joystick Controls</div>
-                </div>
-                <div id="pinchSchemeRow" class="settingsRow hidden">
-                    <div id="pinchSchemeCheck" class="checkMark">✓</div>
-                    <div id="pinchSchemeOption">Pinch Controls</div>
+                <div id="gamingControlsDivider" class="divider hidden"></div>
+                <div id="gamingControlsRow" class="settingsRow hidden">
+                    <div id="gamingControlsOption">Gaming Controls</div>
+                    <div id="gamingControlsCheck" class="toggleSwitch"><div class="toggleTrack"><div class="toggleThumb"></div></div></div>
                 </div>
                 <div class="divider"></div>
                 <div class="settingsRow">
@@ -229,17 +221,29 @@
                             </div>
                             <div class="control-spacer"></div>
                             <h1>Fly / Walk Mode</h1>
-                            <div class="control-item">
-                                <span class="control-action">Look Around</span>
-                                <span class="control-key">Mouse</span>
+                            <div id="desktopClickToWalk">
+                                <div class="control-item">
+                                    <span class="control-action">Walk To</span>
+                                    <span class="control-key">Click</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Look Around</span>
+                                    <span class="control-key">Click + Drag</span>
+                                </div>
                             </div>
-                            <div class="control-item">
-                                <span class="control-action">Move</span>
-                                <span class="control-key">W,S,A,D</span>
-                            </div>
-                            <div class="control-item">
-                                <span class="control-action">Jump (Walk)</span>
-                                <span class="control-key">Space</span>
+                            <div id="desktopGamingControls" class="hidden">
+                                <div class="control-item">
+                                    <span class="control-action">Look Around</span>
+                                    <span class="control-key">Mouse</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Move</span>
+                                    <span class="control-key">W,S,A,D</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Jump (Walk)</span>
+                                    <span class="control-key">Space</span>
+                                </div>
                             </div>
                             <div class="control-spacer"></div>
                             <h1>Mode Switching</h1>
@@ -277,7 +281,17 @@
                             </div>
                             <div class="control-spacer"></div>
                             <h1>Fly / Walk Mode</h1>
-                            <div id="touchFlyJoystick">
+                            <div id="touchClickToWalk">
+                                <div class="control-item">
+                                    <span class="control-action">Walk To</span>
+                                    <span class="control-key">Tap</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Look Around</span>
+                                    <span class="control-key">Touch + Drag</span>
+                                </div>
+                            </div>
+                            <div id="touchGamingControls" class="hidden">
                                 <div class="control-item">
                                     <span class="control-action">Look Around</span>
                                     <span class="control-key">Touch + Drag</span>
@@ -286,19 +300,9 @@
                                     <span class="control-action">Move</span>
                                     <span class="control-key">Joystick</span>
                                 </div>
-                            </div>
-                            <div id="touchFlyPinch" class="hidden">
                                 <div class="control-item">
-                                    <span class="control-action">Look Around</span>
-                                    <span class="control-key">One Finger Drag</span>
-                                </div>
-                                <div class="control-item">
-                                    <span class="control-action">Move Forward/Back</span>
-                                    <span class="control-key">Pinch</span>
-                                </div>
-                                <div class="control-item">
-                                    <span class="control-action">Strafe</span>
-                                    <span class="control-key">Two Finger Drag</span>
+                                    <span class="control-action">Jump (Walk)</span>
+                                    <span class="control-key">Tap</span>
                                 </div>
                             </div>
                         </div>

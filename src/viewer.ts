@@ -394,10 +394,10 @@ class Viewer {
 
                         // handle quality mode changes
                         const updateLod = () => {
-                            const settings = state.hqMode ? quality.high : quality.low;
+                            const settings = state.retinaDisplay ? quality.high : quality.low;
                             results[0].gsplat.splatBudget = settings * 1000000;
                         };
-                        events.on('hqMode:changed', updateLod);
+                        events.on('retinaDisplay:changed', updateLod);
                         updateLod();
 
                         // debug colorize lods

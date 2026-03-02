@@ -339,6 +339,8 @@ button {
 
     > .settingsRow {
         display: flex;
+        align-items: center;
+        justify-content: space-between;
         gap: 4px;
         width: 100%;
 
@@ -370,13 +372,36 @@ button {
 
             color: $clr-text-dark;
 
-            &.checkMark {
-                width: 16px;
-                opacity: 0.2;
+            &.toggleSwitch {
+                padding: 0 4px;
 
-                &.active {
-                    opacity: 1;
-                    color: $clr-accent;
+                .toggleTrack {
+                    width: 36px;
+                    height: 20px;
+                    border-radius: 10px;
+                    background-color: rgba(white, 0.15);
+                    position: relative;
+                    transition: background-color 200ms ease;
+
+                    .toggleThumb {
+                        width: 16px;
+                        height: 16px;
+                        border-radius: 50%;
+                        background-color: #777;
+                        position: absolute;
+                        top: 2px;
+                        left: 2px;
+                        transition: transform 200ms ease, background-color 200ms ease;
+                    }
+                }
+
+                &.active .toggleTrack {
+                    background-color: rgba($clr-accent, 0.35);
+
+                    .toggleThumb {
+                        transform: translateX(16px);
+                        background-color: $clr-accent;
+                    }
                 }
             }
 

@@ -6,8 +6,6 @@ type CameraMode = 'orbit' | 'anim' | 'fly' | 'fps';
 
 type InputMode = 'desktop' | 'touch';
 
-type TouchControlScheme = 'joystick' | 'pinch';
-
 // configuration options are immutable at runtime
 type Config = {
     poster?: HTMLImageElement;
@@ -33,7 +31,7 @@ type Config = {
 type State = {
     loaded: boolean;                            // true once first frame is rendered
     readyToRender: boolean;                     // don't render till this is set
-    hqMode: boolean;
+    retinaDisplay: boolean;
     progress: number;                           // content loading progress 0-100
     inputMode: InputMode;
     cameraMode: CameraMode;
@@ -48,7 +46,7 @@ type State = {
     voxelOverlayEnabled: boolean;
     isFullscreen: boolean;
     controlsHidden: boolean;
-    touchControlScheme: TouchControlScheme;
+    gamingControls: boolean;
 };
 
 type Global = {
@@ -60,4 +58,4 @@ type Global = {
     camera: Entity;
 };
 
-export { CameraMode, InputMode, TouchControlScheme, Config, State, Global };
+export { CameraMode, InputMode, Config, State, Global };

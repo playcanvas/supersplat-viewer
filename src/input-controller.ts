@@ -155,10 +155,15 @@ class InputController {
 
     private _tapJump: boolean = false;
 
-    // Screen coordinates of the last touch start (for tap-to-walk picking)
-    private _lastTouchOffsetX = 0;
+    // Screen coordinates of the last pointer start (for click/tap-to-walk picking)
+    private _lastPointerOffsetX = 0;
 
-    private _lastTouchOffsetY = 0;
+    private _lastPointerOffsetY = 0;
+
+    // Desktop click-to-walk tracking
+    private _mouseClickTracking = false;
+
+    private _mouseClickDelta = 0;
 
     private _picker: Picker | null = null;
 
@@ -209,13 +214,19 @@ class InputController {
         // Detect double taps manually because iOS doesn't send dblclick events
         const lastTap = { time: 0, x: 0, y: 0 };
         canvas.addEventListener('pointerdown', (event) => {
-            // Store touch coordinates for tap-to-walk picking
-            this._lastTouchOffsetX = event.offsetX;
-            this._lastTouchOffsetY = event.offsetY;
+            // Store coordinates for click/tap-to-walk picking
+            this._lastPointerOffsetX = event.offsetX;
+            this._lastPointerOffsetY = event.offsetY;
 
-            // Cancel any active auto-walk on new touch input
-            if (state.cameraMode === 'fps' && event.pointerType === 'touch') {
+            // Cancel any active auto-walk in click-to-walk mode
+            if (state.cameraMode === 'fps' && !state.gamingControls) {
                 events.fire('walkCancel');
+            }
+
+            // Start desktop click-to-walk tracking
+            if (event.pointerType !== 'touch' && event.button === 0) {
+                this._mouseClickTracking = true;
+                this._mouseClickDelta = 0;
             }
 
             const now = Date.now();
@@ -229,6 +240,32 @@ class InputController {
                 lastTap.time = now;
                 lastTap.x = event.clientX;
                 lastTap.y = event.clientY;
+            }
+        });
+
+        // Desktop click-to-walk: accumulate displacement during mouse drag
+        canvas.addEventListener('pointermove', (event) => {
+            if (this._mouseClickTracking && event.pointerType !== 'touch') {
+                this._mouseClickDelta += Math.abs(event.movementX) + Math.abs(event.movementY);
+            }
+        });
+
+        // Desktop click-to-walk: detect click (low displacement) on mouse button release
+        canvas.addEventListener('pointerup', (event) => {
+            if (this._mouseClickTracking && event.pointerType !== 'touch' && event.button === 0) {
+                this._mouseClickTracking = false;
+                if (this._mouseClickDelta < TAP_EPSILON && state.cameraMode === 'fps' && !state.gamingControls) {
+                    if (!this._picker) {
+                        this._picker = new Picker(app, camera);
+                    }
+                    const pickX = this._lastPointerOffsetX / canvas.clientWidth;
+                    const pickY = this._lastPointerOffsetY / canvas.clientHeight;
+                    this._picker.pick(pickX, pickY).then((result) => {
+                        if (result && state.cameraMode === 'fps') {
+                            events.fire('walkTo', result);
+                        }
+                    });
+                }
             }
         });
 
@@ -310,35 +347,54 @@ class InputController {
             }
         };
 
-        // Pointer lock management for FPS mode on desktop
-        events.on('cameraMode:changed', (value: string, prev: string) => {
-            if (value === 'fps' && state.inputMode === 'desktop') {
-                (this._desktopInput as any)._pointerLock = true;
-                canvas.requestPointerLock();
+        const activatePointerLock = () => {
+            (this._desktopInput as any)._pointerLock = true;
+            canvas.requestPointerLock();
+            if (state.isFullscreen) {
+                lockEscape();
+            }
+        };
+
+        const deactivatePointerLock = () => {
+            unlockKeyboard();
+            (this._desktopInput as any)._pointerLock = false;
+            if (document.pointerLockElement === canvas) {
                 if (state.isFullscreen) {
-                    lockEscape();
+                    events.fire('restoreFullscreen');
                 }
+                document.exitPointerLock();
+            }
+        };
+
+        // Pointer lock management for FPS mode on desktop (gaming controls only)
+        events.on('cameraMode:changed', (value: string, prev: string) => {
+            if (value === 'fps' && state.inputMode === 'desktop' && state.gamingControls) {
+                activatePointerLock();
             } else if (prev === 'fps') {
-                unlockKeyboard();
-                (this._desktopInput as any)._pointerLock = false;
-                if (document.pointerLockElement === canvas) {
-                    if (state.isFullscreen) {
-                        events.fire('restoreFullscreen');
-                    }
-                    document.exitPointerLock();
+                deactivatePointerLock();
+            }
+        });
+
+        // Toggle pointer lock when gaming controls changes while in FPS
+        events.on('gamingControls:changed', (value: boolean) => {
+            if (state.cameraMode === 'fps' && state.inputMode === 'desktop') {
+                if (value) {
+                    activatePointerLock();
+                } else {
+                    deactivatePointerLock();
                 }
             }
         });
 
         // Also lock Escape if entering fullscreen while already in FPS mode
         events.on('isFullscreen:changed', (value: boolean) => {
-            if (value && state.cameraMode === 'fps' && state.inputMode === 'desktop') {
+            if (value && state.cameraMode === 'fps' && state.inputMode === 'desktop' && state.gamingControls) {
                 lockEscape();
             }
         });
 
         document.addEventListener('pointerlockchange', () => {
-            if (!document.pointerLockElement && state.cameraMode === 'fps') {
+            if (!document.pointerLockElement && state.cameraMode === 'fps' && state.gamingControls) {
                 recentlyExitedFps = true;
                 requestAnimationFrame(() => {
                     recentlyExitedFps = false;
@@ -410,15 +466,15 @@ class InputController {
             // Touch just ended (1+ → 0): check if it was a tap
             if (prevTaps > 0 && this._tapTouches === 0) {
                 if (this._tapDelta < TAP_EPSILON) {
-                    if (state.touchControlScheme === 'pinch') {
+                    if (!state.gamingControls) {
                         // Tap-to-walk: pick the 3D location and auto-walk toward it
                         const { app, camera } = this.global;
                         const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
                         if (!this._picker) {
                             this._picker = new Picker(app, camera);
                         }
-                        const pickX = this._lastTouchOffsetX / canvas.clientWidth;
-                        const pickY = this._lastTouchOffsetY / canvas.clientHeight;
+                        const pickX = this._lastPointerOffsetX / canvas.clientWidth;
+                        const pickY = this._lastPointerOffsetY / canvas.clientHeight;
                         this._picker.pick(pickX, pickY).then((result) => {
                             if (result && state.cameraMode === 'fps') {
                                 events.fire('walkTo', result);
@@ -435,10 +491,10 @@ class InputController {
 
         const isFirstPerson = state.cameraMode === 'fly' || isFps;
 
-        // Accumulate pinch and pan deltas into velocity when using pinch control scheme
+        // Accumulate pinch and pan deltas into velocity when not in gaming controls
         // pinch[0] = oldDist - newDist: negative when spreading, positive when closing
         // Spreading = forward → subtract pinch delta
-        if (isFirstPerson && state.touchControlScheme === 'pinch' && this._state.touches > 1) {
+        if (isFirstPerson && !state.gamingControls && this._state.touches > 1) {
             this._pinchVelocity -= pinch[0] * this.pinchVelocitySensitivity;
             this._pinchVelocity = math.clamp(this._pinchVelocity, -1.0, 1.0);
             this._panVelocity[0] += touch[0] * this.panVelocitySensitivity;
@@ -497,7 +553,7 @@ class InputController {
         v.set(0, 0, 0);
         const orbitMove = screenToWorld(camera, touch[0], touch[1], distance);
         v.add(orbitMove.mulScalar(orbit * pan));
-        if (state.touchControlScheme === 'joystick') {
+        if (state.gamingControls) {
             // Use touch joystick values for fly movement (X = strafe, Y = forward/backward)
             flyMove.set(this._touchJoystick[0], 0, -this._touchJoystick[1]);
             v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));

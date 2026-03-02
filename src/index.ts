@@ -17,7 +17,7 @@ import {
 import { App } from './app';
 import { observe } from './core/observe';
 import { importSettings } from './settings';
-import type { Config, Global, TouchControlScheme } from './types';
+import type { Config, Global } from './types';
 import { initPoster, initUI } from './ui';
 import { Viewer } from './viewer';
 import { VoxelCollider } from './voxel-collider';
@@ -158,7 +158,7 @@ const initCanvas = (global: Global) => {
         // and resetting canvas dimensions can invalidate the XRWebGLLayer
         if (app.xr?.active) return;
 
-        const s = state.hqMode ? 1.0 : 0.5;
+        const s = state.retinaDisplay ? 1.0 : 0.5;
         const w = Math.ceil(deviceSize.width * s);
         const h = Math.ceil(deviceSize.height * s);
         if (w !== canvas.width || h !== canvas.height) {
@@ -176,7 +176,7 @@ const initCanvas = (global: Global) => {
     });
     resizeObserver.observe(canvas);
 
-    events.on('hqMode:changed', () => {
+    events.on('retinaDisplay:changed', () => {
         app.renderNextFrame = true;
     });
 
@@ -199,7 +199,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
     const state = observe(events, {
         loaded: false,
         readyToRender: false,
-        hqMode: localStorage.getItem('hqMode') !== 'false',
+        retinaDisplay: localStorage.getItem('retinaDisplay') !== 'false',
         progress: 0,
         inputMode: platform.mobile ? 'touch' : 'desktop',
         cameraMode: 'orbit',
@@ -214,7 +214,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
         voxelOverlayEnabled: false,
         isFullscreen: false,
         controlsHidden: false,
-        touchControlScheme: (localStorage.getItem('touchControlScheme') as TouchControlScheme) || 'joystick'
+        gamingControls: localStorage.getItem('gamingControls') === 'true'
     });
 
     const global: Global = {
