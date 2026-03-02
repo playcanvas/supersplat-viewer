@@ -200,6 +200,14 @@ class InputController {
 
         this.global = global;
 
+        const updateCanvasCursor = () => {
+            if (state.cameraMode === 'fps' && !state.gamingControls && state.inputMode === 'desktop') {
+                canvas.style.cursor = this._mouseClickTracking ? 'move' : 'pointer';
+            } else {
+                canvas.style.cursor = '';
+            }
+        };
+
         // Generate input events
         ['wheel', 'pointerdown', 'contextmenu', 'keydown'].forEach((eventName) => {
             canvas.addEventListener(eventName, (event) => {
@@ -227,6 +235,7 @@ class InputController {
             if (event.pointerType !== 'touch' && event.button === 0) {
                 this._mouseClickTracking = true;
                 this._mouseClickDelta = 0;
+                updateCanvasCursor();
             }
 
             const now = Date.now();
@@ -254,6 +263,7 @@ class InputController {
         canvas.addEventListener('pointerup', (event) => {
             if (this._mouseClickTracking && event.pointerType !== 'touch' && event.button === 0) {
                 this._mouseClickTracking = false;
+                updateCanvasCursor();
                 if (this._mouseClickDelta < TAP_EPSILON && state.cameraMode === 'fps' && !state.gamingControls) {
                     if (!this._picker) {
                         this._picker = new Picker(app, camera);
@@ -373,6 +383,7 @@ class InputController {
             } else if (prev === 'fps') {
                 deactivatePointerLock();
             }
+            updateCanvasCursor();
         });
 
         // Toggle pointer lock when gaming controls changes while in FPS
@@ -384,6 +395,7 @@ class InputController {
                     deactivatePointerLock();
                 }
             }
+            updateCanvasCursor();
         });
 
         // Also lock Escape if entering fullscreen while already in FPS mode
