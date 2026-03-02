@@ -237,6 +237,7 @@ const initUI = (global: Global) => {
         'retinaDisplayRow', 'retinaDisplayCheck', 'retinaDisplayOption',
         'gamingControlsDivider', 'gamingControlsRow', 'gamingControlsCheck', 'gamingControlsOption',
         'desktopClickToWalk', 'desktopGamingControls',
+        'touchFlyClickToWalk', 'touchFlyGamingControls',
         'touchClickToWalk', 'touchGamingControls',
         'reset', 'frame',
         'loadingText', 'loadingBar',
@@ -358,6 +359,8 @@ const initUI = (global: Global) => {
         dom.gamingControlsCheck.classList.toggle('active', state.gamingControls);
         dom.desktopClickToWalk.classList.toggle('hidden', state.gamingControls);
         dom.desktopGamingControls.classList.toggle('hidden', !state.gamingControls);
+        dom.touchFlyClickToWalk.classList.toggle('hidden', state.gamingControls);
+        dom.touchFlyGamingControls.classList.toggle('hidden', !state.gamingControls);
         dom.touchClickToWalk.classList.toggle('hidden', state.gamingControls);
         dom.touchGamingControls.classList.toggle('hidden', !state.gamingControls);
         localStorage.setItem('gamingControls', String(state.gamingControls));
