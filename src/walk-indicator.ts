@@ -425,12 +425,12 @@ const particleVS = /* glsl */`
         float rand2 = vertex_position.z;
 
         float baseAngle = rand0 * 6.28318530718;
-        float rBase = sqrt(rand2) * 0.5;
+        float rBase = sqrt(rand2) * 0.4;
         float r = rBase * smoothstep(0.0, 0.5, walk_time);
 
         float riseSpeed = 0.3 + rand2 * 0.4;
         float t = fract(max(walk_time - rand1 * 2.0, 0.0) * riseSpeed);
-        float y = t * t * 1.5;
+        float y = t * t * 1.5 - 0.1;
 
         float swirl = baseAngle + t * (0.5 + rand1);
         float swirlR = r + 0.01;
@@ -471,12 +471,12 @@ const particleVS_WGSL = /* wgsl */`
         let rand2 = input.vertex_position.z;
 
         let baseAngle = rand0 * 6.28318530718;
-        let rBase = sqrt(rand2) * 0.5;
+        let rBase = sqrt(rand2) * 0.4;
         let r = rBase * smoothstep(0.0, 0.5, uniform.walk_time);
 
         let riseSpeed = 0.3 + rand2 * 0.4;
         let t = fract(max(uniform.walk_time - rand1 * 2.0, 0.0) * riseSpeed);
-        let y = t * t * 1.5;
+        let y = t * t * 1.5 - 0.1;
 
         let swirl = baseAngle + t * (0.5 + rand1);
         let swirlR = r + 0.01;
