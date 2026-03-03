@@ -346,14 +346,16 @@ class InputController {
         // Lock/unlock Escape key in fullscreen to prevent the browser from
         // exiting both pointer lock and fullscreen on the same Escape press.
         const lockEscape = () => {
-            if ('keyboard' in navigator && 'lock' in (navigator as any).keyboard) {
-                (navigator as any).keyboard.lock(['Escape']).catch(() => {});
+            const keyboard = (navigator as any).keyboard;
+            if (keyboard && 'lock' in keyboard) {
+                keyboard.lock(['Escape']).catch(() => {});
             }
         };
 
         const unlockKeyboard = () => {
-            if ('keyboard' in navigator && 'unlock' in (navigator as any).keyboard) {
-                (navigator as any).keyboard.unlock();
+            const keyboard = (navigator as any).keyboard;
+            if (keyboard && 'unlock' in keyboard) {
+                keyboard.unlock();
             }
         };
 
