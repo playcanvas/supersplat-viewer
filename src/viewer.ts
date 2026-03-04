@@ -368,8 +368,11 @@ class Viewer {
 
                 const quality = platform.mobile ? ranges.mobile : ranges.desktop;
 
-                // start in low quality mode so we can get user interacting asap
-                results[0].gsplat.splatBudget = quality.low * 1000000;
+                // start by streaming in low lod
+                const lodLevels = results[0].gsplat.resource?.octree?.lodLevels;
+                if (lodLevels) {
+                    gsplat.lodRangeMax = gsplat.lodRangeMin = lodLevels - 1;
+                }
 
                 // these two allow LOD behind camera to drop, saves lots of splats
                 gsplat.lodUpdateAngle = 90;
@@ -396,6 +399,8 @@ class Viewer {
                         const updateLod = () => {
                             const settings = state.retinaDisplay ? quality.high : quality.low;
                             results[0].gsplat.splatBudget = settings * 1000000;
+                            gsplat.lodRangeMin = 0;
+                            gsplat.lodRangeMax = 1000;
                         };
                         events.on('retinaDisplay:changed', updateLod);
                         updateLod();

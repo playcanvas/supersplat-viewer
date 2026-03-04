@@ -338,6 +338,11 @@ class InputController {
                         case ' ':
                             events.fire('inputEvent', 'playPause', event);
                             break;
+                        case 'v':
+                            if (state.hasVoxelOverlay) {
+                                state.voxelOverlayEnabled = !state.voxelOverlayEnabled;
+                            }
+                            break;
                     }
                 }
             }
