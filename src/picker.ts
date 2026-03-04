@@ -35,7 +35,8 @@ const pickDepthWgsl = /* wgsl */ `
     fn getPickOutput() -> vec4f {
         let linearDepth = 1.0 / pcPosition.w;
         let normalizedDepth = (linearDepth - uniform.camera_params.z) / (uniform.camera_params.y - uniform.camera_params.z);
-        return vec4f(gaussianColor.a * normalizedDepth, 0.0, 0.0, gaussianColor.a);
+        let a = f32(gaussianColor.a);
+        return vec4f(a * normalizedDepth, 0.0, 0.0, a);
     }
 `;
 

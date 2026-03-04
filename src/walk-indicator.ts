@@ -183,8 +183,8 @@ fn normExp(x: f32) -> f32 {
     return (exp(x * -4.0) - EXP4_F) * INV_EXP4_F;
 }
 
-varying gaussianUV: vec2f;
-varying gaussianColor: vec4f;
+varying gaussianUV: half2;
+varying gaussianColor: half4;
 
 #if defined(GSPLAT_UNIFIED_ID) && defined(PICK_PASS)
     varying @interpolate(flat) vPickId: u32;
@@ -223,13 +223,15 @@ fn walkReconstructWorldPos(fragCoord: vec4f) -> vec3f {
 fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     var output: FragmentOutput;
 
-    let A: f32 = f32(dot(gaussianUV, gaussianUV));
+    let uv = vec2f(gaussianUV);
+    let color = vec4f(gaussianColor);
+    let A: f32 = dot(uv, uv);
     if (A > 1.0) {
         discard;
         return output;
     }
 
-    var alpha: f32 = normExp(A) * f32(gaussianColor.a);
+    var alpha: f32 = normExp(A) * color.a;
 
     #if defined(SHADOW_PASS) || defined(PICK_PASS) || defined(PREPASS_PASS)
         if (alpha < uniform.alphaClip) {
@@ -268,7 +270,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             opacityDither(alpha, id * 0.013);
         #endif
 
-        let gc = vec3f(gaussianColor.xyz);
+        let gc = color.xyz;
 
         if (uniform.walk_radius > 0.0) {
             let walkWorldPos = walkReconstructWorldPos(pcPosition);
@@ -293,7 +295,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             let adaptiveIntensity = intensity * (1.0 - lum * 0.7);
             let litColor = gc * (1.0 + vec3f(0.85, 0.92, 1.0) * adaptiveIntensity);
             let spatialFalloff = normExp(A);
-            let boostedBase = mix(f32(gaussianColor.a), 1.0, min(intensity * 0.3, 1.0));
+            let boostedBase = mix(color.a, 1.0, min(intensity * 0.3, 1.0));
             let glowAlpha = spatialFalloff * boostedBase;
 
             output.color = vec4f(litColor * glowAlpha, glowAlpha);
