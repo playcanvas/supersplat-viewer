@@ -260,21 +260,21 @@ class CameraManager {
         });
 
         // tap-to-walk: start auto-walking toward a picked 3D position
-        events.on('walkTo', (position: Vec3) => {
+        events.on('walkTo', (position: Vec3, normal: Vec3) => {
             if (state.cameraMode === 'walk') {
                 walkSource.walkTo(position);
-                events.fire('walkIndicator:setTarget', position);
+                events.fire('walkTarget:set', position, normal);
             }
         });
 
         // cancel any active auto-walk
         events.on('walkCancel', () => {
             walkSource.cancelWalk();
-            events.fire('walkIndicator:setTarget', null);
+            events.fire('walkTarget:clear');
         });
 
         events.on('walkComplete', () => {
-            events.fire('walkIndicator:setTarget', null);
+            events.fire('walkTarget:clear');
         });
     }
 }

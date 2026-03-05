@@ -33,7 +33,7 @@ import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { Global } from './types';
 import type { VoxelCollider } from './voxel-collider';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
-import { WalkIndicator } from './walk-indicator';
+import { WalkCursor } from './walk-cursor';
 
 const gammaChunkGlsl = `
 vec3 prepareOutputFromGamma(vec3 gammaColor) {
@@ -129,7 +129,7 @@ class Viewer {
 
     voxelOverlay: VoxelDebugOverlay | null = null;
 
-    walkIndicator: WalkIndicator | null = null;
+    walkCursor: WalkCursor | null = null;
 
     origChunks: {
         glsl: {
@@ -275,10 +275,9 @@ class Viewer {
 
         });
 
-        // Render voxel debug overlay and update walk indicator
+        // Render voxel debug overlay
         app.on('prerender', () => {
             this.voxelOverlay?.update();
-            this.walkIndicator?.update(camera);
         });
 
         // update state on first frame
@@ -303,6 +302,7 @@ class Viewer {
             }
 
             this.inputController = new InputController(global);
+            this.inputController.collider = collider ?? null;
 
             state.hasCollision = !!collider;
 
@@ -321,11 +321,9 @@ class Viewer {
             this.cameraManager = new CameraManager(global, sceneBound, collider);
             applyCamera(this.cameraManager.camera);
 
-            this.walkIndicator = new WalkIndicator(app);
-
-            events.on('walkIndicator:setTarget', (pos: Vec3 | null) => {
-                this.walkIndicator?.setTarget(pos);
-            });
+            if (collider) {
+                this.walkCursor = new WalkCursor(app, camera, collider, events, state);
+            }
 
             const { instance } = gsplat;
             if (instance) {

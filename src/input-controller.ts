@@ -11,6 +11,7 @@ import type { CameraComponent } from 'playcanvas';
 
 import { Picker } from './picker';
 import type { Global } from './types';
+import type { VoxelCollider } from './voxel-collider';
 
 /* Vec initialisation to avoid recurrent memory allocation */
 const tmpV1 = new Vec3();
@@ -167,6 +168,8 @@ class InputController {
 
     private _picker: Picker | null = null;
 
+    collider: VoxelCollider | null = null;
+
     moveSpeed: number = 4;
 
     orbitSpeed: number = 18;
@@ -265,16 +268,10 @@ class InputController {
                 this._mouseClickTracking = false;
                 updateCanvasCursor();
                 if (this._mouseClickDelta < TAP_EPSILON && state.cameraMode === 'walk' && !state.gamingControls) {
-                    if (!this._picker) {
-                        this._picker = new Picker(app, camera);
+                    const result = this._pickVoxel(this._lastPointerOffsetX, this._lastPointerOffsetY);
+                    if (result) {
+                        events.fire('walkTo', result.position, result.normal);
                     }
-                    const pickX = this._lastPointerOffsetX / canvas.clientWidth;
-                    const pickY = this._lastPointerOffsetY / canvas.clientHeight;
-                    this._picker.pick(pickX, pickY).then((result) => {
-                        if (result && state.cameraMode === 'walk' && !state.gamingControls) {
-                            events.fire('walkTo', result);
-                        }
-                    });
                 }
             }
         });
@@ -421,6 +418,31 @@ class InputController {
         });
     }
 
+    private _pickVoxel(offsetX: number, offsetY: number): { position: Vec3; normal: Vec3 } | null {
+        if (!this.collider) return null;
+
+        const { camera } = this.global;
+        const cameraPos = camera.getPosition();
+
+        camera.camera.screenToWorld(offsetX, offsetY, 1.0, tmpV1);
+        tmpV1.sub(cameraPos).normalize();
+
+        // PlayCanvas → voxel space: negate X and Y
+        const hit = this.collider.queryRay(
+            -cameraPos.x, -cameraPos.y, cameraPos.z,
+            -tmpV1.x, -tmpV1.y, tmpV1.z,
+            camera.camera.farClip
+        );
+
+        if (!hit) return null;
+
+        const sn = this.collider.querySurfaceNormal(hit.x, hit.y, hit.z);
+        return {
+            position: new Vec3(-hit.x, -hit.y, hit.z),
+            normal: new Vec3(-sn.nx, -sn.ny, sn.nz)
+        };
+    }
+
     /**
      * @param dt - delta time in seconds
      * @param state - the current state of the app
@@ -477,19 +499,10 @@ class InputController {
             if (prevTaps > 0 && this._tapTouches === 0) {
                 if (this._tapDelta < TAP_EPSILON) {
                     if (!state.gamingControls) {
-                        // Tap-to-walk: pick the 3D location and auto-walk toward it
-                        const { app, camera } = this.global;
-                        const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
-                        if (!this._picker) {
-                            this._picker = new Picker(app, camera);
+                        const result = this._pickVoxel(this._lastPointerOffsetX, this._lastPointerOffsetY);
+                        if (result && state.cameraMode === 'walk' && !state.gamingControls) {
+                            events.fire('walkTo', result.position, result.normal);
                         }
-                        const pickX = this._lastPointerOffsetX / canvas.clientWidth;
-                        const pickY = this._lastPointerOffsetY / canvas.clientHeight;
-                        this._picker.pick(pickX, pickY).then((result) => {
-                            if (result && state.cameraMode === 'walk' && !state.gamingControls) {
-                                events.fire('walkTo', result);
-                            }
-                        });
                     } else {
                         this._tapJump = true;
                     }

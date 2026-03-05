@@ -24,6 +24,15 @@ interface PushOut {
 }
 
 /**
+ * Hit result returned by queryRay.
+ */
+interface RayHit {
+    x: number;
+    y: number;
+    z: number;
+}
+
+/**
  * Solid leaf node marker: childMask = 0xFF, baseOffset = 0.
  * Unambiguous because BFS layout guarantees children always come after their parent,
  * so baseOffset = 0 is never valid for an interior node.
@@ -253,6 +262,197 @@ class VoxelCollider {
         const iy = Math.floor((y - this.gridMinY) / this.voxelResolution);
         const iz = Math.floor((z - this.gridMinZ) / this.voxelResolution);
         return this.isVoxelSolid(ix, iy, iz);
+    }
+
+    /**
+     * Compute a smoothed surface normal at a world-space position by sampling the surrounding
+     * voxel neighborhood. Uses a gradient-of-occupancy approach: for each solid voxel in the
+     * neighborhood, its offset is subtracted from the accumulated normal (pointing away from
+     * the solid mass). This produces stable normals — floors consistently point upward even
+     * on uneven surfaces, and walls produce horizontal normals.
+     *
+     * @param x - World X coordinate of the surface point.
+     * @param y - World Y coordinate of the surface point.
+     * @param z - World Z coordinate of the surface point.
+     * @returns Object with nx, ny, nz components of the normalized surface normal.
+     */
+    querySurfaceNormal(x: number, y: number, z: number): { nx: number; ny: number; nz: number } {
+        const ix = Math.floor((x - this._gridMinX) / this._voxelResolution);
+        const iy = Math.floor((y - this._gridMinY) / this._voxelResolution);
+        const iz = Math.floor((z - this._gridMinZ) / this._voxelResolution);
+
+        const R = 3;
+        let nx = 0;
+        let ny = 0;
+        let nz = 0;
+
+        for (let dz = -R; dz <= R; dz++) {
+            for (let dy = -R; dy <= R; dy++) {
+                for (let dx = -R; dx <= R; dx++) {
+                    if (dx === 0 && dy === 0 && dz === 0) continue;
+                    if (this.isVoxelSolid(ix + dx, iy + dy, iz + dz)) {
+                        const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                        const invLen = 1.0 / len;
+                        nx -= dx * invLen;
+                        ny -= dy * invLen;
+                        nz -= dz * invLen;
+                    }
+                }
+            }
+        }
+
+        const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+        if (len > 1e-6) {
+            const invLen = 1.0 / len;
+            nx *= invLen;
+            ny *= invLen;
+            nz *= invLen;
+        } else {
+            nx = 0;
+            ny = 1;
+            nz = 0;
+        }
+
+        return { nx, ny, nz };
+    }
+
+    /**
+     * Cast a ray through the voxel grid using 3D-DDA and return the entry point on the first
+     * solid voxel hit. Coordinates are in voxel world space (the same frame used by queryPoint).
+     *
+     * @param ox - Ray origin X.
+     * @param oy - Ray origin Y.
+     * @param oz - Ray origin Z.
+     * @param dx - Ray direction X (must be normalized).
+     * @param dy - Ray direction Y (must be normalized).
+     * @param dz - Ray direction Z (must be normalized).
+     * @param maxDist - Maximum ray distance.
+     * @returns The entry point on the first solid voxel, or null if no hit.
+     */
+    queryRay(
+        ox: number, oy: number, oz: number,
+        dx: number, dy: number, dz: number,
+        maxDist: number
+    ): RayHit | null {
+        if (this._nodes.length === 0) {
+            return null;
+        }
+
+        const res = this._voxelResolution;
+        const gMinX = this._gridMinX;
+        const gMinY = this._gridMinY;
+        const gMinZ = this._gridMinZ;
+        const gMaxX = gMinX + this._numVoxelsX * res;
+        const gMaxY = gMinY + this._numVoxelsY * res;
+        const gMaxZ = gMinZ + this._numVoxelsZ * res;
+
+        const EPS = 1e-12;
+
+        // Ray-AABB slab intersection to find the range [tNear, tFar]
+        let tNear = 0;
+        let tFar = maxDist;
+
+        if (Math.abs(dx) > EPS) {
+            let t1 = (gMinX - ox) / dx;
+            let t2 = (gMaxX - ox) / dx;
+            if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+            if (t1 > tNear) { tNear = t1; }
+            tFar = Math.min(tFar, t2);
+            if (tNear > tFar) return null;
+        } else if (ox < gMinX || ox >= gMaxX) {
+            return null;
+        }
+
+        if (Math.abs(dy) > EPS) {
+            let t1 = (gMinY - oy) / dy;
+            let t2 = (gMaxY - oy) / dy;
+            if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+            if (t1 > tNear) { tNear = t1; }
+            tFar = Math.min(tFar, t2);
+            if (tNear > tFar) return null;
+        } else if (oy < gMinY || oy >= gMaxY) {
+            return null;
+        }
+
+        if (Math.abs(dz) > EPS) {
+            let t1 = (gMinZ - oz) / dz;
+            let t2 = (gMaxZ - oz) / dz;
+            if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+            if (t1 > tNear) { tNear = t1; }
+            tFar = Math.min(tFar, t2);
+            if (tNear > tFar) return null;
+        } else if (oz < gMinZ || oz >= gMaxZ) {
+            return null;
+        }
+
+        // Entry point on the grid AABB (or origin if already inside)
+        const entryX = ox + dx * tNear;
+        const entryY = oy + dy * tNear;
+        const entryZ = oz + dz * tNear;
+
+        // Convert to voxel indices, clamping to valid range for boundary cases
+        let ix = Math.max(0, Math.min(Math.floor((entryX - gMinX) / res), this._numVoxelsX - 1));
+        let iy = Math.max(0, Math.min(Math.floor((entryY - gMinY) / res), this._numVoxelsY - 1));
+        let iz = Math.max(0, Math.min(Math.floor((entryZ - gMinZ) / res), this._numVoxelsZ - 1));
+
+        // DDA setup
+        const stepX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
+        const stepY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
+        const stepZ = dz > 0 ? 1 : (dz < 0 ? -1 : 0);
+
+        const invDx = Math.abs(dx) > EPS ? 1.0 / dx : 0;
+        const invDy = Math.abs(dy) > EPS ? 1.0 / dy : 0;
+        const invDz = Math.abs(dz) > EPS ? 1.0 / dz : 0;
+
+        let tMaxX = Math.abs(dx) > EPS ? (gMinX + (ix + (dx > 0 ? 1 : 0)) * res - ox) * invDx : Infinity;
+        let tMaxY = Math.abs(dy) > EPS ? (gMinY + (iy + (dy > 0 ? 1 : 0)) * res - oy) * invDy : Infinity;
+        let tMaxZ = Math.abs(dz) > EPS ? (gMinZ + (iz + (dz > 0 ? 1 : 0)) * res - oz) * invDz : Infinity;
+
+        const tDeltaX = Math.abs(dx) > EPS ? res * Math.abs(invDx) : Infinity;
+        const tDeltaY = Math.abs(dy) > EPS ? res * Math.abs(invDy) : Infinity;
+        const tDeltaZ = Math.abs(dz) > EPS ? res * Math.abs(invDz) : Infinity;
+
+        let currentT = tNear;
+        const maxSteps = this._numVoxelsX + this._numVoxelsY + this._numVoxelsZ;
+
+        for (let step = 0; step < maxSteps; step++) {
+            if (this.isVoxelSolid(ix, iy, iz)) {
+                return {
+                    x: ox + dx * currentT,
+                    y: oy + dy * currentT,
+                    z: oz + dz * currentT
+                };
+            }
+
+            // Advance along the axis with the smallest tMax
+            if (tMaxX < tMaxY) {
+                if (tMaxX < tMaxZ) {
+                    currentT = tMaxX;
+                    ix += stepX;
+                    tMaxX += tDeltaX;
+                } else {
+                    currentT = tMaxZ;
+                    iz += stepZ;
+                    tMaxZ += tDeltaZ;
+                }
+            } else if (tMaxY < tMaxZ) {
+                currentT = tMaxY;
+                iy += stepY;
+                tMaxY += tDeltaY;
+            } else {
+                currentT = tMaxZ;
+                iz += stepZ;
+                tMaxZ += tDeltaZ;
+            }
+
+            if (ix < 0 || iy < 0 || iz < 0 ||
+                ix >= this._numVoxelsX || iy >= this._numVoxelsY || iz >= this._numVoxelsZ ||
+                currentT > maxDist) {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -834,4 +1034,4 @@ class VoxelCollider {
 }
 
 export { VoxelCollider };
-export type { PushOut };
+export type { PushOut, RayHit };
