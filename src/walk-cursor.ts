@@ -22,7 +22,7 @@ const worldPt = new Vec3();
 const up = new Vec3(0, 1, 0);
 const right = new Vec3(1, 0, 0);
 
-const buildBezierRing = (sx: number[], sy: number[]) => {
+const buildBezierRing = (sx: ArrayLike<number>, sy: ArrayLike<number>) => {
     const n = sx.length;
     let p = `M${sx[0].toFixed(1)},${sy[0].toFixed(1)}`;
     for (let i = 0; i < n; i++) {
@@ -65,6 +65,18 @@ class WalkCursor {
     private onPointerMove: (e: PointerEvent) => void;
 
     private onPointerLeave: () => void;
+
+    private readonly scratchX = new Float64Array(NUM_SAMPLES);
+
+    private readonly scratchY = new Float64Array(NUM_SAMPLES);
+
+    private readonly outerX = new Float64Array(NUM_SAMPLES);
+
+    private readonly outerY = new Float64Array(NUM_SAMPLES);
+
+    private readonly innerX = new Float64Array(NUM_SAMPLES);
+
+    private readonly innerY = new Float64Array(NUM_SAMPLES);
 
     constructor(
         app: AppBase,
@@ -174,7 +186,7 @@ class WalkCursor {
         px: number, py: number, pz: number,
         nx: number, ny: number, nz: number,
         radius: number,
-        outX: number[], outY: number[]
+        outX: Float64Array, outY: Float64Array
     ) {
         const normal = tmpV.set(nx, ny, nz);
         if (Math.abs(normal.y) < 0.99) {
@@ -198,8 +210,8 @@ class WalkCursor {
 
             worldPt.set(px + tx * radius, py + ty * radius, pz + tz * radius);
             cam.worldToScreen(worldPt, tmpScreen);
-            outX.push(tmpScreen.x);
-            outY.push(tmpScreen.y);
+            outX[i] = tmpScreen.x;
+            outY[i] = tmpScreen.y;
         }
     }
 
@@ -235,21 +247,16 @@ class WalkCursor {
         const ny = -sn.ny;
         const nz = sn.nz;
 
-        const outerX: number[] = [];
-        const outerY: number[] = [];
-        const innerX: number[] = [];
-        const innerY: number[] = [];
+        this.projectCircle(px, py, pz, nx, ny, nz, CIRCLE_OUTER_RADIUS, this.outerX, this.outerY);
+        this.projectCircle(px, py, pz, nx, ny, nz, CIRCLE_INNER_RADIUS, this.innerX, this.innerY);
 
-        this.projectCircle(px, py, pz, nx, ny, nz, CIRCLE_OUTER_RADIUS, outerX, outerY);
-        this.projectCircle(px, py, pz, nx, ny, nz, CIRCLE_INNER_RADIUS, innerX, innerY);
-
-        this.cursorPath.setAttribute('d', `${buildBezierRing(outerX, outerY)} ${buildBezierRing(innerX, innerY)}`);
+        this.cursorPath.setAttribute('d', `${buildBezierRing(this.outerX, this.outerY)} ${buildBezierRing(this.innerX, this.innerY)}`);
         this.cursorPath.style.display = '';
         this.svg.style.display = '';
     }
 
     private updateTarget() {
-        if (!this.targetPos || !this.targetNormal) {
+        if (!this.active || !this.targetPos || !this.targetNormal) {
             return;
         }
 
@@ -260,15 +267,13 @@ class WalkCursor {
             return;
         }
 
-        const sx: number[] = [];
-        const sy: number[] = [];
         this.projectCircle(
             this.targetPos.x, this.targetPos.y, this.targetPos.z,
             this.targetNormal.x, this.targetNormal.y, this.targetNormal.z,
-            CIRCLE_OUTER_RADIUS, sx, sy
+            CIRCLE_OUTER_RADIUS, this.scratchX, this.scratchY
         );
 
-        this.targetPath.setAttribute('d', buildBezierRing(sx, sy));
+        this.targetPath.setAttribute('d', buildBezierRing(this.scratchX, this.scratchY));
         this.targetPath.style.display = '';
         this.svg.style.display = '';
     }

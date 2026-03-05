@@ -42,6 +42,19 @@ const SOLID_LEAF_MARKER = 0xFF000000 >>> 0;
 /** Minimum penetration depth to report a collision (avoids floating-point noise at corners) */
 const PENETRATION_EPSILON = 1e-4;
 
+/** Precomputed offsets and inverse-length weights for querySurfaceNormal's 7x7x7 neighborhood. */
+const NORMAL_R = 3;
+const normalOffsets: { dx: number; dy: number; dz: number; wx: number; wy: number; wz: number }[] = [];
+for (let dz = -NORMAL_R; dz <= NORMAL_R; dz++) {
+    for (let dy = -NORMAL_R; dy <= NORMAL_R; dy++) {
+        for (let dx = -NORMAL_R; dx <= NORMAL_R; dx++) {
+            if (dx === 0 && dy === 0 && dz === 0) continue;
+            const invLen = 1.0 / Math.sqrt(dx * dx + dy * dy + dz * dz);
+            normalOffsets.push({ dx, dy, dz, wx: dx * invLen, wy: dy * invLen, wz: dz * invLen });
+        }
+    }
+}
+
 /**
  * Count the number of set bits in a 32-bit integer.
  *
@@ -93,6 +106,9 @@ class VoxelCollider {
 
     /** Pre-allocated scratch push-out vector to avoid per-frame allocations */
     private readonly _push: PushOut = { x: 0, y: 0, z: 0 };
+
+    /** Pre-allocated result for querySurfaceNormal to avoid per-call allocation */
+    private readonly _normalResult = { nx: 0, ny: 0, nz: 0 };
 
     /** Pre-allocated constraint normals for iterative corner resolution (max 3 walls) */
     private readonly _constraintNormals = [
@@ -281,23 +297,16 @@ class VoxelCollider {
         const iy = Math.floor((y - this._gridMinY) / this._voxelResolution);
         const iz = Math.floor((z - this._gridMinZ) / this._voxelResolution);
 
-        const R = 3;
         let nx = 0;
         let ny = 0;
         let nz = 0;
 
-        for (let dz = -R; dz <= R; dz++) {
-            for (let dy = -R; dy <= R; dy++) {
-                for (let dx = -R; dx <= R; dx++) {
-                    if (dx === 0 && dy === 0 && dz === 0) continue;
-                    if (this.isVoxelSolid(ix + dx, iy + dy, iz + dz)) {
-                        const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                        const invLen = 1.0 / len;
-                        nx -= dx * invLen;
-                        ny -= dy * invLen;
-                        nz -= dz * invLen;
-                    }
-                }
+        for (let i = 0; i < normalOffsets.length; i++) {
+            const o = normalOffsets[i];
+            if (this.isVoxelSolid(ix + o.dx, iy + o.dy, iz + o.dz)) {
+                nx -= o.wx;
+                ny -= o.wy;
+                nz -= o.wz;
             }
         }
 
@@ -313,7 +322,11 @@ class VoxelCollider {
             nz = 0;
         }
 
-        return { nx, ny, nz };
+        const result = this._normalResult;
+        result.nx = nx;
+        result.ny = ny;
+        result.nz = nz;
+        return result;
     }
 
     /**
