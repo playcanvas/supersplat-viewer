@@ -373,7 +373,7 @@ class InputController {
             }
         };
 
-        // Pointer lock management for FPS mode on desktop (gaming controls only)
+        // Pointer lock management for walk mode on desktop (gaming controls only)
         events.on('cameraMode:changed', (value: string, prev: string) => {
             if (value === 'walk' && state.inputMode === 'desktop' && state.gamingControls) {
                 activatePointerLock();
@@ -383,7 +383,7 @@ class InputController {
             updateCanvasCursor();
         });
 
-        // Toggle pointer lock when gaming controls changes while in FPS
+        // Toggle pointer lock when gaming controls changes while in walk mode
         events.on('gamingControls:changed', (value: boolean) => {
             if (state.cameraMode === 'walk' && state.inputMode === 'desktop') {
                 if (value) {
@@ -410,7 +410,7 @@ class InputController {
         });
 
         // Pointer lock request rejected (e.g., no user gesture, document hidden).
-        // Revert to avoid being stuck in FPS mode without mouse capture.
+        // Revert to avoid being stuck in walk mode without mouse capture.
         document.addEventListener('pointerlockerror', () => {
             (this._desktopInput as any)._pointerLock = false;
             if (state.inputMode === 'desktop') {
@@ -535,7 +535,7 @@ class InputController {
         const v = tmpV1.set(0, 0, 0);
         const keyMove = this._state.axis.clone();
         if (isWalk) {
-            // In FPS mode, normalize only horizontal axes so jump doesn't reduce speed
+            // In walk mode, normalize only horizontal axes so jump doesn't reduce speed
             keyMove.y = 0;
         }
         keyMove.normalize();
@@ -544,7 +544,7 @@ class InputController {
         const speed = this.moveSpeed * (this._state.shift ? shiftMul : this._state.ctrl ? ctrlMul : 1);
         v.add(keyMove.mulScalar(fly * speed * dt));
         if (isWalk) {
-            // Pass jump signal as raw Y; FPS controller uses move[1] > 0 as boolean trigger
+            // Pass jump signal as raw Y; WalkController uses move[1] > 0 as boolean trigger
             v.y = this._state.jump > 0 ? 1 : 0;
         }
         const panMove = screenToWorld(camera, mouse[0], mouse[1], distance);
@@ -569,7 +569,7 @@ class InputController {
             flyMove.set(this._touchJoystick[0], 0, -this._touchJoystick[1]);
             v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
         } else {
-            // Pan velocity → strafe (X) and vertical (Y, fly only — FPS uses gravity)
+            // Pan velocity → strafe (X) and vertical (Y, fly only — walk uses gravity)
             flyTouchPan.set(this._panVelocity[0], isWalk ? 0 : -this._panVelocity[1], 0);
             v.add(flyTouchPan.mulScalar(fly * this.touchPinchMoveSensitivity * this.moveSpeed * dt));
             // Pinch velocity → forward/backward
@@ -578,7 +578,7 @@ class InputController {
         }
         pinchMove.set(0, 0, pinch[0]);
         v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * DISPLACEMENT_SCALE));
-        // Tap-to-jump for mobile FPS mode
+        // Tap-to-jump for mobile walk mode
         if (isWalk && this._tapJump) {
             v.y = 1;
             this._tapJump = false;
