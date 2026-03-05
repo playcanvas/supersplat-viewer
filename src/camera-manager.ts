@@ -7,7 +7,7 @@ import { createRotateTrack } from './animation/create-rotate-track';
 import { AnimController } from './cameras/anim-controller';
 import { Camera, type CameraFrame, type CameraController } from './cameras/camera';
 import { FlyController } from './cameras/fly-controller';
-import { FpsController } from './cameras/fps-controller';
+import { WalkController } from './cameras/walk-controller';
 import { OrbitController } from './cameras/orbit-controller';
 import { WalkSource } from './cameras/walk-source';
 import { easeOut } from './core/math';
@@ -70,12 +70,12 @@ class CameraManager {
         const controllers = {
             orbit: new OrbitController(),
             fly: new FlyController(),
-            fps: new FpsController(),
+            walk: new WalkController(),
             anim: animTrack ? new AnimController(animTrack) : null
         };
 
         controllers.fly.collider = collider;
-        controllers.fps.collider = collider;
+        controllers.walk.collider = collider;
 
         const walkSource = new WalkSource();
         walkSource.onComplete = () => {
@@ -99,7 +99,7 @@ class CameraManager {
         let fromMode: CameraMode = isObjectExperience ? 'orbit' : 'fly';
 
         // tracks the mode to restore when exiting FPS
-        let preFpsMode: CameraMode = 'fly';
+        let preWalkMode: CameraMode = 'fly';
 
         // enter the initial controller
         getController(state.cameraMode).onEnter(this.camera);
@@ -125,7 +125,7 @@ class CameraManager {
 
             const controller = getController(state.cameraMode);
 
-            if (state.cameraMode === 'fps') {
+            if (state.cameraMode === 'walk') {
                 walkSource.update(dt, this.camera.position, this.camera.angles, frame);
             }
 
@@ -170,19 +170,19 @@ class CameraManager {
                 case 'requestFirstPerson':
                     state.cameraMode = 'fly';
                     break;
-                case 'toggleFps':
+                case 'toggleWalk':
                     if (collider) {
-                        if (state.cameraMode === 'fps') {
-                            state.cameraMode = preFpsMode;
+                        if (state.cameraMode === 'walk') {
+                            state.cameraMode = preWalkMode;
                         } else {
-                            preFpsMode = state.cameraMode;
-                            state.cameraMode = 'fps';
+                            preWalkMode = state.cameraMode;
+                            state.cameraMode = 'walk';
                         }
                     }
                     break;
-                case 'exitFps':
-                    if (state.cameraMode === 'fps') {
-                        state.cameraMode = preFpsMode;
+                case 'exitWalk':
+                    if (state.cameraMode === 'walk') {
+                        state.cameraMode = preWalkMode;
                     }
                     break;
                 case 'cancel':
@@ -200,7 +200,7 @@ class CameraManager {
 
         // handle camera mode switching
         events.on('cameraMode:changed', (value, prev) => {
-            if (prev === 'fps') {
+            if (prev === 'walk') {
                 walkSource.cancelWalk();
             }
 
@@ -261,7 +261,7 @@ class CameraManager {
 
         // tap-to-walk: start auto-walking toward a picked 3D position
         events.on('walkTo', (position: Vec3) => {
-            if (state.cameraMode === 'fps') {
+            if (state.cameraMode === 'walk') {
                 walkSource.walkTo(position);
                 events.fire('walkIndicator:setTarget', position);
             }

@@ -17,7 +17,7 @@ const BLOCKED_DURATION = 0.2;
 /**
  * Generates synthetic move/rotate input to auto-walk toward a target position.
  *
- * Designed to feed into FpsController's existing update path so there is no
+ * Designed to feed into WalkController's existing update path so there is no
  * duplicated physics. Each frame it appends yaw-rotation and forward-movement
  * deltas to the shared CameraFrame, and monitors arrival / blocked conditions.
  */
@@ -118,7 +118,7 @@ class WalkSource {
         yawDiff = ((yawDiff % 360) + 540) % 360 - 180;
         const rotAlpha = damp(this.rotateDamping, dt);
 
-        // FpsController applies: _angles.y += -rotate[0]
+        // WalkController applies: _angles.y += -rotate[0]
         frame.deltas.rotate.append([-(yawDiff * rotAlpha), 0, 0]);
 
         // scale forward speed by alignment: turn in place first, then accelerate

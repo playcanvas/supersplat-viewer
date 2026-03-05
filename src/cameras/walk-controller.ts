@@ -23,7 +23,7 @@ const rotation = new Quat();
  * Vertical motion is driven by gravity and resolved by capsule collision with the
  * voxel grid. The camera is positioned at eye height within the capsule.
  */
-class FpsController implements CameraController {
+class WalkController implements CameraController {
     /**
      * Optional voxel collider for capsule collision with sliding
      */
@@ -210,4 +210,4 @@ class FpsController implements CameraController {
     }
 }
 
-export { FpsController };
+export { WalkController };

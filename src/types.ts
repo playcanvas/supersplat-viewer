@@ -2,7 +2,7 @@ import type { Entity, EventHandler, AppBase } from 'playcanvas';
 
 import type { ExperienceSettings } from './settings';
 
-type CameraMode = 'orbit' | 'anim' | 'fly' | 'fps';
+type CameraMode = 'orbit' | 'anim' | 'fly' | 'walk';
 
 type InputMode = 'desktop' | 'touch';
 
