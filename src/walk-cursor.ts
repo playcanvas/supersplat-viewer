@@ -36,7 +36,7 @@ const buildBezierRing = (sx: number[], sy: number[]) => {
         const cp2y = sy[i2] - (sy[i3] - sy[i1]) * BEZIER_K;
         p += ` C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${sx[i2].toFixed(1)},${sy[i2].toFixed(1)}`;
     }
-    return p + ' Z';
+    return `${p} Z`;
 };
 
 class WalkCursor {
@@ -243,7 +243,7 @@ class WalkCursor {
         this.projectCircle(px, py, pz, nx, ny, nz, CIRCLE_OUTER_RADIUS, outerX, outerY);
         this.projectCircle(px, py, pz, nx, ny, nz, CIRCLE_INNER_RADIUS, innerX, innerY);
 
-        this.cursorPath.setAttribute('d', buildBezierRing(outerX, outerY) + ' ' + buildBezierRing(innerX, innerY));
+        this.cursorPath.setAttribute('d', `${buildBezierRing(outerX, outerY)} ${buildBezierRing(innerX, innerY)}`);
         this.cursorPath.style.display = '';
         this.svg.style.display = '';
     }

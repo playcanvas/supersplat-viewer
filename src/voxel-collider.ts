@@ -355,8 +355,12 @@ class VoxelCollider {
         if (Math.abs(dx) > EPS) {
             let t1 = (gMinX - ox) / dx;
             let t2 = (gMaxX - ox) / dx;
-            if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
-            if (t1 > tNear) { tNear = t1; }
+            if (t1 > t2) {
+                const tmp = t1; t1 = t2; t2 = tmp;
+            }
+            if (t1 > tNear) {
+                tNear = t1;
+            }
             tFar = Math.min(tFar, t2);
             if (tNear > tFar) return null;
         } else if (ox < gMinX || ox >= gMaxX) {
@@ -366,8 +370,12 @@ class VoxelCollider {
         if (Math.abs(dy) > EPS) {
             let t1 = (gMinY - oy) / dy;
             let t2 = (gMaxY - oy) / dy;
-            if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
-            if (t1 > tNear) { tNear = t1; }
+            if (t1 > t2) {
+                const tmp = t1; t1 = t2; t2 = tmp;
+            }
+            if (t1 > tNear) {
+                tNear = t1;
+            }
             tFar = Math.min(tFar, t2);
             if (tNear > tFar) return null;
         } else if (oy < gMinY || oy >= gMaxY) {
@@ -377,8 +385,12 @@ class VoxelCollider {
         if (Math.abs(dz) > EPS) {
             let t1 = (gMinZ - oz) / dz;
             let t2 = (gMaxZ - oz) / dz;
-            if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
-            if (t1 > tNear) { tNear = t1; }
+            if (t1 > t2) {
+                const tmp = t1; t1 = t2; t2 = tmp;
+            }
+            if (t1 > tNear) {
+                tNear = t1;
+            }
             tFar = Math.min(tFar, t2);
             if (tNear > tFar) return null;
         } else if (oz < gMinZ || oz >= gMaxZ) {
