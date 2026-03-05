@@ -130,8 +130,7 @@ class WalkCursor {
 
         const updateActive = () => {
             this.active = state.cameraMode === 'walk' &&
-                          !state.gamingControls &&
-                          state.inputMode === 'desktop';
+                          !state.gamingControls;
             if (!this.active) {
                 this.svg.style.display = 'none';
             }
@@ -139,7 +138,6 @@ class WalkCursor {
 
         events.on('cameraMode:changed', updateActive);
         events.on('gamingControls:changed', updateActive);
-        events.on('inputMode:changed', updateActive);
 
         events.on('walkTo', () => {
             this.walking = true;
