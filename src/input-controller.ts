@@ -436,7 +436,10 @@ class InputController {
 
         if (!hit) return null;
 
-        const sn = this.collider.querySurfaceNormal(hit.x, hit.y, hit.z);
+        const rdx = -tmpV1.x;
+        const rdy = -tmpV1.y;
+        const rdz = tmpV1.z;
+        const sn = this.collider.querySurfaceNormal(hit.x, hit.y, hit.z, rdx, rdy, rdz);
         return {
             position: new Vec3(-hit.x, -hit.y, hit.z),
             normal: new Vec3(-sn.nx, -sn.ny, sn.nz)

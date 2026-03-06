@@ -42,18 +42,8 @@ const SOLID_LEAF_MARKER = 0xFF000000 >>> 0;
 /** Minimum penetration depth to report a collision (avoids floating-point noise at corners) */
 const PENETRATION_EPSILON = 1e-4;
 
-/** Precomputed offsets and inverse-length weights for querySurfaceNormal's 7x7x7 neighborhood. */
-const NORMAL_R = 3;
-const normalOffsets: { dx: number; dy: number; dz: number; wx: number; wy: number; wz: number }[] = [];
-for (let dz = -NORMAL_R; dz <= NORMAL_R; dz++) {
-    for (let dy = -NORMAL_R; dy <= NORMAL_R; dy++) {
-        for (let dx = -NORMAL_R; dx <= NORMAL_R; dx++) {
-            if (dx === 0 && dy === 0 && dz === 0) continue;
-            const invLen = 1.0 / Math.sqrt(dx * dx + dy * dy + dz * dz);
-            normalOffsets.push({ dx, dy, dz, wx: dx * invLen, wy: dy * invLen, wz: dz * invLen });
-        }
-    }
-}
+/** Half-extent of the flatness sampling patch (5x5 when R=2). */
+const FLAT_R = 2;
 
 /**
  * Count the number of set bits in a 32-bit integer.
@@ -281,51 +271,120 @@ class VoxelCollider {
     }
 
     /**
-     * Compute a smoothed surface normal at a world-space position by sampling the surrounding
-     * voxel neighborhood. Uses a gradient-of-occupancy approach: for each solid voxel in the
-     * neighborhood, its offset is subtracted from the accumulated normal (pointing away from
-     * the solid mass). This produces stable normals — floors consistently point upward even
-     * on uneven surfaces, and walls produce horizontal normals.
+     * Compute a stable, axis-aligned surface normal at a world-space position using
+     * flatness-probability sampling. The camera can see at most 3 axis-aligned faces of any
+     * voxel (one per axis, determined by ray direction sign). For each candidate axis a 5x5
+     * patch of voxels in the perpendicular plane is sampled: a voxel counts as a "surface hit"
+     * if it is solid and the adjacent voxel toward the camera is empty. The axis with the
+     * highest hit count is the surface orientation.
      *
      * @param x - World X coordinate of the surface point.
      * @param y - World Y coordinate of the surface point.
      * @param z - World Z coordinate of the surface point.
-     * @returns Object with nx, ny, nz components of the normalized surface normal.
+     * @param rdx - Ray direction X (toward the surface, in voxel space).
+     * @param rdy - Ray direction Y.
+     * @param rdz - Ray direction Z.
+     * @returns Object with nx, ny, nz components of the axis-aligned surface normal.
      */
-    querySurfaceNormal(x: number, y: number, z: number): { nx: number; ny: number; nz: number } {
-        const ix = Math.floor((x - this._gridMinX) / this._voxelResolution);
-        const iy = Math.floor((y - this._gridMinY) / this._voxelResolution);
-        const iz = Math.floor((z - this._gridMinZ) / this._voxelResolution);
+    querySurfaceNormal(
+        x: number, y: number, z: number,
+        rdx: number, rdy: number, rdz: number
+    ): { nx: number; ny: number; nz: number } {
+        // Nudge the query point slightly along the ray direction so that a hit point
+        // sitting exactly on a voxel face boundary resolves to the solid voxel rather
+        // than the adjacent empty one.
+        const nudge = this._voxelResolution * 0.25;
+        const ix = Math.floor((x + rdx * nudge - this._gridMinX) / this._voxelResolution);
+        const iy = Math.floor((y + rdy * nudge - this._gridMinY) / this._voxelResolution);
+        const iz = Math.floor((z + rdz * nudge - this._gridMinZ) / this._voxelResolution);
 
-        let nx = 0;
-        let ny = 0;
-        let nz = 0;
+        const result = this._normalResult;
 
-        for (let i = 0; i < normalOffsets.length; i++) {
-            const o = normalOffsets[i];
-            if (this.isVoxelSolid(ix + o.dx, iy + o.dy, iz + o.dz)) {
-                nx -= o.wx;
-                ny -= o.wy;
-                nz -= o.wz;
+        // For each axis, the camera-facing step is opposite to the ray direction component.
+        const stepX = rdx < 0 ? 1 : -1;
+        const stepY = rdy < 0 ? 1 : -1;
+        const stepZ = rdz < 0 ? 1 : -1;
+
+        let bestScore = -1;
+        let bestNx = 0;
+        let bestNy = 1;
+        let bestNz = 0;
+
+        // Axis X: sample 5x5 in YZ plane at x = ix ± 1
+        if (Math.abs(rdx) > 1e-6) {
+            let score = 0;
+            for (let depth = 1; depth >= -1; depth--) {
+                let s = 0;
+                const px = ix - stepX * depth;
+                for (let da = -FLAT_R; da <= FLAT_R; da++) {
+                    for (let db = -FLAT_R; db <= FLAT_R; db++) {
+                        if (this.isVoxelSolid(px, iy + da, iz + db) &&
+                            !this.isVoxelSolid(px + stepX, iy + da, iz + db)) {
+                            s++;
+                        }
+                    }
+                }
+                if (s > score) score = s;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                bestNx = stepX;
+                bestNy = 0;
+                bestNz = 0;
             }
         }
 
-        const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
-        if (len > 1e-6) {
-            const invLen = 1.0 / len;
-            nx *= invLen;
-            ny *= invLen;
-            nz *= invLen;
-        } else {
-            nx = 0;
-            ny = 1;
-            nz = 0;
+        // Axis Y: sample 5x5 in XZ plane at y = iy ± 1
+        if (Math.abs(rdy) > 1e-6) {
+            let score = 0;
+            for (let depth = 1; depth >= -1; depth--) {
+                let s = 0;
+                const py = iy - stepY * depth;
+                for (let da = -FLAT_R; da <= FLAT_R; da++) {
+                    for (let db = -FLAT_R; db <= FLAT_R; db++) {
+                        if (this.isVoxelSolid(ix + da, py, iz + db) &&
+                            !this.isVoxelSolid(ix + da, py + stepY, iz + db)) {
+                            s++;
+                        }
+                    }
+                }
+                if (s > score) score = s;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                bestNx = 0;
+                bestNy = stepY;
+                bestNz = 0;
+            }
         }
 
-        const result = this._normalResult;
-        result.nx = nx;
-        result.ny = ny;
-        result.nz = nz;
+        // Axis Z: sample 5x5 in XY plane at z = iz ± 1
+        if (Math.abs(rdz) > 1e-6) {
+            let score = 0;
+            for (let depth = 1; depth >= -1; depth--) {
+                let s = 0;
+                const pz = iz - stepZ * depth;
+                for (let da = -FLAT_R; da <= FLAT_R; da++) {
+                    for (let db = -FLAT_R; db <= FLAT_R; db++) {
+                        if (this.isVoxelSolid(ix + da, iy + db, pz) &&
+                            !this.isVoxelSolid(ix + da, iy + db, pz + stepZ)) {
+                            s++;
+                        }
+                    }
+                }
+                if (s > score) score = s;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                bestNx = 0;
+                bestNy = 0;
+                bestNz = stepZ;
+            }
+        }
+
+        result.nx = bestNx;
+        result.ny = bestNy;
+        result.nz = bestNz;
         return result;
     }
 
