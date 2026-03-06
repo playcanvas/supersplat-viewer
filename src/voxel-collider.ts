@@ -74,6 +74,21 @@ const SURFACE_CANDIDATES: number[][] = [
  * Score a surface candidate direction by sampling a 5x5 patch at three depth layers
  * shifted along the step direction. Returns the best (maximum) layer score. A "surface
  * hit" at each sample is a solid voxel whose neighbour in the step direction is empty.
+ *
+ * @param collider - The voxel collider instance.
+ * @param ix - Voxel X index of the surface point.
+ * @param iy - Voxel Y index of the surface point.
+ * @param iz - Voxel Z index of the surface point.
+ * @param sx - Step X component (camera-facing direction).
+ * @param sy - Step Y component.
+ * @param sz - Step Z component.
+ * @param t1x - First tangent vector X.
+ * @param t1y - First tangent vector Y.
+ * @param t1z - First tangent vector Z.
+ * @param t2x - Second tangent vector X.
+ * @param t2y - Second tangent vector Y.
+ * @param t2z - Second tangent vector Z.
+ * @returns The best score across the three depth layers.
  */
 function scoreSurfaceCandidate(
     collider: VoxelCollider,
