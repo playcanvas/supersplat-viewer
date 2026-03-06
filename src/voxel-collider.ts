@@ -45,6 +45,62 @@ const PENETRATION_EPSILON = 1e-4;
 /** Half-extent of the flatness sampling patch (5x5 when R=2). */
 const FLAT_R = 2;
 
+/** 1/sqrt(2), used to normalise 45-degree diagonal normals. */
+const INV_SQRT2 = 1 / Math.sqrt(2);
+
+/**
+ * Surface normal candidate directions for querySurfaceNormal.
+ * Each entry: [dx, dy, dz, t1x, t1y, t1z, t2x, t2y, t2z]
+ *   (dx,dy,dz) = canonical normal direction (components 0 or +/-1)
+ *   (t1,t2) = orthogonal tangent vectors spanning the perpendicular sampling plane
+ */
+const SURFACE_CANDIDATES: number[][] = [
+    // Axis-aligned
+    [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    [0, 1, 0, 1, 0, 0, 0, 0, 1],
+    [0, 0, 1, 1, 0, 0, 0, 1, 0],
+    // XZ diagonals (vertical walls at 45 degrees)
+    [1, 0, 1, 0, 1, 0, -1, 0, 1],
+    [1, 0, -1, 0, 1, 0, 1, 0, 1],
+    // XY diagonals (walls tilted from vertical)
+    [1, 1, 0, 0, 0, 1, -1, 1, 0],
+    [1, -1, 0, 0, 0, 1, 1, 1, 0],
+    // YZ diagonals (sloped floors/ceilings)
+    [0, 1, 1, 1, 0, 0, 0, -1, 1],
+    [0, 1, -1, 1, 0, 0, 0, 1, 1]
+];
+
+/**
+ * Score a surface candidate direction by sampling a 5x5 patch at three depth layers
+ * shifted along the step direction. Returns the best (maximum) layer score. A "surface
+ * hit" at each sample is a solid voxel whose neighbour in the step direction is empty.
+ */
+function scoreSurfaceCandidate(
+    collider: VoxelCollider,
+    ix: number, iy: number, iz: number,
+    sx: number, sy: number, sz: number,
+    t1x: number, t1y: number, t1z: number,
+    t2x: number, t2y: number, t2z: number
+): number {
+    let best = 0;
+    for (let depth = 1; depth >= -1; depth--) {
+        let s = 0;
+        for (let da = -FLAT_R; da <= FLAT_R; da++) {
+            for (let db = -FLAT_R; db <= FLAT_R; db++) {
+                const px = ix + da * t1x + db * t2x - sx * depth;
+                const py = iy + da * t1y + db * t2y - sy * depth;
+                const pz = iz + da * t1z + db * t2z - sz * depth;
+                if (collider.isVoxelSolid(px, py, pz) &&
+                    !collider.isVoxelSolid(px + sx, py + sy, pz + sz)) {
+                    s++;
+                }
+            }
+        }
+        if (s > best) best = s;
+    }
+    return best;
+}
+
 /**
  * Count the number of set bits in a 32-bit integer.
  *
@@ -271,12 +327,12 @@ class VoxelCollider {
     }
 
     /**
-     * Compute a stable, axis-aligned surface normal at a world-space position using
-     * flatness-probability sampling. The camera can see at most 3 axis-aligned faces of any
-     * voxel (one per axis, determined by ray direction sign). For each candidate axis a 5x5
-     * patch of voxels in the perpendicular plane is sampled: a voxel counts as a "surface hit"
-     * if it is solid and the adjacent voxel toward the camera is empty. The axis with the
-     * highest hit count is the surface orientation.
+     * Compute a stable surface normal at a world-space position using flatness-probability
+     * sampling. Tests 9 candidate directions: 3 axis-aligned and 6 diagonal (45-degree in
+     * each pair of axes). For each camera-facing candidate a 5x5 patch of voxels in the
+     * perpendicular plane is sampled: a voxel counts as a "surface hit" if it is solid and
+     * the adjacent voxel toward the camera is empty. The candidate with the highest hit
+     * count is the surface orientation.
      *
      * @param x - World X coordinate of the surface point.
      * @param y - World Y coordinate of the surface point.
@@ -284,7 +340,7 @@ class VoxelCollider {
      * @param rdx - Ray direction X (toward the surface, in voxel space).
      * @param rdy - Ray direction Y.
      * @param rdz - Ray direction Z.
-     * @returns Object with nx, ny, nz components of the axis-aligned surface normal.
+     * @returns Object with nx, ny, nz components of the surface normal.
      */
     querySurfaceNormal(
         x: number, y: number, z: number,
@@ -301,85 +357,39 @@ class VoxelCollider {
 
         const result = this._normalResult;
 
-        // For each axis, the camera-facing step is opposite to the ray direction component.
-        const stepX = rdx < 0 ? 1 : -1;
-        const stepY = rdy < 0 ? 1 : -1;
-        const stepZ = rdz < 0 ? 1 : -1;
-
         let bestScore = -1;
         let bestNx = 0;
         let bestNy = 1;
         let bestNz = 0;
 
-        // Axis X: sample 5x5 in YZ plane at x = ix ± 1
-        if (Math.abs(rdx) > 1e-6) {
-            let score = 0;
-            for (let depth = 1; depth >= -1; depth--) {
-                let s = 0;
-                const px = ix - stepX * depth;
-                for (let da = -FLAT_R; da <= FLAT_R; da++) {
-                    for (let db = -FLAT_R; db <= FLAT_R; db++) {
-                        if (this.isVoxelSolid(px, iy + da, iz + db) &&
-                            !this.isVoxelSolid(px + stepX, iy + da, iz + db)) {
-                            s++;
-                        }
-                    }
-                }
-                if (s > score) score = s;
-            }
-            if (score > bestScore) {
-                bestScore = score;
-                bestNx = stepX;
-                bestNy = 0;
-                bestNz = 0;
-            }
-        }
+        for (let c = 0; c < SURFACE_CANDIDATES.length; c++) {
+            const cand = SURFACE_CANDIDATES[c];
+            const dx = cand[0];
+            const dy = cand[1];
+            const dz = cand[2];
 
-        // Axis Y: sample 5x5 in XZ plane at y = iy ± 1
-        if (Math.abs(rdy) > 1e-6) {
-            let score = 0;
-            for (let depth = 1; depth >= -1; depth--) {
-                let s = 0;
-                const py = iy - stepY * depth;
-                for (let da = -FLAT_R; da <= FLAT_R; da++) {
-                    for (let db = -FLAT_R; db <= FLAT_R; db++) {
-                        if (this.isVoxelSolid(ix + da, py, iz + db) &&
-                            !this.isVoxelSolid(ix + da, py + stepY, iz + db)) {
-                            s++;
-                        }
-                    }
-                }
-                if (s > score) score = s;
-            }
-            if (score > bestScore) {
-                bestScore = score;
-                bestNx = 0;
-                bestNy = stepY;
-                bestNz = 0;
-            }
-        }
+            const dot = rdx * dx + rdy * dy + rdz * dz;
+            if (Math.abs(dot) < 1e-6) continue;
 
-        // Axis Z: sample 5x5 in XY plane at z = iz ± 1
-        if (Math.abs(rdz) > 1e-6) {
-            let score = 0;
-            for (let depth = 1; depth >= -1; depth--) {
-                let s = 0;
-                const pz = iz - stepZ * depth;
-                for (let da = -FLAT_R; da <= FLAT_R; da++) {
-                    for (let db = -FLAT_R; db <= FLAT_R; db++) {
-                        if (this.isVoxelSolid(ix + da, iy + db, pz) &&
-                            !this.isVoxelSolid(ix + da, iy + db, pz + stepZ)) {
-                            s++;
-                        }
-                    }
-                }
-                if (s > score) score = s;
-            }
+            const sign = dot < 0 ? 1 : -1;
+            const sx = dx * sign;
+            const sy = dy * sign;
+            const sz = dz * sign;
+
+            const score = scoreSurfaceCandidate(
+                this,
+                ix, iy, iz,
+                sx, sy, sz,
+                cand[3], cand[4], cand[5],
+                cand[6], cand[7], cand[8]
+            );
+
             if (score > bestScore) {
                 bestScore = score;
-                bestNx = 0;
-                bestNy = 0;
-                bestNz = stepZ;
+                const mag = (Math.abs(dx) + Math.abs(dy) + Math.abs(dz)) > 1 ? INV_SQRT2 : 1;
+                bestNx = sx * mag;
+                bestNy = sy * mag;
+                bestNz = sz * mag;
             }
         }
 
@@ -1029,7 +1039,7 @@ class VoxelCollider {
      * @param iz - Global voxel Z index.
      * @returns True if the voxel is solid.
      */
-    private isVoxelSolid(ix: number, iy: number, iz: number): boolean {
+    isVoxelSolid(ix: number, iy: number, iz: number): boolean {
         if (this.nodes.length === 0 ||
             ix < 0 || iy < 0 || iz < 0 ||
             ix >= this.numVoxelsX || iy >= this.numVoxelsY || iz >= this.numVoxelsZ) {
