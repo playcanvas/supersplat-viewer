@@ -125,6 +125,7 @@ class WalkCursor {
             if (e.pointerType === 'touch') return;
             if (e.buttons) {
                 this.cursorPath.style.display = 'none';
+                this.hasSmoothedNormal = false;
                 return;
             }
             this.updateCursor(e.offsetX, e.offsetY);
@@ -152,6 +153,7 @@ class WalkCursor {
         events.on('walkTo', () => {
             this.walking = true;
             this.cursorPath.style.display = 'none';
+            this.hasSmoothedNormal = false;
         });
 
         events.on('walkCancel', () => {
@@ -226,6 +228,7 @@ class WalkCursor {
     private updateCursor(offsetX: number, offsetY: number) {
         if (!this.active || this.walking) {
             this.cursorPath.style.display = 'none';
+            this.hasSmoothedNormal = false;
             return;
         }
 

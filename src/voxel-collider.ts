@@ -292,11 +292,12 @@ class VoxelCollider {
     ): { nx: number; ny: number; nz: number } {
         // Nudge the query point slightly along the ray direction so that a hit point
         // sitting exactly on a voxel face boundary resolves to the solid voxel rather
-        // than the adjacent empty one.
+        // than the adjacent empty one. Uses Math.sign so the nudge is independent of
+        // ray vector magnitude.
         const nudge = this._voxelResolution * 0.25;
-        const ix = Math.floor((x + rdx * nudge - this._gridMinX) / this._voxelResolution);
-        const iy = Math.floor((y + rdy * nudge - this._gridMinY) / this._voxelResolution);
-        const iz = Math.floor((z + rdz * nudge - this._gridMinZ) / this._voxelResolution);
+        const ix = Math.floor((x + Math.sign(rdx) * nudge - this._gridMinX) / this._voxelResolution);
+        const iy = Math.floor((y + Math.sign(rdy) * nudge - this._gridMinY) / this._voxelResolution);
+        const iz = Math.floor((z + Math.sign(rdz) * nudge - this._gridMinZ) / this._voxelResolution);
 
         const result = this._normalResult;
 
