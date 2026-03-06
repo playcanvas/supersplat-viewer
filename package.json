@@ -47,7 +47,7 @@
     "concurrently": "9.2.1",
     "eslint": "9.39.3",
     "globals": "17.4.0",
-    "playcanvas": "2.17.0-preview.1",
+    "playcanvas": "2.17.0",
     "postcss": "8.5.8",
     "publint": "0.3.18",
     "rollup": "4.59.0",
