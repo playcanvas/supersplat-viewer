@@ -200,9 +200,9 @@ class WalkController implements CameraController {
         this._velocity.add(offset.mulScalar(this._grounded ? this.moveGroundSpeed : this.moveAirSpeed));
 
         // horizontal damping: aggressive when grounded with no input to prevent slope drift
-        const dampFactor = this._grounded
-            ? (hasInput ? this.velocityDampingGround : this.velocityDampingIdle)
-            : this.velocityDampingAir;
+        const dampFactor = this._grounded ?
+            (hasInput ? this.velocityDampingGround : this.velocityDampingIdle) :
+            this.velocityDampingAir;
         const alpha = damp(dampFactor, deltaTime);
         this._velocity.x = math.lerp(this._velocity.x, 0, alpha);
         this._velocity.z = math.lerp(this._velocity.z, 0, alpha);
