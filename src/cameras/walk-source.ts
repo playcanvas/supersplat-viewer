@@ -1,7 +1,6 @@
 import { Vec3 } from 'playcanvas';
 
 import type { CameraFrame } from './camera';
-import { damp } from '../core/math';
 
 const RAD_TO_DEG = 180 / Math.PI;
 
@@ -29,9 +28,17 @@ class WalkSource {
     walkSpeed = 4;
 
     /**
-     * Yaw rotation damping while auto-walking toward a target.
+     * Maximum yaw turn rate in degrees per second.
      */
-    rotateDamping = 0.99;
+    maxTurnRate = 192;
+
+    /**
+     * Proportional gain mapping yaw error (degrees) to desired turn rate.
+     * Below maxTurnRate / turnGain degrees the turn rate scales linearly;
+     * above that it is capped at maxTurnRate. The rate filter is
+     * automatically critically damped so there is no overshoot.
+     */
+    turnGain = 5;
 
     /**
      * Callback fired when an auto-walk completes (arrival or obstacle).
@@ -39,6 +46,8 @@ class WalkSource {
     onComplete: (() => void) | null = null;
 
     private _target: Vec3 | null = null;
+
+    private _yawRate = 0;
 
     private _blockedTime = 0;
 
@@ -68,6 +77,7 @@ class WalkSource {
     cancelWalk() {
         if (this._target) {
             this._target = null;
+            this._yawRate = 0;
             this._blockedTime = 0;
             this.onComplete?.();
         }
@@ -112,14 +122,17 @@ class WalkSource {
         }
         this._prevDist = xzDist;
 
-        // yaw toward target
+        // yaw toward target with smoothed turn rate
         const targetYaw = Math.atan2(-dx, -dz) * RAD_TO_DEG;
         let yawDiff = targetYaw - cameraAngles.y;
         yawDiff = ((yawDiff % 360) + 540) % 360 - 180;
-        const rotAlpha = damp(this.rotateDamping, dt);
+
+        const desiredRate = Math.max(-this.maxTurnRate, Math.min(yawDiff * this.turnGain, this.maxTurnRate));
+        const smoothing = 1 - Math.exp(-4 * this.turnGain * dt);
+        this._yawRate += (desiredRate - this._yawRate) * smoothing;
 
         // WalkController applies: _angles.y += -rotate[0]
-        frame.deltas.rotate.append([-(yawDiff * rotAlpha), 0, 0]);
+        frame.deltas.rotate.append([-(this._yawRate * dt), 0, 0]);
 
         // scale forward speed by alignment: turn in place first, then accelerate
         const alignment = Math.max(0, Math.cos(yawDiff * Math.PI / 180));

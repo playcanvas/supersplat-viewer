@@ -90,12 +90,6 @@ class WalkController implements CameraController {
     velocityDampingGround = 0.99;
 
     /**
-     * Velocity damping factor when grounded with no movement input.
-     * More aggressive than normal ground damping to prevent slope drift.
-     */
-    velocityDampingIdle = 0.9;
-
-    /**
      * Velocity damping factor when in the air (0 = no damping, 1 = full damping)
      */
     velocityDampingAir = 0.998;
@@ -130,6 +124,8 @@ class WalkController implements CameraController {
 
     private _velocity = new Vec3();
 
+    private _pendingMove = [0, 0, 0];
+
     private _accumulator = 0;
 
     private _grounded = false;
@@ -158,21 +154,30 @@ class WalkController implements CameraController {
         this._angles.add(v.set(-rotate[1], -rotate[0], 0));
         this._angles.x = math.clamp(this._angles.x, -90, 90);
 
+        // accumulate movement input so frames without a physics step don't lose input
+        this._pendingMove[0] += move[0];
+        this._pendingMove[1] = this._pendingMove[1] || move[1];
+        this._pendingMove[2] += move[2];
+
         this._accumulator = Math.min(this._accumulator + deltaTime, MAX_SUBSTEPS * FIXED_DT);
 
         const numSteps = Math.floor(this._accumulator / FIXED_DT);
 
         if (numSteps > 0) {
             const invSteps = 1 / numSteps;
-            moveStep[0] = move[0] * invSteps;
-            moveStep[1] = move[1];
-            moveStep[2] = move[2] * invSteps;
+            moveStep[0] = this._pendingMove[0] * invSteps;
+            moveStep[1] = this._pendingMove[1];
+            moveStep[2] = this._pendingMove[2] * invSteps;
 
             for (let i = 0; i < numSteps; i++) {
                 this._prevPosition.copy(this._position);
                 this._step(FIXED_DT, moveStep);
                 this._accumulator -= FIXED_DT;
             }
+
+            this._pendingMove[0] = 0;
+            this._pendingMove[1] = 0;
+            this._pendingMove[2] = 0;
         }
 
         const alpha = this._accumulator / FIXED_DT;
@@ -182,8 +187,6 @@ class WalkController implements CameraController {
     }
 
     private _step(dt: number, move: number[]) {
-        const hasInput = move[0] !== 0 || move[2] !== 0;
-
         // ground probe: cast a ray downward to find the terrain surface
         const groundY = this._probeGround(this._position);
         const hasGround = groundY !== null;
@@ -233,10 +236,7 @@ class WalkController implements CameraController {
         offset.add(right.mulScalar(move[0]));
         this._velocity.add(offset.mulScalar(this._grounded ? this.moveGroundSpeed : this.moveAirSpeed));
 
-        // horizontal damping: aggressive when grounded with no input to prevent slope drift
-        const dampFactor = this._grounded ?
-            (hasInput ? this.velocityDampingGround : this.velocityDampingIdle) :
-            this.velocityDampingAir;
+        const dampFactor = this._grounded ? this.velocityDampingGround : this.velocityDampingAir;
         const alpha = damp(dampFactor, dt);
         this._velocity.x = math.lerp(this._velocity.x, 0, alpha);
         this._velocity.z = math.lerp(this._velocity.z, 0, alpha);
@@ -268,6 +268,9 @@ class WalkController implements CameraController {
         this._velocity.set(0, 0, 0);
         this._grounded = false;
         this._jumping = false;
+        this._pendingMove[0] = 0;
+        this._pendingMove[1] = 0;
+        this._pendingMove[2] = 0;
         this._accumulator = 0;
     }
 
