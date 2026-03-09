@@ -15,6 +15,7 @@ const d = new Vec3();
 
 const forward = new Vec3();
 const right = new Vec3();
+const moveStep = [0, 0, 0];
 
 const offset = new Vec3();
 const rotation = new Quat();
@@ -129,7 +130,7 @@ class WalkController implements CameraController {
 
     private _velocity = new Vec3();
 
-    private _accumulator = FIXED_DT;
+    private _accumulator = 0;
 
     private _grounded = false;
 
@@ -163,7 +164,9 @@ class WalkController implements CameraController {
 
         if (numSteps > 0) {
             const invSteps = 1 / numSteps;
-            const moveStep = [move[0] * invSteps, move[1], move[2] * invSteps];
+            moveStep[0] = move[0] * invSteps;
+            moveStep[1] = move[1];
+            moveStep[2] = move[2] * invSteps;
 
             for (let i = 0; i < numSteps; i++) {
                 this._prevPosition.copy(this._position);
@@ -265,7 +268,7 @@ class WalkController implements CameraController {
         this._velocity.set(0, 0, 0);
         this._grounded = false;
         this._jumping = false;
-        this._accumulator = FIXED_DT;
+        this._accumulator = 0;
     }
 
     /**
