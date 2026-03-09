@@ -336,8 +336,9 @@ class InputController {
                     case 'h':
                         events.fire('inputEvent', 'toggleHelp');
                         break;
-                    case 'w': case 'a': case 's': case 'd':
-                        if (state.cameraMode === 'walk' && state.inputMode === 'desktop' && !state.gamingControls) {
+                    default:
+                        if ((event.code === 'KeyW' || event.code === 'KeyA' || event.code === 'KeyS' || event.code === 'KeyD') &&
+                            state.cameraMode === 'walk' && state.inputMode === 'desktop' && !state.gamingControls) {
                             state.gamingControls = true;
                         }
                         break;

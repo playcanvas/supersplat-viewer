@@ -10,8 +10,8 @@ import type { VoxelCollider } from './voxel-collider';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const NUM_SAMPLES = 12;
-const CIRCLE_OUTER_RADIUS = 0.3;
-const CIRCLE_INNER_RADIUS = 0.22;
+const CIRCLE_OUTER_RADIUS = 0.2;
+const CIRCLE_INNER_RADIUS = 0.17;
 const BEZIER_K = 1 / 6;
 const NORMAL_SMOOTH_FACTOR = 0.25;
 
