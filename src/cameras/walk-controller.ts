@@ -4,6 +4,9 @@ import { damp } from '../core/math';
 import type { PushOut, VoxelCollider } from '../voxel-collider';
 import type { CameraFrame, Camera, CameraController } from './camera';
 
+const FIXED_DT = 1 / 60;
+const MAX_SUBSTEPS = 10;
+
 /** Pre-allocated push-out vector for capsule collision */
 const out: PushOut = { x: 0, y: 0, z: 0 };
 
@@ -94,7 +97,7 @@ class WalkController implements CameraController {
     /**
      * Velocity damping factor when in the air (0 = no damping, 1 = full damping)
      */
-    velocityDampingAir = 0.997;
+    velocityDampingAir = 0.998;
 
     /**
      * Target clearance from capsule bottom to ground surface in meters.
@@ -120,9 +123,13 @@ class WalkController implements CameraController {
 
     private _position = new Vec3();
 
+    private _prevPosition = new Vec3();
+
     private _angles = new Vec3();
 
     private _velocity = new Vec3();
+
+    private _accumulator = FIXED_DT;
 
     private _grounded = false;
 
@@ -138,12 +145,40 @@ class WalkController implements CameraController {
                 this._grounded = true;
                 this._velocity.y = 0;
                 this._position.y = groundY + this.hoverHeight + this.eyeHeight;
+                this._prevPosition.copy(this._position);
             }
         }
     }
 
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
         const { move, rotate } = inputFrame.read();
+
+        // apply rotation at display rate for responsive mouse look
+        this._angles.add(v.set(-rotate[1], -rotate[0], 0));
+        this._angles.x = math.clamp(this._angles.x, -90, 90);
+
+        this._accumulator = Math.min(this._accumulator + deltaTime, MAX_SUBSTEPS * FIXED_DT);
+
+        const numSteps = Math.floor(this._accumulator / FIXED_DT);
+
+        if (numSteps > 0) {
+            const invSteps = 1 / numSteps;
+            const moveStep = [move[0] * invSteps, move[1], move[2] * invSteps];
+
+            for (let i = 0; i < numSteps; i++) {
+                this._prevPosition.copy(this._position);
+                this._step(FIXED_DT, moveStep);
+                this._accumulator -= FIXED_DT;
+            }
+        }
+
+        const alpha = this._accumulator / FIXED_DT;
+        camera.position.lerp(this._prevPosition, this._position, alpha);
+        camera.angles.set(this._angles.x, this._angles.y, 0);
+        camera.fov = this.fov;
+    }
+
+    private _step(dt: number, move: number[]) {
         const hasInput = move[0] !== 0 || move[2] !== 0;
 
         // ground probe: cast a ray downward to find the terrain surface
@@ -168,8 +203,8 @@ class WalkController implements CameraController {
 
             if (displacement > 0.1) {
                 // well above target (jump/ledge): freefall, snap to rest height on arrival
-                this._velocity.y -= this.gravity * deltaTime;
-                const nextY = this._position.y + this._velocity.y * deltaTime;
+                this._velocity.y -= this.gravity * dt;
+                const nextY = this._position.y + this._velocity.y * dt;
                 if (nextY <= targetY) {
                     this._position.y = targetY;
                     this._velocity.y = 0;
@@ -178,17 +213,13 @@ class WalkController implements CameraController {
             } else {
                 // at or near target (walking/slopes): spring tracks terrain
                 const springForce = -this.springStiffness * displacement - this.springDamping * this._velocity.y;
-                this._velocity.y += springForce * deltaTime;
+                this._velocity.y += springForce * dt;
                 this._grounded = true;
             }
         } else {
-            this._velocity.y -= this.gravity * deltaTime;
+            this._velocity.y -= this.gravity * dt;
             this._grounded = false;
         }
-
-        // rotate
-        this._angles.add(v.set(-rotate[1], -rotate[0], 0));
-        this._angles.x = math.clamp(this._angles.x, -90, 90);
 
         // move
         rotation.setFromEulerAngles(0, this._angles.y, 0);
@@ -203,19 +234,14 @@ class WalkController implements CameraController {
         const dampFactor = this._grounded ?
             (hasInput ? this.velocityDampingGround : this.velocityDampingIdle) :
             this.velocityDampingAir;
-        const alpha = damp(dampFactor, deltaTime);
+        const alpha = damp(dampFactor, dt);
         this._velocity.x = math.lerp(this._velocity.x, 0, alpha);
         this._velocity.z = math.lerp(this._velocity.z, 0, alpha);
 
-        this._position.add(v.copy(this._velocity).mulScalar(deltaTime));
+        this._position.add(v.copy(this._velocity).mulScalar(dt));
 
         // capsule collision: walls, ceiling, and fallback floor contact
         this._checkCollision(this._position, d);
-
-        // update camera
-        camera.position.copy(this._position);
-        camera.angles.set(this._angles.x, this._angles.y, 0);
-        camera.fov = this.fov;
     }
 
     onExit(_camera: Camera): void {
@@ -230,6 +256,7 @@ class WalkController implements CameraController {
     goto(camera: Camera) {
         // position
         this._position.copy(camera.position);
+        this._prevPosition.copy(this._position);
 
         // angles (clamp pitch to avoid gimbal lock)
         this._angles.set(camera.angles.x, camera.angles.y, 0);
@@ -238,6 +265,7 @@ class WalkController implements CameraController {
         this._velocity.set(0, 0, 0);
         this._grounded = false;
         this._jumping = false;
+        this._accumulator = FIXED_DT;
     }
 
     /**
