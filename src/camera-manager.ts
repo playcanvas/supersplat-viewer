@@ -74,6 +74,8 @@ class CameraManager {
             anim: animTrack ? new AnimController(animTrack) : null
         };
 
+        controllers.orbit.fov = resetCamera.fov;
+        controllers.fly.fov = resetCamera.fov;
         controllers.fly.collider = collider;
         controllers.walk.collider = collider;
 
@@ -99,8 +101,8 @@ class CameraManager {
         const defaultMode: CameraMode = isObjectExperience ? 'orbit' : (collider ? 'walk' : 'fly');
         let fromMode: CameraMode = defaultMode;
 
-        // tracks the mode to restore when exiting FPS
-        let preWalkMode: CameraMode = defaultMode;
+        // tracks the mode to restore when exiting walk
+        let preWalkMode: CameraMode = isObjectExperience ? 'orbit' : 'fly';
 
         // enter the initial controller
         getController(state.cameraMode).onEnter(this.camera);
@@ -131,11 +133,6 @@ class CameraManager {
             }
 
             controller.update(dt, frame, target);
-
-            // walk controller sets its own FOV; all other modes use the authored FOV
-            if (state.cameraMode !== 'walk') {
-                target.fov = resetCamera.fov;
-            }
 
             if (transitionTimer < 1) {
                 // lerp away from previous camera during transition
@@ -261,7 +258,6 @@ class CameraManager {
             );
 
             controllers.orbit.goto(tmpCamera);
-            target.fov = tmpCamera.fov;
             startTransition();
         });
 

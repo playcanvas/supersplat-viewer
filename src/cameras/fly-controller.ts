@@ -18,6 +18,8 @@ const pushOut: PushOut = { x: 0, y: 0, z: 0 };
 class FlyController implements CameraController {
     controller: FlyControllerPC;
 
+    fov = 90;
+
     /** Optional voxel collider for sphere collision with sliding */
     collider: VoxelCollider | null = null;
 
@@ -70,6 +72,7 @@ class FlyController implements CameraController {
         }
 
         camera.position.copy(pose.position);
+        camera.fov = this.fov;
     }
 
     onExit(camera: Camera): void {
