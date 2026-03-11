@@ -42,7 +42,7 @@ class CameraManager {
     camera = new Camera();
 
     constructor(global: Global, bbox: BoundingBox, collider: VoxelCollider | null = null) {
-        const { events, settings, state } = global;
+        const { config, events, settings, state } = global;
 
         const camera0 = settings.cameras[0].initial;
         const frameCamera = createFrameCamera(bbox, camera0.fov);
@@ -93,7 +93,7 @@ class CameraManager {
         state.animationDuration = controllers.anim ? controllers.anim.animState.cursor.duration : 0;
 
         // initialize camera mode and initial camera position
-        state.cameraMode = state.hasAnimation ? 'anim' : (isObjectExperience ? 'orbit' : (collider ? 'walk' : 'fly'));
+        state.cameraMode = (state.hasAnimation && !config.noanim) ? 'anim' : (isObjectExperience ? 'orbit' : (collider ? 'walk' : 'fly'));
         this.camera.copy(resetCamera);
 
         const target = new Camera(this.camera);             // the active controller updates this
