@@ -78,9 +78,7 @@ type ExperienceSettings = {
     cameras: Camera[],
     annotations: Annotation[],
 
-    startMode: 'default' | 'animTrack' | 'annotation',
-
-    hasStartPose?: boolean
+    startMode: 'default' | 'animTrack' | 'annotation'
 };
 
 export type { AnimTrack, Camera, Annotation, PostEffectSettings, ExperienceSettings };

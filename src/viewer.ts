@@ -133,10 +133,12 @@ class Viewer {
 
     origChunks: {
         glsl: {
-            gsplatOutputVS: string
+            gsplatOutputVS: string,
+            skyboxPS: string
         },
         wgsl: {
-            gsplatOutputVS: string
+            gsplatOutputVS: string,
+            skyboxPS: string
         }
     };
 
@@ -149,21 +151,23 @@ class Viewer {
         // enable anonymous CORS for image loading in safari
         (app.loader.getHandler('texture') as TextureHandler).imgParser.crossOrigin = 'anonymous';
 
-        this.origChunks = {
-            glsl: {
-                gsplatOutputVS: ShaderChunks.get(graphicsDevice, 'glsl').get('gsplatOutputVS')
-            },
-            wgsl: {
-                gsplatOutputVS: ShaderChunks.get(graphicsDevice, 'wgsl').get('gsplatOutputVS')
-            }
-        };
-
         // render skybox as plain equirect
         const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
         glsl.set('skyboxPS', glsl.get('skyboxPS').replace('mapRoughnessUv(uv, mipLevel)', 'uv'));
 
         const wgsl = ShaderChunks.get(graphicsDevice, 'wgsl');
         wgsl.set('skyboxPS', wgsl.get('skyboxPS').replace('mapRoughnessUv(uv, uniform.mipLevel)', 'uv'));
+
+        this.origChunks = {
+            glsl: {
+                gsplatOutputVS: glsl.get('gsplatOutputVS'),
+                skyboxPS: glsl.get('skyboxPS')
+            },
+            wgsl: {
+                gsplatOutputVS: wgsl.get('gsplatOutputVS'),
+                skyboxPS: wgsl.get('skyboxPS')
+            }
+        };
 
         // disable auto render, we'll render only when camera changes
         app.autoRender = false;
@@ -476,6 +480,21 @@ class Viewer {
             ShaderChunks.get(app.graphicsDevice, 'glsl').set('gsplatOutputVS', gammaChunkGlsl);
             ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatOutputVS', gammaChunkWgsl);
 
+            // force skybox shader to write gamma-space colors (inline pow replaces the
+            // gammaCorrectOutput call which is a no-op under CameraFrame's GAMMA_NONE)
+            ShaderChunks.get(app.graphicsDevice, 'glsl').set('skyboxPS',
+                this.origChunks.glsl.skyboxPS.replace(
+                    'gammaCorrectOutput(toneMap(processEnvironment(linear)))',
+                    'pow(toneMap(processEnvironment(linear)) + 0.0000001, vec3(1.0 / 2.2))'
+                )
+            );
+            ShaderChunks.get(app.graphicsDevice, 'wgsl').set('skyboxPS',
+                this.origChunks.wgsl.skyboxPS.replace(
+                    'gammaCorrectOutput(toneMap(processEnvironment(linear)))',
+                    'pow(toneMap(processEnvironment(linear)) + 0.0000001, vec3f(1.0 / 2.2))'
+                )
+            );
+
             // ensure the final compose blit doesn't perform linear->gamma conversion.
             RenderTarget.prototype.isColorBufferSrgb = function (index) {
                 return this === app.graphicsDevice.backBuffer ? true : origIsColorBufferSrgb.call(this, index);
@@ -489,9 +508,11 @@ class Viewer {
                 this.cameraFrame = null;
             }
 
-            // restore gsplat output shader chunks to engine defaults
+            // restore shader chunks to engine defaults
             ShaderChunks.get(app.graphicsDevice, 'glsl').set('gsplatOutputVS', this.origChunks.glsl.gsplatOutputVS);
             ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatOutputVS', this.origChunks.wgsl.gsplatOutputVS);
+            ShaderChunks.get(app.graphicsDevice, 'glsl').set('skyboxPS', this.origChunks.glsl.skyboxPS);
+            ShaderChunks.get(app.graphicsDevice, 'wgsl').set('skyboxPS', this.origChunks.wgsl.skyboxPS);
 
             // restore original isColorBufferSrgb behavior
             RenderTarget.prototype.isColorBufferSrgb = origIsColorBufferSrgb;

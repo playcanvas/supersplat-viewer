@@ -87,16 +87,15 @@ const migrateV2 = (v1: V1): V2 => {
         animTracks: v1.animTracks.map((animTrackV1: AnimTrackV1) => {
             return migrateAnimTrackV2(animTrackV1, v1.camera.fov || 60);
         }),
-        cameras: [{
+        cameras: (v1.camera.position && v1.camera.target) ? [{
             initial: {
-                position: (v1.camera.position || [0, 0, 5]) as [number, number, number],
-                target: (v1.camera.target || [0, 0, 0]) as [number, number, number],
+                position: v1.camera.position as [number, number, number],
+                target: v1.camera.target as [number, number, number],
                 fov: v1.camera.fov || 75
             }
-        }],
+        }] : [],
         annotations: [],
-        startMode: v1.camera.startAnim === 'animTrack' ? 'animTrack' : 'default',
-        hasStartPose: !!(v1.camera.position && v1.camera.target)
+        startMode: v1.camera.startAnim === 'animTrack' ? 'animTrack' : 'default'
     };
 };
 
