@@ -47,9 +47,9 @@ class CameraManager {
         const camera0 = settings.cameras[0]?.initial;
         const defaultFov = camera0?.fov ?? 75;
         const frameCamera = createFrameCamera(bbox, defaultFov);
-        const resetCamera = camera0
-            ? createCamera(new Vec3(camera0.position), new Vec3(camera0.target), camera0.fov)
-            : frameCamera;
+        const resetCamera = camera0 ?
+            createCamera(new Vec3(camera0.position), new Vec3(camera0.target), camera0.fov) :
+            frameCamera;
 
         const getAnimTrack = (initial: Camera, isObjectExperience: boolean) => {
             const { animTracks } = settings;
