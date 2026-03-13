@@ -42,7 +42,7 @@ class AnimCursor {
     }
 
     get value() {
-        return this.cursor > this.duration ? this.duration - this.cursor : this.cursor;
+        return this.cursor > this.duration ? 2 * this.duration - this.cursor : this.cursor;
     }
 }
 
