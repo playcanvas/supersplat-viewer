@@ -29,7 +29,7 @@ export type Annotation = {
     position: [number, number, number];
     title: string;
     text: string;
-    extras: any;
+    extras?: any;
     camera: Camera;
 };
 

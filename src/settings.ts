@@ -1,5 +1,6 @@
 import { ExperienceSettings as V1, AnimTrack as AnimTrackV1, validateV1 } from './schemas/v1';
 import { ExperienceSettings as V2, AnimTrack as AnimTrackV2, validateV2 } from './schemas/v2';
+import { assertObject } from './schemas/validate-utils';
 
 const migrateV1 = (settings: V1): V1 => {
     if (settings.animTracks) {
@@ -119,13 +120,15 @@ const importSettings = (settings: any): V2 => {
 
 // validate unknown data against any supported settings schema version, throwing on invalid input
 const validateSettings = (settings: unknown): void => {
-    const obj = settings as Record<string, unknown>;
+    const obj = assertObject(settings, 'settings');
     const version = obj.version;
 
     if (version === undefined) {
         validateV1(settings);
     } else if (version === 2) {
         validateV2(settings);
+    } else if (typeof version !== 'number') {
+        throw new Error(`settings.version must be a number, got ${typeof version}`);
     } else {
         throw new Error(`Unsupported experience settings version: ${version}`);
     }

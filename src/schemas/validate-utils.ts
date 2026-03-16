@@ -58,8 +58,8 @@ const assertTuple3 = (value: unknown, path: string): [number, number, number] =>
     return arr as [number, number, number];
 };
 
+export type { Obj };
 export {
-    Obj,
     assertObject,
     assertNumber,
     assertString,
