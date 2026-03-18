@@ -9,6 +9,7 @@ interface Window {
     }
 
     firstFrame?: () => void;
+    stepFrame?: (dtMs: number) => void;
 }
 
 declare module 'playcanvas/scripts/esm/xr-controllers.mjs' {

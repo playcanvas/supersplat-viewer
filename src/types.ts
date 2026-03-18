@@ -25,6 +25,7 @@ type Config = {
     webgpu: boolean;                            // use WebGPU device
     gpusort: boolean;                           // use GPU sorting for splats
     heatmap: boolean;                           // render heatmap debug overlay (WebGPU only)
+    stepMode: boolean;                          // frame-stepping mode for screenshot capture
 };
 
 // observable state that can change at runtime

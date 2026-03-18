@@ -259,24 +259,22 @@ class Viewer {
             cameraEntity.camera.nearClip = near;
         };
 
+        const stepCamera = (dt: number) => {
+            if (this.inputController && this.cameraManager) {
+                this.inputController.update(dt, this.cameraManager.camera.distance);
+                this.cameraManager.update(dt, this.inputController.frame);
+                applyCamera(this.cameraManager.camera);
+            }
+        };
+
         // handle application update
         app.on('update', (deltaTime) => {
-            // in xr mode we leave the camera alone
             if (app.xr.active) {
                 return;
             }
 
-            if (this.inputController && this.cameraManager) {
-                // update inputs
-                this.inputController.update(deltaTime, this.cameraManager.camera.distance);
-
-                // update cameras
-                this.cameraManager.update(deltaTime, this.inputController.frame);
-
-                // apply to the camera entity
-                applyCamera(this.cameraManager.camera);
-            }
-
+            // in step mode the scene is frozen; only window.stepFrame advances it
+            stepCamera(config.stepMode ? 0 : deltaTime);
         });
 
         // Render voxel debug overlay
@@ -288,6 +286,13 @@ class Viewer {
         events.on('firstFrame', () => {
             state.loaded = true;
             state.animationPaused = !!config.noanim;
+
+            if (config.stepMode) {
+                window.stepFrame = (dtMs: number) => {
+                    stepCamera(dtMs / 1000);
+                    app.renderNextFrame = true;
+                };
+            }
         });
 
         // wait for the model to load
