@@ -1,6 +1,7 @@
 #!/bin/bash -e
 
 TYPE=$1
+PRE_RELEASE=${2:-false}
 
 if [[ ! " major minor patch " =~ " $TYPE " ]]; then
     echo "Usage: $0 (major|minor|patch)"
@@ -11,7 +12,11 @@ fi
 git fetch --tags
 
 # Calculate the next version
-npm version $TYPE --preid=$PRE_ID_PREVIEW --no-git-tag-version >> /dev/null
+if [[ "$PRE_RELEASE" != "false" ]]; then
+     npm version pre$TYPE --preid=$PRE_RELEASE --no-git-tag-version >> /dev/null
+else
+     npm version $TYPE --no-git-tag-version >> /dev/null
+fi
 NEXT_VERSION=$(npm pkg get version | sed 's/"//g')
 git reset --hard >> /dev/null
 
@@ -23,4 +28,8 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 # Tag release
-npm version $TYPE
+if [[ "$PRE_RELEASE" != "false" ]]; then
+    npm version pre$TYPE --preid=$PRE_RELEASE
+else
+    npm version $TYPE
+fi

@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-beta.*"
 
 jobs:
   publish:
@@ -24,6 +25,12 @@ jobs:
           cache: "npm"
           registry-url: "https://registry.npmjs.org/"
 
+      - name: Parse tag name
+        id: parse_tag
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "tag=${TAG_NAME}" >> $GITHUB_OUTPUT
+
       - name: Install Dependencies
         run: npm ci
 
@@ -36,12 +43,18 @@ jobs:
         run: npm run publint
 
       - name: Publish to npm
-        run: npm publish --provenance
+        run: |
+          if [[ "${{ steps.parse_tag.outputs.tag }}" =~ "beta" ]]; then
+            tag=beta
+          else
+            tag=latest
+          fi
+          npm publish --tag $tag --provenance
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          prerelease: false
+          prerelease: ${{ contains(steps.parse_tag.outputs.tag, 'beta') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
