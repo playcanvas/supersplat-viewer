@@ -63,6 +63,7 @@
     "typescript": "5.9.3"
   },
   "scripts": {
+    "prepare": "rollup -c",
     "build": "rollup -c",
     "develop": "concurrently --kill-others \"npm run watch\" \"npm run serve\"",
     "lint": "eslint src rollup.config.mjs eslint.config.mjs",
