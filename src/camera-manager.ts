@@ -3,6 +3,7 @@ import {
     Vec3
 } from 'playcanvas';
 
+import { createFigure8Track } from './animation/create-figure8-track';
 import { createRotateTrack } from './animation/create-rotate-track';
 import { AnimController } from './cameras/anim-controller';
 import { Camera, type CameraFrame, type CameraController } from './cameras/camera';
@@ -62,8 +63,11 @@ class CameraManager {
                 // create basic rotation animation if no anim track is specified
                 initial.calcFocusPoint(tmpv);
                 return createRotateTrack(initial.position, tmpv, initial.fov);
+            } else {
+                // non-object experience: gentle figure-8 motion from inside the scene
+                initial.calcFocusPoint(tmpv);
+                return createFigure8Track(initial.position, tmpv, initial.fov);
             }
-            return null;
         };
 
         // object experience starts outside the bounding box
