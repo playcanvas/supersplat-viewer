@@ -290,6 +290,10 @@ class Viewer {
             state.animationPaused = !!config.noanim;
 
             window.scrubTo = (time: number) => {
+                if (!state.hasAnimation) {
+                    return Promise.reject(new Error('No animation track'));
+                }
+
                 state.animationPaused = true;
                 return new Promise<void>((resolve) => {
                     events.fire('scrubAnim', time);
