@@ -289,17 +289,16 @@ class Viewer {
             state.loaded = true;
             state.animationPaused = !!config.noanim;
 
-            if (config.noanim) {
-                window.scrubTo = (time: number) => {
-                    return new Promise<void>((resolve) => {
-                        events.fire('scrubAnim', time);
-                        app.renderNextFrame = true;
-                        app.once('frameend', () => resolve());
-                    });
-                };
+            window.scrubTo = (time: number) => {
+                state.animationPaused = true;
+                return new Promise<void>((resolve) => {
+                    events.fire('scrubAnim', time);
+                    app.renderNextFrame = true;
+                    app.once('frameend', () => resolve());
+                });
+            };
 
-                window.animationDuration = state.animationDuration;
-            }
+            window.animationDuration = state.animationDuration;
         });
 
         // wait for the model to load
