@@ -63,11 +63,11 @@ class CameraManager {
                 // create basic rotation animation if no anim track is specified
                 initial.calcFocusPoint(tmpv);
                 return createRotateTrack(initial.position, tmpv, initial.fov);
-            } else {
-                // non-object experience: gentle figure-8 motion from inside the scene
-                initial.calcFocusPoint(tmpv);
-                return createFigure8Track(initial.position, tmpv, initial.fov);
             }
+            // non-object experience: gentle figure-8 motion from inside the scene
+            initial.calcFocusPoint(tmpv);
+            return createFigure8Track(initial.position, tmpv, initial.fov);
+
         };
 
         // object experience starts outside the bounding box
