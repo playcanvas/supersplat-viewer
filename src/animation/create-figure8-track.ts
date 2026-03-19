@@ -12,7 +12,8 @@ import { AnimTrack } from '../settings';
  * @param position - Starting location of the camera.
  * @param target - Target point the camera looks at.
  * @param fov - The camera field of view.
- * @param size - The total width of the figure-8 in world units.
+ * @param size - Controls the scale of the figure-8 path. The left-right extent equals `size`
+ * and the forward-back extent is half that (`size * 0.5`).
  * @param keys - The number of keyframes in the animation.
  * @param duration - The duration of the animation in seconds.
  * @returns The animation track object containing position and target keyframes.
