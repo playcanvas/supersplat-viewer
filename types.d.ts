@@ -9,6 +9,10 @@ interface Window {
     }
 
     firstFrame?: () => void;
+
+    scrubTo?: (time: number) => Promise<void>;
+
+    animationDuration?: number;
 }
 
 declare module 'playcanvas/scripts/esm/xr-controllers.mjs' {
