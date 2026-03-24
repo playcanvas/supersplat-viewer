@@ -433,7 +433,7 @@ class Viewer {
                         // handle quality mode changes
                         const updateLod = () => {
                             const settings = state.retinaDisplay ? quality.high : quality.low;
-                            results[0].gsplat.splatBudget = settings * 1000000;
+                            gsplat.splatBudget = settings * 1000000;
                             gsplat.lodRangeMin = 0;
                             gsplat.lodRangeMax = 1000;
                         };
