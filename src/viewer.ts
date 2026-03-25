@@ -371,8 +371,8 @@ class Viewer {
 
                 const { gsplat } = app.scene;
 
-                // quality ranges
-                const ranges = {
+                // quality budget
+                const budgets = {
                     mobile: {
                         low: 1,
                         high: 2
@@ -383,12 +383,22 @@ class Viewer {
                     }
                 };
 
-                const quality = platform.mobile ? ranges.mobile : ranges.desktop;
+                const getBudget = () => {
+                    const quality = platform.mobile ? budgets.mobile : budgets.desktop;
+                    return state.retinaDisplay ? quality.high : quality.low;
+                };
 
-                // start by streaming in low lod
-                const lodLevels = results[0].gsplat.resource?.octree?.lodLevels;
-                if (lodLevels) {
-                    gsplat.lodRangeMax = gsplat.lodRangeMin = lodLevels - 1;
+                if (config.fullload) {
+                    // reveal once full quality has finished loading (used for screenshots)
+                    gsplat.splatBudget = getBudget() * 1000000;
+                    gsplat.lodRangeMin = 0;
+                    gsplat.lodRangeMax = 1000;
+                } else {
+                    // reveal once low lod has loaded for fastest possible reveal
+                    const lodLevels = results[0].gsplat.resource?.octree?.lodLevels;
+                    if (lodLevels) {
+                        gsplat.lodRangeMax = gsplat.lodRangeMin = lodLevels - 1;
+                    }
                 }
 
                 // these two allow LOD behind camera to drop, saves lots of splats
@@ -432,8 +442,7 @@ class Viewer {
 
                         // handle quality mode changes
                         const updateLod = () => {
-                            const settings = state.retinaDisplay ? quality.high : quality.low;
-                            gsplat.splatBudget = settings * 1000000;
+                            gsplat.splatBudget = getBudget() * 1000000;
                             gsplat.lodRangeMin = 0;
                             gsplat.lodRangeMax = 1000;
                         };

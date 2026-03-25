@@ -21,6 +21,7 @@ type Config = {
     ministats: boolean;
     colorize: boolean;                          // render with LOD colorization
     unified: boolean;                           // force unified rendering mode
+    fullload: boolean;                          // load all streaming LOD data before first frame
     aa: boolean;                                // render with antialiasing
     webgpu: boolean;                            // use WebGPU device
     gpusort: boolean;                           // use GPU sorting for splats
