@@ -4,7 +4,7 @@ import {
 } from 'playcanvas';
 import type { AppBase } from 'playcanvas';
 
-import type { Collider, PushOut, RayHit } from './collider';
+import type { Collision, PushOut, RayHit } from './collision';
 
 /** Minimum penetration depth to report (avoids floating-point noise) */
 const PENETRATION_EPSILON = 1e-4;
@@ -321,13 +321,13 @@ function closestSegmentTriangle(
     return bestDistSq;
 }
 
-// ---- MeshCollider ----
+// ---- MeshCollision ----
 
 const _closest = { x: 0, y: 0, z: 0 };
 const _segClosest = { x: 0, y: 0, z: 0 };
 const _triClosest = { x: 0, y: 0, z: 0 };
 
-class MeshCollider implements Collider {
+class MeshCollision implements Collision {
     private _tris: TriangleData;
 
     private _root: BVHNode;
@@ -392,7 +392,7 @@ class MeshCollider implements Collider {
         this._root = buildBVH(tris, 0, numTris);
     }
 
-    // ---- Collider interface ----
+    // ---- Collision interface ----
 
     queryRay(
         ox: number, oy: number, oz: number,
@@ -910,14 +910,14 @@ class MeshCollider implements Collider {
 
     /**
      * Load a GLB file via the PlayCanvas asset system, extract mesh geometry,
-     * and construct a MeshCollider. The GLB entity is not added to the scene;
+     * and construct a MeshCollision. The GLB entity is not added to the scene;
      * only the vertex/index data is used.
      *
      * @param app - PlayCanvas application instance.
      * @param url - URL to the .glb file.
-     * @returns A promise resolving to a MeshCollider.
+     * @returns A promise resolving to a MeshCollision.
      */
-    static fromGlb(app: AppBase, url: string): Promise<MeshCollider> {
+    static fromGlb(app: AppBase, url: string): Promise<MeshCollision> {
         return new Promise((resolve, reject) => {
             const asset = new Asset(url, 'container', { url });
 
@@ -975,7 +975,7 @@ class MeshCollider implements Collider {
                     return;
                 }
 
-                resolve(new MeshCollider(
+                resolve(new MeshCollision(
                     new Float32Array(allPositions),
                     new Uint32Array(allIndices)
                 ));
@@ -991,4 +991,4 @@ class MeshCollider implements Collider {
     }
 }
 
-export { MeshCollider };
+export { MeshCollision };

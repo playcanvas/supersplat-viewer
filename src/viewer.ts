@@ -27,8 +27,8 @@ import {
 import { Annotations } from './annotations';
 import { CameraManager } from './camera-manager';
 import { Camera } from './cameras/camera';
-import type { Collider } from './colliders';
-import { VoxelCollider } from './colliders';
+import type { Collision } from './collision';
+import { VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
@@ -143,7 +143,7 @@ class Viewer {
         }
     };
 
-    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void> | undefined, voxelLoad: Promise<Collider> | undefined) {
+    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void> | undefined, voxelLoad: Promise<Collision> | undefined) {
         this.global = global;
 
         const { app, settings, config, events, state, camera } = global;
@@ -309,7 +309,7 @@ class Viewer {
         // wait for the model to load
         Promise.all([gsplatLoad, skyboxLoad, voxelLoad]).then((results) => {
             const gsplat = results[0].gsplat as GSplatComponent;
-            const collider = results[2];
+            const collision = results[2];
 
             // get scene bounding box
             const gsplatBbox = gsplat.customAabb;
@@ -322,13 +322,13 @@ class Viewer {
             }
 
             this.inputController = new InputController(global);
-            this.inputController.collider = collider ?? null;
+            this.inputController.collision = collision ?? null;
 
-            state.hasCollision = !!collider;
+            state.hasCollision = !!collision;
 
             // Create voxel debug overlay in WebGPU only (requires voxel-specific properties)
-            if (collider instanceof VoxelCollider && config.webgpu) {
-                this.voxelOverlay = new VoxelDebugOverlay(app, collider, camera);
+            if (collision instanceof VoxelCollision && config.webgpu) {
+                this.voxelOverlay = new VoxelDebugOverlay(app, collision, camera);
                 this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
                 state.hasVoxelOverlay = true;
 
@@ -338,11 +338,11 @@ class Viewer {
                 });
             }
 
-            this.cameraManager = new CameraManager(global, sceneBound, collider);
+            this.cameraManager = new CameraManager(global, sceneBound, collision);
             applyCamera(this.cameraManager.camera);
 
-            if (collider) {
-                this.walkCursor = new WalkCursor(app, camera, collider, events, state);
+            if (collision) {
+                this.walkCursor = new WalkCursor(app, camera, collision, events, state);
             }
 
             const { instance } = gsplat;

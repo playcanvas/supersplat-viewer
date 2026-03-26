@@ -1,6 +1,6 @@
 import { math, Vec3, Quat } from 'playcanvas';
 
-import type { Collider, PushOut } from '../colliders';
+import type { Collision, PushOut } from '../collision';
 import type { CameraFrame, Camera, CameraController } from './camera';
 import { damp } from '../core/math';
 
@@ -30,9 +30,9 @@ const rotation = new Quat();
  */
 class WalkController implements CameraController {
     /**
-     * Optional collider for capsule collision with sliding
+     * Optional collision for capsule collision with sliding
      */
-    collider: Collider | null = null;
+    collision: Collision | null = null;
 
     /**
      * Field of view in degrees for walk mode.
@@ -136,7 +136,7 @@ class WalkController implements CameraController {
 
     onEnter(camera: Camera): void {
         this.goto(camera);
-        if (this.collider) {
+        if (this.collision) {
             const groundY = this._probeGround(this._position);
             if (groundY !== null) {
                 this._grounded = true;
@@ -283,7 +283,7 @@ class WalkController implements CameraController {
      * @returns Average ground surface Y in PlayCanvas space, or null if no ground found.
      */
     private _probeGround(pos: Vec3): number | null {
-        if (!this.collider) return null;
+        if (!this.collision) return null;
 
         const oy = pos.y - this.eyeHeight;
         const r = this.capsuleRadius;
@@ -300,7 +300,7 @@ class WalkController implements CameraController {
             else if (i === 3) oz += r;
             else if (i === 4) oz -= r;
 
-            const hit = this.collider.queryRay(ox, oy, oz, 0, -1, 0, range);
+            const hit = this.collision.queryRay(ox, oy, oz, 0, -1, 0, range);
             if (hit) {
                 totalY += hit.y;
                 hitCount++;
@@ -321,7 +321,7 @@ class WalkController implements CameraController {
         const center = pos.y - this.eyeHeight + this.capsuleHeight * 0.5;
         const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
 
-        if (this.collider!.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out)) {
+        if (this.collision!.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out)) {
             disp.set(out.x, out.y, out.z);
             pos.add(disp);
 

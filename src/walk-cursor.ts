@@ -5,7 +5,7 @@ import {
     Vec3
 } from 'playcanvas';
 
-import type { Collider } from './colliders';
+import type { Collision } from './collision';
 import type { State } from './types';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -51,7 +51,7 @@ class WalkCursor {
 
     private camera: Entity;
 
-    private collider: Collider;
+    private collision: Collision;
 
     private canvas: HTMLCanvasElement;
 
@@ -90,13 +90,13 @@ class WalkCursor {
     constructor(
         app: AppBase,
         camera: Entity,
-        collider: Collider,
+        collision: Collision,
         events: EventHandler,
         state: State
     ) {
         this.app = app;
         this.camera = camera;
-        this.collider = collider;
+        this.collision = collision;
         this.canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
 
         this.svg = document.createElementNS(SVGNS, 'svg');
@@ -232,13 +232,13 @@ class WalkCursor {
             return;
         }
 
-        const { camera, collider } = this;
+        const { camera, collision } = this;
         const cameraPos = camera.getPosition();
 
         camera.camera.screenToWorld(offsetX, offsetY, 1.0, tmpV);
         tmpV.sub(cameraPos).normalize();
 
-        const hit = collider.queryRay(
+        const hit = collision.queryRay(
             cameraPos.x, cameraPos.y, cameraPos.z,
             tmpV.x, tmpV.y, tmpV.z,
             camera.camera.farClip
@@ -254,7 +254,7 @@ class WalkCursor {
         const py = hit.y;
         const pz = hit.z;
 
-        const sn = collider.querySurfaceNormal(hit.x, hit.y, hit.z, tmpV.x, tmpV.y, tmpV.z);
+        const sn = collision.querySurfaceNormal(hit.x, hit.y, hit.z, tmpV.x, tmpV.y, tmpV.z);
         let nx = sn.nx;
         let ny = sn.ny;
         let nz = sn.nz;

@@ -20,7 +20,7 @@ interface RayHit {
  * Abstract collision interface operating in PlayCanvas world space (Y-up, right-handed).
  * Implementations convert to/from their internal coordinate systems internally.
  */
-interface Collider {
+interface Collision {
     queryRay(
         ox: number, oy: number, oz: number,
         dx: number, dy: number, dz: number,
@@ -45,4 +45,4 @@ interface Collider {
     ): { nx: number; ny: number; nz: number };
 }
 
-export type { Collider, PushOut, RayHit };
+export type { Collision, PushOut, RayHit };

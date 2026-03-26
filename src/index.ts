@@ -15,8 +15,8 @@ import {
 } from 'playcanvas';
 
 import { App } from './app';
-import { MeshCollider, VoxelCollider } from './colliders';
-import type { Collider } from './colliders';
+import { MeshCollision, VoxelCollision } from './collision';
+import type { Collision } from './collision';
 import { observe } from './core/observe';
 import { importSettings } from './settings';
 import type { Config, Global } from './types';
@@ -263,15 +263,15 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
         });
 
     // Load collision data (type determined by file extension)
-    let colliderLoad: Promise<Collider> | undefined;
-    if (config.colliderUrl) {
-        if (config.colliderUrl.endsWith('.glb')) {
-            colliderLoad = MeshCollider.fromGlb(app, config.colliderUrl).catch((err: Error): null => {
-                console.warn('Failed to load mesh collider:', err);
+    let collisionLoad: Promise<Collision> | undefined;
+    if (config.collisionUrl) {
+        if (config.collisionUrl.endsWith('.glb')) {
+            collisionLoad = MeshCollision.fromGlb(app, config.collisionUrl).catch((err: Error): null => {
+                console.warn('Failed to load mesh collision:', err);
                 return null;
             });
         } else {
-            colliderLoad = VoxelCollider.load(config.colliderUrl).catch((err: Error): null => {
+            collisionLoad = VoxelCollision.load(config.collisionUrl).catch((err: Error): null => {
                 console.warn('Failed to load voxel data:', err);
                 return null;
             });
@@ -293,7 +293,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
     }
 
     // Create the viewer
-    return new Viewer(global, gsplatLoad, skyboxLoad, colliderLoad);
+    return new Viewer(global, gsplatLoad, skyboxLoad, collisionLoad);
 };
 
 console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engineRevision})`);

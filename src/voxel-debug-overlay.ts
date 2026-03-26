@@ -26,7 +26,7 @@ import {
     UNIFORMTYPE_UINT
 } from 'playcanvas';
 
-import type { VoxelCollider } from './colliders';
+import type { VoxelCollision } from './collision';
 
 // ---------------------------------------------------------------------------
 // WGSL compute shader: ray-march through the sparse voxel octree per pixel
@@ -450,7 +450,7 @@ class VoxelDebugOverlay {
 
     private leafDataBuffer: StorageBuffer;
 
-    private collider: VoxelCollider;
+    private collision: VoxelCollision;
 
     private currentWidth = 0;
 
@@ -466,15 +466,15 @@ class VoxelDebugOverlay {
     /** Display mode: 'overlay' for wireframe debug, 'heatmap' for effort visualization. */
     mode: 'overlay' | 'heatmap' = 'overlay';
 
-    constructor(app: AppBase, collider: VoxelCollider, camera: Entity) {
+    constructor(app: AppBase, collision: VoxelCollision, camera: Entity) {
         this.app = app;
         this.camera = camera;
-        this.collider = collider;
+        this.collision = collision;
 
         const device = app.graphicsDevice;
 
         // Upload SVO node array as a read-only storage buffer
-        const nodesData = collider.nodes;
+        const nodesData = collision.nodes;
         const nodesByteSize = Math.max(nodesData.byteLength, 4);
         this.nodesBuffer = new StorageBuffer(device, nodesByteSize, BUFFERUSAGE_COPY_DST);
         if (nodesData.byteLength > 0) {
@@ -482,7 +482,7 @@ class VoxelDebugOverlay {
         }
 
         // Upload leaf data as a read-only storage buffer
-        const leafDataArr = collider.leafData;
+        const leafDataArr = collision.leafData;
         const leafByteSize = Math.max(leafDataArr.byteLength, 4);
         this.leafDataBuffer = new StorageBuffer(device, leafByteSize, BUFFERUSAGE_COPY_DST);
         if (leafDataArr.byteLength > 0) {
@@ -599,7 +599,7 @@ class VoxelDebugOverlay {
     update(): void {
         if (!this.enabled) return;
 
-        const { app, camera, compute, collider } = this;
+        const { app, camera, compute, collision } = this;
         const device = app.graphicsDevice;
         const width = device.width;
         const height = device.height;
@@ -627,15 +627,15 @@ class VoxelDebugOverlay {
         compute.setParameter('invVP', this.invVP.data);
         compute.setParameter('screenWidth', width);
         compute.setParameter('screenHeight', height);
-        compute.setParameter('gridMinX', collider.gridMinX);
-        compute.setParameter('gridMinY', collider.gridMinY);
-        compute.setParameter('gridMinZ', collider.gridMinZ);
-        compute.setParameter('voxelRes', collider.voxelResolution);
-        compute.setParameter('numVoxelsX', collider.numVoxelsX);
-        compute.setParameter('numVoxelsY', collider.numVoxelsY);
-        compute.setParameter('numVoxelsZ', collider.numVoxelsZ);
-        compute.setParameter('leafSize', collider.leafSize);
-        compute.setParameter('treeDepth', collider.treeDepth);
+        compute.setParameter('gridMinX', collision.gridMinX);
+        compute.setParameter('gridMinY', collision.gridMinY);
+        compute.setParameter('gridMinZ', collision.gridMinZ);
+        compute.setParameter('voxelRes', collision.voxelResolution);
+        compute.setParameter('numVoxelsX', collision.numVoxelsX);
+        compute.setParameter('numVoxelsY', collision.numVoxelsY);
+        compute.setParameter('numVoxelsZ', collision.numVoxelsZ);
+        compute.setParameter('leafSize', collision.leafSize);
+        compute.setParameter('treeDepth', collision.treeDepth);
         compute.setParameter('projScaleY', cam.projectionMatrix.data[5]);
         compute.setParameter('displayMode', this.mode === 'heatmap' ? 1 : 0);
         compute.setParameter('pad2', 0);

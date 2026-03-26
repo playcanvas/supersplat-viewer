@@ -9,7 +9,7 @@ import {
 } from 'playcanvas';
 import type { CameraComponent } from 'playcanvas';
 
-import type { Collider } from './colliders';
+import type { Collision } from './collision';
 import { Picker } from './picker';
 import type { Global } from './types';
 
@@ -168,7 +168,7 @@ class InputController {
 
     private _picker: Picker | null = null;
 
-    collider: Collider | null = null;
+    collision: Collision | null = null;
 
     moveSpeed: number = 4;
 
@@ -421,7 +421,7 @@ class InputController {
     }
 
     private _pickVoxel(offsetX: number, offsetY: number): { position: Vec3; normal: Vec3 } | null {
-        if (!this.collider) return null;
+        if (!this.collision) return null;
 
         const { camera } = this.global;
         const cameraPos = camera.getPosition();
@@ -429,7 +429,7 @@ class InputController {
         camera.camera.screenToWorld(offsetX, offsetY, 1.0, tmpV1);
         tmpV1.sub(cameraPos).normalize();
 
-        const hit = this.collider.queryRay(
+        const hit = this.collision.queryRay(
             cameraPos.x, cameraPos.y, cameraPos.z,
             tmpV1.x, tmpV1.y, tmpV1.z,
             camera.camera.farClip
@@ -437,7 +437,7 @@ class InputController {
 
         if (!hit) return null;
 
-        const sn = this.collider.querySurfaceNormal(hit.x, hit.y, hit.z, tmpV1.x, tmpV1.y, tmpV1.z);
+        const sn = this.collision.querySurfaceNormal(hit.x, hit.y, hit.z, tmpV1.x, tmpV1.y, tmpV1.z);
         return {
             position: new Vec3(hit.x, hit.y, hit.z),
             normal: new Vec3(sn.nx, sn.ny, sn.nz)

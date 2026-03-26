@@ -11,7 +11,7 @@ import { FlyController } from './cameras/fly-controller';
 import { OrbitController } from './cameras/orbit-controller';
 import { WalkController } from './cameras/walk-controller';
 import { WalkSource } from './cameras/walk-source';
-import type { Collider } from './colliders';
+import type { Collision } from './collision';
 import { easeOut } from './core/math';
 import { Annotation } from './settings';
 import { CameraMode, Global } from './types';
@@ -42,7 +42,7 @@ class CameraManager {
     // holds the camera state
     camera = new Camera();
 
-    constructor(global: Global, bbox: BoundingBox, collider: Collider | null = null) {
+    constructor(global: Global, bbox: BoundingBox, collision: Collision | null = null) {
         const { events, settings, state } = global;
 
         const camera0 = settings.cameras[0]?.initial;
@@ -83,8 +83,8 @@ class CameraManager {
 
         controllers.orbit.fov = resetCamera.fov;
         controllers.fly.fov = resetCamera.fov;
-        controllers.fly.collider = collider;
-        controllers.walk.collider = collider;
+        controllers.fly.collision = collision;
+        controllers.walk.collision = collision;
 
         const walkSource = new WalkSource();
         walkSource.onComplete = () => {
@@ -100,12 +100,12 @@ class CameraManager {
         state.animationDuration = controllers.anim ? controllers.anim.animState.cursor.duration : 0;
 
         // initialize camera mode and initial camera position
-        state.cameraMode = state.hasAnimation ? 'anim' : (isObjectExperience ? 'orbit' : (collider ? 'walk' : 'fly'));
+        state.cameraMode = state.hasAnimation ? 'anim' : (isObjectExperience ? 'orbit' : (collision ? 'walk' : 'fly'));
         this.camera.copy(resetCamera);
 
         const target = new Camera(this.camera);             // the active controller updates this
         const from = new Camera(this.camera);               // stores the previous camera state during transition
-        const defaultMode: CameraMode = isObjectExperience ? 'orbit' : (collider ? 'walk' : 'fly');
+        const defaultMode: CameraMode = isObjectExperience ? 'orbit' : (collision ? 'walk' : 'fly');
         let fromMode: CameraMode = defaultMode;
 
         // tracks the mode to restore when exiting walk
@@ -181,7 +181,7 @@ class CameraManager {
                     state.cameraMode = 'fly';
                     break;
                 case 'toggleWalk':
-                    if (collider) {
+                    if (collision) {
                         if (state.cameraMode === 'walk') {
                             state.cameraMode = preWalkMode;
                         } else {

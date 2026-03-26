@@ -1,4 +1,4 @@
-import type { Collider, PushOut, RayHit } from './collider';
+import type { Collision, PushOut, RayHit } from './collision';
 
 /**
  * Metadata for a voxel octree file (matches the .voxel.json format from splat-transform).
@@ -59,7 +59,7 @@ const SURFACE_CANDIDATES: number[][] = [
  * shifted along the step direction. Returns the best (maximum) layer score. A "surface
  * hit" at each sample is a solid voxel whose neighbour in the step direction is empty.
  *
- * @param collider - The voxel collider instance.
+ * @param collision - The voxel collision instance.
  * @param ix - Voxel X index of the surface point.
  * @param iy - Voxel Y index of the surface point.
  * @param iz - Voxel Z index of the surface point.
@@ -75,7 +75,7 @@ const SURFACE_CANDIDATES: number[][] = [
  * @returns The best score across the three depth layers.
  */
 function scoreSurfaceCandidate(
-    collider: VoxelCollider,
+    collision: VoxelCollision,
     ix: number, iy: number, iz: number,
     sx: number, sy: number, sz: number,
     t1x: number, t1y: number, t1z: number,
@@ -89,8 +89,8 @@ function scoreSurfaceCandidate(
                 const px = ix + da * t1x + db * t2x - sx * depth;
                 const py = iy + da * t1y + db * t2y - sy * depth;
                 const pz = iz + da * t1z + db * t2z - sz * depth;
-                if (collider.isVoxelSolid(px, py, pz) &&
-                    !collider.isVoxelSolid(px + sx, py + sy, pz + sz)) {
+                if (collision.isVoxelSolid(px, py, pz) &&
+                    !collision.isVoxelSolid(px + sx, py + sy, pz + sz)) {
                     s++;
                 }
             }
@@ -119,7 +119,7 @@ function popcount(n: number): number {
  * Loads the two-file format (.voxel.json + .voxel.bin) produced by
  * splat-transform's writeVoxel and provides point and sphere collision queries.
  */
-class VoxelCollider implements Collider {
+class VoxelCollision implements Collision {
     /** Grid-aligned bounds (min xyz) */
     private _gridMinX: number;
 
@@ -281,13 +281,13 @@ class VoxelCollider implements Collider {
     }
 
     /**
-     * Load a VoxelCollider from a .voxel.json URL.
+     * Load a VoxelCollision from a .voxel.json URL.
      * The corresponding .voxel.bin is inferred by replacing the extension.
      *
      * @param jsonUrl - URL to the .voxel.json metadata file.
-     * @returns A promise resolving to a VoxelCollider instance.
+     * @returns A promise resolving to a VoxelCollision instance.
      */
-    static async load(jsonUrl: string): Promise<VoxelCollider> {
+    static async load(jsonUrl: string): Promise<VoxelCollision> {
         // Fetch metadata
         const metaResponse = await fetch(jsonUrl);
         if (!metaResponse.ok) {
@@ -307,7 +307,7 @@ class VoxelCollider implements Collider {
         const nodes = view.slice(0, metadata.nodeCount);
         const leafData = view.slice(metadata.nodeCount, metadata.nodeCount + metadata.leafDataCount);
 
-        return new VoxelCollider(metadata, nodes, leafData);
+        return new VoxelCollision(metadata, nodes, leafData);
     }
 
     /**
@@ -673,7 +673,7 @@ class VoxelCollider implements Collider {
         return hasSignificantPush;
     }
 
-    // ---- Collider interface (PlayCanvas world space) ----
+    // ---- Collision interface (PlayCanvas world space) ----
     // Converts PlayCanvas coords (negate X, Y) to voxel space on input,
     // and converts results back to PlayCanvas space on output.
 
@@ -1101,4 +1101,4 @@ class VoxelCollider implements Collider {
     }
 }
 
-export { VoxelCollider };
+export { VoxelCollision };
