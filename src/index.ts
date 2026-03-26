@@ -265,7 +265,8 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
     // Load collision data (type determined by file extension)
     let collisionLoad: Promise<Collision> | undefined;
     if (config.collisionUrl) {
-        if (config.collisionUrl.endsWith('.glb')) {
+        const ext = new URL(config.collisionUrl, location.href).pathname.split('.').pop()?.toLowerCase();
+        if (ext === 'glb') {
             collisionLoad = MeshCollision.fromGlb(app, config.collisionUrl).catch((err: Error): null => {
                 console.warn('Failed to load mesh collision:', err);
                 return null;

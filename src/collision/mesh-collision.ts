@@ -1,5 +1,6 @@
 import {
     Asset,
+    INDEXFORMAT_UINT32,
     SEMANTIC_POSITION
 } from 'playcanvas';
 import type { AppBase } from 'playcanvas';
@@ -772,14 +773,19 @@ class MeshCollision implements Collision {
         return new Promise((resolve, reject) => {
             const asset = new Asset(url, 'container', { url });
 
+            const cleanup = () => {
+                app.assets.remove(asset);
+                asset.unload();
+            };
+
             asset.on('load', () => {
                 const renders = (asset.resource as any).renders as any[];
                 if (!renders || renders.length === 0) {
+                    cleanup();
                     reject(new Error('GLB contains no mesh data'));
                     return;
                 }
 
-                // Collect all positions and indices from all meshes
                 const allPositions: number[] = [];
                 const allIndices: number[] = [];
                 let vertexOffset = 0;
@@ -813,9 +819,14 @@ class MeshCollision implements Collision {
                             allPositions.push(data[base], data[base + 1], data[base + 2]);
                         }
 
-                        const indexData = new Uint32Array(ib.storage);
-                        for (let i = 0; i < mesh.primitive[0].count; i++) {
-                            allIndices.push(indexData[mesh.primitive[0].base + i] + vertexOffset);
+                        const indexData = ib.format === INDEXFORMAT_UINT32
+                            ? new Uint32Array(ib.storage)
+                            : new Uint16Array(ib.storage);
+
+                        for (const prim of mesh.primitive) {
+                            for (let i = 0; i < prim.count; i++) {
+                                allIndices.push(indexData[prim.base + i] + vertexOffset);
+                            }
                         }
 
                         vertexOffset += numVerts;
@@ -823,6 +834,7 @@ class MeshCollision implements Collision {
                 }
 
                 if (allIndices.length === 0) {
+                    cleanup();
                     reject(new Error('GLB meshes contain no triangle data'));
                     return;
                 }
@@ -832,13 +844,12 @@ class MeshCollision implements Collision {
                     new Uint32Array(allIndices)
                 );
 
-                app.assets.remove(asset);
-                asset.unload();
-
+                cleanup();
                 resolve(collision);
             });
 
             asset.on('error', (err: string) => {
+                cleanup();
                 reject(new Error(err));
             });
 
