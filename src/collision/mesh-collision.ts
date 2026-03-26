@@ -819,9 +819,9 @@ class MeshCollision implements Collision {
                             allPositions.push(data[base], data[base + 1], data[base + 2]);
                         }
 
-                        const indexData = ib.format === INDEXFORMAT_UINT32
-                            ? new Uint32Array(ib.storage)
-                            : new Uint16Array(ib.storage);
+                        const indexData = ib.format === INDEXFORMAT_UINT32 ?
+                            new Uint32Array(ib.storage) :
+                            new Uint16Array(ib.storage);
 
                         for (const prim of mesh.primitive) {
                             for (let i = 0; i < prim.count; i++) {
