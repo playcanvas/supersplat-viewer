@@ -37,7 +37,7 @@ class WalkController implements CameraController {
     /**
      * Field of view in degrees for walk mode.
      */
-    fov = 96;
+    fov = 90;
 
     /**
      * Total capsule height in meters (default: human proportion)

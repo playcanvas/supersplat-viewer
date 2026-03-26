@@ -327,21 +327,6 @@ class VoxelCollider {
     }
 
     /**
-     * Query whether a world-space point lies inside a solid voxel.
-     *
-     * @param x - World X coordinate.
-     * @param y - World Y coordinate.
-     * @param z - World Z coordinate.
-     * @returns True if the point is inside a solid voxel.
-     */
-    queryPoint(x: number, y: number, z: number): boolean {
-        const ix = Math.floor((x - this.gridMinX) / this.voxelResolution);
-        const iy = Math.floor((y - this.gridMinY) / this.voxelResolution);
-        const iz = Math.floor((z - this.gridMinZ) / this.voxelResolution);
-        return this.isVoxelSolid(ix, iy, iz);
-    }
-
-    /**
      * Compute a stable surface normal at a world-space position using flatness-probability
      * sampling. Tests 9 candidate directions: 3 axis-aligned and 6 diagonal (45-degree in
      * each pair of axes). For each camera-facing candidate a 5x5 patch of voxels in the
@@ -984,7 +969,7 @@ class VoxelCollider {
                         const distPosZ = vMaxZ - cz;
 
                         const escapeX = distNegX < distPosX ? -(distNegX + radius) : (distPosX + radius);
-                        const escapeY = distNegY <= distPosY ? -(distNegY + radius) : (distPosY + radius);
+                        const escapeY = distNegY < distPosY ? -(distNegY + radius) : (distPosY + radius);
                         const escapeZ = distNegZ < distPosZ ? -(distNegZ + radius) : (distPosZ + radius);
 
                         const absX = Math.abs(escapeX);
@@ -994,12 +979,12 @@ class VoxelCollider {
                         px = 0;
                         py = 0;
                         pz = 0;
-                        if (absY <= absX && absY <= absZ) {
-                            py = escapeY;
-                            penetration = absY;
-                        } else if (absX <= absZ) {
+                        if (absX <= absY && absX <= absZ) {
                             px = escapeX;
                             penetration = absX;
+                        } else if (absY <= absZ) {
+                            py = escapeY;
+                            penetration = absY;
                         } else {
                             pz = escapeZ;
                             penetration = absZ;
@@ -1013,26 +998,6 @@ class VoxelCollider {
                         bestPushZ = pz;
                         found = true;
                     }
-                }
-            }
-        }
-
-        // Column-based Y fallback: the per-voxel sphere test loses Y information
-        // when the capsule segment passes through a voxel (segY lands inside the
-        // AABB, zeroing dy). Recover it by finding the topmost solid voxel in the
-        // capsule-center column and computing a direct capsule-bottom push.
-        if (found && Math.abs(bestPushY) <= PENETRATION_EPSILON) {
-            const icx = Math.floor((cx - gridMinX) / voxelResolution);
-            const icz = Math.floor((cz - gridMinZ) / voxelResolution);
-            const capsuleBottom = segTopY + radius;
-
-            for (let iy = iyMin; iy <= iyMax; iy++) {
-                if (this.isVoxelSolid(icx, iy, icz)) {
-                    const surfaceY = gridMinY + iy * voxelResolution;
-                    if (capsuleBottom > surfaceY + PENETRATION_EPSILON) {
-                        bestPushY = surfaceY - capsuleBottom;
-                    }
-                    break;
                 }
             }
         }
