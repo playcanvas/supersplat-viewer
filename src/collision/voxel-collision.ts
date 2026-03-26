@@ -281,54 +281,18 @@ class VoxelCollision implements Collision {
     }
 
     /**
-     * Load a VoxelCollision from a .voxel.json URL.
-     * The corresponding .voxel.bin is inferred by replacing the extension.
+     * Whether this data requires X/Y negation (legacy v1.0 format).
      *
-     * @param jsonUrl - URL to the .voxel.json metadata file.
-     * @returns A promise resolving to a VoxelCollision instance.
+     * @returns {boolean} True if coordinates need flipping.
      */
-    static async load(jsonUrl: string): Promise<VoxelCollision> {
-        // Fetch metadata
-        const metaResponse = await fetch(jsonUrl);
-        if (!metaResponse.ok) {
-            throw new Error(`Failed to fetch voxel metadata: ${metaResponse.statusText}`);
-        }
-        const metadata: VoxelMetadata = await metaResponse.json();
-
-        // Fetch binary data
-        const binUrl = jsonUrl.replace('.voxel.json', '.voxel.bin');
-        const binResponse = await fetch(binUrl);
-        if (!binResponse.ok) {
-            throw new Error(`Failed to fetch voxel binary: ${binResponse.statusText}`);
-        }
-        const buffer = await binResponse.arrayBuffer();
-        const view = new Uint32Array(buffer);
-
-        const nodes = view.slice(0, metadata.nodeCount);
-        const leafData = view.slice(metadata.nodeCount, metadata.nodeCount + metadata.leafDataCount);
-
-        return new VoxelCollision(metadata, nodes, leafData);
+    get flipXY(): boolean {
+        return false;
     }
 
-    /**
-     * Compute a stable surface normal at a voxel-space position.
-     *
-     * @param x - Voxel-space X coordinate.
-     * @param y - Voxel-space Y coordinate.
-     * @param z - Voxel-space Z coordinate.
-     * @param rdx - Ray direction X (toward the surface, in voxel space).
-     * @param rdy - Ray direction Y.
-     * @param rdz - Ray direction Z.
-     * @returns Object with nx, ny, nz components of the surface normal in voxel space.
-     */
-    private _querySurfaceNormalInternal(
+    querySurfaceNormal(
         x: number, y: number, z: number,
         rdx: number, rdy: number, rdz: number
     ): { nx: number; ny: number; nz: number } {
-        // Nudge the query point slightly along the ray direction so that a hit point
-        // sitting exactly on a voxel face boundary resolves to the solid voxel rather
-        // than the adjacent empty one. Uses Math.sign so the nudge is independent of
-        // ray vector magnitude.
         const nudge = this._voxelResolution * 0.25;
         const ix = Math.floor((x + Math.sign(rdx) * nudge - this._gridMinX) / this._voxelResolution);
         const iy = Math.floor((y + Math.sign(rdy) * nudge - this._gridMinY) / this._voxelResolution);
@@ -378,7 +342,7 @@ class VoxelCollision implements Collision {
         return result;
     }
 
-    private _queryRayInternal(
+    queryRay(
         ox: number, oy: number, oz: number,
         dx: number, dy: number, dz: number,
         maxDist: number
@@ -516,7 +480,7 @@ class VoxelCollision implements Collision {
         return null;
     }
 
-    private _querySphereInternal(
+    querySphere(
         cx: number, cy: number, cz: number,
         radius: number,
         out: PushOut
@@ -594,7 +558,7 @@ class VoxelCollision implements Collision {
         return hasSignificantPush;
     }
 
-    private _queryCapsuleInternal(
+    queryCapsule(
         cx: number, cy: number, cz: number,
         halfHeight: number,
         radius: number,
@@ -671,60 +635,6 @@ class VoxelCollision implements Collision {
         }
 
         return hasSignificantPush;
-    }
-
-    // ---- Collision interface (PlayCanvas world space) ----
-    // Converts PlayCanvas coords (negate X, Y) to voxel space on input,
-    // and converts results back to PlayCanvas space on output.
-
-    querySurfaceNormal(
-        x: number, y: number, z: number,
-        rdx: number, rdy: number, rdz: number
-    ): { nx: number; ny: number; nz: number } {
-        const result = this._querySurfaceNormalInternal(-x, -y, z, -rdx, -rdy, rdz);
-        result.nx = -result.nx;
-        result.ny = -result.ny;
-        return result;
-    }
-
-    queryRay(
-        ox: number, oy: number, oz: number,
-        dx: number, dy: number, dz: number,
-        maxDist: number
-    ): RayHit | null {
-        const hit = this._queryRayInternal(-ox, -oy, oz, -dx, -dy, dz, maxDist);
-        if (hit) {
-            hit.x = -hit.x;
-            hit.y = -hit.y;
-        }
-        return hit;
-    }
-
-    querySphere(
-        cx: number, cy: number, cz: number,
-        radius: number,
-        out: PushOut
-    ): boolean {
-        const result = this._querySphereInternal(-cx, -cy, cz, radius, out);
-        if (result) {
-            out.x = -out.x;
-            out.y = -out.y;
-        }
-        return result;
-    }
-
-    queryCapsule(
-        cx: number, cy: number, cz: number,
-        halfHeight: number,
-        radius: number,
-        out: PushOut
-    ): boolean {
-        const result = this._queryCapsuleInternal(-cx, -cy, cz, halfHeight, radius, out);
-        if (result) {
-            out.x = -out.x;
-            out.y = -out.y;
-        }
-        return result;
     }
 
     /**
@@ -1101,4 +1011,97 @@ class VoxelCollision implements Collision {
     }
 }
 
-export { VoxelCollision };
+/**
+ * Legacy v1.0 adapter that negates X/Y on inputs and outputs to convert
+ * between PlayCanvas world space and the raw voxel data coordinate system.
+ */
+class FlippedVoxelCollision extends VoxelCollision {
+    get flipXY(): boolean {
+        return true;
+    }
+
+    querySurfaceNormal(
+        x: number, y: number, z: number,
+        rdx: number, rdy: number, rdz: number
+    ): { nx: number; ny: number; nz: number } {
+        const result = super.querySurfaceNormal(-x, -y, z, -rdx, -rdy, rdz);
+        result.nx = -result.nx;
+        result.ny = -result.ny;
+        return result;
+    }
+
+    queryRay(
+        ox: number, oy: number, oz: number,
+        dx: number, dy: number, dz: number,
+        maxDist: number
+    ): RayHit | null {
+        const hit = super.queryRay(-ox, -oy, oz, -dx, -dy, dz, maxDist);
+        if (hit) {
+            hit.x = -hit.x;
+            hit.y = -hit.y;
+        }
+        return hit;
+    }
+
+    querySphere(
+        cx: number, cy: number, cz: number,
+        radius: number,
+        out: PushOut
+    ): boolean {
+        const result = super.querySphere(-cx, -cy, cz, radius, out);
+        if (result) {
+            out.x = -out.x;
+            out.y = -out.y;
+        }
+        return result;
+    }
+
+    queryCapsule(
+        cx: number, cy: number, cz: number,
+        halfHeight: number,
+        radius: number,
+        out: PushOut
+    ): boolean {
+        const result = super.queryCapsule(-cx, -cy, cz, halfHeight, radius, out);
+        if (result) {
+            out.x = -out.x;
+            out.y = -out.y;
+        }
+        return result;
+    }
+}
+
+/**
+ * Load a VoxelCollision from a .voxel.json URL.
+ * The corresponding .voxel.bin is inferred by replacing the extension.
+ * Returns a FlippedVoxelCollision for legacy v1.0 data.
+ *
+ * @param jsonUrl - URL to the .voxel.json metadata file.
+ * @returns A promise resolving to a VoxelCollision instance.
+ */
+const loadVoxelCollision = async (jsonUrl: string): Promise<VoxelCollision> => {
+    const metaResponse = await fetch(jsonUrl);
+    if (!metaResponse.ok) {
+        throw new Error(`Failed to fetch voxel metadata: ${metaResponse.statusText}`);
+    }
+    const metadata: VoxelMetadata = await metaResponse.json();
+
+    const binUrl = jsonUrl.replace('.voxel.json', '.voxel.bin');
+    const binResponse = await fetch(binUrl);
+    if (!binResponse.ok) {
+        throw new Error(`Failed to fetch voxel binary: ${binResponse.statusText}`);
+    }
+    const buffer = await binResponse.arrayBuffer();
+    const view = new Uint32Array(buffer);
+
+    const nodes = view.slice(0, metadata.nodeCount);
+    const leafData = view.slice(metadata.nodeCount, metadata.nodeCount + metadata.leafDataCount);
+
+    const isLegacy = !metadata.version || parseFloat(metadata.version) < 1.1;
+    if (isLegacy) {
+        return new FlippedVoxelCollision(metadata, nodes, leafData);
+    }
+    return new VoxelCollision(metadata, nodes, leafData);
+};
+
+export { VoxelCollision, loadVoxelCollision };

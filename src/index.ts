@@ -15,7 +15,7 @@ import {
 } from 'playcanvas';
 
 import { App } from './app';
-import { MeshCollision, VoxelCollision } from './collision';
+import { MeshCollision, loadVoxelCollision } from './collision';
 import type { Collision } from './collision';
 import { observe } from './core/observe';
 import { importSettings } from './settings';
@@ -271,7 +271,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
                 return null;
             });
         } else {
-            collisionLoad = VoxelCollision.load(config.collisionUrl).catch((err: Error): null => {
+            collisionLoad = loadVoxelCollision(config.collisionUrl).catch((err: Error): null => {
                 console.warn('Failed to load voxel data:', err);
                 return null;
             });

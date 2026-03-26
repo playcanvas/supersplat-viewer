@@ -227,9 +227,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     var worldFar = uniforms.invVP * clipFar;
     worldFar = worldFar / worldFar.w;
 
-    // Convert from PlayCanvas world space to voxel space (negate X and Y)
-    let ro = vec3f(-worldNear.x, -worldNear.y, worldNear.z);
-    let rd = normalize(vec3f(-(worldFar.x - worldNear.x), -(worldFar.y - worldNear.y), worldFar.z - worldNear.z));
+    let ro = worldNear.xyz;
+    let rd = normalize(worldFar.xyz - worldNear.xyz);
 
     // Grid AABB
     let gridMin = vec3f(uniforms.gridMinX, uniforms.gridMinY, uniforms.gridMinZ);
@@ -622,6 +621,16 @@ class VoxelDebugOverlay {
         const cam = camera.camera;
         this.vpTemp.mul2(cam.projectionMatrix, cam.viewMatrix);
         this.invVP.copy(this.vpTemp).invert();
+
+        // For legacy v1.0 data, pre-multiply invVP by R_z180 (negate X/Y rows)
+        // to transform rays from PlayCanvas world space into the raw voxel space
+        if (collision.flipXY) {
+            const d = this.invVP.data;
+            d[0] = -d[0]; d[1] = -d[1];
+            d[4] = -d[4]; d[5] = -d[5];
+            d[8] = -d[8]; d[9] = -d[9];
+            d[12] = -d[12]; d[13] = -d[13];
+        }
 
         // Set compute uniforms
         compute.setParameter('invVP', this.invVP.data);
