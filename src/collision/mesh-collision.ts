@@ -933,7 +933,8 @@ class MeshCollision implements Collision {
                 const allIndices: number[] = [];
                 let vertexOffset = 0;
 
-                for (const render of renders) {
+                for (const renderAsset of renders) {
+                    const render = renderAsset.resource;
                     for (let m = 0; m < render.meshes.length; m++) {
                         const mesh = render.meshes[m];
                         const vb = mesh.vertexBuffer;
