@@ -253,8 +253,13 @@ function closestPointOnSegment(
     out: { x: number; y: number; z: number }
 ) {
     const abx = bx - ax, aby = by - ay, abz = bz - az;
+    const lenSq = abx * abx + aby * aby + abz * abz;
+    if (lenSq < 1e-20) {
+        out.x = ax; out.y = ay; out.z = az;
+        return;
+    }
     const apx = px - ax, apy = py - ay, apz = pz - az;
-    let t = (apx * abx + apy * aby + apz * abz) / (abx * abx + aby * aby + abz * abz);
+    let t = (apx * abx + apy * aby + apz * abz) / lenSq;
     t = Math.max(0, Math.min(1, t));
     out.x = ax + abx * t;
     out.y = ay + aby * t;
@@ -269,7 +274,7 @@ const _tmpSegPt = { x: 0, y: 0, z: 0 };
 const _tmpTriPt = { x: 0, y: 0, z: 0 };
 
 // Approximate closest points between a line segment and a triangle.
-// Uses discrete sampling (5 points along the segment) followed by one
+// Uses discrete sampling (6 points along the segment) followed by one
 // refinement pass. Sufficient for vertical capsule collision (walk/fly mode)
 // where the segment is always Y-aligned and triangles are near-axis-aligned.
 function closestSegmentTriangle(
