@@ -11,10 +11,10 @@ import { FlyController } from './cameras/fly-controller';
 import { OrbitController } from './cameras/orbit-controller';
 import { WalkController } from './cameras/walk-controller';
 import { WalkSource } from './cameras/walk-source';
+import type { Collider } from './colliders';
 import { easeOut } from './core/math';
 import { Annotation } from './settings';
 import { CameraMode, Global } from './types';
-import type { VoxelCollider } from './voxel-collider';
 
 const tmpCamera = new Camera();
 const tmpv = new Vec3();
@@ -42,7 +42,7 @@ class CameraManager {
     // holds the camera state
     camera = new Camera();
 
-    constructor(global: Global, bbox: BoundingBox, collider: VoxelCollider | null = null) {
+    constructor(global: Global, bbox: BoundingBox, collider: Collider | null = null) {
         const { events, settings, state } = global;
 
         const camera0 = settings.cameras[0]?.initial;

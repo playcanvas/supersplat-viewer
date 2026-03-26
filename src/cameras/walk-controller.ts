@@ -1,8 +1,8 @@
 import { math, Vec3, Quat } from 'playcanvas';
 
-import { damp } from '../core/math';
-import type { PushOut, VoxelCollider } from '../voxel-collider';
+import type { Collider, PushOut } from '../colliders';
 import type { CameraFrame, Camera, CameraController } from './camera';
+import { damp } from '../core/math';
 
 const FIXED_DT = 1 / 60;
 const MAX_SUBSTEPS = 10;
@@ -30,9 +30,9 @@ const rotation = new Quat();
  */
 class WalkController implements CameraController {
     /**
-     * Optional voxel collider for capsule collision with sliding
+     * Optional collider for capsule collision with sliding
      */
-    collider: VoxelCollider | null = null;
+    collider: Collider | null = null;
 
     /**
      * Field of view in degrees for walk mode.
@@ -285,7 +285,7 @@ class WalkController implements CameraController {
     private _probeGround(pos: Vec3): number | null {
         if (!this.collider) return null;
 
-        const vy = -(pos.y - this.eyeHeight);
+        const oy = pos.y - this.eyeHeight;
         const r = this.capsuleRadius;
         const range = this.groundProbeRange;
 
@@ -293,16 +293,16 @@ class WalkController implements CameraController {
         let hitCount = 0;
 
         for (let i = 0; i < 5; i++) {
-            let vx = -pos.x;
-            let vz = pos.z;
-            if (i === 1) vx -= r;
-            else if (i === 2) vx += r;
-            else if (i === 3) vz += r;
-            else if (i === 4) vz -= r;
+            let ox = pos.x;
+            let oz = pos.z;
+            if (i === 1) ox -= r;
+            else if (i === 2) ox += r;
+            else if (i === 3) oz += r;
+            else if (i === 4) oz -= r;
 
-            const hit = this.collider.queryRay(vx, vy, vz, 0, 1, 0, range);
+            const hit = this.collider.queryRay(ox, oy, oz, 0, -1, 0, range);
             if (hit) {
-                totalY += -hit.y;
+                totalY += hit.y;
                 hitCount++;
             }
         }
@@ -321,13 +321,8 @@ class WalkController implements CameraController {
         const center = pos.y - this.eyeHeight + this.capsuleHeight * 0.5;
         const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
 
-        // convert to voxel space (negate X, negate Y, keep Z)
-        const vx = -pos.x;
-        const vy = -center;
-        const vz = pos.z;
-
-        if (this.collider!.queryCapsule(vx, vy, vz, half, this.capsuleRadius, out)) {
-            disp.set(-out.x, -out.y, out.z);
+        if (this.collider!.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out)) {
+            disp.set(out.x, out.y, out.z);
             pos.add(disp);
 
             // ceiling collision: cancel upward velocity

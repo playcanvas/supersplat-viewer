@@ -9,9 +9,9 @@ import {
 } from 'playcanvas';
 import type { CameraComponent } from 'playcanvas';
 
+import type { Collider } from './colliders';
 import { Picker } from './picker';
 import type { Global } from './types';
-import type { VoxelCollider } from './voxel-collider';
 
 /* Vec initialisation to avoid recurrent memory allocation */
 const tmpV1 = new Vec3();
@@ -168,7 +168,7 @@ class InputController {
 
     private _picker: Picker | null = null;
 
-    collider: VoxelCollider | null = null;
+    collider: Collider | null = null;
 
     moveSpeed: number = 4;
 
@@ -429,22 +429,18 @@ class InputController {
         camera.camera.screenToWorld(offsetX, offsetY, 1.0, tmpV1);
         tmpV1.sub(cameraPos).normalize();
 
-        // PlayCanvas → voxel space: negate X and Y
         const hit = this.collider.queryRay(
-            -cameraPos.x, -cameraPos.y, cameraPos.z,
-            -tmpV1.x, -tmpV1.y, tmpV1.z,
+            cameraPos.x, cameraPos.y, cameraPos.z,
+            tmpV1.x, tmpV1.y, tmpV1.z,
             camera.camera.farClip
         );
 
         if (!hit) return null;
 
-        const rdx = -tmpV1.x;
-        const rdy = -tmpV1.y;
-        const rdz = tmpV1.z;
-        const sn = this.collider.querySurfaceNormal(hit.x, hit.y, hit.z, rdx, rdy, rdz);
+        const sn = this.collider.querySurfaceNormal(hit.x, hit.y, hit.z, tmpV1.x, tmpV1.y, tmpV1.z);
         return {
-            position: new Vec3(-hit.x, -hit.y, hit.z),
-            normal: new Vec3(-sn.nx, -sn.ny, sn.nz)
+            position: new Vec3(hit.x, hit.y, hit.z),
+            normal: new Vec3(sn.nx, sn.ny, sn.nz)
         };
     }
 

@@ -26,7 +26,7 @@ import {
     UNIFORMTYPE_UINT
 } from 'playcanvas';
 
-import type { VoxelCollider } from './voxel-collider';
+import type { VoxelCollider } from './colliders';
 
 // ---------------------------------------------------------------------------
 // WGSL compute shader: ray-march through the sparse voxel octree per pixel

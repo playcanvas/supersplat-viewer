@@ -1,3 +1,5 @@
+import type { Collider, PushOut, RayHit } from './collider';
+
 /**
  * Metadata for a voxel octree file (matches the .voxel.json format from splat-transform).
  */
@@ -12,24 +14,6 @@ interface VoxelMetadata {
     numMixedLeaves: number;
     nodeCount: number;
     leafDataCount: number;
-}
-
-/**
- * Push-out vector returned by querySphere / queryCapsule.
- */
-interface PushOut {
-    x: number;
-    y: number;
-    z: number;
-}
-
-/**
- * Hit result returned by queryRay.
- */
-interface RayHit {
-    x: number;
-    y: number;
-    z: number;
 }
 
 /**
@@ -135,7 +119,7 @@ function popcount(n: number): number {
  * Loads the two-file format (.voxel.json + .voxel.bin) produced by
  * splat-transform's writeVoxel and provides point and sphere collision queries.
  */
-class VoxelCollider {
+class VoxelCollider implements Collider {
     /** Grid-aligned bounds (min xyz) */
     private _gridMinX: number;
 
@@ -327,22 +311,17 @@ class VoxelCollider {
     }
 
     /**
-     * Compute a stable surface normal at a world-space position using flatness-probability
-     * sampling. Tests 9 candidate directions: 3 axis-aligned and 6 diagonal (45-degree in
-     * each pair of axes). For each camera-facing candidate a 5x5 patch of voxels in the
-     * perpendicular plane is sampled: a voxel counts as a "surface hit" if it is solid and
-     * the adjacent voxel toward the camera is empty. The candidate with the highest hit
-     * count is the surface orientation.
+     * Compute a stable surface normal at a voxel-space position.
      *
-     * @param x - World X coordinate of the surface point.
-     * @param y - World Y coordinate of the surface point.
-     * @param z - World Z coordinate of the surface point.
+     * @param x - Voxel-space X coordinate.
+     * @param y - Voxel-space Y coordinate.
+     * @param z - Voxel-space Z coordinate.
      * @param rdx - Ray direction X (toward the surface, in voxel space).
      * @param rdy - Ray direction Y.
      * @param rdz - Ray direction Z.
-     * @returns Object with nx, ny, nz components of the surface normal.
+     * @returns Object with nx, ny, nz components of the surface normal in voxel space.
      */
-    querySurfaceNormal(
+    private _querySurfaceNormalInternal(
         x: number, y: number, z: number,
         rdx: number, rdy: number, rdz: number
     ): { nx: number; ny: number; nz: number } {
@@ -399,20 +378,7 @@ class VoxelCollider {
         return result;
     }
 
-    /**
-     * Cast a ray through the voxel grid using 3D-DDA and return the entry point on the first
-     * solid voxel hit. Coordinates are in voxel world space (the same frame used by queryPoint).
-     *
-     * @param ox - Ray origin X.
-     * @param oy - Ray origin Y.
-     * @param oz - Ray origin Z.
-     * @param dx - Ray direction X (must be normalized).
-     * @param dy - Ray direction Y (must be normalized).
-     * @param dz - Ray direction Z (must be normalized).
-     * @param maxDist - Maximum ray distance.
-     * @returns The entry point on the first solid voxel, or null if no hit.
-     */
-    queryRay(
+    private _queryRayInternal(
         ox: number, oy: number, oz: number,
         dx: number, dy: number, dz: number,
         maxDist: number
@@ -550,20 +516,7 @@ class VoxelCollider {
         return null;
     }
 
-    /**
-     * Query a sphere against the voxel grid and write a push-out vector to resolve penetration.
-     * Uses iterative single-voxel resolution: each iteration finds the deepest penetrating voxel,
-     * resolves it, then re-checks. This avoids over-push from summing multiple voxels and
-     * naturally handles corners (2 iterations) and flat walls (1 iteration).
-     *
-     * @param cx - Sphere center X in world units.
-     * @param cy - Sphere center Y in world units.
-     * @param cz - Sphere center Z in world units.
-     * @param radius - Sphere radius in world units.
-     * @param out - Object to receive the push-out vector.
-     * @returns True if a collision was detected and out was written.
-     */
-    querySphere(
+    private _querySphereInternal(
         cx: number, cy: number, cz: number,
         radius: number,
         out: PushOut
@@ -641,21 +594,7 @@ class VoxelCollider {
         return hasSignificantPush;
     }
 
-    /**
-     * Query a vertical capsule against the voxel grid and write a push-out vector to resolve
-     * penetration. The capsule is a line segment from (cx, cy - halfHeight, cz) to
-     * (cx, cy + halfHeight, cz) swept by radius. Uses the same iterative deepest-penetration
-     * approach as querySphere.
-     *
-     * @param cx - Capsule center X in world units.
-     * @param cy - Capsule center Y in world units.
-     * @param cz - Capsule center Z in world units.
-     * @param halfHeight - Half-height of the capsule's inner line segment in world units.
-     * @param radius - Capsule radius in world units.
-     * @param out - Object to receive the push-out vector.
-     * @returns True if a collision was detected and out was written.
-     */
-    queryCapsule(
+    private _queryCapsuleInternal(
         cx: number, cy: number, cz: number,
         halfHeight: number,
         radius: number,
@@ -732,6 +671,60 @@ class VoxelCollider {
         }
 
         return hasSignificantPush;
+    }
+
+    // ---- Collider interface (PlayCanvas world space) ----
+    // Converts PlayCanvas coords (negate X, Y) to voxel space on input,
+    // and converts results back to PlayCanvas space on output.
+
+    querySurfaceNormal(
+        x: number, y: number, z: number,
+        rdx: number, rdy: number, rdz: number
+    ): { nx: number; ny: number; nz: number } {
+        const result = this._querySurfaceNormalInternal(-x, -y, z, -rdx, -rdy, rdz);
+        result.nx = -result.nx;
+        result.ny = -result.ny;
+        return result;
+    }
+
+    queryRay(
+        ox: number, oy: number, oz: number,
+        dx: number, dy: number, dz: number,
+        maxDist: number
+    ): RayHit | null {
+        const hit = this._queryRayInternal(-ox, -oy, oz, -dx, -dy, dz, maxDist);
+        if (hit) {
+            hit.x = -hit.x;
+            hit.y = -hit.y;
+        }
+        return hit;
+    }
+
+    querySphere(
+        cx: number, cy: number, cz: number,
+        radius: number,
+        out: PushOut
+    ): boolean {
+        const result = this._querySphereInternal(-cx, -cy, cz, radius, out);
+        if (result) {
+            out.x = -out.x;
+            out.y = -out.y;
+        }
+        return result;
+    }
+
+    queryCapsule(
+        cx: number, cy: number, cz: number,
+        halfHeight: number,
+        radius: number,
+        out: PushOut
+    ): boolean {
+        const result = this._queryCapsuleInternal(-cx, -cy, cz, halfHeight, radius, out);
+        if (result) {
+            out.x = -out.x;
+            out.y = -out.y;
+        }
+        return result;
     }
 
     /**
@@ -1109,4 +1102,3 @@ class VoxelCollider {
 }
 
 export { VoxelCollider };
-export type { PushOut, RayHit };

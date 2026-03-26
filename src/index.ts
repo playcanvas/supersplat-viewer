@@ -15,12 +15,13 @@ import {
 } from 'playcanvas';
 
 import { App } from './app';
+import { MeshCollider, VoxelCollider } from './colliders';
+import type { Collider } from './colliders';
 import { observe } from './core/observe';
 import { importSettings } from './settings';
 import type { Config, Global } from './types';
 import { initPoster, initUI } from './ui';
 import { Viewer } from './viewer';
-import { VoxelCollider } from './voxel-collider';
 import { initXr } from './xr';
 import { version as appVersion } from '../package.json';
 
@@ -261,12 +262,21 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
             app.scene.envAtlas = asset.resource as Texture;
         });
 
-    // Load voxel collision data
-    const voxelLoad = config.voxelUrl &&
-        VoxelCollider.load(config.voxelUrl).catch((err: Error): null => {
-            console.warn('Failed to load voxel data:', err);
-            return null;
-        });
+    // Load collision data (type determined by file extension)
+    let colliderLoad: Promise<Collider> | undefined;
+    if (config.colliderUrl) {
+        if (config.colliderUrl.endsWith('.glb')) {
+            colliderLoad = MeshCollider.fromGlb(app, config.colliderUrl).catch((err: Error): null => {
+                console.warn('Failed to load mesh collider:', err);
+                return null;
+            });
+        } else {
+            colliderLoad = VoxelCollider.load(config.colliderUrl).catch((err: Error): null => {
+                console.warn('Failed to load voxel data:', err);
+                return null;
+            });
+        }
+    }
 
     // Load and play sound
     if (global.settings.soundUrl) {
@@ -283,7 +293,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
     }
 
     // Create the viewer
-    return new Viewer(global, gsplatLoad, skyboxLoad, voxelLoad);
+    return new Viewer(global, gsplatLoad, skyboxLoad, colliderLoad);
 };
 
 console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engineRevision})`);

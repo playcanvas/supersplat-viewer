@@ -27,11 +27,12 @@ import {
 import { Annotations } from './annotations';
 import { CameraManager } from './camera-manager';
 import { Camera } from './cameras/camera';
+import type { Collider } from './colliders';
+import { VoxelCollider } from './colliders';
 import { nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { Global } from './types';
-import type { VoxelCollider } from './voxel-collider';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
 import { WalkCursor } from './walk-cursor';
 
@@ -142,7 +143,7 @@ class Viewer {
         }
     };
 
-    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void> | undefined, voxelLoad: Promise<VoxelCollider> | undefined) {
+    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void> | undefined, voxelLoad: Promise<Collider> | undefined) {
         this.global = global;
 
         const { app, settings, config, events, state, camera } = global;
@@ -325,8 +326,8 @@ class Viewer {
 
             state.hasCollision = !!collider;
 
-            // Create voxel debug overlay in WebGPU only
-            if (collider && config.webgpu) {
+            // Create voxel debug overlay in WebGPU only (requires voxel-specific properties)
+            if (collider instanceof VoxelCollider && config.webgpu) {
                 this.voxelOverlay = new VoxelDebugOverlay(app, collider, camera);
                 this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
                 state.hasVoxelOverlay = true;

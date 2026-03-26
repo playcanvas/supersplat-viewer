@@ -5,8 +5,8 @@ import {
     Vec3
 } from 'playcanvas';
 
+import type { Collider } from './colliders';
 import type { State } from './types';
-import type { VoxelCollider } from './voxel-collider';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const NUM_SAMPLES = 12;
@@ -51,7 +51,7 @@ class WalkCursor {
 
     private camera: Entity;
 
-    private collider: VoxelCollider;
+    private collider: Collider;
 
     private canvas: HTMLCanvasElement;
 
@@ -90,7 +90,7 @@ class WalkCursor {
     constructor(
         app: AppBase,
         camera: Entity,
-        collider: VoxelCollider,
+        collider: Collider,
         events: EventHandler,
         state: State
     ) {
@@ -239,8 +239,8 @@ class WalkCursor {
         tmpV.sub(cameraPos).normalize();
 
         const hit = collider.queryRay(
-            -cameraPos.x, -cameraPos.y, cameraPos.z,
-            -tmpV.x, -tmpV.y, tmpV.z,
+            cameraPos.x, cameraPos.y, cameraPos.z,
+            tmpV.x, tmpV.y, tmpV.z,
             camera.camera.farClip
         );
 
@@ -250,16 +250,13 @@ class WalkCursor {
             return;
         }
 
-        const px = -hit.x;
-        const py = -hit.y;
+        const px = hit.x;
+        const py = hit.y;
         const pz = hit.z;
 
-        const rdx = -tmpV.x;
-        const rdy = -tmpV.y;
-        const rdz = tmpV.z;
-        const sn = collider.querySurfaceNormal(hit.x, hit.y, hit.z, rdx, rdy, rdz);
-        let nx = -sn.nx;
-        let ny = -sn.ny;
+        const sn = collider.querySurfaceNormal(hit.x, hit.y, hit.z, tmpV.x, tmpV.y, tmpV.z);
+        let nx = sn.nx;
+        let ny = sn.ny;
         let nz = sn.nz;
 
         if (this.hasSmoothedNormal) {
