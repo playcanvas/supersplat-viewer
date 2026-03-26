@@ -105,10 +105,9 @@ function buildBVH(tris: TriangleData, start: number, count: number): BVHNode {
         }
     }
 
-    // Ensure at least 1 triangle on each side
+    // Fall back to median split when midpoint produces a degenerate partition
     let leftCount = left - start;
-    if (leftCount === 0) leftCount = 1;
-    else if (leftCount === count) leftCount = count - 1;
+    if (leftCount === 0 || leftCount === count) leftCount = count >> 1;
 
     return {
         ...bounds,
@@ -339,6 +338,8 @@ class MeshCollision implements Collision {
         { x: 0, y: 0, z: 0 },
         { x: 0, y: 0, z: 0 }
     ];
+
+    private _stack: (BVHNode | null)[] = [];
 
     constructor(positions: Float32Array, indices: Uint32Array | Uint16Array) {
         const numTris = Math.floor(indices.length / 3);
@@ -845,42 +846,49 @@ class MeshCollision implements Collision {
         return found ? { px: bestPx, py: bestPy, pz: bestPz } : null;
     }
 
-    // ---- BVH sphere traversal ----
+    // ---- BVH sphere traversal (iterative) ----
 
     private _sphereBVH(
-        node: BVHNode,
+        root: BVHNode,
         cx: number, cy: number, cz: number,
         radius: number,
         callback: (triIdx: number) => void
     ) {
-        if (!sphereAABBOverlap(cx, cy, cz, radius,
-            node.minX, node.minY, node.minZ,
-            node.maxX, node.maxY, node.maxZ)) {
-            return;
-        }
+        const stack = this._stack;
+        let top = 0;
+        stack[top++] = root;
 
-        if (node.left === null) {
-            const { _tris: tris } = this;
-            for (let j = node.triStart; j < node.triStart + node.triCount; j++) {
-                callback(tris.indices[j]);
+        while (top > 0) {
+            const node = stack[--top]!;
+
+            if (!sphereAABBOverlap(cx, cy, cz, radius,
+                node.minX, node.minY, node.minZ,
+                node.maxX, node.maxY, node.maxZ)) {
+                continue;
             }
-            return;
-        }
 
-        this._sphereBVH(node.left, cx, cy, cz, radius, callback);
-        this._sphereBVH(node.right!, cx, cy, cz, radius, callback);
+            if (node.left === null) {
+                const { _tris: tris } = this;
+                for (let j = node.triStart; j < node.triStart + node.triCount; j++) {
+                    callback(tris.indices[j]);
+                }
+                continue;
+            }
+
+            stack[top++] = node.right;
+            stack[top++] = node.left;
+        }
     }
 
-    // ---- BVH capsule traversal (uses AABB of the capsule) ----
+    // ---- BVH capsule traversal (iterative, uses AABB of the capsule) ----
 
     private _capsuleBVH(
-        node: BVHNode,
+        root: BVHNode,
         cx: number, cy: number, cz: number,
         halfExtentY: number,
         radius: number,
         callback: (triIdx: number) => void
     ) {
-        // Check capsule AABB vs node AABB
         const capMinX = cx - radius;
         const capMaxX = cx + radius;
         const capMinY = cy - halfExtentY;
@@ -888,22 +896,30 @@ class MeshCollision implements Collision {
         const capMinZ = cz - radius;
         const capMaxZ = cz + radius;
 
-        if (capMaxX < node.minX || capMinX > node.maxX ||
-            capMaxY < node.minY || capMinY > node.maxY ||
-            capMaxZ < node.minZ || capMinZ > node.maxZ) {
-            return;
-        }
+        const stack = this._stack;
+        let top = 0;
+        stack[top++] = root;
 
-        if (node.left === null) {
-            const { _tris: tris } = this;
-            for (let j = node.triStart; j < node.triStart + node.triCount; j++) {
-                callback(tris.indices[j]);
+        while (top > 0) {
+            const node = stack[--top]!;
+
+            if (capMaxX < node.minX || capMinX > node.maxX ||
+                capMaxY < node.minY || capMinY > node.maxY ||
+                capMaxZ < node.minZ || capMinZ > node.maxZ) {
+                continue;
             }
-            return;
-        }
 
-        this._capsuleBVH(node.left, cx, cy, cz, halfExtentY, radius, callback);
-        this._capsuleBVH(node.right!, cx, cy, cz, halfExtentY, radius, callback);
+            if (node.left === null) {
+                const { _tris: tris } = this;
+                for (let j = node.triStart; j < node.triStart + node.triCount; j++) {
+                    callback(tris.indices[j]);
+                }
+                continue;
+            }
+
+            stack[top++] = node.right;
+            stack[top++] = node.left;
+        }
     }
 
     // ---- Static factory ----
