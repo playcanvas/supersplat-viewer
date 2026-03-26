@@ -272,6 +272,15 @@ const _triPt = { x: 0, y: 0, z: 0 };
 const _tmpSegPt = { x: 0, y: 0, z: 0 };
 const _tmpTriPt = { x: 0, y: 0, z: 0 };
 
+/**
+ * Approximate closest points between a line segment and a triangle.
+ *
+ * Uses discrete sampling (5 points along the segment) followed by one
+ * refinement pass. This is an approximation -- it may not find the true
+ * global minimum for highly oblique segment-triangle configurations.
+ * Sufficient for vertical capsule collision (walk/fly mode) where the
+ * segment is always Y-aligned and triangles are near-axis-aligned.
+ */
 function closestSegmentTriangle(
     s0x: number, s0y: number, s0z: number,
     s1x: number, s1y: number, s1z: number,
@@ -281,8 +290,6 @@ function closestSegmentTriangle(
     outSeg: { x: number; y: number; z: number },
     outTri: { x: number; y: number; z: number }
 ): number {
-    // Sample several points along the segment and find closest to triangle,
-    // then refine. For a vertical capsule vs arbitrary triangles this is robust enough.
     const SAMPLES = 5;
     let bestDistSq = Infinity;
 
@@ -340,6 +347,8 @@ class MeshCollision implements Collision {
     ];
 
     private _stack: (BVHNode | null)[] = [];
+
+    private readonly _rayResult = { t: -1, triIdx: -1 };
 
     constructor(positions: Float32Array, indices: Uint32Array | Uint16Array) {
         const numTris = Math.floor(indices.length / 3);
@@ -409,13 +418,13 @@ class MeshCollision implements Collision {
         const idy = 1.0 / (Math.abs(dy) > 1e-12 ? dy : (dy >= 0 ? 1e-12 : -1e-12));
         const idz = 1.0 / (Math.abs(dz) > 1e-12 ? dz : (dz >= 0 ? 1e-12 : -1e-12));
 
-        const t = this._queryRayBVH(this._root, ox, oy, oz, dx, dy, dz, idx, idy, idz, maxDist);
-        if (t < 0) return null;
+        const hit = this._queryRayBVH(ox, oy, oz, dx, dy, dz, idx, idy, idz, maxDist);
+        if (!hit) return null;
 
         return {
-            x: ox + dx * t,
-            y: oy + dy * t,
-            z: oz + dz * t
+            x: ox + dx * hit.t,
+            y: oy + dy * hit.t,
+            z: oz + dz * hit.t
         };
     }
 
@@ -554,7 +563,6 @@ class MeshCollision implements Collision {
         x: number, y: number, z: number,
         rdx: number, rdy: number, rdz: number
     ): { nx: number; ny: number; nz: number } {
-        // Cast a short ray in the given direction to find the triangle face normal
         const len = Math.sqrt(rdx * rdx + rdy * rdy + rdz * rdz);
         if (len < 1e-10) {
             this._normalResult.nx = 0;
@@ -572,11 +580,11 @@ class MeshCollision implements Collision {
         const idy = 1.0 / (Math.abs(dy) > 1e-12 ? dy : (dy >= 0 ? 1e-12 : -1e-12));
         const idz = 1.0 / (Math.abs(dz) > 1e-12 ? dz : (dz >= 0 ? 1e-12 : -1e-12));
 
-        const triIdx = this._queryRayBVHTri(this._root, x, y, z, dx, dy, dz, idx, idy, idz, 1.0);
+        const hit = this._queryRayBVH(x, y, z, dx, dy, dz, idx, idy, idz, 1.0);
 
         const result = this._normalResult;
-        if (triIdx >= 0) {
-            const i = triIdx;
+        if (hit) {
+            const i = hit.triIdx;
             result.nx = this._tris.nx[i];
             result.ny = this._tris.ny[i];
             result.nz = this._tris.nz[i];
@@ -595,147 +603,78 @@ class MeshCollision implements Collision {
         return result;
     }
 
-    // ---- BVH ray traversal ----
+    // ---- BVH ray traversal (iterative, returns both t and triangle index) ----
 
     private _queryRayBVH(
-        node: BVHNode,
         ox: number, oy: number, oz: number,
         dx: number, dy: number, dz: number,
         idx: number, idy: number, idz: number,
         maxDist: number
-    ): number {
-        const t = rayAABB(ox, oy, oz, idx, idy, idz,
-            node.minX, node.minY, node.minZ,
-            node.maxX, node.maxY, node.maxZ, maxDist);
-        if (t < 0) return -1;
+    ): typeof this._rayResult | null {
+        const root = this._root;
+        if (rayAABB(ox, oy, oz, idx, idy, idz,
+            root.minX, root.minY, root.minZ,
+            root.maxX, root.maxY, root.maxZ, maxDist) < 0) {
+            return null;
+        }
 
-        if (node.left === null) {
-            // Leaf: test triangles
-            let best = -1;
-            const { _tris: tris } = this;
-            for (let j = node.triStart; j < node.triStart + node.triCount; j++) {
-                const i = tris.indices[j];
-                const ht = rayTriangle(
-                    ox, oy, oz, dx, dy, dz,
-                    tris.v0x[i], tris.v0y[i], tris.v0z[i],
-                    tris.v1x[i], tris.v1y[i], tris.v1z[i],
-                    tris.v2x[i], tris.v2y[i], tris.v2z[i]
-                );
-                if (ht >= 0 && ht <= maxDist && (best < 0 || ht < best)) {
-                    best = ht;
+        const stack = this._stack;
+        let top = 0;
+        stack[top++] = root;
+
+        let bestT = maxDist + 1;
+        let bestTriIdx = -1;
+        const { _tris: tris } = this;
+
+        while (top > 0) {
+            const node = stack[--top]!;
+
+            if (node.left === null) {
+                for (let j = node.triStart; j < node.triStart + node.triCount; j++) {
+                    const i = tris.indices[j];
+                    const ht = rayTriangle(
+                        ox, oy, oz, dx, dy, dz,
+                        tris.v0x[i], tris.v0y[i], tris.v0z[i],
+                        tris.v1x[i], tris.v1y[i], tris.v1z[i],
+                        tris.v2x[i], tris.v2y[i], tris.v2z[i]
+                    );
+                    if (ht >= 0 && ht <= maxDist && ht < bestT) {
+                        bestT = ht;
+                        bestTriIdx = i;
+                    }
                 }
+                continue;
             }
-            return best;
-        }
 
-        // Interior: recurse children, closest first
-        const tLeft = rayAABB(ox, oy, oz, idx, idy, idz,
-            node.left.minX, node.left.minY, node.left.minZ,
-            node.left.maxX, node.left.maxY, node.left.maxZ, maxDist);
-        const tRight = rayAABB(ox, oy, oz, idx, idy, idz,
-            node.right!.minX, node.right!.minY, node.right!.minZ,
-            node.right!.maxX, node.right!.maxY, node.right!.maxZ, maxDist);
+            const tLeft = rayAABB(ox, oy, oz, idx, idy, idz,
+                node.left.minX, node.left.minY, node.left.minZ,
+                node.left.maxX, node.left.maxY, node.left.maxZ, bestT);
+            const tRight = rayAABB(ox, oy, oz, idx, idy, idz,
+                node.right!.minX, node.right!.minY, node.right!.minZ,
+                node.right!.maxX, node.right!.maxY, node.right!.maxZ, bestT);
 
-        let first: BVHNode;
-        let second: BVHNode;
-        let tFirst: number;
-        let tSecond: number;
-
-        if (tLeft >= 0 && (tRight < 0 || tLeft <= tRight)) {
-            first = node.left; tFirst = tLeft;
-            second = node.right!; tSecond = tRight;
-        } else {
-            first = node.right!; tFirst = tRight;
-            second = node.left; tSecond = tLeft;
-        }
-
-        let best = -1;
-        if (tFirst >= 0) {
-            best = this._queryRayBVH(first, ox, oy, oz, dx, dy, dz, idx, idy, idz, maxDist);
-        }
-        if (tSecond >= 0 && (best < 0 || tSecond < best)) {
-            const h2 = this._queryRayBVH(second, ox, oy, oz, dx, dy, dz, idx, idy, idz, best >= 0 ? best : maxDist);
-            if (h2 >= 0 && (best < 0 || h2 < best)) {
-                best = h2;
-            }
-        }
-        return best;
-    }
-
-    // Returns the triangle index of the closest hit (not the t value)
-    private _queryRayBVHTri(
-        node: BVHNode,
-        ox: number, oy: number, oz: number,
-        dx: number, dy: number, dz: number,
-        idx: number, idy: number, idz: number,
-        maxDist: number
-    ): number {
-        const t = rayAABB(ox, oy, oz, idx, idy, idz,
-            node.minX, node.minY, node.minZ,
-            node.maxX, node.maxY, node.maxZ, maxDist);
-        if (t < 0) return -1;
-
-        if (node.left === null) {
-            let bestT = maxDist + 1;
-            let bestIdx = -1;
-            const { _tris: tris } = this;
-            for (let j = node.triStart; j < node.triStart + node.triCount; j++) {
-                const i = tris.indices[j];
-                const ht = rayTriangle(
-                    ox, oy, oz, dx, dy, dz,
-                    tris.v0x[i], tris.v0y[i], tris.v0z[i],
-                    tris.v1x[i], tris.v1y[i], tris.v1z[i],
-                    tris.v2x[i], tris.v2y[i], tris.v2z[i]
-                );
-                if (ht >= 0 && ht <= maxDist && ht < bestT) {
-                    bestT = ht;
-                    bestIdx = i;
+            // Push farther child first so nearer child is popped first
+            if (tLeft >= 0 && tRight >= 0) {
+                if (tLeft <= tRight) {
+                    stack[top++] = node.right;
+                    stack[top++] = node.left;
+                } else {
+                    stack[top++] = node.left;
+                    stack[top++] = node.right;
                 }
-            }
-            return bestIdx;
-        }
-
-        const tLeft = rayAABB(ox, oy, oz, idx, idy, idz,
-            node.left.minX, node.left.minY, node.left.minZ,
-            node.left.maxX, node.left.maxY, node.left.maxZ, maxDist);
-        const tRight = rayAABB(ox, oy, oz, idx, idy, idz,
-            node.right!.minX, node.right!.minY, node.right!.minZ,
-            node.right!.maxX, node.right!.maxY, node.right!.maxZ, maxDist);
-
-        let first: BVHNode;
-        let second: BVHNode;
-        let tFirst: number;
-        let tSecond: number;
-
-        if (tLeft >= 0 && (tRight < 0 || tLeft <= tRight)) {
-            first = node.left; tFirst = tLeft;
-            second = node.right!; tSecond = tRight;
-        } else {
-            first = node.right!; tFirst = tRight;
-            second = node.left; tSecond = tLeft;
-        }
-
-        let bestIdx = -1;
-        let bestDist = maxDist;
-        if (tFirst >= 0) {
-            bestIdx = this._queryRayBVHTri(first, ox, oy, oz, dx, dy, dz, idx, idy, idz, bestDist);
-            if (bestIdx >= 0) {
-                // compute the actual t to narrow the search
-                const i = bestIdx;
-                const ht = rayTriangle(ox, oy, oz, dx, dy, dz,
-                    this._tris.v0x[i], this._tris.v0y[i], this._tris.v0z[i],
-                    this._tris.v1x[i], this._tris.v1y[i], this._tris.v1z[i],
-                    this._tris.v2x[i], this._tris.v2y[i], this._tris.v2z[i]);
-                if (ht >= 0) bestDist = ht;
+            } else if (tLeft >= 0) {
+                stack[top++] = node.left;
+            } else if (tRight >= 0) {
+                stack[top++] = node.right;
             }
         }
-        if (tSecond >= 0 && tSecond <= bestDist) {
-            const h2 = this._queryRayBVHTri(second, ox, oy, oz, dx, dy, dz, idx, idy, idz, bestDist);
-            if (h2 >= 0) {
-                bestIdx = h2;
-            }
-        }
-        return bestIdx;
+
+        if (bestTriIdx < 0) return null;
+
+        const result = this._rayResult;
+        result.t = bestT;
+        result.triIdx = bestTriIdx;
+        return result;
     }
 
     // ---- Sphere deepest penetration (single triangle) ----
