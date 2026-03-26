@@ -267,15 +267,10 @@ const _triPt = { x: 0, y: 0, z: 0 };
 const _tmpSegPt = { x: 0, y: 0, z: 0 };
 const _tmpTriPt = { x: 0, y: 0, z: 0 };
 
-/**
- * Approximate closest points between a line segment and a triangle.
- *
- * Uses discrete sampling (5 points along the segment) followed by one
- * refinement pass. This is an approximation -- it may not find the true
- * global minimum for highly oblique segment-triangle configurations.
- * Sufficient for vertical capsule collision (walk/fly mode) where the
- * segment is always Y-aligned and triangles are near-axis-aligned.
- */
+// Approximate closest points between a line segment and a triangle.
+// Uses discrete sampling (5 points along the segment) followed by one
+// refinement pass. Sufficient for vertical capsule collision (walk/fly mode)
+// where the segment is always Y-aligned and triangles are near-axis-aligned.
 function closestSegmentTriangle(
     s0x: number, s0y: number, s0z: number,
     s1x: number, s1y: number, s1z: number,
