@@ -4,13 +4,8 @@ import {
 } from 'playcanvas';
 import type { AppBase } from 'playcanvas';
 
+import { PENETRATION_EPSILON, resolveIterative } from './collision';
 import type { Collision, PushOut, RayHit } from './collision';
-
-/** Minimum penetration depth to report (avoids floating-point noise) */
-const PENETRATION_EPSILON = 1e-4;
-
-/** Maximum iterations for iterative sphere/capsule resolution */
-const MAX_ITERATIONS = 4;
 
 // ---- BVH node layout ----
 
@@ -340,6 +335,8 @@ class MeshCollision implements Collision {
 
     private readonly _normalResult = { nx: 0, ny: 0, nz: 0 };
 
+    private readonly _push: PushOut = { x: 0, y: 0, z: 0 };
+
     private readonly _constraintNormals = [
         { x: 0, y: 0, z: 0 },
         { x: 0, y: 0, z: 0 },
@@ -433,64 +430,11 @@ class MeshCollision implements Collision {
         radius: number,
         out: PushOut
     ): boolean {
-        let resolvedX = cx;
-        let resolvedY = cy;
-        let resolvedZ = cz;
-        let totalPushX = 0;
-        let totalPushY = 0;
-        let totalPushZ = 0;
-        let hadCollision = false;
-
-        const normals = this._constraintNormals;
-        let numNormals = 0;
-
-        for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-            const pen = this._deepestSpherePenetration(resolvedX, resolvedY, resolvedZ, radius);
-            if (!pen) break;
-            hadCollision = true;
-
-            let px = pen.px;
-            let py = pen.py;
-            let pz = pen.pz;
-
-            for (let i = 0; i < numNormals; i++) {
-                const n = normals[i];
-                const dot = px * n.x + py * n.y + pz * n.z;
-                if (dot < 0) {
-                    px -= dot * n.x;
-                    py -= dot * n.y;
-                    pz -= dot * n.z;
-                }
-            }
-
-            const len = Math.sqrt(pen.px * pen.px + pen.py * pen.py + pen.pz * pen.pz);
-            if (len > PENETRATION_EPSILON && numNormals < 3) {
-                const invLen = 1.0 / len;
-                const n = normals[numNormals];
-                n.x = pen.px * invLen;
-                n.y = pen.py * invLen;
-                n.z = pen.pz * invLen;
-                numNormals++;
-            }
-
-            resolvedX += px;
-            resolvedY += py;
-            resolvedZ += pz;
-            totalPushX += px;
-            totalPushY += py;
-            totalPushZ += pz;
-        }
-
-        const totalPushSq = totalPushX * totalPushX + totalPushY * totalPushY + totalPushZ * totalPushZ;
-        const hasSignificantPush = hadCollision && totalPushSq > PENETRATION_EPSILON * PENETRATION_EPSILON;
-
-        if (hasSignificantPush) {
-            out.x = totalPushX;
-            out.y = totalPushY;
-            out.z = totalPushZ;
-        }
-
-        return hasSignificantPush;
+        return resolveIterative(
+            cx, cy, cz,
+            (rx, ry, rz, push) => this._deepestSpherePenetration(rx, ry, rz, radius, push),
+            this._constraintNormals, this._push, out
+        );
     }
 
     queryCapsule(
@@ -499,64 +443,11 @@ class MeshCollision implements Collision {
         radius: number,
         out: PushOut
     ): boolean {
-        let resolvedX = cx;
-        let resolvedY = cy;
-        let resolvedZ = cz;
-        let totalPushX = 0;
-        let totalPushY = 0;
-        let totalPushZ = 0;
-        let hadCollision = false;
-
-        const normals = this._constraintNormals;
-        let numNormals = 0;
-
-        for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-            const pen = this._deepestCapsulePenetration(resolvedX, resolvedY, resolvedZ, halfHeight, radius);
-            if (!pen) break;
-            hadCollision = true;
-
-            let px = pen.px;
-            let py = pen.py;
-            let pz = pen.pz;
-
-            for (let i = 0; i < numNormals; i++) {
-                const n = normals[i];
-                const dot = px * n.x + py * n.y + pz * n.z;
-                if (dot < 0) {
-                    px -= dot * n.x;
-                    py -= dot * n.y;
-                    pz -= dot * n.z;
-                }
-            }
-
-            const len = Math.sqrt(pen.px * pen.px + pen.py * pen.py + pen.pz * pen.pz);
-            if (len > PENETRATION_EPSILON && numNormals < 3) {
-                const invLen = 1.0 / len;
-                const n = normals[numNormals];
-                n.x = pen.px * invLen;
-                n.y = pen.py * invLen;
-                n.z = pen.pz * invLen;
-                numNormals++;
-            }
-
-            resolvedX += px;
-            resolvedY += py;
-            resolvedZ += pz;
-            totalPushX += px;
-            totalPushY += py;
-            totalPushZ += pz;
-        }
-
-        const totalPushSq = totalPushX * totalPushX + totalPushY * totalPushY + totalPushZ * totalPushZ;
-        const hasSignificantPush = hadCollision && totalPushSq > PENETRATION_EPSILON * PENETRATION_EPSILON;
-
-        if (hasSignificantPush) {
-            out.x = totalPushX;
-            out.y = totalPushY;
-            out.z = totalPushZ;
-        }
-
-        return hasSignificantPush;
+        return resolveIterative(
+            cx, cy, cz,
+            (rx, ry, rz, push) => this._deepestCapsulePenetration(rx, ry, rz, halfHeight, radius, push),
+            this._constraintNormals, this._push, out
+        );
     }
 
     querySurfaceNormal(
@@ -681,8 +572,9 @@ class MeshCollision implements Collision {
 
     private _deepestSpherePenetration(
         cx: number, cy: number, cz: number,
-        radius: number
-    ): { px: number; py: number; pz: number } | null {
+        radius: number,
+        out: PushOut
+    ): boolean {
         let bestPen = PENETRATION_EPSILON;
         let bestPx = 0, bestPy = 0, bestPz = 0;
         let found = false;
@@ -715,7 +607,6 @@ class MeshCollision implements Collision {
                     bestPy = dy * invDist * penetration;
                     bestPz = dz * invDist * penetration;
                 } else {
-                    // inside the triangle plane: push along face normal
                     bestPx = tris.nx[triIdx] * penetration;
                     bestPy = tris.ny[triIdx] * penetration;
                     bestPz = tris.nz[triIdx] * penetration;
@@ -724,7 +615,12 @@ class MeshCollision implements Collision {
             }
         });
 
-        return found ? { px: bestPx, py: bestPy, pz: bestPz } : null;
+        if (found) {
+            out.x = bestPx;
+            out.y = bestPy;
+            out.z = bestPz;
+        }
+        return found;
     }
 
     // ---- Capsule deepest penetration (single triangle) ----
@@ -732,8 +628,9 @@ class MeshCollision implements Collision {
     private _deepestCapsulePenetration(
         cx: number, cy: number, cz: number,
         halfHeight: number,
-        radius: number
-    ): { px: number; py: number; pz: number } | null {
+        radius: number,
+        out: PushOut
+    ): boolean {
         let bestPen = PENETRATION_EPSILON;
         let bestPx = 0, bestPy = 0, bestPz = 0;
         let found = false;
@@ -741,7 +638,6 @@ class MeshCollision implements Collision {
         const s0x = cx, s0y = cy - halfHeight, s0z = cz;
         const s1x = cx, s1y = cy + halfHeight, s1z = cz;
 
-        // Use the full capsule bounding box for the BVH sphere query
         const capsuleRadius = radius;
         const capsuleCenterY = cy;
         const capsuleHalfExtentY = halfHeight + radius;
@@ -782,7 +678,12 @@ class MeshCollision implements Collision {
             }
         });
 
-        return found ? { px: bestPx, py: bestPy, pz: bestPz } : null;
+        if (found) {
+            out.x = bestPx;
+            out.y = bestPy;
+            out.z = bestPz;
+        }
+        return found;
     }
 
     // ---- BVH sphere traversal (iterative) ----
@@ -931,10 +832,15 @@ class MeshCollision implements Collision {
                     return;
                 }
 
-                resolve(new MeshCollision(
+                const collision = new MeshCollision(
                     new Float32Array(allPositions),
                     new Uint32Array(allIndices)
-                ));
+                );
+
+                app.assets.remove(asset);
+                asset.unload();
+
+                resolve(collision);
             });
 
             asset.on('error', (err: string) => {

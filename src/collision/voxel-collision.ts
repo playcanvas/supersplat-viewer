@@ -1,3 +1,4 @@
+import { PENETRATION_EPSILON, resolveIterative } from './collision';
 import type { Collision, PushOut, RayHit } from './collision';
 
 /**
@@ -22,9 +23,6 @@ interface VoxelMetadata {
  * so baseOffset = 0 is never valid for an interior node.
  */
 const SOLID_LEAF_MARKER = 0xFF000000 >>> 0;
-
-/** Minimum penetration depth to report a collision (avoids floating-point noise at corners) */
-const PENETRATION_EPSILON = 1e-4;
 
 /** Half-extent of the flatness sampling patch (5x5 when R=2). */
 const FLAT_R = 2;
@@ -488,74 +486,11 @@ class VoxelCollision implements Collision {
         if (this.nodes.length === 0) {
             return false;
         }
-
-        const maxIterations = 4;
-        let resolvedX = cx;
-        let resolvedY = cy;
-        let resolvedZ = cz;
-        let totalPushX = 0;
-        let totalPushY = 0;
-        let totalPushZ = 0;
-        let hadCollision = false;
-
-        const push = this._push;
-
-        // Constraint normals from previous iterations - prevents oscillation at corners
-        // by ensuring subsequent pushes don't undo previous ones
-        const normals = this._constraintNormals;
-        let numNormals = 0;
-
-        for (let iter = 0; iter < maxIterations; iter++) {
-            if (!this.resolveDeepestPenetration(resolvedX, resolvedY, resolvedZ, radius)) {
-                break;
-            }
-            hadCollision = true;
-
-            let px = push.x;
-            let py = push.y;
-            let pz = push.z;
-
-            // Project out components that contradict previous constraint normals
-            for (let i = 0; i < numNormals; i++) {
-                const n = normals[i];
-                const dot = px * n.x + py * n.y + pz * n.z;
-                if (dot < 0) {
-                    px -= dot * n.x;
-                    py -= dot * n.y;
-                    pz -= dot * n.z;
-                }
-            }
-
-            // Record this push direction as a constraint normal
-            const len = Math.sqrt(push.x * push.x + push.y * push.y + push.z * push.z);
-            if (len > PENETRATION_EPSILON && numNormals < 3) {
-                const invLen = 1.0 / len;
-                const n = normals[numNormals];
-                n.x = push.x * invLen;
-                n.y = push.y * invLen;
-                n.z = push.z * invLen;
-                numNormals++;
-            }
-
-            resolvedX += px;
-            resolvedY += py;
-            resolvedZ += pz;
-            totalPushX += px;
-            totalPushY += py;
-            totalPushZ += pz;
-        }
-
-        // Only report collision if the total push is meaningful
-        const totalPushSq = totalPushX * totalPushX + totalPushY * totalPushY + totalPushZ * totalPushZ;
-        const hasSignificantPush = hadCollision && totalPushSq > PENETRATION_EPSILON * PENETRATION_EPSILON;
-
-        if (hasSignificantPush) {
-            out.x = totalPushX;
-            out.y = totalPushY;
-            out.z = totalPushZ;
-        }
-
-        return hasSignificantPush;
+        return resolveIterative(
+            cx, cy, cz,
+            (rx, ry, rz, push) => this.resolveDeepestPenetration(rx, ry, rz, radius, push),
+            this._constraintNormals, this._push, out
+        );
     }
 
     queryCapsule(
@@ -567,89 +502,27 @@ class VoxelCollision implements Collision {
         if (this.nodes.length === 0) {
             return false;
         }
-
-        const maxIterations = 4;
-        let resolvedX = cx;
-        let resolvedY = cy;
-        let resolvedZ = cz;
-        let totalPushX = 0;
-        let totalPushY = 0;
-        let totalPushZ = 0;
-        let hadCollision = false;
-
-        const push = this._push;
-
-        // Constraint normals from previous iterations - prevents oscillation at corners
-        // by ensuring subsequent pushes don't undo previous ones
-        const normals = this._constraintNormals;
-        let numNormals = 0;
-
-        for (let iter = 0; iter < maxIterations; iter++) {
-            if (!this.resolveDeepestPenetrationCapsule(resolvedX, resolvedY, resolvedZ, halfHeight, radius)) {
-                break;
-            }
-            hadCollision = true;
-
-            let px = push.x;
-            let py = push.y;
-            let pz = push.z;
-
-            // Project out components that contradict previous constraint normals
-            for (let i = 0; i < numNormals; i++) {
-                const n = normals[i];
-                const dot = px * n.x + py * n.y + pz * n.z;
-                if (dot < 0) {
-                    px -= dot * n.x;
-                    py -= dot * n.y;
-                    pz -= dot * n.z;
-                }
-            }
-
-            // Record this push direction as a constraint normal
-            const len = Math.sqrt(push.x * push.x + push.y * push.y + push.z * push.z);
-            if (len > PENETRATION_EPSILON && numNormals < 3) {
-                const invLen = 1.0 / len;
-                const n = normals[numNormals];
-                n.x = push.x * invLen;
-                n.y = push.y * invLen;
-                n.z = push.z * invLen;
-                numNormals++;
-            }
-
-            resolvedX += px;
-            resolvedY += py;
-            resolvedZ += pz;
-            totalPushX += px;
-            totalPushY += py;
-            totalPushZ += pz;
-        }
-
-        // Only report collision if the total push is meaningful
-        const totalPushSq = totalPushX * totalPushX + totalPushY * totalPushY + totalPushZ * totalPushZ;
-        const hasSignificantPush = hadCollision && totalPushSq > PENETRATION_EPSILON * PENETRATION_EPSILON;
-
-        if (hasSignificantPush) {
-            out.x = totalPushX;
-            out.y = totalPushY;
-            out.z = totalPushZ;
-        }
-
-        return hasSignificantPush;
+        return resolveIterative(
+            cx, cy, cz,
+            (rx, ry, rz, push) => this.resolveDeepestPenetrationCapsule(rx, ry, rz, halfHeight, radius, push),
+            this._constraintNormals, this._push, out
+        );
     }
 
     /**
      * Find the single deepest penetrating voxel for the given sphere.
-     * Writes the push-out vector into this._push.
      *
      * @param cx - Sphere center X.
      * @param cy - Sphere center Y.
      * @param cz - Sphere center Z.
      * @param radius - Sphere radius.
+     * @param out - Receives the push-out vector on success.
      * @returns True if a penetrating voxel was found.
      */
     private resolveDeepestPenetration(
         cx: number, cy: number, cz: number,
-        radius: number
+        radius: number,
+        out: PushOut
     ): boolean {
         const { voxelResolution, gridMinX, gridMinY, gridMinZ } = this;
         const radiusSq = radius * radius;
@@ -756,9 +629,9 @@ class VoxelCollision implements Collision {
         }
 
         if (found) {
-            this._push.x = bestPushX;
-            this._push.y = bestPushY;
-            this._push.z = bestPushZ;
+            out.x = bestPushX;
+            out.y = bestPushY;
+            out.z = bestPushZ;
         }
 
         return found;
@@ -769,19 +642,20 @@ class VoxelCollision implements Collision {
      * The capsule is a line segment from (cx, cy - halfHeight, cz) to (cx, cy + halfHeight, cz)
      * swept by radius. For each voxel, the closest point on the segment to the AABB is found,
      * then a sphere-AABB penetration test is performed from that point.
-     * Writes the push-out vector into this._push.
      *
      * @param cx - Capsule center X.
      * @param cy - Capsule center Y.
      * @param cz - Capsule center Z.
      * @param halfHeight - Half-height of the capsule's inner line segment.
      * @param radius - Capsule radius.
+     * @param out - Receives the push-out vector on success.
      * @returns True if a penetrating voxel was found.
      */
     private resolveDeepestPenetrationCapsule(
         cx: number, cy: number, cz: number,
         halfHeight: number,
-        radius: number
+        radius: number,
+        out: PushOut
     ): boolean {
         const { voxelResolution, gridMinX, gridMinY, gridMinZ } = this;
         const radiusSq = radius * radius;
@@ -906,9 +780,9 @@ class VoxelCollision implements Collision {
         }
 
         if (found) {
-            this._push.x = bestPushX;
-            this._push.y = bestPushY;
-            this._push.z = bestPushZ;
+            out.x = bestPushX;
+            out.y = bestPushY;
+            out.z = bestPushZ;
         }
 
         return found;

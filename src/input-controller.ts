@@ -269,7 +269,7 @@ class InputController {
                 this._mouseClickTracking = false;
                 updateCanvasCursor();
                 if (this._mouseClickDelta < TAP_EPSILON && state.cameraMode === 'walk' && !state.gamingControls) {
-                    const result = this._pickVoxel(this._lastPointerOffsetX, this._lastPointerOffsetY);
+                    const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
                     if (result) {
                         events.fire('walkTo', result.position, result.normal);
                     }
@@ -420,7 +420,7 @@ class InputController {
         });
     }
 
-    private _pickVoxel(offsetX: number, offsetY: number): { position: Vec3; normal: Vec3 } | null {
+    private _pickCollision(offsetX: number, offsetY: number): { position: Vec3; normal: Vec3 } | null {
         if (!this.collision) return null;
 
         const { camera } = this.global;
@@ -506,7 +506,7 @@ class InputController {
             if (prevTaps > 0 && this._tapTouches === 0) {
                 if (this._tapDelta < TAP_EPSILON) {
                     if (!state.gamingControls) {
-                        const result = this._pickVoxel(this._lastPointerOffsetX, this._lastPointerOffsetY);
+                        const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
                         if (result && state.cameraMode === 'walk' && !state.gamingControls) {
                             events.fire('walkTo', result.position, result.normal);
                         }

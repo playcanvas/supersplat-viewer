@@ -143,7 +143,7 @@ class Viewer {
         }
     };
 
-    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void> | undefined, voxelLoad: Promise<Collision> | undefined) {
+    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void> | undefined, collisionLoad: Promise<Collision> | undefined) {
         this.global = global;
 
         const { app, settings, config, events, state, camera } = global;
@@ -307,7 +307,7 @@ class Viewer {
         });
 
         // wait for the model to load
-        Promise.all([gsplatLoad, skyboxLoad, voxelLoad]).then((results) => {
+        Promise.all([gsplatLoad, skyboxLoad, collisionLoad]).then((results) => {
             const gsplat = results[0].gsplat as GSplatComponent;
             const collision = results[2];
 
