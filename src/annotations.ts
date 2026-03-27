@@ -33,6 +33,7 @@ class Annotations {
         global.events.on('controlsHidden:changed', updateVisibility);
         global.events.on('cameraMode:changed', updateVisibility);
         global.events.on('gamingControls:changed', updateVisibility);
+        updateVisibility();
 
         if (hasCameraFrame) {
             Annotation.hotspotColor.gamma();
