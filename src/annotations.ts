@@ -16,6 +16,9 @@ class Annotations {
         Annotation.parentDom = parentDom;
         document.querySelector('#ui').appendChild(parentDom);
 
+        this.annotations = global.settings.annotations;
+        this.parentDom = parentDom;
+
         const { state } = global;
 
         const updateVisibility = () => {
@@ -30,9 +33,6 @@ class Annotations {
         global.events.on('controlsHidden:changed', updateVisibility);
         global.events.on('cameraMode:changed', updateVisibility);
         global.events.on('gamingControls:changed', updateVisibility);
-
-        this.annotations = global.settings.annotations;
-        this.parentDom = parentDom;
 
         if (hasCameraFrame) {
             Annotation.hotspotColor.gamma();
