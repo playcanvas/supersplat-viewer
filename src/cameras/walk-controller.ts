@@ -137,6 +137,8 @@ class WalkController implements CameraController {
     onEnter(camera: Camera): void {
         this.goto(camera);
         if (this.collision) {
+            this._resolveSpawnCollision();
+
             const groundY = this._probeGround(this._position);
             if (groundY !== null) {
                 this._grounded = true;
@@ -272,6 +274,24 @@ class WalkController implements CameraController {
         this._pendingMove[1] = 0;
         this._pendingMove[2] = 0;
         this._accumulator = 0;
+    }
+
+    /**
+     * Push the capsule upward until it clears solid geometry. Only used at spawn time
+     * to handle the case where walk mode activates inside a solid region. Per-frame
+     * collision resolution is unaffected, avoiding the ceiling launch bug.
+     */
+    private _resolveSpawnCollision() {
+        const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
+        const minStep = this.capsuleRadius;
+
+        for (let i = 0; i < 100; i++) {
+            const center = this._position.y - this.eyeHeight + this.capsuleHeight * 0.5;
+            if (!this.collision!.queryCapsule(this._position.x, center, this._position.z, half, this.capsuleRadius, out)) {
+                break;
+            }
+            this._position.y += Math.max(out.y, minStep);
+        }
     }
 
     /**
