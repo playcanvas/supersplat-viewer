@@ -20,6 +20,9 @@ import {
     TONEMAP_ACES2,
     TONEMAP_NEUTRAL,
     Vec3,
+    GSPLAT_RENDERER_RASTER_CPU_SORT,
+    GSPLAT_RENDERER_RASTER_GPU_SORT,
+    GSPLAT_RENDERER_COMPUTE,
     GSplatComponent,
     platform
 } from 'playcanvas';
@@ -47,6 +50,12 @@ fn prepareOutputFromGamma(gammaColor: vec3f) -> vec3f {
     return gammaColor;
 }
 `;
+
+const rendererTable: Record<string, number> = {
+    'raster-cpu': GSPLAT_RENDERER_RASTER_CPU_SORT,
+    'raster-gpu': GSPLAT_RENDERER_RASTER_GPU_SORT,
+    'compute': GSPLAT_RENDERER_COMPUTE
+};
 
 const tonemapTable: Record<string, number> = {
     none: TONEMAP_NONE,
@@ -379,8 +388,8 @@ class Viewer {
                         high: 2
                     },
                     desktop: {
-                        low: 2,
-                        high: 4
+                        low: 4,
+                        high: 8
                     }
                 };
 
@@ -452,7 +461,7 @@ class Viewer {
 
                         // debug colorize lods
                         gsplat.colorizeLod = config.colorize;
-                        gsplat.gpuSorting = config.gpusort;
+                        gsplat.renderer = rendererTable[config.renderer];
 
                         // wait for the first valid frame to complete rendering
                         app.once('frameend', () => {

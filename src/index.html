@@ -35,7 +35,7 @@
                 colorize: url.searchParams.has('colorize'),
                 unified: url.searchParams.has('unified'),
                 webgpu: url.searchParams.has('webgpu'),
-                gpusort: url.searchParams.has('gpusort'),
+                renderer: url.searchParams.get('renderer') ?? 'compute',
                 aa: url.searchParams.has('aa'),
                 heatmap: url.searchParams.has('heatmap'),
                 fullload: url.searchParams.has('fullload'),
