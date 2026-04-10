@@ -148,7 +148,8 @@ class Viewer {
         },
         wgsl: {
             gsplatOutputVS: string,
-            skyboxPS: string
+            skyboxPS: string,
+            gsplatTileCompositePS: string
         }
     };
 
@@ -175,7 +176,8 @@ class Viewer {
             },
             wgsl: {
                 gsplatOutputVS: wgsl.get('gsplatOutputVS'),
-                skyboxPS: wgsl.get('skyboxPS')
+                skyboxPS: wgsl.get('skyboxPS'),
+                gsplatTileCompositePS: wgsl.get('gsplatTileCompositePS')
             }
         };
 
@@ -529,6 +531,15 @@ class Viewer {
                 )
             );
 
+            // force tile composite shader to write gamma-space colors (inline pow replaces the
+            // gammaCorrectOutput call which is a no-op under CameraFrame's GAMMA_NONE)
+            ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatTileCompositePS',
+                this.origChunks.wgsl.gsplatTileCompositePS.replace(
+                    'gammaCorrectOutput(toneMap(linear.rgb))',
+                    'pow(toneMap(linear.rgb) + 0.0000001, vec3f(1.0 / 2.2))'
+                )
+            );
+
             // ensure the final compose blit doesn't perform linear->gamma conversion.
             RenderTarget.prototype.isColorBufferSrgb = function (index) {
                 return this === app.graphicsDevice.backBuffer ? true : origIsColorBufferSrgb.call(this, index);
@@ -547,6 +558,7 @@ class Viewer {
             ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatOutputVS', this.origChunks.wgsl.gsplatOutputVS);
             ShaderChunks.get(app.graphicsDevice, 'glsl').set('skyboxPS', this.origChunks.glsl.skyboxPS);
             ShaderChunks.get(app.graphicsDevice, 'wgsl').set('skyboxPS', this.origChunks.wgsl.skyboxPS);
+            ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatTileCompositePS', this.origChunks.wgsl.gsplatTileCompositePS);
 
             // restore original isColorBufferSrgb behavior
             RenderTarget.prototype.isColorBufferSrgb = origIsColorBufferSrgb;
