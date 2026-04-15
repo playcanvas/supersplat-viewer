@@ -38,6 +38,23 @@ canvas {
     height: 100%;
 }
 
+// Workaround for Chrome on macOS: without backdrop-filter on an overlaying
+// element, Chrome uses a compositor path that causes severe WebGPU frame
+// pacing issues on high-refresh-rate displays.
+//
+// This workaround can be removed once Chrome has fixed
+// https://issues.chromium.org/issues/502668704
+body::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    backdrop-filter: blur(1px);
+    pointer-events: none;
+}
+
 button {
     appearance: none;
 }

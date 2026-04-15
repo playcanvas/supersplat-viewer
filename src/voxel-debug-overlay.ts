@@ -64,7 +64,7 @@ struct Uniforms {
     treeDepth: u32,
     projScaleY: f32,
     displayMode: u32,
-    pad2: u32
+    inverted: u32
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -74,9 +74,9 @@ struct Uniforms {
 
 // ---- helpers ----
 
-// Traverse the octree for block (bx, by, bz). Returns vec2u(result, emptyLevel):
+// Traverse the octree for block (bx, by, bz). Returns vec2u(result, skipLevel):
 //   result: 0 = empty, 1 = solid, 2+ = mixed leaf (2 + leafDataIndex)
-//   emptyLevel: octree level at which emptiness was detected (only meaningful when result == 0)
+//   skipLevel: octree level for multi-block skipping (meaningful when result == 0 or 1)
 fn queryBlock(bx: i32, by: i32, bz: i32) -> vec2u {
     let depth = uniforms.treeDepth;
     var nodeIndex: u32 = 0u;
@@ -84,9 +84,9 @@ fn queryBlock(bx: i32, by: i32, bz: i32) -> vec2u {
     for (var level: u32 = depth - 1u; ; ) {
         let node = nodes[nodeIndex];
 
-        // Solid leaf sentinel
+        // Solid leaf sentinel -- return level + 1 so the caller can skip 2^(level+1) blocks
         if (node == SOLID_LEAF_MARKER) {
-            return vec2u(1u, 0u);
+            return vec2u(1u, level + 1u);
         }
 
         let childMask = (node >> 24u) & 0xFFu;
@@ -283,6 +283,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     var tMaxY = (nextBoundY - ro.y) / rd.y;
     var tMaxZ = (nextBoundZ - ro.z) / rd.z;
 
+    let inv = uniforms.inverted != 0u;
     var totalWork: u32 = 0u;
 
     for (var step: u32 = 0u; step < MAX_STEPS; step++) {
@@ -290,11 +291,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
         let qResult = queryBlock(bx, by, bz);
         let blockResult = qResult.x;
-        let emptyLevel = qResult.y;
+        let skipLevel = qResult.y;
 
-        if (blockResult == 0u && emptyLevel >= 1u) {
-            // Large empty region: advance the block DDA past the empty cell
-            let cellBlocks = i32(1u << emptyLevel);
+        // Normal: skip large empty regions.  Inverted: skip large solid regions.
+        let shouldSkip = select(
+            blockResult == 0u && skipLevel >= 1u,
+            blockResult == 1u && skipLevel >= 1u,
+            inv
+        );
+
+        if (shouldSkip) {
+            let cellBlocks = i32(1u << skipLevel);
             let cellMask = ~(cellBlocks - 1);
             let cellXMin = bx & cellMask;
             let cellYMin = by & cellMask;
@@ -318,7 +325,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                 }
             }
         } else {
-            if (blockResult != 0u) {
+            // Normal: enter voxel DDA for non-empty blocks.
+            // Inverted: enter voxel DDA for non-solid blocks (empty or mixed).
+            let enterDDA = select(blockResult != 0u, blockResult != 1u, inv);
+
+            if (enterDDA) {
                 let blockOrigin = gridMin + vec3f(f32(bx), f32(by), f32(bz)) * blockRes;
 
                 let blockMax = blockOrigin + vec3f(blockRes);
@@ -369,12 +380,15 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                         );
                     }
 
-                    if (isSolid) {
+                    let isHit = select(isSolid, !isSolid, inv);
+
+                    if (isHit) {
                         if (uniforms.displayMode == 0u) {
                             let voxMin = blockOrigin + vec3f(f32(vx), f32(vy), f32(vz)) * voxelRes;
                             let vHit = intersectAABB(ro, invDir, voxMin, voxMin + vec3f(voxelRes));
                             let hitPos = ro + rd * max(vHit.x, 0.0);
-                            let result = shadeVoxelHit(hitPos, voxMin, voxelRes, ro, blockResult == 1u);
+                            let fullBlock = select(blockResult == 1u, blockResult == 0u, inv);
+                            let result = shadeVoxelHit(hitPos, voxMin, voxelRes, ro, fullBlock);
                             textureStore(outputTexture, vec2i(px, py), result);
                         } else {
                             let effort = f32(totalWork) / 256.0;
@@ -514,7 +528,7 @@ class VoxelDebugOverlay {
                     new UniformFormat('treeDepth', UNIFORMTYPE_UINT),
                     new UniformFormat('projScaleY', UNIFORMTYPE_FLOAT),
                     new UniformFormat('displayMode', UNIFORMTYPE_UINT),
-                    new UniformFormat('pad2', UNIFORMTYPE_UINT)
+                    new UniformFormat('inverted', UNIFORMTYPE_UINT)
                 ])
             },
             computeBindGroupFormat: new BindGroupFormat(device, [
@@ -647,7 +661,18 @@ class VoxelDebugOverlay {
         compute.setParameter('treeDepth', collision.treeDepth);
         compute.setParameter('projScaleY', cam.projectionMatrix.data[5]);
         compute.setParameter('displayMode', this.mode === 'heatmap' ? 1 : 0);
-        compute.setParameter('pad2', 0);
+
+        const camPos = camera.getPosition();
+        let wx = camPos.x, wy = camPos.y;
+        const wz = camPos.z;
+        if (collision.flipXY) {
+            wx = -wx;
+            wy = -wy;
+        }
+        const ix = Math.floor((wx - collision.gridMinX) / collision.voxelResolution);
+        const iy = Math.floor((wy - collision.gridMinY) / collision.voxelResolution);
+        const iz = Math.floor((wz - collision.gridMinZ) / collision.voxelResolution);
+        compute.setParameter('inverted', collision.isVoxelSolid(ix, iy, iz) ? 1 : 0);
 
         // Set storage buffers and output texture
         compute.setParameter('nodes', this.nodesBuffer);
