@@ -433,6 +433,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             break;
         }
     }
+
+    textureStore(outputTexture, vec2i(px, py), vec4f(0.0));
 }
 `;
 
