@@ -40,13 +40,13 @@ import { VoxelDebugOverlay } from './voxel-debug-overlay';
 import { WalkCursor } from './walk-cursor';
 
 const gammaChunkGlsl = `
-vec3 prepareOutputFromGamma(vec3 gammaColor) {
+vec3 prepareOutputFromGamma(vec3 gammaColor, float depth) {
     return gammaColor;
 }
 `;
 
 const gammaChunkWgsl = `
-fn prepareOutputFromGamma(gammaColor: vec3f) -> vec3f {
+fn prepareOutputFromGamma(gammaColor: vec3f, depth: f32) -> vec3f {
     return gammaColor;
 }
 `;
@@ -497,7 +497,11 @@ class Viewer {
         // hpr override takes precedence over settings.highPrecisionRendering
         const highPrecisionRendering = config.hpr ?? settings.highPrecisionRendering;
 
-        const enableCameraFrame = !app.xr.active && !config.nofx && (anyPostEffectEnabled(postEffectSettings) || highPrecisionRendering);
+        const enableCameraFrame =
+            !app.xr.active &&
+            !config.nofx &&
+            (anyPostEffectEnabled(postEffectSettings) || highPrecisionRendering ||
+                config.renderer === 'compute');
 
         if (enableCameraFrame) {
             // create instance
@@ -509,6 +513,7 @@ class Viewer {
             cameraFrame.enabled = true;
             cameraFrame.rendering.toneMapping = tonemapTable[settings.tonemapping];
             cameraFrame.rendering.renderFormats = highPrecisionRendering ? [PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F] : [];
+            cameraFrame.rendering.sceneDepthMap = config.renderer === 'compute'; // needed for annotations
             applyPostEffectSettings(cameraFrame, postEffectSettings);
             cameraFrame.update();
 
