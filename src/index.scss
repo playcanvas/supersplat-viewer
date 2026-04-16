@@ -52,6 +52,7 @@ body::after {
     width: 1px;
     height: 1px;
     backdrop-filter: blur(1px);
+    -webkit-backdrop-filter: blur(1px);
     pointer-events: none;
 }
 
