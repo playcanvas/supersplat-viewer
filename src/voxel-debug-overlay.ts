@@ -157,7 +157,7 @@ fn edgeFactor(hitPos: vec3f, voxMin: vec3f, voxSize: f32, edgeWidth: f32) -> f32
 }
 
 // Shade a voxel hit, returning premultiplied RGBA
-fn shadeVoxelHit(hitPos: vec3f, voxMin: vec3f, voxelRes: f32, ro: vec3f, isSolid: bool) -> vec4f {
+fn shadeVoxelHit(hitPos: vec3f, voxMin: vec3f, voxelRes: f32, ro: vec3f, isFullBlock: bool) -> vec4f {
     let dist = length(hitPos - ro);
     let pixelWorld = 2.0 * dist / (f32(uniforms.screenHeight) * uniforms.projScaleY);
     let ew = clamp(EDGE_PIXELS * pixelWorld / voxelRes, 0.01, 0.5);
@@ -178,7 +178,7 @@ fn shadeVoxelHit(hitPos: vec3f, voxMin: vec3f, voxelRes: f32, ro: vec3f, isSolid
     }
 
     var baseColor: vec3f;
-    if (isSolid) {
+    if (isFullBlock) {
         if (faceAxis == 0u) { baseColor = vec3f(1.0, 0.25, 0.2); }
         else if (faceAxis == 1u) { baseColor = vec3f(0.8, 0.15, 0.1); }
         else { baseColor = vec3f(0.55, 0.08, 0.05); }
@@ -387,8 +387,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                             let voxMin = blockOrigin + vec3f(f32(vx), f32(vy), f32(vz)) * voxelRes;
                             let vHit = intersectAABB(ro, invDir, voxMin, voxMin + vec3f(voxelRes));
                             let hitPos = ro + rd * max(vHit.x, 0.0);
-                            let fullBlock = select(blockResult == 1u, blockResult == 0u, inv);
-                            let result = shadeVoxelHit(hitPos, voxMin, voxelRes, ro, fullBlock);
+                            let isFullBlock = select(blockResult == 1u, blockResult == 0u, inv);
+                            let result = shadeVoxelHit(hitPos, voxMin, voxelRes, ro, isFullBlock);
                             textureStore(outputTexture, vec2i(px, py), result);
                         } else {
                             let effort = f32(totalWork) / 256.0;
@@ -432,14 +432,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             bx >= numBlocksX || by >= numBlocksY || bz >= numBlocksZ) {
             break;
         }
-    }
-
-    if (uniforms.displayMode == 0u) {
-        textureStore(outputTexture, vec2i(px, py), vec4f(0.0));
-    } else {
-        let effort = f32(totalWork) / 256.0;
-        let color = heatmap(effort);
-        textureStore(outputTexture, vec2i(px, py), vec4f(color, 1.0));
     }
 }
 `;
