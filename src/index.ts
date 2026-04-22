@@ -92,13 +92,15 @@ const loadSkybox = (app: AppBase, url: string) => {
 };
 
 const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
+    const useWebGPU = config.renderer !== 'webgl';
+
     // Create the graphics device
     const device = await createGraphicsDevice(canvas, {
-        deviceTypes: config.webgpu ? ['webgpu'] : [],
+        deviceTypes: useWebGPU ? ['webgpu'] : [],
         antialias: false,
         depth: true,
         stencil: false,
-        xrCompatible: !config.webgpu,
+        xrCompatible: !useWebGPU,
         powerPreference: 'high-performance'
     });
 
@@ -248,7 +250,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
     camera.addComponent('camera');
 
     // Initialize XR support
-    if (!config.webgpu) {
+    if (config.renderer === 'webgl') {
         initXr(global);
     }
 

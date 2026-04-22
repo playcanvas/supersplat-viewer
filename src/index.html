@@ -21,6 +21,12 @@
             const settingsUrl = url.searchParams.has('settings') ? url.searchParams.get('settings') : './settings.json';
             const contentUrl = url.searchParams.has('content') ? url.searchParams.get('content') : './scene.compressed.ply';
 
+            const renderer =
+                url.searchParams.has('compute') ? 'compute' :
+                url.searchParams.has('gpu')     ? 'gpu' :
+                url.searchParams.has('cpu')     ? 'cpu' :
+                                                  'webgl';
+
             const sseConfig = {
                 poster: posterUrl && createImage(posterUrl),
                 skyboxUrl,
@@ -34,8 +40,7 @@
                 ministats: url.searchParams.has('ministats'),
                 colorize: url.searchParams.has('colorize'),
                 unified: url.searchParams.has('unified'),
-                webgpu: url.searchParams.has('webgpu'),
-                renderer: url.searchParams.get('renderer') ?? 'compute',
+                renderer,
                 aa: url.searchParams.has('aa'),
                 heatmap: url.searchParams.has('heatmap'),
                 fullload: url.searchParams.has('fullload'),

@@ -23,8 +23,7 @@ type Config = {
     unified: boolean;                           // force unified rendering mode
     fullload: boolean;                          // load all streaming LOD data before first frame
     aa: boolean;                                // render with antialiasing
-    webgpu: boolean;                            // use WebGPU device
-    renderer: 'cpu-sort' | 'gpu-sort' | 'compute';
+    renderer: 'webgl' | 'cpu' | 'gpu' | 'compute';
     heatmap: boolean;                           // render heatmap debug overlay (WebGPU only)
 };
 
