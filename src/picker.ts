@@ -41,6 +41,9 @@ class Picker {
 
             const result = await picker.getWorldPointAsync(px, py);
 
+            // pick is only invoked from user dblclick events, so concurrent invocations
+            // (which would race on enableIds) aren't a concern in practice.
+            // eslint-disable-next-line require-atomic-updates
             app.scene.gsplat.enableIds = prevEnableIds;
 
             return result;
