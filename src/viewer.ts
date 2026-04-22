@@ -391,8 +391,8 @@ class Viewer {
                         high: 2
                     },
                     desktop: {
-                        low: 4,
-                        high: 8
+                        low: 2,
+                        high: 4
                     }
                 };
 
