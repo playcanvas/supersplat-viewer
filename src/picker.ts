@@ -14,6 +14,9 @@ class Picker {
 
     constructor(app: AppBase, camera: Entity) {
         const picker = new EnginePicker(app, 1, 1, true);
+
+        // capture and override the gsplat enableIds flag so we can restore it on release
+        const prevEnableIds = app.scene.gsplat.enableIds;
         app.scene.gsplat.enableIds = true;
 
         this.pick = async (x: number, y: number) => {
@@ -31,7 +34,10 @@ class Picker {
             );
         };
 
-        this.release = () => picker.destroy();
+        this.release = () => {
+            picker.destroy();
+            app.scene.gsplat.enableIds = prevEnableIds;
+        };
     }
 }
 

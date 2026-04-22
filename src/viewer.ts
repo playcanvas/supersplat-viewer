@@ -41,6 +41,26 @@ import type { Global } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
 import { WalkCursor } from './walk-cursor';
 
+// String.replace wrapper that warns when the source substring is missing, so
+// shader chunk patches against the engine fail loudly instead of silently
+// producing the original chunk.
+const patchChunk = (source: string, search: string, replacement: string, name: string): string => {
+    if (!source.includes(search)) {
+        console.warn(`patchChunk: substring not found in '${name}', shader chunk patch may be out of sync with the engine.`);
+    }
+    return source.replace(search, replacement);
+};
+
+// post-effect settings used when post effects are forcibly disabled (e.g. ?nofx
+// while the compute renderer still requires CameraFrame for tile composite).
+const noPostEffects: PostEffectSettings = {
+    sharpness: { enabled: false, amount: 0 },
+    bloom: { enabled: false, intensity: 0, blurLevel: 0 },
+    grading: { enabled: false, brightness: 0, contrast: 1, saturation: 1, tint: [1, 1, 1] },
+    vignette: { enabled: false, intensity: 0, inner: 0, outer: 0, curvature: 0 },
+    fringing: { enabled: false, intensity: 0 }
+};
+
 const gammaChunkGlsl = `
 vec3 prepareOutputFromGamma(vec3 gammaColor, float depth) {
     return gammaColor;
@@ -167,10 +187,10 @@ class Viewer {
 
         // render skybox as plain equirect
         const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
-        glsl.set('skyboxPS', glsl.get('skyboxPS').replace('mapRoughnessUv(uv, mipLevel)', 'uv'));
+        glsl.set('skyboxPS', patchChunk(glsl.get('skyboxPS'), 'mapRoughnessUv(uv, mipLevel)', 'uv', 'glsl skyboxPS'));
 
         const wgsl = ShaderChunks.get(graphicsDevice, 'wgsl');
-        wgsl.set('skyboxPS', wgsl.get('skyboxPS').replace('mapRoughnessUv(uv, uniform.mipLevel)', 'uv'));
+        wgsl.set('skyboxPS', patchChunk(wgsl.get('skyboxPS'), 'mapRoughnessUv(uv, uniform.mipLevel)', 'uv', 'wgsl skyboxPS'));
 
         this.origChunks = {
             glsl: {
@@ -503,11 +523,13 @@ class Viewer {
         // hpr override takes precedence over settings.highPrecisionRendering
         const highPrecisionRendering = config.hpr ?? settings.highPrecisionRendering;
 
-        const enableCameraFrame =
-            !app.xr.active &&
-            !config.nofx &&
-            (anyPostEffectEnabled(postEffectSettings) || highPrecisionRendering ||
-                config.renderer === 'compute');
+        // compute renderer requires CameraFrame to perform tile composite output,
+        // so it must be enabled even when post effects are suppressed via ?nofx.
+        const computeRequiresCameraFrame = config.renderer === 'compute';
+        const postFxRequested = !config.nofx &&
+            (anyPostEffectEnabled(postEffectSettings) || highPrecisionRendering);
+
+        const enableCameraFrame = !app.xr.active && (computeRequiresCameraFrame || postFxRequested);
 
         if (enableCameraFrame) {
             // create instance
@@ -520,7 +542,7 @@ class Viewer {
             cameraFrame.rendering.toneMapping = tonemapTable[settings.tonemapping];
             cameraFrame.rendering.renderFormats = highPrecisionRendering ? [PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F] : [];
             cameraFrame.rendering.sceneDepthMap = config.renderer === 'compute'; // needed for annotations
-            applyPostEffectSettings(cameraFrame, postEffectSettings);
+            applyPostEffectSettings(cameraFrame, postFxRequested ? postEffectSettings : noPostEffects);
             cameraFrame.update();
 
             // force gsplat shader to write gamma-space colors
@@ -530,24 +552,30 @@ class Viewer {
             // force skybox shader to write gamma-space colors (inline pow replaces the
             // gammaCorrectOutput call which is a no-op under CameraFrame's GAMMA_NONE)
             ShaderChunks.get(app.graphicsDevice, 'glsl').set('skyboxPS',
-                this.origChunks.glsl.skyboxPS.replace(
+                patchChunk(
+                    this.origChunks.glsl.skyboxPS,
                     'gammaCorrectOutput(toneMap(processEnvironment(linear)))',
-                    'pow(toneMap(processEnvironment(linear)) + 0.0000001, vec3(1.0 / 2.2))'
+                    'pow(toneMap(processEnvironment(linear)) + 0.0000001, vec3(1.0 / 2.2))',
+                    'glsl skyboxPS gamma override'
                 )
             );
             ShaderChunks.get(app.graphicsDevice, 'wgsl').set('skyboxPS',
-                this.origChunks.wgsl.skyboxPS.replace(
+                patchChunk(
+                    this.origChunks.wgsl.skyboxPS,
                     'gammaCorrectOutput(toneMap(processEnvironment(linear)))',
-                    'pow(toneMap(processEnvironment(linear)) + 0.0000001, vec3f(1.0 / 2.2))'
+                    'pow(toneMap(processEnvironment(linear)) + 0.0000001, vec3f(1.0 / 2.2))',
+                    'wgsl skyboxPS gamma override'
                 )
             );
 
             // force tile composite shader to write gamma-space colors (inline pow replaces the
             // gammaCorrectOutput call which is a no-op under CameraFrame's GAMMA_NONE)
             ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatTileCompositePS',
-                this.origChunks.wgsl.gsplatTileCompositePS.replace(
+                patchChunk(
+                    this.origChunks.wgsl.gsplatTileCompositePS,
                     'gammaCorrectOutput(toneMap(linear.rgb))',
-                    'pow(toneMap(linear.rgb) + 0.0000001, vec3f(1.0 / 2.2))'
+                    'pow(toneMap(linear.rgb) + 0.0000001, vec3f(1.0 / 2.2))',
+                    'wgsl gsplatTileCompositePS gamma override'
                 )
             );
 
