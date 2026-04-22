@@ -397,7 +397,7 @@ class Viewer {
 
                 const getBudget = () => {
                     const quality = platform.mobile ? budgets.mobile : budgets.desktop;
-                    return state.retinaDisplay ? quality.high : quality.low;
+                    return state.performanceMode ? quality.low : quality.high;
                 };
 
                 if (config.fullload) {
@@ -458,7 +458,7 @@ class Viewer {
                             gsplat.lodRangeMin = 0;
                             gsplat.lodRangeMax = 1000;
                         };
-                        events.on('retinaDisplay:changed', updateLod);
+                        events.on('performanceMode:changed', updateLod);
                         updateLod();
 
                         // debug colorize lods
