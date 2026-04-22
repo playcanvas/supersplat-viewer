@@ -20,6 +20,8 @@ import {
     TONEMAP_ACES2,
     TONEMAP_NEUTRAL,
     Vec3,
+    GSPLAT_DEBUG_LOD,
+    GSPLAT_DEBUG_NONE,
     GSPLAT_RENDERER_RASTER_CPU_SORT,
     GSPLAT_RENDERER_RASTER_GPU_SORT,
     GSPLAT_RENDERER_COMPUTE,
@@ -466,7 +468,7 @@ class Viewer {
                         updateLod();
 
                         // debug colorize lods
-                        gsplat.colorizeLod = config.colorize;
+                        gsplat.debug = config.colorize ? GSPLAT_DEBUG_LOD : GSPLAT_DEBUG_NONE;
                         gsplat.renderer = rendererTable[config.renderer];
 
                         // wait for the first valid frame to complete rendering
