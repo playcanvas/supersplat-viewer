@@ -37,7 +37,7 @@ import { VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
-import type { Global } from './types';
+import type { Config, Global } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
 import { WalkCursor } from './walk-cursor';
 
@@ -73,7 +73,7 @@ fn prepareOutputFromGamma(gammaColor: vec3f, depth: f32) -> vec3f {
 }
 `;
 
-const rendererTable: Record<string, number> = {
+const rendererTable: Record<Config['renderer'], number> = {
     'webgl':   GSPLAT_RENDERER_RASTER_CPU_SORT,
     'cpu':     GSPLAT_RENDERER_RASTER_CPU_SORT,
     'gpu':     GSPLAT_RENDERER_RASTER_GPU_SORT,
