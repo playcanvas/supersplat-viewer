@@ -24,7 +24,7 @@ type Config = {
     fullload: boolean;                          // load all streaming LOD data before first frame
     aa: boolean;                                // render with antialiasing
     webgpu: boolean;                            // use WebGPU device
-    renderer: 'raster-cpu' | 'raster-gpu' | 'compute';
+    renderer: 'cpu-sort' | 'gpu-sort' | 'compute';
     heatmap: boolean;                           // render heatmap debug overlay (WebGPU only)
 };
 

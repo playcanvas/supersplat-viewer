@@ -52,8 +52,8 @@ fn prepareOutputFromGamma(gammaColor: vec3f, depth: f32) -> vec3f {
 `;
 
 const rendererTable: Record<string, number> = {
-    'raster-cpu': GSPLAT_RENDERER_RASTER_CPU_SORT,
-    'raster-gpu': GSPLAT_RENDERER_RASTER_GPU_SORT,
+    'cpu-sort': GSPLAT_RENDERER_RASTER_CPU_SORT,
+    'gpu-sort': GSPLAT_RENDERER_RASTER_GPU_SORT,
     'compute': GSPLAT_RENDERER_COMPUTE
 };
 
