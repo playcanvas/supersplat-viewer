@@ -27,6 +27,9 @@
                 url.searchParams.has('cpu')     ? 'cpu' :
                                                   'webgl';
 
+            const budgetParam = url.searchParams.get('budget');
+            const budget = budgetParam !== null ? Number(budgetParam) : undefined;
+
             const sseConfig = {
                 poster: posterUrl && createImage(posterUrl),
                 skyboxUrl,
@@ -42,6 +45,7 @@
                 unified: url.searchParams.has('unified'),
                 renderer,
                 aa: url.searchParams.has('aa'),
+                budget,
                 heatmap: url.searchParams.has('heatmap'),
                 fullload: url.searchParams.has('fullload'),
             };

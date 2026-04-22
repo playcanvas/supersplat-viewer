@@ -397,6 +397,9 @@ class Viewer {
                 };
 
                 const getBudget = () => {
+                    if (config.budget !== undefined && Number.isFinite(config.budget) && config.budget > 0) {
+                        return config.budget;
+                    }
                     const quality = platform.mobile ? budgets.mobile : budgets.desktop;
                     return state.performanceMode ? quality.low : quality.high;
                 };
