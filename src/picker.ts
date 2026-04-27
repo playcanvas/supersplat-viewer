@@ -1,3 +1,13 @@
+/**
+ * Double-click world picking for splat scenes.
+ *
+ * - **Compute renderer (WebGPU tiled-compute)**: uses engine `Picker` with depth enabled — expected
+ *   depth is already provided by the tile-composite path.
+ * - **Raster renderers (WebGL, CPU / GPU sort, etc.)**: custom `pickPS` / `gsplatPS` patch plus
+ *   `RGBA16F` alpha-weighted depth accumulation, because the stock pick pass encodes splat IDs /
+ *   last-fragment depth rather than expected depth.
+ */
+
 import {
     type AppBase,
     type Entity,
@@ -10,9 +20,9 @@ import {
     BLENDMODE_ONE_MINUS_SRC_ALPHA,
     FILTER_NEAREST,
     GSPLAT_RENDERER_COMPUTE,
-    PIXELFORMAT_RGBA8,
     PIXELFORMAT_RGBA16F,
     PROJECTION_ORTHOGRAPHIC,
+    Picker as EnginePicker,
     Color,
     Mat4,
     RenderPassPicker,
@@ -136,39 +146,62 @@ fn encodePickOutput(id: u32) -> vec4f {
 #endif
 `;
 
+const pickPassChunkInjected = [
+    '#ifdef PICK_PASS',
+    '    #define GSPLAT_PICK_DEPTH',
+    '    #include "pickPS"',
+    '#endif'
+].join('\n');
+
+const safeChunkReplace = (s: string, find: string | RegExp, repl: string) => {
+    const out = s.replace(find, repl);
+    if (out === s) {
+        throw new Error('picker: engine gsplat/pick chunk patch failed (engine version mismatch?)');
+    }
+    return out;
+};
+
 const patchGsplatPickGlsl = (chunk: string) => {
-    return chunk
-    .replace(
-        /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/,
-        '#ifdef PICK_PASS\n\t#define GSPLAT_PICK_DEPTH\n\t#include "pickPS"\n#endif'
-    )
-    .replace(
+    return safeChunkReplace(
+        safeChunkReplace(
+            chunk,
+            /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/,
+            pickPassChunkInjected
+        ),
         'pcFragColor0 = encodePickOutput(vPickId);',
         'pcFragColor0 = getPickOutput();'
     );
 };
 
 const patchGsplatPickWgsl = (chunk: string) => {
-    return chunk
-    .replace(
-        /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/,
-        '#ifdef PICK_PASS\n\t#define GSPLAT_PICK_DEPTH\n\t#include "pickPS"\n#endif'
-    )
-    .replace(
+    return safeChunkReplace(
+        safeChunkReplace(
+            chunk,
+            /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/,
+            pickPassChunkInjected
+        ),
         'output.color = encodePickOutput(vPickId);',
         'output.color = getPickOutput();'
     );
 };
 
-const patchedDevices = new WeakSet<object>();
+type PickerShaderPatchState = {
+    glslPickPS: string;
+    glslGsplatPS: string;
+    wgslPickPS: string;
+    wgslGsplatPS: string;
+    refCount: number;
+};
+
+/** Per-device original chunk strings + refcount so we can restore after the last Picker releases. */
+const pickerShaderPatchState = new WeakMap<object, PickerShaderPatchState>();
+
 const vec4 = new Vec4();
 const viewProjMat = new Mat4();
 const clearColor = new Color(0, 0, 0, 1);
-const whiteColor = Color.WHITE;
 
-// Shared buffers for pixel decoding.
+// Shared buffer for half-to-float conversion
 const float32 = new Float32Array(1);
-const int32 = new Int32Array(float32.buffer);
 const uint32 = new Uint32Array(float32.buffer);
 
 // Convert 16-bit half-float to 32-bit float using bit manipulation.
@@ -198,22 +231,51 @@ const half2Float = (h: number): number => {
     return float32[0];
 };
 
-const patchPickChunks = (app: AppBase) => {
+const registerPickerShaderPatches = (app: AppBase) => {
     const device = app.graphicsDevice;
-    if (patchedDevices.has(device)) {
+    const existing = pickerShaderPatchState.get(device);
+    if (existing) {
+        existing.refCount++;
         return;
     }
 
     const glslChunks = ShaderChunks.get(device, 'glsl');
     const wgslChunks = ShaderChunks.get(device, 'wgsl');
 
+    const state: PickerShaderPatchState = {
+        glslPickPS: glslChunks.get('pickPS'),
+        glslGsplatPS: glslChunks.get('gsplatPS'),
+        wgslPickPS: wgslChunks.get('pickPS'),
+        wgslGsplatPS: wgslChunks.get('gsplatPS'),
+        refCount: 1
+    };
+    pickerShaderPatchState.set(device, state);
+
     glslChunks.set('pickPS', pickDepthGlsl);
     wgslChunks.set('pickPS', pickDepthWgsl);
 
-    glslChunks.set('gsplatPS', patchGsplatPickGlsl(glslChunks.get('gsplatPS')));
-    wgslChunks.set('gsplatPS', patchGsplatPickWgsl(wgslChunks.get('gsplatPS')));
+    glslChunks.set('gsplatPS', patchGsplatPickGlsl(state.glslGsplatPS));
+    wgslChunks.set('gsplatPS', patchGsplatPickWgsl(state.wgslGsplatPS));
+};
 
-    patchedDevices.add(device);
+const unregisterPickerShaderPatches = (app: AppBase) => {
+    const device = app.graphicsDevice;
+    const state = pickerShaderPatchState.get(device);
+    if (!state) {
+        return;
+    }
+    state.refCount--;
+    if (state.refCount > 0) {
+        return;
+    }
+
+    const glslChunks = ShaderChunks.get(device, 'glsl');
+    const wgslChunks = ShaderChunks.get(device, 'wgsl');
+    glslChunks.set('pickPS', state.glslPickPS);
+    glslChunks.set('gsplatPS', state.glslGsplatPS);
+    wgslChunks.set('pickPS', state.wgslPickPS);
+    wgslChunks.set('gsplatPS', state.wgslGsplatPS);
+    pickerShaderPatchState.delete(device);
 };
 
 const getWorldPoint = (camera: Entity, x: number, y: number, width: number, height: number, normalizedDepth: number) => {
@@ -222,8 +284,8 @@ const getWorldPoint = (camera: Entity, x: number, y: number, width: number, heig
     }
 
     const cam = camera.camera;
-    const near = cam.nearClip;
     const far = cam.farClip;
+    const near = cam.nearClip;
     const ndcDepth = cam.projection === PROJECTION_ORTHOGRAPHIC ?
         normalizedDepth :
         far * normalizedDepth / (normalizedDepth * (far - near) + near);
@@ -243,17 +305,6 @@ const getWorldPoint = (camera: Entity, x: number, y: number, width: number, heig
     return new Vec3(vec4.x, vec4.y, vec4.z);
 };
 
-const decodeDepth = (pixels: Uint8Array): number | null => {
-    const intBits = pixels[0] << 24 | pixels[1] << 16 | pixels[2] << 8 | pixels[3];
-    if (intBits === 0xFFFFFFFF) {
-        return null;
-    }
-
-    int32[0] = intBits;
-    const depth = float32[0];
-    return Number.isFinite(depth) ? depth : null;
-};
-
 class Picker {
     pick: (x: number, y: number) => Promise<Vec3 | null>;
 
@@ -261,22 +312,15 @@ class Picker {
 
     constructor(app: AppBase, camera: Entity) {
         const { graphicsDevice } = app;
-        patchPickChunks(app);
+        registerPickerShaderPatches(app);
 
-        let colorBuffer: Texture;
-        let renderTarget: RenderTarget;
-        let renderPass: RenderPassPicker;
+        let enginePicker: EnginePicker | undefined;
+        let accumBuffer: Texture;
+        let accumTarget: RenderTarget;
+        let accumPass: RenderPassPicker;
 
-        let depthColorBuffer: Texture;
-        let depthBuffer: Texture;
-        let depthRenderTarget: RenderTarget;
-        let depthReadRenderTarget: RenderTarget;
-        let depthRenderPass: RenderPassPicker;
-
-        const emptyMap = new Map<number, MeshInstance | GSplatComponent>();
-
-        const initDepthAccumulation = (width: number, height: number) => {
-            colorBuffer = new Texture(graphicsDevice, {
+        const initRasterAccum = (width: number, height: number) => {
+            accumBuffer = new Texture(graphicsDevice, {
                 format: PIXELFORMAT_RGBA16F,
                 width,
                 height,
@@ -285,50 +329,33 @@ class Picker {
                 magFilter: FILTER_NEAREST,
                 addressU: ADDRESS_CLAMP_TO_EDGE,
                 addressV: ADDRESS_CLAMP_TO_EDGE,
-                name: 'picker'
+                name: 'picker-accum'
             });
 
-            renderTarget = new RenderTarget({
-                colorBuffer,
-                depth: false // not needed - gaussians are rendered back to front
+            accumTarget = new RenderTarget({
+                colorBuffer: accumBuffer,
+                depth: false // not needed — gaussians are rendered back to front
             });
 
-            renderPass = new RenderPassPicker(graphicsDevice, app.renderer);
+            accumPass = new RenderPassPicker(graphicsDevice, app.renderer);
             // RGB: additive depth accumulation. Alpha: multiplicative transmittance.
-            renderPass.blendState = new BlendState(
+            accumPass.blendState = new BlendState(
                 true,
                 BLENDEQUATION_ADD, BLENDMODE_ONE, BLENDMODE_ONE_MINUS_SRC_ALPHA,
                 BLENDEQUATION_ADD, BLENDMODE_ZERO, BLENDMODE_ONE_MINUS_SRC_ALPHA
             );
         };
 
-        const initDepthPick = (width: number, height: number) => {
-            depthColorBuffer = Texture.createDataTexture2D(graphicsDevice, 'pick', width, height, PIXELFORMAT_RGBA8);
-            depthBuffer = Texture.createDataTexture2D(graphicsDevice, 'pick-depth', width, height, PIXELFORMAT_RGBA8);
-
-            depthRenderTarget = new RenderTarget({
-                colorBuffers: [depthColorBuffer, depthBuffer],
-                depth: true
-            });
-
-            depthReadRenderTarget = new RenderTarget({
-                colorBuffer: depthBuffer,
-                depth: false
-            });
-
-            depthRenderPass = new RenderPassPicker(graphicsDevice, app.renderer);
-        };
-
         const readTexture = <T extends Uint8Array | Uint16Array>(
             texture: Texture,
             x: number,
             y: number,
-            renderTarget: RenderTarget
+            target: RenderTarget
         ): Promise<T> => {
-            const texY = graphicsDevice.isWebGL2 ? renderTarget.height - y - 1 : y;
+            const texY = graphicsDevice.isWebGL2 ? target.height - y - 1 : y;
 
             return texture.read(x, texY, 1, 1, {
-                renderTarget,
+                renderTarget: target,
                 immediate: true
             }) as Promise<T>;
         };
@@ -349,74 +376,62 @@ class Picker {
                 return null;
             }
 
+            // enable gsplat IDs only for the duration of the pick so we don't pay the
+            // memory/perf cost between picks (picker instances are typically long-lived).
             const prevEnableIds = app.scene.gsplat.enableIds;
             app.scene.gsplat.enableIds = true;
 
-            let normalizedDepth: number | null = null;
-
             try {
                 if (app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE) {
-                    if (!depthRenderPass) {
-                        initDepthPick(width, height);
-                    } else {
-                        depthRenderTarget.resize(width, height);
-                        depthReadRenderTarget.resize(width, height);
-                    }
-
-                    depthRenderPass.init(depthRenderTarget);
-                    depthRenderPass.setClearColor(whiteColor);
-                    depthRenderPass.depthStencilOps.clearDepth = true;
-                    depthRenderPass.update(camera.camera, app.scene, [worldLayer], emptyMap, true);
-                    depthRenderPass.render();
-
-                    const pixels = await readTexture<Uint8Array>(depthBuffer, screenX, screenY, depthReadRenderTarget);
-                    normalizedDepth = decodeDepth(pixels);
-                } else {
-                    if (!renderPass) {
-                        initDepthAccumulation(width, height);
-                    } else {
-                        renderTarget.resize(width, height);
-                    }
-
-                    renderPass.init(renderTarget);
-                    renderPass.setClearColor(clearColor);
-                    renderPass.update(camera.camera, app.scene, [worldLayer], emptyMap, false);
-                    renderPass.render();
-
-                    const pixels = await readTexture<Uint16Array>(colorBuffer, screenX, screenY, renderTarget);
-
-                    const r = half2Float(pixels[0]);
-                    const transmittance = half2Float(pixels[3]);
-                    const alpha = 1 - transmittance;
-
-                    if (!Number.isFinite(r) || !Number.isFinite(alpha) || alpha < 1e-6) {
-                        normalizedDepth = null;
-                    } else {
-                        normalizedDepth = r / alpha;
-                    }
+                    enginePicker ??= new EnginePicker(app, 1, 1, true);
+                    enginePicker.resize(width, height);
+                    enginePicker.prepare(camera.camera, app.scene, [worldLayer]);
+                    return await enginePicker.getWorldPointAsync(screenX, screenY);
                 }
+
+                if (!accumPass) {
+                    initRasterAccum(width, height);
+                } else {
+                    accumTarget.resize(width, height);
+                }
+
+                accumPass.init(accumTarget);
+                accumPass.setClearColor(clearColor);
+                accumPass.update(
+                    camera.camera,
+                    app.scene,
+                    [worldLayer],
+                    new Map<number, MeshInstance | GSplatComponent>(),
+                    false
+                );
+                accumPass.render();
+
+                const pixels = await readTexture<Uint16Array>(accumBuffer, screenX, screenY, accumTarget);
+
+                const r = half2Float(pixels[0]);
+                const transmittance = half2Float(pixels[3]);
+                const alpha = 1 - transmittance;
+
+                if (!Number.isFinite(r) || !Number.isFinite(alpha) || alpha < 1e-6) {
+                    return null;
+                }
+
+                const normalizedDepth = r / alpha;
+                return getWorldPoint(camera, screenX, screenY, width, height, normalizedDepth);
             } finally {
-                // Pick is invoked from user dblclick events, so concurrent invocations
-                // racing on enableIds are not expected in practice.
+                // Pick is only invoked from user dblclick events, so concurrent invocations
+                // (which would race on enableIds) aren't a concern in practice.
                 // eslint-disable-next-line require-atomic-updates
                 app.scene.gsplat.enableIds = prevEnableIds;
             }
-
-            if (normalizedDepth === null) {
-                return null;
-            }
-
-            return getWorldPoint(camera, screenX, screenY, width, height, normalizedDepth);
         };
 
         this.release = () => {
-            renderPass?.destroy();
-            renderTarget?.destroy();
-            colorBuffer?.destroy();
-            depthRenderPass?.destroy();
-            depthRenderTarget?.destroyTextureBuffers();
-            depthRenderTarget?.destroy();
-            depthReadRenderTarget?.destroy();
+            unregisterPickerShaderPatches(app);
+            enginePicker?.destroy();
+            accumPass?.destroy();
+            accumTarget?.destroy();
+            accumBuffer?.destroy();
         };
     }
 }
