@@ -242,20 +242,28 @@ const registerPickerShaderPatches = (app: AppBase) => {
     const glslChunks = ShaderChunks.get(device, 'glsl');
     const wgslChunks = ShaderChunks.get(device, 'wgsl');
 
+    const glslPickPS = glslChunks.get('pickPS');
+    const glslGsplatPS = glslChunks.get('gsplatPS');
+    const wgslPickPS = wgslChunks.get('pickPS');
+    const wgslGsplatPS = wgslChunks.get('gsplatPS');
+
+    // Patch strings before mutating ShaderChunks so engine mismatches leave globals untouched.
+    const patchedGlslGsplatPS = patchGsplatPickGlsl(glslGsplatPS);
+    const patchedWgslGsplatPS = patchGsplatPickWgsl(wgslGsplatPS);
+
     const state: PickerShaderPatchState = {
-        glslPickPS: glslChunks.get('pickPS'),
-        glslGsplatPS: glslChunks.get('gsplatPS'),
-        wgslPickPS: wgslChunks.get('pickPS'),
-        wgslGsplatPS: wgslChunks.get('gsplatPS'),
+        glslPickPS,
+        glslGsplatPS,
+        wgslPickPS,
+        wgslGsplatPS,
         refCount: 1
     };
     pickerShaderPatchState.set(device, state);
 
     glslChunks.set('pickPS', pickDepthGlsl);
     wgslChunks.set('pickPS', pickDepthWgsl);
-
-    glslChunks.set('gsplatPS', patchGsplatPickGlsl(state.glslGsplatPS));
-    wgslChunks.set('gsplatPS', patchGsplatPickWgsl(state.wgslGsplatPS));
+    glslChunks.set('gsplatPS', patchedGlslGsplatPS);
+    wgslChunks.set('gsplatPS', patchedWgslGsplatPS);
 };
 
 const unregisterPickerShaderPatches = (app: AppBase) => {
@@ -312,7 +320,6 @@ class Picker {
 
     constructor(app: AppBase, camera: Entity) {
         const { graphicsDevice } = app;
-        registerPickerShaderPatches(app);
 
         let enginePicker: EnginePicker | undefined;
         let accumBuffer: Texture;
@@ -388,6 +395,8 @@ class Picker {
                     enginePicker.prepare(camera.camera, app.scene, [worldLayer]);
                     return await enginePicker.getWorldPointAsync(screenX, screenY);
                 }
+
+                registerPickerShaderPatches(app);
 
                 if (!accumPass) {
                     initRasterAccum(width, height);
