@@ -23,7 +23,12 @@
 
             // ?webgpu picks the best WebGPU renderer for the platform: compute on
             // macOS (where the raster gpu-sort path stalls) and gpu-sort elsewhere.
-            const isMac = /Mac/i.test(navigator.platform || navigator.userAgent);
+            // Prefer userAgentData when available, fall back to the deprecated
+            // navigator.platform / userAgent. Exclude iPad desktop mode, which
+            // reports as Mac but should not take the macOS path.
+            const uaPlatform = navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || '';
+            const isIPad = navigator.maxTouchPoints > 1 && /Mac/i.test(navigator.platform || '');
+            const isMac = !isIPad && /macOS|Mac/i.test(uaPlatform);
             const renderer =
                 url.searchParams.has('compute')  ? 'compute' :
                 url.searchParams.has('gpu-sort') ? 'gpu-sort' :
