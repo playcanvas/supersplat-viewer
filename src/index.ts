@@ -104,6 +104,8 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
         powerPreference: 'high-performance'
     });
 
+    console.log(`Renderer: ${device.deviceType}, ${config.renderer === 'webgl' ? 'cpu-sort' : config.renderer}`);
+
     // Set maxPixelRatio so the XR framebuffer scale factor is computed correctly.
     // Regular rendering bypasses maxPixelRatio via the custom initCanvas sizing.
     device.maxPixelRatio = window.devicePixelRatio;

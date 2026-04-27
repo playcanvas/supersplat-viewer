@@ -75,8 +75,8 @@ fn prepareOutputFromGamma(gammaColor: vec3f, depth: f32) -> vec3f {
 
 const rendererTable: Record<Config['renderer'], number> = {
     'webgl': GSPLAT_RENDERER_RASTER_CPU_SORT,
-    'cpu': GSPLAT_RENDERER_RASTER_CPU_SORT,
-    'gpu': GSPLAT_RENDERER_RASTER_GPU_SORT,
+    'cpu-sort': GSPLAT_RENDERER_RASTER_CPU_SORT,
+    'gpu-sort': GSPLAT_RENDERER_RASTER_GPU_SORT,
     'compute': GSPLAT_RENDERER_COMPUTE
 };
 
