@@ -325,6 +325,7 @@ class Picker {
         let accumBuffer: Texture;
         let accumTarget: RenderTarget;
         let accumPass: RenderPassPicker;
+        let chunksPatched = false;
 
         const initRasterAccum = (width: number, height: number) => {
             accumBuffer = new Texture(graphicsDevice, {
@@ -396,7 +397,10 @@ class Picker {
                     return await enginePicker.getWorldPointAsync(screenX, screenY);
                 }
 
-                registerPickerShaderPatches(app);
+                if (!chunksPatched) {
+                    registerPickerShaderPatches(app);
+                    chunksPatched = true;
+                }
 
                 if (!accumPass) {
                     initRasterAccum(width, height);
@@ -436,7 +440,10 @@ class Picker {
         };
 
         this.release = () => {
-            unregisterPickerShaderPatches(app);
+            if (chunksPatched) {
+                unregisterPickerShaderPatches(app);
+                chunksPatched = false;
+            }
             enginePicker?.destroy();
             accumPass?.destroy();
             accumTarget?.destroy();
