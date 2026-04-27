@@ -89,6 +89,41 @@ const screenToWorld = (camera: CameraComponent, dx: number, dy: number, dz: numb
     return out;
 };
 
+// Distinguish a physical mouse wheel from a trackpad two-finger scroll.
+// A single wheel event is unreliable (Magic Mouse, hi-res mice, and macOS
+// Shift-remapping all confuse per-event heuristics), so classify on the
+// first event of a burst and let the rest of the burst inherit that label.
+// A burst is a run of wheel events separated by less than BURST_GAP_MS;
+// trackpads stream at ~60Hz (~16ms), wheels emit one event per notch
+// (typically >>50ms apart).
+const TRACKPAD_BURST_GAP_MS = 80;
+
+const classifyWheelAsMouse = (event: WheelEvent): boolean => {
+    // Firefox: physical wheels report line/page mode; trackpads report
+    // pixel mode. Firefox doesn't expose wheelDelta* so this is the only
+    // reliable signal there.
+    if (event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) {
+        return true;
+    }
+    // Chrome / Safari: the non-standard wheelDelta{X,Y} properties preserve
+    // the raw wheel-tick value (always multiples of ±120 per notch)
+    // regardless of macOS scroll smoothing. Trackpads and Magic Mouse emit
+    // arbitrary values that are essentially never aligned to 120.
+    const e = event as WheelEvent & { wheelDeltaX?: number, wheelDeltaY?: number };
+    if (typeof e.wheelDeltaY === 'number' && e.wheelDeltaY !== 0) {
+        return e.wheelDeltaY % 120 === 0;
+    }
+    if (typeof e.wheelDeltaX === 'number' && e.wheelDeltaX !== 0) {
+        return e.wheelDeltaX % 120 === 0;
+    }
+    // Last-resort fallback for browsers without wheelDelta*.
+    const { deltaX, deltaY } = event;
+    if (deltaX !== 0 && deltaY !== 0) {
+        return false;
+    }
+    return Number.isInteger(deltaX) && Number.isInteger(deltaY);
+};
+
 // patch keydown and keyup to ignore events with meta key otherwise
 // keys can get stuck on macOS.
 const patchKeyboardMeta = (desktopInput: any) => {
@@ -186,11 +221,60 @@ class InputController {
 
     gamepadRotateSensitivity: number = 1.0;
 
+    trackpadOrbitSensitivity: number = 0.75;
+
+    trackpadPanSensitivity: number = 1.0;
+
+    trackpadZoomSensitivity: number = 2.0;
+
+    private _lastWheelTime: number = -Infinity;
+
+    private _burstIsMouseWheel: boolean = false;
+
+    private _trackpadOrbit: [number, number] = [0, 0];
+
+    private _trackpadPan: [number, number] = [0, 0];
+
+    private _trackpadZoom: number = 0;
+
     constructor(global: Global) {
         const { app, camera, events, state } = global;
         const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
 
         patchKeyboardMeta(this._desktopInput);
+
+        // Intercept trackpad wheel events (orbit mode only) before
+        // KeyboardMouseSource sees them, so we can route two-finger scroll to
+        // orbit/pan/zoom instead of just zoom. Physical mouse wheels, fly
+        // mode, and walk mode all fall through to the existing path.
+        canvas.addEventListener('wheel', (event: WheelEvent) => {
+            const now = performance.now();
+            if (now - this._lastWheelTime > TRACKPAD_BURST_GAP_MS) {
+                this._burstIsMouseWheel = classifyWheelAsMouse(event);
+            }
+            this._lastWheelTime = now;
+
+            if (this._burstIsMouseWheel || global.state.cameraMode !== 'orbit') {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopImmediatePropagation();
+
+            const { deltaX, deltaY } = event;
+
+            if (event.ctrlKey || event.metaKey) {
+                // Pinch-zoom on macOS arrives as ctrl+wheel; ctrl/meta+scroll
+                // also routes here for keyboard-driven zoom.
+                this._trackpadZoom += deltaY;
+            } else if (event.shiftKey) {
+                this._trackpadPan[0] += deltaX;
+                this._trackpadPan[1] += deltaY;
+            } else {
+                this._trackpadOrbit[0] += deltaX;
+                this._trackpadOrbit[1] += deltaY;
+            }
+        }, { passive: false });
 
         this._desktopInput.attach(canvas);
         this._orbitInput.attach(canvas);
@@ -579,6 +663,27 @@ class InputController {
         mouseRotate.set(mouse[0], mouse[1], 0);
         v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * orbitFactor * this.mouseRotateSensitivity * DISPLACEMENT_SCALE));
         deltas.rotate.append([v.x, v.y, v.z]);
+
+        // trackpad (orbit mode only — accumulators are only ever populated there)
+        if (orbit) {
+            // orbit rotate
+            v.set(this._trackpadOrbit[0], this._trackpadOrbit[1], 0);
+            v.mulScalar(this.orbitSpeed * this.trackpadOrbitSensitivity * DISPLACEMENT_SCALE);
+            deltas.rotate.append([v.x, v.y, 0]);
+
+            // pan in world space (matches desktop pan path)
+            const trackPan = screenToWorld(camera, this._trackpadPan[0], this._trackpadPan[1], distance);
+            trackPan.mulScalar(this.trackpadPanSensitivity);
+            deltas.move.append([trackPan.x, trackPan.y, 0]);
+
+            // zoom along z; positive deltaY (scroll-down / pinch-in) → zoom out → +z for orbit
+            const zoomZ = this._trackpadZoom * this.wheelSpeed * this.trackpadZoomSensitivity * DISPLACEMENT_SCALE;
+            deltas.move.append([0, 0, zoomZ]);
+
+            this._trackpadOrbit[0] = this._trackpadOrbit[1] = 0;
+            this._trackpadPan[0] = this._trackpadPan[1] = 0;
+            this._trackpadZoom = 0;
+        }
 
         // mobile move
         v.set(0, 0, 0);
