@@ -9,6 +9,8 @@ import {
 import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
 
 const tmpV1 = new Vec3();
+const keyMove = new Vec3();
+const panMove = new Vec3();
 const mouseRotate = new Vec3();
 const wheelMove = new Vec3();
 
@@ -118,7 +120,7 @@ class KeyboardMouseDevice implements InputDevice {
 
         // move (WASD + mouse-drag pan + wheel)
         const v = tmpV1.set(0, 0, 0);
-        const keyMove = this._axis.clone();
+        keyMove.copy(this._axis);
         if (isWalk) {
             // In walk mode normalize only horizontal axes so jump doesn't
             // reduce horizontal speed.
@@ -134,7 +136,7 @@ class KeyboardMouseDevice implements InputDevice {
             // a boolean trigger.
             v.y = this._jump > 0 ? 1 : 0;
         }
-        const panMove = screenToWorld(cameraComponent, mouse[0], mouse[1], distance);
+        screenToWorld(cameraComponent, mouse[0], mouse[1], distance, panMove);
         v.add(panMove.mulScalar(pan));
         wheelMove.set(0, 0, -wheel[0]);
         v.add(wheelMove.mulScalar(this.wheelSpeed * DISPLACEMENT_SCALE));

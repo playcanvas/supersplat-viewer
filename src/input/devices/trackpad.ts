@@ -119,10 +119,10 @@ class TrackpadDevice implements InputDevice {
             v.mulScalar(this.orbitSpeed * this.trackpadOrbitSensitivity * DISPLACEMENT_SCALE);
             deltas.rotate.append([v.x, v.y, 0]);
 
-            // pan in world space (matches desktop pan path)
-            const trackPan = screenToWorld(cameraComponent, this._pan[0], this._pan[1], distance);
-            trackPan.mulScalar(this.trackpadPanSensitivity);
-            deltas.move.append([trackPan.x, trackPan.y, 0]);
+            // pan in world space (matches desktop pan path); reuse tmpV after rotate append
+            screenToWorld(cameraComponent, this._pan[0], this._pan[1], distance, tmpV);
+            tmpV.mulScalar(this.trackpadPanSensitivity);
+            deltas.move.append([tmpV.x, tmpV.y, 0]);
 
             // zoom along z; positive deltaY (scroll-down / pinch-in) → zoom out → +z for orbit
             const zoomZ = this._zoom * this.wheelSpeed * this.trackpadZoomSensitivity * DISPLACEMENT_SCALE;

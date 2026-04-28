@@ -3,8 +3,11 @@ import type { CameraComponent, InputFrame } from 'playcanvas';
 
 import type { CameraMode, Global } from '../types';
 
+type CameraMove = [number, number, number];
+type CameraRotate = [number, number, number];
+
 /** The shape of every device's input frame: world-space move + euler rotate deltas. */
-type CameraInputFrame = InputFrame<{ move: number[]; rotate: number[] }>;
+type CameraInputFrame = InputFrame<{ move: CameraMove; rotate: CameraRotate }>;
 
 /**
  * Displacement-based inputs (mouse, touch, wheel, pinch) return accumulated
