@@ -1,765 +1,117 @@
-import {
-    math,
-    GamepadSource,
-    InputFrame,
-    KeyboardMouseSource,
-    MultiTouchSource,
-    PROJECTION_PERSPECTIVE,
-    Vec3
-} from 'playcanvas';
-import type { CameraComponent } from 'playcanvas';
+import { InputFrame } from 'playcanvas';
 
 import type { Collision } from './collision';
-import { Picker } from './picker';
+import { InputModeTracker } from './input/app/input-mode-tracker';
+import { ModeShortcuts } from './input/app/mode-shortcuts';
+import { PointerLockManager } from './input/app/pointer-lock';
+import { WalkInteraction } from './input/app/walk-interaction';
+import { GamepadDevice } from './input/devices/gamepad';
+import { KeyboardMouseDevice } from './input/devices/keyboard-mouse';
+import { TouchDevice } from './input/devices/touch';
+import { TrackpadDevice } from './input/devices/trackpad';
+import type { UpdateContext } from './input/shared';
 import type { Global } from './types';
 
-/* Vec initialisation to avoid recurrent memory allocation */
-const tmpV1 = new Vec3();
-const tmpV2 = new Vec3();
-const mouseRotate = new Vec3();
-const flyMove = new Vec3();
-const flyTouchPan = new Vec3();
-const pinchMove = new Vec3();
-const orbitRotate = new Vec3();
-const flyRotate = new Vec3();
-const stickMove = new Vec3();
-const stickRotate = new Vec3();
-
-/** Maximum accumulated touch movement (px) to still count as a tap */
-const TAP_EPSILON = 15;
-
 /**
- * Displacement-based inputs (mouse, touch, wheel, pinch) return accumulated pixel
- * offsets that already scale with frame time. This factor converts rate-based speed
- * constants (tuned for degrees-per-second) to work with per-frame displacements,
- * making them frame-rate-independent.
+ * Coordinator that wires together input devices (keyboard-mouse, touch,
+ * trackpad, gamepad) and app-level UX helpers (mode shortcuts, walk
+ * interaction, pointer lock, input-mode tracker), and exposes the
+ * resulting per-frame `InputFrame` for the camera manager to consume.
  */
-const DISPLACEMENT_SCALE = 1 / 60;
-
-/**
- * Converts screen space mouse deltas to world space pan vector.
- *
- * @param camera - The camera component.
- * @param dx - The mouse delta x value.
- * @param dy - The mouse delta y value.
- * @param dz - The world space zoom delta value.
- * @param out - The output vector to store the pan result.
- * @returns - The pan vector in world space.
- * @private
- */
-const screenToWorld = (camera: CameraComponent, dx: number, dy: number, dz: number, out: Vec3 = new Vec3()) => {
-    const { system, fov, aspectRatio, horizontalFov, projection, orthoHeight } = camera;
-    const { width, height } = system.app.graphicsDevice.clientRect;
-
-    // normalize deltas to device coord space
-    out.set(
-        -(dx / width) * 2,
-        (dy / height) * 2,
-        0
-    );
-
-    // calculate half size of the view frustum at the current distance
-    const halfSize = tmpV2.set(0, 0, 0);
-    if (projection === PROJECTION_PERSPECTIVE) {
-        const halfSlice = dz * Math.tan(0.5 * fov * math.DEG_TO_RAD);
-        if (horizontalFov) {
-            halfSize.set(
-                halfSlice,
-                halfSlice / aspectRatio,
-                0
-            );
-        } else {
-            halfSize.set(
-                halfSlice * aspectRatio,
-                halfSlice,
-                0
-            );
-        }
-    } else {
-        halfSize.set(
-            orthoHeight * aspectRatio,
-            orthoHeight,
-            0
-        );
-    }
-
-    // scale by device coord space
-    out.mul(halfSize);
-
-    return out;
-};
-
-// Distinguish a physical mouse wheel from a trackpad two-finger scroll.
-// A single wheel event is unreliable (Magic Mouse, hi-res mice, and macOS
-// Shift-remapping all confuse per-event heuristics), so classify on the
-// first event of a burst and let the rest of the burst inherit that label.
-// A burst is a run of wheel events separated by less than TRACKPAD_BURST_GAP_MS;
-// trackpads stream at ~60Hz (~16ms), wheels emit one event per notch
-// (typically >>50ms apart).
-const TRACKPAD_BURST_GAP_MS = 80;
-
-const classifyWheelAsMouse = (event: WheelEvent): boolean => {
-    // Firefox: physical wheels report line/page mode; trackpads report
-    // pixel mode. Firefox doesn't expose wheelDelta* so this is the only
-    // reliable signal there.
-    if (event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) {
-        return true;
-    }
-    // Chrome / Safari: the non-standard wheelDelta{X,Y} properties preserve
-    // the raw wheel-tick value (always multiples of ±120 per notch)
-    // regardless of macOS scroll smoothing. Trackpads and Magic Mouse emit
-    // arbitrary values that are essentially never aligned to 120.
-    const e = event as WheelEvent & { wheelDeltaX?: number, wheelDeltaY?: number };
-    if (typeof e.wheelDeltaY === 'number' && e.wheelDeltaY !== 0) {
-        return e.wheelDeltaY % 120 === 0;
-    }
-    if (typeof e.wheelDeltaX === 'number' && e.wheelDeltaX !== 0) {
-        return e.wheelDeltaX % 120 === 0;
-    }
-    // Last-resort fallback for browsers without wheelDelta*.
-    const { deltaX, deltaY } = event;
-    if (deltaX !== 0 && deltaY !== 0) {
-        return false;
-    }
-    return Number.isInteger(deltaX) && Number.isInteger(deltaY);
-};
-
-// patch keydown and keyup to ignore events with meta key otherwise
-// keys can get stuck on macOS.
-const patchKeyboardMeta = (desktopInput: any) => {
-    const origOnKeyDown = desktopInput._onKeyDown;
-    desktopInput._onKeyDown = (event: KeyboardEvent) => {
-        if (event.key === 'Meta') {
-            desktopInput._keyNow.fill(0);
-        } else if (!event.metaKey) {
-            origOnKeyDown(event);
-        }
-    };
-
-    const origOnKeyUp = desktopInput._onKeyUp;
-    desktopInput._onKeyUp = (event: KeyboardEvent) => {
-        if (event.key === 'Meta') {
-            desktopInput._keyNow.fill(0);
-        } else if (!event.metaKey) {
-            origOnKeyUp(event);
-        }
-    };
-};
-
 class InputController {
-    private _state = {
-        axis: new Vec3(),
-        mouse: [0, 0, 0],
-        shift: 0,
-        ctrl: 0,
-        jump: 0,
-        touches: 0
-    };
-
-    private _desktopInput: KeyboardMouseSource = new KeyboardMouseSource();
-
-    private _orbitInput = new MultiTouchSource();
-
-    private _gamepadInput = new GamepadSource();
-
-    global: Global;
-
     frame = new InputFrame({
         move: [0, 0, 0],
         rotate: [0, 0, 0]
     });
 
-    // Touch joystick input values [x, y] (-1 to 1)
-    private _touchJoystick: number[] = [0, 0];
+    private _global: Global;
 
-    // Accumulated forward/backward velocity from pinch gesture (-1 to 1)
-    private _pinchVelocity: number = 0;
+    private _trackpad = new TrackpadDevice();
 
-    // Accumulated strafe/vertical velocity from two-finger pan [x, y] (-1 to 1)
-    private _panVelocity: number[] = [0, 0];
+    private _keyboardMouse = new KeyboardMouseDevice();
 
-    // Sensitivity for pinch delta → velocity conversion
-    pinchVelocitySensitivity: number = 0.006;
+    private _touch = new TouchDevice();
 
-    // Sensitivity for two-finger pan delta → velocity conversion
-    panVelocitySensitivity: number = 0.005;
+    private _gamepad = new GamepadDevice();
 
-    // Tap-to-jump state (uses existing MultiTouchSource count/touch deltas)
-    private _tapTouches: number = 0;
+    private _walkInteraction = new WalkInteraction();
 
-    private _tapDelta: number = 0;
+    private _pointerLock = new PointerLockManager();
 
-    private _tapJump: boolean = false;
+    private _modeShortcuts = new ModeShortcuts();
 
-    // Screen coordinates of the last pointer start (for click/tap-to-walk picking)
-    private _lastPointerOffsetX = 0;
+    private _inputModeTracker = new InputModeTracker();
 
-    private _lastPointerOffsetY = 0;
+    set collision(value: Collision | null) {
+        this._walkInteraction.collision = value;
+    }
 
-    // Desktop click-to-walk tracking
-    private _mouseClickTracking = false;
-
-    private _mouseClickDelta = 0;
-
-    private _picker: Picker | null = null;
-
-    collision: Collision | null = null;
-
-    moveSpeed: number = 4;
-
-    orbitSpeed: number = 18;
-
-    pinchSpeed: number = 0.4;
-
-    wheelSpeed: number = 0.06;
-
-    mouseRotateSensitivity: number = 0.5;
-
-    touchRotateSensitivity: number = 1.5;
-
-    touchPinchMoveSensitivity: number = 1.5;
-
-    gamepadRotateSensitivity: number = 1.0;
-
-    trackpadOrbitSensitivity: number = 0.75;
-
-    trackpadPanSensitivity: number = 1.0;
-
-    trackpadZoomSensitivity: number = 2.0;
-
-    private _lastWheelTime: number = -Infinity;
-
-    private _burstIsMouseWheel: boolean = false;
-
-    private _trackpadOrbit: [number, number] = [0, 0];
-
-    private _trackpadPan: [number, number] = [0, 0];
-
-    private _trackpadZoom: number = 0;
+    get collision(): Collision | null {
+        return this._walkInteraction.collision;
+    }
 
     constructor(global: Global) {
-        const { app, camera, events, state } = global;
+        this._global = global;
+
+        const { app, events } = global;
         const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
 
-        patchKeyboardMeta(this._desktopInput);
+        // Trackpad MUST attach before KeyboardMouseDevice so its wheel
+        // handler runs first; otherwise stopImmediatePropagation can't
+        // block KeyboardMouseSource from also accumulating the wheel delta.
+        this._trackpad.attach(canvas, global);
+        this._keyboardMouse.attach(canvas, global);
+        this._touch.attach(canvas, global);
+        this._gamepad.attach(canvas, global);
 
-        // Intercept trackpad wheel events before KeyboardMouseSource sees
-        // them, so we can route two-finger scroll to orbit/pan/zoom in orbit
-        // mode and to look-around in fly/walk modes. Physical mouse wheels
-        // always fall through. In fly/walk modes only the no-modifier swipe
-        // is intercepted, so pinch (synthetic ctrl) and shift+swipe continue
-        // to drive the existing wheel→forward/back path.
-        canvas.addEventListener('wheel', (event: WheelEvent) => {
-            const now = performance.now();
-            if (now - this._lastWheelTime > TRACKPAD_BURST_GAP_MS) {
-                this._burstIsMouseWheel = classifyWheelAsMouse(event);
-            }
-            this._lastWheelTime = now;
+        this._walkInteraction.attach(canvas, global);
+        this._pointerLock.attach(canvas, global, this._keyboardMouse);
+        this._modeShortcuts.attach(global, this._pointerLock);
+        this._inputModeTracker.attach(global);
 
-            if (this._burstIsMouseWheel) {
-                return;
-            }
-
-            const mode = global.state.cameraMode;
-            const hasModifier = event.ctrlKey || event.metaKey || event.shiftKey;
-            const isFirstPersonMode = mode === 'fly' || mode === 'walk';
-
-            if (mode === 'orbit') {
-                // route everything
-            } else if (isFirstPersonMode && !hasModifier) {
-                // route only no-modifier swipes; pinch / shift+swipe fall through
-            } else {
-                return;
-            }
-
-            event.preventDefault();
-            // stopImmediatePropagation() blocks KeyboardMouseSource's wheel
-            // handler (also attached to this canvas) so the wheel delta
-            // doesn't double-up on the existing forward/back path. It also
-            // blocks the canvas-level interrupt listener registered below,
-            // so fire the interrupt signal explicitly here to keep parity
-            // with mouse-wheel behavior (cancels camera animations, closes
-            // settings panel, dismisses walk hint).
-            event.stopImmediatePropagation();
-            events.fire('inputEvent', 'interrupt', event);
-
-            const { deltaX, deltaY } = event;
-
-            if (event.ctrlKey || event.metaKey) {
-                // Pinch-zoom on macOS arrives as ctrl+wheel; ctrl/meta+scroll
-                // also routes here for keyboard-driven zoom.
-                this._trackpadZoom += deltaY;
-            } else if (event.shiftKey) {
-                this._trackpadPan[0] += deltaX;
-                this._trackpadPan[1] += deltaY;
-            } else {
-                this._trackpadOrbit[0] += deltaX;
-                this._trackpadOrbit[1] += deltaY;
-            }
-        }, { passive: false });
-
-        this._desktopInput.attach(canvas);
-        this._orbitInput.attach(canvas);
-
-        // Listen for joystick input from the UI (touch joystick element)
-        events.on('joystickInput', (value: { x: number; y: number }) => {
-            this._touchJoystick[0] = value.x;
-            this._touchJoystick[1] = value.y;
-        });
-
-        this.global = global;
-
-        const updateCanvasCursor = () => {
-            if (state.cameraMode === 'walk' && !state.gamingControls && state.inputMode === 'desktop') {
-                canvas.style.cursor = this._mouseClickTracking ? 'default' : 'pointer';
-            } else {
-                canvas.style.cursor = '';
-            }
-        };
-
-        // Generate input events
+        // canvas-level signals: anything that interrupts an animation /
+        // closes the settings panel / dismisses the walk hint
         ['wheel', 'pointerdown', 'contextmenu', 'keydown'].forEach((eventName) => {
             canvas.addEventListener(eventName, (event) => {
                 events.fire('inputEvent', 'interrupt', event);
             });
         });
-
         canvas.addEventListener('pointermove', (event) => {
             events.fire('inputEvent', 'interact', event);
         });
-
-        // Detect double taps manually because iOS doesn't send dblclick events
-        const lastTap = { time: 0, x: 0, y: 0 };
-        canvas.addEventListener('pointerdown', (event) => {
-            // Store coordinates for click/tap-to-walk picking
-            this._lastPointerOffsetX = event.offsetX;
-            this._lastPointerOffsetY = event.offsetY;
-
-            // Start desktop click-to-walk tracking
-            if (event.pointerType !== 'touch' && event.button === 0) {
-                this._mouseClickTracking = true;
-                this._mouseClickDelta = 0;
-                updateCanvasCursor();
-            }
-
-            const now = Date.now();
-            const delay = Math.max(0, now - lastTap.time);
-            if (delay < 300 &&
-                Math.abs(event.clientX - lastTap.x) < 8 &&
-                Math.abs(event.clientY - lastTap.y) < 8) {
-                events.fire('inputEvent', 'dblclick', event);
-                lastTap.time = 0;
-            } else {
-                lastTap.time = now;
-                lastTap.x = event.clientX;
-                lastTap.y = event.clientY;
-            }
-        });
-
-        // Desktop click-to-walk: accumulate displacement during mouse drag
-        canvas.addEventListener('pointermove', (event) => {
-            if (this._mouseClickTracking && event.pointerType !== 'touch') {
-                const prev = this._mouseClickDelta;
-                this._mouseClickDelta += Math.abs(event.movementX) + Math.abs(event.movementY);
-                if (prev < TAP_EPSILON && this._mouseClickDelta >= TAP_EPSILON) {
-                    if (state.cameraMode === 'walk' && !state.gamingControls) {
-                        events.fire('walkCancel');
-                    }
-                }
-            }
-        });
-
-        // Desktop click-to-walk: detect click (low displacement) on mouse button release
-        canvas.addEventListener('pointerup', (event) => {
-            if (this._mouseClickTracking && event.pointerType !== 'touch' && event.button === 0) {
-                this._mouseClickTracking = false;
-                updateCanvasCursor();
-                if (this._mouseClickDelta < TAP_EPSILON && state.cameraMode === 'walk' && !state.gamingControls) {
-                    const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
-                    if (result) {
-                        events.fire('walkTo', result.position, result.normal);
-                    }
-                }
-            }
-        });
-
-        // Calculate pick location on double click
-        events.on('inputEvent', async (eventName, event) => {
-            switch (eventName) {
-                case 'dblclick': {
-                    if (state.cameraMode === 'walk') break;
-                    if (!this._picker) {
-                        this._picker = new Picker(app, camera);
-                    }
-                    const result = await this._picker.pick(event.offsetX / canvas.clientWidth, event.offsetY / canvas.clientHeight);
-                    if (result) {
-                        events.fire('pick', result);
-                    }
-                    break;
-                }
-            }
-        });
-
-        // update input mode based on pointer event
-        ['pointerdown', 'pointermove'].forEach((eventName) => {
-            window.addEventListener(eventName, (event: PointerEvent) => {
-                state.inputMode = event.pointerType === 'touch' ? 'touch' : 'desktop';
-            });
-        });
-
-        let recentlyExitedWalk = false;
-
-        // handle keyboard events
-        window.addEventListener('keydown', (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                if (recentlyExitedWalk) {
-                    // Already handled by pointerlockchange
-                } else if (state.cameraMode === 'walk' && state.gamingControls && state.inputMode === 'desktop') {
-                    state.gamingControls = false;
-                } else if (state.cameraMode === 'walk') {
-                    events.fire('inputEvent', 'exitWalk', event);
-                } else {
-                    events.fire('inputEvent', 'cancel', event);
-                }
-            } else if (!event.ctrlKey && !event.altKey && !event.metaKey) {
-                switch (event.key) {
-                    case '1':
-                        state.cameraMode = 'orbit';
-                        break;
-                    case '2':
-                        state.cameraMode = 'fly';
-                        break;
-                    case '3':
-                        events.fire('inputEvent', 'toggleWalk');
-                        break;
-                    case 'v':
-                        if (state.hasVoxelOverlay) {
-                            state.voxelOverlayEnabled = !state.voxelOverlayEnabled;
-                        }
-                        break;
-                    case 'g':
-                        state.gamingControls = !state.gamingControls;
-                        break;
-                    case 'h':
-                        events.fire('inputEvent', 'toggleHelp');
-                        break;
-                    default:
-                        if ((event.code === 'KeyW' || event.code === 'KeyA' || event.code === 'KeyS' || event.code === 'KeyD') &&
-                            state.cameraMode === 'walk' && state.inputMode === 'desktop' && !state.gamingControls) {
-                            state.gamingControls = true;
-                        }
-                        break;
-                }
-                if (state.cameraMode !== 'walk') {
-                    switch (event.key) {
-                        case 'f':
-                            events.fire('inputEvent', 'frame', event);
-                            break;
-                        case 'r':
-                            events.fire('inputEvent', 'reset', event);
-                            break;
-                        case ' ':
-                            events.fire('inputEvent', 'playPause', event);
-                            break;
-                    }
-                }
-            }
-        });
-
-        const activatePointerLock = () => {
-            (this._desktopInput as any)._pointerLock = true;
-            canvas.requestPointerLock();
-        };
-
-        const deactivatePointerLock = () => {
-            (this._desktopInput as any)._pointerLock = false;
-            if (document.pointerLockElement === canvas) {
-                document.exitPointerLock();
-            }
-        };
-
-        // Pointer lock management for walk mode on desktop (gaming controls only)
-        events.on('cameraMode:changed', (value: string, prev: string) => {
-            if (value === 'walk' && state.inputMode === 'desktop' && state.gamingControls) {
-                activatePointerLock();
-            } else if (prev === 'walk') {
-                deactivatePointerLock();
-            }
-            updateCanvasCursor();
-        });
-
-        // Toggle pointer lock when gaming controls changes while in walk mode
-        events.on('gamingControls:changed', (value: boolean) => {
-            if (state.cameraMode === 'walk' && state.inputMode === 'desktop') {
-                if (value) {
-                    activatePointerLock();
-                } else {
-                    deactivatePointerLock();
-                }
-            }
-            updateCanvasCursor();
-        });
-
-        document.addEventListener('pointerlockchange', () => {
-            if (!document.pointerLockElement && state.cameraMode === 'walk' && state.gamingControls) {
-                recentlyExitedWalk = true;
-                requestAnimationFrame(() => {
-                    recentlyExitedWalk = false;
-                });
-                if (state.inputMode === 'desktop') {
-                    state.gamingControls = false;
-                } else {
-                    events.fire('inputEvent', 'exitWalk');
-                }
-            }
-        });
-
-        // Pointer lock request rejected (e.g., no user gesture, document hidden).
-        // Revert to avoid being stuck in walk mode without mouse capture.
-        document.addEventListener('pointerlockerror', () => {
-            (this._desktopInput as any)._pointerLock = false;
-            if (state.inputMode === 'desktop') {
-                state.gamingControls = false;
-            } else {
-                events.fire('inputEvent', 'exitWalk');
-            }
-        });
     }
 
-    private _pickCollision(offsetX: number, offsetY: number): { position: Vec3; normal: Vec3 } | null {
-        if (!this.collision) return null;
-
-        const { camera } = this.global;
-        const cameraPos = camera.getPosition();
-
-        camera.camera.screenToWorld(offsetX, offsetY, 1.0, tmpV1);
-        tmpV1.sub(cameraPos).normalize();
-
-        const hit = this.collision.queryRay(
-            cameraPos.x, cameraPos.y, cameraPos.z,
-            tmpV1.x, tmpV1.y, tmpV1.z,
-            camera.camera.farClip
-        );
-
-        if (!hit) return null;
-
-        const sn = this.collision.querySurfaceNormal(hit.x, hit.y, hit.z, tmpV1.x, tmpV1.y, tmpV1.z);
-        return {
-            position: new Vec3(hit.x, hit.y, hit.z),
-            normal: new Vec3(sn.nx, sn.ny, sn.nz)
-        };
-    }
-
-    /**
-     * @param dt - delta time in seconds
-     * @param state - the current state of the app
-     * @param state.cameraMode - the current camera mode
-     * @param distance - the distance to the camera target
-     */
     update(dt: number, distance: number) {
-        const { keyCode } = KeyboardMouseSource;
+        const { state } = this._global;
+        const cameraComponent = this._global.camera.camera!;
 
-        const { key, button, mouse, wheel } = this._desktopInput.read();
-        const { touch, pinch, count } = this._orbitInput.read();
-        const { leftStick, rightStick } = this._gamepadInput.read();
-
-        const { state, events } = this.global;
-        const { camera } = this.global.camera;
-
-        // update state
-        this._state.axis.add(tmpV1.set(
-            (key[keyCode.D] - key[keyCode.A]) + (key[keyCode.RIGHT] - key[keyCode.LEFT]),
-            (key[keyCode.E] - key[keyCode.Q]),
-            (key[keyCode.W] - key[keyCode.S]) + (key[keyCode.UP] - key[keyCode.DOWN])
-        ));
-        this._state.jump += key[keyCode.SPACE];
-        this._state.touches += count[0];
-        for (let i = 0; i < button.length; i++) {
-            this._state.mouse[i] += button[i];
-        }
-        this._state.shift += key[keyCode.SHIFT];
-        this._state.ctrl += key[keyCode.CTRL];
-
+        const isOrbit = state.cameraMode === 'orbit';
+        const isFly = state.cameraMode === 'fly';
         const isWalk = state.cameraMode === 'walk';
+        const isFirstPerson = isFly || isWalk;
 
-        // Cancel any active auto-walk when the user provides WASD/arrow input
-        if (isWalk && (this._state.axis.x !== 0 || this._state.axis.z !== 0)) {
-            events.fire('walkCancel');
-        }
+        const ctx: UpdateContext = {
+            dt,
+            distance,
+            cameraComponent,
+            mode: state.cameraMode,
+            isOrbit,
+            isFly,
+            isWalk,
+            isFirstPerson,
+            gamingControls: state.gamingControls,
+            // Touch must update first so the count is current; the running
+            // count is also used by the keyboard-mouse pan flag.
+            touchCount: this._touch.touchCount
+        };
 
-        // Tap detection using existing MultiTouchSource deltas
-        if (isWalk) {
-            const prevTaps = this._tapTouches;
-            this._tapTouches = Math.max(0, this._tapTouches + count[0]);
-
-            // Touch just started (0 → 1+)
-            if (prevTaps === 0 && this._tapTouches > 0) {
-                this._tapDelta = 0;
-            }
-
-            // Accumulate movement while touch is active
-            if (this._tapTouches > 0) {
-                const prevDelta = this._tapDelta;
-                this._tapDelta += Math.abs(touch[0]) + Math.abs(touch[1]);
-                if (prevDelta < TAP_EPSILON && this._tapDelta >= TAP_EPSILON) {
-                    if (!state.gamingControls) {
-                        events.fire('walkCancel');
-                    }
-                }
-            }
-
-            // Touch just ended (1+ → 0): check if it was a tap
-            if (prevTaps > 0 && this._tapTouches === 0) {
-                if (this._tapDelta < TAP_EPSILON) {
-                    if (!state.gamingControls) {
-                        const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
-                        if (result && state.cameraMode === 'walk' && !state.gamingControls) {
-                            events.fire('walkTo', result.position, result.normal);
-                        }
-                    } else {
-                        this._tapJump = true;
-                    }
-                }
-            }
-        } else {
-            this._tapTouches = 0;
-        }
-
-        const isFirstPerson = state.cameraMode === 'fly' || isWalk;
-
-        // Accumulate pinch and pan deltas into velocity when not in gaming controls
-        // pinch[0] = oldDist - newDist: negative when spreading, positive when closing
-        // Spreading = forward → subtract pinch delta
-        if (isFirstPerson && !state.gamingControls && this._state.touches > 1) {
-            this._pinchVelocity -= pinch[0] * this.pinchVelocitySensitivity;
-            this._pinchVelocity = math.clamp(this._pinchVelocity, -1.0, 1.0);
-            this._panVelocity[0] += touch[0] * this.panVelocitySensitivity;
-            this._panVelocity[0] = math.clamp(this._panVelocity[0], -1.0, 1.0);
-            this._panVelocity[1] += touch[1] * this.panVelocitySensitivity;
-            this._panVelocity[1] = math.clamp(this._panVelocity[1], -1.0, 1.0);
-        } else if (isFirstPerson && this._state.touches <= 1) {
-            this._pinchVelocity = 0;
-            this._panVelocity[0] = 0;
-            this._panVelocity[1] = 0;
-        }
-
-        if (!isFirstPerson && this._state.axis.length() > 0) {
-            events.fire('inputEvent', 'requestFirstPerson');
-        }
-
-        const orbit = +(state.cameraMode === 'orbit');
-        const fly = +isFirstPerson;
-        const double = +(this._state.touches > 1);
-        const pan = this._state.mouse[2] || +(button[2] === -1) || double;
-
-        const orbitFactor = fly ? camera.fov / 120 : 1;
-        const dragInvert = (isFirstPerson && !state.gamingControls) ? -1 : 1;
-
-        const { deltas } = this.frame;
-
-        // desktop move
-        const v = tmpV1.set(0, 0, 0);
-        const keyMove = this._state.axis.clone();
-        if (isWalk) {
-            // In walk mode, normalize only horizontal axes so jump doesn't reduce speed
-            keyMove.y = 0;
-        }
-        keyMove.normalize();
-        const shiftMul = isWalk ? 2 : 4;
-        const ctrlMul = isWalk ? 0.5 : 0.25;
-        const speed = this.moveSpeed * (this._state.shift ? shiftMul : this._state.ctrl ? ctrlMul : 1);
-        v.add(keyMove.mulScalar(fly * speed * dt));
-        if (isWalk) {
-            // Pass jump signal as raw Y; WalkController uses move[1] > 0 as boolean trigger
-            v.y = this._state.jump > 0 ? 1 : 0;
-        }
-        const panMove = screenToWorld(camera, mouse[0], mouse[1], distance);
-        v.add(panMove.mulScalar(pan));
-        const wheelMove = new Vec3(0, 0, -wheel[0]);
-        v.add(wheelMove.mulScalar(this.wheelSpeed * DISPLACEMENT_SCALE));
-        // FIXME: need to flip z axis for orbit camera
-        deltas.move.append([v.x, v.y, orbit ? -v.z : v.z]);
-
-        // desktop rotate
-        v.set(0, 0, 0);
-        mouseRotate.set(mouse[0], mouse[1], 0);
-        v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * orbitFactor * this.mouseRotateSensitivity * DISPLACEMENT_SCALE));
-        deltas.rotate.append([v.x, v.y, v.z]);
-
-        // trackpad
-        if (orbit) {
-            // orbit rotate
-            v.set(this._trackpadOrbit[0], this._trackpadOrbit[1], 0);
-            v.mulScalar(this.orbitSpeed * this.trackpadOrbitSensitivity * DISPLACEMENT_SCALE);
-            deltas.rotate.append([v.x, v.y, 0]);
-
-            // pan in world space (matches desktop pan path)
-            const trackPan = screenToWorld(camera, this._trackpadPan[0], this._trackpadPan[1], distance);
-            trackPan.mulScalar(this.trackpadPanSensitivity);
-            deltas.move.append([trackPan.x, trackPan.y, 0]);
-
-            // zoom along z; positive deltaY (scroll-down / pinch-in) → zoom out → +z for orbit
-            const zoomZ = this._trackpadZoom * this.wheelSpeed * this.trackpadZoomSensitivity * DISPLACEMENT_SCALE;
-            deltas.move.append([0, 0, zoomZ]);
-        } else if (isFirstPerson) {
-            // fly / walk look-around (only the no-modifier swipe is
-            // captured; pinch / shift fall through to the existing
-            // wheel→forward path)
-            v.set(this._trackpadOrbit[0], this._trackpadOrbit[1], 0);
-            v.mulScalar(this.orbitSpeed * orbitFactor * this.trackpadOrbitSensitivity * DISPLACEMENT_SCALE);
-            deltas.rotate.append([v.x, v.y, 0]);
-        }
-
-        this._trackpadOrbit[0] = this._trackpadOrbit[1] = 0;
-        this._trackpadPan[0] = this._trackpadPan[1] = 0;
-        this._trackpadZoom = 0;
-
-        // mobile move
-        v.set(0, 0, 0);
-        const orbitMove = screenToWorld(camera, touch[0], touch[1], distance);
-        v.add(orbitMove.mulScalar(orbit * pan));
-        if (state.gamingControls) {
-            // Use touch joystick values for fly movement (X = strafe, Y = forward/backward)
-            flyMove.set(this._touchJoystick[0], 0, -this._touchJoystick[1]);
-            v.add(flyMove.mulScalar(fly * this.moveSpeed * dt));
-        } else {
-            // Pan velocity → strafe (X) and vertical (Y, fly only — walk uses gravity)
-            flyTouchPan.set(this._panVelocity[0], isWalk ? 0 : -this._panVelocity[1], 0);
-            v.add(flyTouchPan.mulScalar(fly * this.touchPinchMoveSensitivity * this.moveSpeed * dt));
-            // Pinch velocity → forward/backward
-            flyMove.set(0, 0, this._pinchVelocity);
-            v.add(flyMove.mulScalar(fly * this.touchPinchMoveSensitivity * this.moveSpeed * dt));
-        }
-        pinchMove.set(0, 0, pinch[0]);
-        v.add(pinchMove.mulScalar(orbit * double * this.pinchSpeed * DISPLACEMENT_SCALE));
-        // Tap-to-jump for mobile walk mode
-        if (isWalk && this._tapJump) {
-            v.y = 1;
-            this._tapJump = false;
-        }
-        deltas.move.append([v.x, v.y, v.z]);
-
-        // mobile rotate
-        v.set(0, 0, 0);
-        orbitRotate.set(touch[0], touch[1], 0);
-        v.add(orbitRotate.mulScalar(orbit * (1 - pan) * this.orbitSpeed * this.touchRotateSensitivity * DISPLACEMENT_SCALE));
-        // In fly mode, use single touch for look-around (inverted direction)
-        // Exclude multi-touch (double) to avoid interference with pinch/strafe gestures
-        flyRotate.set(touch[0] * dragInvert, touch[1] * dragInvert, 0);
-        v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * this.touchRotateSensitivity * DISPLACEMENT_SCALE));
-        deltas.rotate.append([v.x, v.y, v.z]);
-
-        // gamepad move
-        v.set(0, 0, 0);
-        stickMove.set(leftStick[0], 0, -leftStick[1]);
-        v.add(stickMove.mulScalar(this.moveSpeed * dt));
-        deltas.move.append([v.x, v.y, v.z]);
-
-        // gamepad rotate
-        v.set(0, 0, 0);
-        stickRotate.set(rightStick[0], rightStick[1], 0);
-        v.add(stickRotate.mulScalar(this.orbitSpeed * orbitFactor * this.gamepadRotateSensitivity * dt));
-        deltas.rotate.append([v.x, v.y, v.z]);
+        // order: touch first (so touchCount in ctx reflects this frame's
+        // count delta), then everyone else.
+        this._touch.update(ctx, this.frame);
+        ctx.touchCount = this._touch.touchCount;
+        this._keyboardMouse.update(ctx, this.frame);
+        this._trackpad.update(ctx, this.frame);
+        this._gamepad.update(ctx, this.frame);
     }
 }
 
