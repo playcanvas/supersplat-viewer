@@ -53,6 +53,28 @@ class PointerLockManager {
         }
     };
 
+    private _onCameraModeChanged = (value: string, prev: string) => {
+        const state = this._global?.state;
+        if (!state) return;
+        if (value === 'walk' && state.inputMode === 'desktop' && state.gamingControls) {
+            this._activate();
+        } else if (prev === 'walk') {
+            this._deactivate();
+        }
+    };
+
+    private _onGamingControlsChanged = (value: boolean) => {
+        const state = this._global?.state;
+        if (!state) return;
+        if (state.cameraMode === 'walk' && state.inputMode === 'desktop') {
+            if (value) {
+                this._activate();
+            } else {
+                this._deactivate();
+            }
+        }
+    };
+
     private _activate(): void {
         if (this._keyboardMouse) {
             (this._keyboardMouse.source as any)._pointerLock = true;
@@ -78,31 +100,21 @@ class PointerLockManager {
         this._global = global;
         this._keyboardMouse = keyboardMouse;
 
-        const { state, events } = global;
+        const { events } = global;
 
-        events.on('cameraMode:changed', (value: string, prev: string) => {
-            if (value === 'walk' && state.inputMode === 'desktop' && state.gamingControls) {
-                this._activate();
-            } else if (prev === 'walk') {
-                this._deactivate();
-            }
-        });
-
-        events.on('gamingControls:changed', (value: boolean) => {
-            if (state.cameraMode === 'walk' && state.inputMode === 'desktop') {
-                if (value) {
-                    this._activate();
-                } else {
-                    this._deactivate();
-                }
-            }
-        });
+        events.on('cameraMode:changed', this._onCameraModeChanged);
+        events.on('gamingControls:changed', this._onGamingControlsChanged);
 
         document.addEventListener('pointerlockchange', this._onPointerLockChange);
         document.addEventListener('pointerlockerror', this._onPointerLockError);
     }
 
     detach(): void {
+        if (this._global) {
+            const { events } = this._global;
+            events.off('cameraMode:changed', this._onCameraModeChanged);
+            events.off('gamingControls:changed', this._onGamingControlsChanged);
+        }
         document.removeEventListener('pointerlockchange', this._onPointerLockChange);
         document.removeEventListener('pointerlockerror', this._onPointerLockError);
         this._canvas = null;

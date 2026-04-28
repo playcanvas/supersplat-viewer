@@ -55,6 +55,11 @@ class TouchDevice implements InputDevice {
     /** True for one frame after a tap is detected during gaming controls. */
     private _tapJump = false;
 
+    private _onJoystickInput = (value: { x: number; y: number }) => {
+        this._joystick[0] = value.x;
+        this._joystick[1] = value.y;
+    };
+
     get touchCount(): number {
         return this._touchCount;
     }
@@ -62,14 +67,15 @@ class TouchDevice implements InputDevice {
     attach(canvas: HTMLCanvasElement, global: Global): void {
         this._global = global;
         this._source.attach(canvas);
-        global.events.on('joystickInput', (value: { x: number; y: number }) => {
-            this._joystick[0] = value.x;
-            this._joystick[1] = value.y;
-        });
+        global.events.on('joystickInput', this._onJoystickInput);
     }
 
     detach(): void {
         // MultiTouchSource doesn't expose a detach.
+        if (this._global) {
+            this._global.events.off('joystickInput', this._onJoystickInput);
+            this._global = null;
+        }
     }
 
     update(ctx: UpdateContext, frame: CameraInputFrame): void {
@@ -140,7 +146,7 @@ class TouchDevice implements InputDevice {
         // move
         const v = tmpV.set(0, 0, 0);
         // two-finger orbit-pan when in orbit mode (single touch is rotate, double is pan)
-        orbitMove.copy(screenToWorld(cameraComponent, touch[0], touch[1], distance));
+        screenToWorld(cameraComponent, touch[0], touch[1], distance, orbitMove);
         v.add(orbitMove.mulScalar(orbit * double));
         if (gamingControls) {
             // joystick UI drives strafe + forward/back in fly/walk

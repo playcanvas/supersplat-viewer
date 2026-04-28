@@ -132,39 +132,50 @@ class WalkInteraction {
         }
     };
 
+    private _onInputEvent = async (eventName: string, event: PointerEvent) => {
+        const global = this._global;
+        const canvas = this._canvas;
+        if (!global || !canvas) return;
+        if (eventName !== 'dblclick') return;
+        const { app, camera, events, state } = global;
+        if (state.cameraMode === 'walk') return;
+        if (!this._picker) {
+            this._picker = new Picker(app, camera);
+        }
+        const result = await this._picker.pick(
+            event.offsetX / canvas.clientWidth,
+            event.offsetY / canvas.clientHeight
+        );
+        if (result) {
+            events.fire('pick', result);
+        }
+    };
+
+    private _onMobileTap = () => {
+        const global = this._global;
+        if (!global) return;
+        const { state, events } = global;
+        if (state.cameraMode !== 'walk' || state.gamingControls) return;
+        const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
+        if (result) {
+            events.fire('walkTo', result.position, result.normal);
+        }
+    };
+
     attach(canvas: HTMLCanvasElement, global: Global): void {
         this._canvas = canvas;
         this._global = global;
-        const { app, camera, events, state } = global;
+        const { events } = global;
 
         canvas.addEventListener('pointerdown', this._onPointerDown);
         canvas.addEventListener('pointermove', this._onPointerMove);
         canvas.addEventListener('pointerup', this._onPointerUp);
 
         // double-click → pick → fire 'pick' event (skipped in walk mode)
-        events.on('inputEvent', async (eventName: string, event: PointerEvent) => {
-            if (eventName !== 'dblclick') return;
-            if (state.cameraMode === 'walk') return;
-            if (!this._picker) {
-                this._picker = new Picker(app, camera);
-            }
-            const result = await this._picker.pick(
-                event.offsetX / canvas.clientWidth,
-                event.offsetY / canvas.clientHeight
-            );
-            if (result) {
-                events.fire('pick', result);
-            }
-        });
+        events.on('inputEvent', this._onInputEvent);
 
         // mobile tap (no movement) → walkTo
-        events.on('mobileTap', () => {
-            if (state.cameraMode !== 'walk' || state.gamingControls) return;
-            const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
-            if (result) {
-                events.fire('walkTo', result.position, result.normal);
-            }
-        });
+        events.on('mobileTap', this._onMobileTap);
 
         // refresh cursor on mode / gaming-controls change
         events.on('cameraMode:changed', this._updateCursor);
@@ -176,6 +187,13 @@ class WalkInteraction {
             this._canvas.removeEventListener('pointerdown', this._onPointerDown);
             this._canvas.removeEventListener('pointermove', this._onPointerMove);
             this._canvas.removeEventListener('pointerup', this._onPointerUp);
+        }
+        if (this._global) {
+            const { events } = this._global;
+            events.off('inputEvent', this._onInputEvent);
+            events.off('mobileTap', this._onMobileTap);
+            events.off('cameraMode:changed', this._updateCursor);
+            events.off('gamingControls:changed', this._updateCursor);
         }
         this._canvas = null;
         this._global = null;
