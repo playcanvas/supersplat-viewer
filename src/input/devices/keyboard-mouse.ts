@@ -95,7 +95,8 @@ class KeyboardMouseDevice implements InputDevice {
         this._jump += key[keyCode.SPACE];
         this._shift += key[keyCode.SHIFT];
         this._ctrl += key[keyCode.CTRL];
-        for (let i = 0; i < button.length; i++) {
+        const n = Math.min(button.length, this._buttons.length);
+        for (let i = 0; i < n; i++) {
             this._buttons[i] += button[i];
         }
 

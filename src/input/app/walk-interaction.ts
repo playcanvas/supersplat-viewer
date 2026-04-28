@@ -132,11 +132,12 @@ class WalkInteraction {
         }
     };
 
-    private _onInputEvent = async (eventName: string, event: PointerEvent) => {
+    private _onInputEvent = async (eventName: string, event: Event) => {
         const global = this._global;
         const canvas = this._canvas;
         if (!global || !canvas) return;
         if (eventName !== 'dblclick') return;
+        if (!(event instanceof MouseEvent)) return;
         const { app, camera, events, state } = global;
         if (state.cameraMode === 'walk') return;
         if (!this._picker) {

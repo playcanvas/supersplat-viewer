@@ -102,6 +102,10 @@ class TrackpadDevice implements InputDevice {
             this._canvas.removeEventListener('wheel', this._onWheel);
             this._canvas = null;
         }
+        this._global = null;
+        this._orbit[0] = this._orbit[1] = 0;
+        this._pan[0] = this._pan[1] = 0;
+        this._zoom = 0;
     }
 
     update(ctx: UpdateContext, frame: CameraInputFrame): void {
