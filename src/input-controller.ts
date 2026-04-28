@@ -273,7 +273,15 @@ class InputController {
             }
 
             event.preventDefault();
+            // stopImmediatePropagation() blocks KeyboardMouseSource's wheel
+            // handler (also attached to this canvas) so the wheel delta
+            // doesn't double-up on the existing forward/back path. It also
+            // blocks the canvas-level interrupt listener registered below,
+            // so fire the interrupt signal explicitly here to keep parity
+            // with mouse-wheel behavior (cancels camera animations, closes
+            // settings panel, dismisses walk hint).
             event.stopImmediatePropagation();
+            events.fire('inputEvent', 'interrupt', event);
 
             const { deltaX, deltaY } = event;
 
