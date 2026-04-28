@@ -261,13 +261,15 @@ class InputController {
             }
 
             const mode = global.state.cameraMode;
-            const hasModifier = event.ctrlKey || event.metaKey || event.shiftKey;
             const isFirstPersonMode = mode === 'fly' || mode === 'walk';
+            const hasZoomModifier = event.ctrlKey || event.metaKey;
 
             if (mode === 'orbit') {
                 // route everything
-            } else if (isFirstPersonMode && !hasModifier) {
-                // route only no-modifier swipes; pinch / shift+swipe fall through
+            } else if (isFirstPersonMode && !hasZoomModifier) {
+                // route swipes (with or without shift) to look-around;
+                // pinch / Ctrl+swipe fall through to forward/back. Shift is a
+                // WASD speed modifier in these modes, not a gesture modifier.
             } else {
                 return;
             }
@@ -285,14 +287,20 @@ class InputController {
 
             const { deltaX, deltaY } = event;
 
-            if (event.ctrlKey || event.metaKey) {
-                // Pinch-zoom on macOS arrives as ctrl+wheel; ctrl/meta+scroll
-                // also routes here for keyboard-driven zoom.
-                this._trackpadZoom += deltaY;
-            } else if (event.shiftKey) {
-                this._trackpadPan[0] += deltaX;
-                this._trackpadPan[1] += deltaY;
+            if (mode === 'orbit') {
+                if (event.ctrlKey || event.metaKey) {
+                    // Pinch-zoom on macOS arrives as ctrl+wheel; ctrl/meta+scroll
+                    // also routes here for keyboard-driven zoom.
+                    this._trackpadZoom += deltaY;
+                } else if (event.shiftKey) {
+                    this._trackpadPan[0] += deltaX;
+                    this._trackpadPan[1] += deltaY;
+                } else {
+                    this._trackpadOrbit[0] += deltaX;
+                    this._trackpadOrbit[1] += deltaY;
+                }
             } else {
+                // fly / walk: always rotate (shift is a speed modifier, not a gesture)
                 this._trackpadOrbit[0] += deltaX;
                 this._trackpadOrbit[1] += deltaY;
             }
