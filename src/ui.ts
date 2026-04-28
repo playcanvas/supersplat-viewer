@@ -258,11 +258,24 @@ const initUI = (global: Global) => {
     });
 
     // Forward wheel events from UI overlays to the canvas so the camera zooms
-    // instead of the page scrolling (e.g. annotation nav, tooltips, hotspots)
+    // instead of the page scrolling (e.g. annotation nav, tooltips, hotspots).
+    // The non-standard wheelDelta{X,Y} properties aren't part of WheelEventInit,
+    // so they get dropped by `new WheelEvent(type, init)`. We re-attach them so
+    // the trackpad-vs-mouse classifier in input-controller.ts behaves the same
+    // whether the event originated on the canvas or was forwarded from the UI.
     const canvas = global.app.graphicsDevice.canvas as HTMLCanvasElement;
     dom.ui.addEventListener('wheel', (event: WheelEvent) => {
         event.preventDefault();
-        canvas.dispatchEvent(new WheelEvent(event.type, event));
+        const forwarded = new WheelEvent(event.type, event);
+        const src = event as WheelEvent & {
+            wheelDelta?: number, wheelDeltaX?: number, wheelDeltaY?: number
+        };
+        for (const key of ['wheelDelta', 'wheelDeltaX', 'wheelDeltaY'] as const) {
+            if (typeof src[key] === 'number') {
+                Object.defineProperty(forwarded, key, { value: src[key], configurable: true });
+            }
+        }
+        canvas.dispatchEvent(forwarded);
     }, { passive: false });
 
     // Handle loading progress updates
