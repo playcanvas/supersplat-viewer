@@ -148,12 +148,18 @@ class MeshDebugOverlay {
         camera.camera.layers = [...camera.camera.layers, this.layer.id];
 
         // Pass 1: depth pre-pass. Color writes masked off so only depth lands
-        // in the buffer.
+        // in the buffer. Both this and pass 2 use the same depthBias /
+        // slopeDepthBias so they write/test identical depth values
+        // (FUNC_EQUAL relies on this) while still sitting slightly behind the
+        // wireframe lines so pass 3's FUNC_LESSEQUAL passes reliably without
+        // z-fighting.
         const depthMaterial = makeSurfaceMaterial();
         depthMaterial.cull = CULLFACE_BACK;
         depthMaterial.blendType = BLEND_NORMAL;
         depthMaterial.depthTest = true;
         depthMaterial.depthWrite = true;
+        depthMaterial.depthBias = 1;
+        depthMaterial.slopeDepthBias = 1;
         depthMaterial.redWrite = false;
         depthMaterial.greenWrite = false;
         depthMaterial.blueWrite = false;
@@ -178,6 +184,8 @@ class MeshDebugOverlay {
         surfaceMaterial.depthTest = true;
         surfaceMaterial.depthFunc = FUNC_EQUAL;
         surfaceMaterial.depthWrite = false;
+        surfaceMaterial.depthBias = 1;
+        surfaceMaterial.slopeDepthBias = 1;
         surfaceMaterial.update();
 
         const surfaceInstance = new MeshInstance(mesh, surfaceMaterial);
