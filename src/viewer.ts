@@ -619,6 +619,11 @@ class Viewer {
                 camera.camera.clearColor = new Color(background.color);
             }
         }
+
+        // Mesh overlay bakes its vertex colors based on the current gamma
+        // path; reapply when CameraFrame is created/destroyed (e.g. on XR
+        // start/end) so the overlay tracks the new path.
+        this.meshOverlay?.setCameraFrameEnabled(!!this.cameraFrame);
     }
 }
 

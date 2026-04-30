@@ -58,7 +58,11 @@ const SURFACE_ALPHA  = 0.30;
 // Without CameraFrame, `gammaCorrectOutput` applies `pow(1/2.2)` to the
 // material output, so we feed `pow(gray, 2.2)` here and gamma-correct
 // undoes it; the framebuffer ends up storing the same raw gray value.
-const buildFlatMesh = (tris: TriangleSoA, cameraFrameEnabled: boolean) => {
+// Encode the per-triangle gray + alpha into a flat Uint8 RGBA color stream
+// (one entry per unwelded vertex, three vertices per triangle). Reuses an
+// existing buffer if one is provided so colors can be re-baked when the
+// CameraFrame state toggles at runtime (e.g. XR start/end).
+const encodeFlatColors = (tris: TriangleSoA, cameraFrameEnabled: boolean, out?: Uint8Array) => {
     const encode = (v: number) => Math.round((cameraFrameEnabled ? v : Math.pow(v, 2.2)) * 255);
     const grayX = encode(SURFACE_GRAY_X);
     const grayY = encode(SURFACE_GRAY_Y);
@@ -66,9 +70,7 @@ const buildFlatMesh = (tris: TriangleSoA, cameraFrameEnabled: boolean) => {
     const alpha = Math.round(SURFACE_ALPHA * 255);
 
     const numTris = tris.count;
-    const flatPositions = new Float32Array(numTris * 9);
-    const flatColors = new Uint8Array(numTris * 12);
-    const flatIndices = new Uint32Array(numTris * 3);
+    const colors = out ?? new Uint8Array(numTris * 12);
 
     for (let i = 0; i < numTris; i++) {
         const ax = Math.abs(tris.nx[i]);
@@ -83,19 +85,30 @@ const buildFlatMesh = (tris: TriangleSoA, cameraFrameEnabled: boolean) => {
             gray = grayZ;
         }
 
+        const oc = i * 12;
+        for (let j = 0; j < 3; j++) {
+            const k = oc + j * 4;
+            colors[k]     = gray;
+            colors[k + 1] = gray;
+            colors[k + 2] = gray;
+            colors[k + 3] = alpha;
+        }
+    }
+
+    return colors;
+};
+
+const buildFlatMesh = (tris: TriangleSoA, cameraFrameEnabled: boolean) => {
+    const numTris = tris.count;
+    const flatPositions = new Float32Array(numTris * 9);
+    const flatColors = encodeFlatColors(tris, cameraFrameEnabled);
+    const flatIndices = new Uint32Array(numTris * 3);
+
+    for (let i = 0; i < numTris; i++) {
         const op = i * 9;
         flatPositions[op]     = tris.v0x[i]; flatPositions[op + 1] = tris.v0y[i]; flatPositions[op + 2] = tris.v0z[i];
         flatPositions[op + 3] = tris.v1x[i]; flatPositions[op + 4] = tris.v1y[i]; flatPositions[op + 5] = tris.v1z[i];
         flatPositions[op + 6] = tris.v2x[i]; flatPositions[op + 7] = tris.v2y[i]; flatPositions[op + 8] = tris.v2z[i];
-
-        const oc = i * 12;
-        for (let j = 0; j < 3; j++) {
-            const k = oc + j * 4;
-            flatColors[k]     = gray;
-            flatColors[k + 1] = gray;
-            flatColors[k + 2] = gray;
-            flatColors[k + 3] = alpha;
-        }
 
         const oi = i * 3;
         flatIndices[oi]     = oi;
@@ -137,6 +150,12 @@ class MeshDebugOverlay {
 
     private entity: Entity;
 
+    private mesh: Mesh;
+
+    private triangles: TriangleSoA;
+
+    private flatColors: Uint8Array;
+
     private materials: StandardMaterial[];
 
     private _enabled = false;
@@ -144,10 +163,12 @@ class MeshDebugOverlay {
     constructor(app: AppBase, collision: MeshCollision, camera: Entity, cameraFrameEnabled: boolean) {
         this.app = app;
         this.camera = camera;
+        this.triangles = collision.triangles;
         const device = app.graphicsDevice;
 
         const { flatPositions, flatColors, flatIndices } =
-            buildFlatMesh(collision.triangles, cameraFrameEnabled);
+            buildFlatMesh(this.triangles, cameraFrameEnabled);
+        this.flatColors = flatColors;
 
         const mesh = new Mesh(device);
         mesh.setPositions(flatPositions);
@@ -155,9 +176,11 @@ class MeshDebugOverlay {
         mesh.setIndices(flatIndices);
         mesh.update(PRIMITIVE_TRIANGLES);
         mesh.generateWireframe();
+        this.mesh = mesh;
 
         this.layer = new Layer({
             name: 'CollisionOverlay',
+            enabled: false,
             clearColorBuffer: false,
             clearDepthBuffer: true,
             opaqueSortMode: SORTMODE_MANUAL,
@@ -260,10 +283,27 @@ class MeshDebugOverlay {
     set enabled(value: boolean) {
         this._enabled = value;
         this.entity.enabled = value;
+        // Disable the layer too — otherwise its render actions still execute
+        // each frame and the per-layer `clearDepthBuffer` would wipe depth
+        // even when no overlay meshes are submitted.
+        this.layer.enabled = value;
     }
 
     get enabled(): boolean {
         return this._enabled;
+    }
+
+    /**
+     * Re-bake and re-upload the per-vertex colors so the overlay stays
+     * correct if CameraFrame is destroyed or recreated at runtime (the
+     * gamma path differs between the two states).
+     *
+     * @param cameraFrameEnabled - whether CameraFrame is currently active.
+     */
+    setCameraFrameEnabled(cameraFrameEnabled: boolean): void {
+        encodeFlatColors(this.triangles, cameraFrameEnabled, this.flatColors);
+        this.mesh.setColors32(this.flatColors);
+        this.mesh.update(PRIMITIVE_TRIANGLES);
     }
 
     destroy(): void {

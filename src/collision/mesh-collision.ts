@@ -33,9 +33,11 @@ interface TriangleData {
     count: number;
 }
 
-// Public read-only view of triangle data, exposed for debug overlays. Keys
-// match the internal TriangleData layout but the typed arrays are presented
-// as readonly to discourage mutation.
+// Public view of the triangle SoA exposed by MeshCollision for debug
+// overlays. The `readonly` qualifiers only prevent reassigning the *fields*;
+// callers can technically still mutate the underlying typed arrays. By
+// convention the buffers are owned by the collision and must not be written
+// to — they back live BVH / collision queries.
 interface TriangleSoA {
     readonly v0x: Float32Array; readonly v0y: Float32Array; readonly v0z: Float32Array;
     readonly v1x: Float32Array; readonly v1y: Float32Array; readonly v1z: Float32Array;
