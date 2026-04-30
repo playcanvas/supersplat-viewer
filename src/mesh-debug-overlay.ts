@@ -1,12 +1,13 @@
 import {
     type AppBase,
-    BLEND_NORMAL,
+    BLEND_NONE,
     Color,
     CULLFACE_NONE,
     Entity,
     Mesh,
     MeshInstance,
-    PRIMITIVE_LINES,
+    PRIMITIVE_TRIANGLES,
+    RENDERSTYLE_WIREFRAME,
     StandardMaterial
 } from 'playcanvas';
 
@@ -19,41 +20,32 @@ class MeshDebugOverlay {
 
     constructor(app: AppBase, collision: MeshCollision) {
         const { positions, indices } = collision;
-        const numTris = Math.floor(indices.length / 3);
 
-        // Each triangle becomes 3 line segments (6 indices).
-        const lineIndices = new Uint32Array(numTris * 6);
-        for (let i = 0; i < numTris; i++) {
-            const i0 = indices[i * 3];
-            const i1 = indices[i * 3 + 1];
-            const i2 = indices[i * 3 + 2];
-            const o = i * 6;
-            lineIndices[o]     = i0; lineIndices[o + 1] = i1;
-            lineIndices[o + 2] = i1; lineIndices[o + 3] = i2;
-            lineIndices[o + 4] = i2; lineIndices[o + 5] = i0;
-        }
-
+        // Build a triangle mesh and let the engine generate a line index buffer
+        // for it. RENDERSTYLE_WIREFRAME selects that secondary index buffer.
         const mesh = new Mesh(app.graphicsDevice);
         mesh.setPositions(positions);
-        mesh.setIndices(lineIndices);
-        mesh.update(PRIMITIVE_LINES);
+        mesh.setIndices(indices instanceof Uint32Array ? indices : new Uint32Array(indices));
+        mesh.update(PRIMITIVE_TRIANGLES);
+        mesh.generateWireframe();
 
         const material = new StandardMaterial();
         material.useLighting = false;
         material.diffuse = new Color(0, 0, 0);
-        material.emissive = new Color(1.0, 0.25, 0.2);
-        material.opacity = 0.85;
-        material.blendType = BLEND_NORMAL;
-        material.depthTest = false;
-        material.depthWrite = false;
+        material.emissive = new Color(0, 0, 0);
+        material.blendType = BLEND_NONE;
+        material.depthTest = true;
+        material.depthWrite = true;
         material.cull = CULLFACE_NONE;
         material.update();
 
         const meshInstance = new MeshInstance(mesh, material);
-        meshInstance.cull = false;
 
         this.entity = new Entity('MeshCollisionDebug');
         this.entity.addComponent('render', { meshInstances: [meshInstance] });
+        // The render component overwrites each meshInstance.renderStyle with
+        // its own value, so set it on the component after the component exists.
+        this.entity.render.renderStyle = RENDERSTYLE_WIREFRAME;
         this.entity.enabled = false;
         app.root.addChild(this.entity);
     }
