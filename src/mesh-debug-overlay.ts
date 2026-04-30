@@ -37,13 +37,38 @@ import type { MeshCollision } from './collision';
 // of them — if the depth pre-pass were opaque, the transparent action would
 // wipe the depth before pass 2 and FUNC_EQUAL would always fail.
 
-const SURFACE_ALPHA = Math.round(0.3 * 255);
+// Linear gray levels picked by dominant face axis, plus the surface alpha.
+// These values are what we want the framebuffer to actually contain — pre-
+// encoding below makes that true regardless of the gamma path taken.
+const SURFACE_GRAY_X = 0.85;
+const SURFACE_GRAY_Y = 0.55;
+const SURFACE_GRAY_Z = 0.30;
+const SURFACE_ALPHA  = 0.30;
 
 // Build an unindexed mesh where every triangle has three unique vertices that
 // share the triangle's flat face color (tint by dominant axis of the face
 // normal, alpha baked in). Per-triangle vertices give the surface a faceted
 // look matching the voxel overlay.
-const buildFlatMesh = (positions: Float32Array, indices: Uint32Array | Uint16Array) => {
+//
+// `cameraFrameEnabled` controls how the per-vertex color is encoded so the
+// overlay looks identical between the WebGL (no CameraFrame) and
+// WebGPU/compute (CameraFrame) paths. With CameraFrame on, the engine's
+// `gammaCorrectOutput` is a no-op (GAMMA_NONE) and the StandardMaterial
+// output lands in the framebuffer as-is — so we feed the raw gray value.
+// Without CameraFrame, `gammaCorrectOutput` applies `pow(1/2.2)` to the
+// material output, so we feed `pow(gray, 2.2)` here and gamma-correct
+// undoes it; the framebuffer ends up storing the same raw gray value.
+const buildFlatMesh = (
+    positions: Float32Array,
+    indices: Uint32Array | Uint16Array,
+    cameraFrameEnabled: boolean
+) => {
+    const encode = (v: number) => Math.round((cameraFrameEnabled ? v : Math.pow(v, 2.2)) * 255);
+    const grayX = encode(SURFACE_GRAY_X);
+    const grayY = encode(SURFACE_GRAY_Y);
+    const grayZ = encode(SURFACE_GRAY_Z);
+    const alpha = Math.round(SURFACE_ALPHA * 255);
+
     const numTris = Math.floor(indices.length / 3);
     const flatPositions = new Float32Array(numTris * 9);
     const flatColors = new Uint8Array(numTris * 12);
@@ -67,11 +92,11 @@ const buildFlatMesh = (positions: Float32Array, indices: Uint32Array | Uint16Arr
         const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
         let gray;
         if (ax > ay && ax > az) {
-            gray = 217; // 0.85 * 255
+            gray = grayX;
         } else if (ay > az) {
-            gray = 140; // 0.55 * 255
+            gray = grayY;
         } else {
-            gray = 76;  // 0.30 * 255
+            gray = grayZ;
         }
 
         const op = i * 9;
@@ -85,7 +110,7 @@ const buildFlatMesh = (positions: Float32Array, indices: Uint32Array | Uint16Arr
             flatColors[k]     = gray;
             flatColors[k + 1] = gray;
             flatColors[k + 2] = gray;
-            flatColors[k + 3] = SURFACE_ALPHA;
+            flatColors[k + 3] = alpha;
         }
 
         const oi = i * 3;
@@ -105,6 +130,8 @@ const makeSurfaceMaterial = () => {
     const m = new StandardMaterial();
     m.useLighting = false;
     m.useSkybox = false;
+    m.useFog = false;
+    m.useTonemap = false;
     m.ambient = new Color(0, 0, 0);
     m.diffuse = new Color(0, 0, 0);
     m.specular = new Color(0, 0, 0);
@@ -128,13 +155,14 @@ class MeshDebugOverlay {
 
     private _enabled = false;
 
-    constructor(app: AppBase, collision: MeshCollision, camera: Entity) {
+    constructor(app: AppBase, collision: MeshCollision, camera: Entity, cameraFrameEnabled: boolean) {
         this.app = app;
         this.camera = camera;
         const device = app.graphicsDevice;
         const { positions, indices } = collision;
 
-        const { flatPositions, flatColors, flatIndices } = buildFlatMesh(positions, indices);
+        const { flatPositions, flatColors, flatIndices } =
+            buildFlatMesh(positions, indices, cameraFrameEnabled);
 
         const mesh = new Mesh(device);
         mesh.setPositions(flatPositions);
@@ -210,6 +238,8 @@ class MeshDebugOverlay {
         const wireframeMaterial = new StandardMaterial();
         wireframeMaterial.useLighting = false;
         wireframeMaterial.useSkybox = false;
+        wireframeMaterial.useFog = false;
+        wireframeMaterial.useTonemap = false;
         wireframeMaterial.ambient = new Color(0, 0, 0);
         wireframeMaterial.diffuse = new Color(0, 0, 0);
         wireframeMaterial.specular = new Color(0, 0, 0);

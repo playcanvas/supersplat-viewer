@@ -375,7 +375,7 @@ class Viewer {
                     app.renderNextFrame = true;
                 });
             } else if (collision instanceof MeshCollision) {
-                this.meshOverlay = new MeshDebugOverlay(app, collision, camera);
+                this.meshOverlay = new MeshDebugOverlay(app, collision, camera, !!this.cameraFrame);
                 state.hasCollisionOverlay = true;
 
                 events.on('collisionOverlayEnabled:changed', (value: boolean) => {
