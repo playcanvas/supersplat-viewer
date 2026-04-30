@@ -1,7 +1,8 @@
 import {
     type AppBase,
     BLEND_NONE,
-    BLEND_PREMULTIPLIED,
+    BLEND_NORMAL,
+    Color,
     CULLFACE_BACK,
     CULLFACE_NONE,
     Entity,
@@ -12,144 +13,35 @@ import {
     MeshInstance,
     PRIMITIVE_TRIANGLES,
     RENDERSTYLE_WIREFRAME,
-    SEMANTIC_NORMAL,
-    SEMANTIC_POSITION,
-    ShaderMaterial,
-    SORTMODE_MANUAL
+    SORTMODE_MANUAL,
+    StandardMaterial
 } from 'playcanvas';
 
 import type { MeshCollision } from './collision';
 
-// Single-layer overlay rendered after the gaussian splats:
+// Single-layer overlay rendered after the gaussians, three passes on a fresh
+// depth buffer, all using stock StandardMaterial:
 //
-//   1. Layer clears the depth buffer (color is left untouched) so the mesh
-//      has a fresh depth context.
-//   2. Surface depth pre-pass: the collision mesh renders with color writes
-//      disabled and depth test/write on, establishing the front-most surface
-//      depth at each pixel.
-//   3. Surface color pass: the same mesh renders again with depthFunc EQUAL
-//      and depth write off, so only the front-most fragment from pass 2
-//      survives. Premultiplied alpha blends that one fragment onto the camera
-//      target — no order-dependent overdraw inside the mesh.
-//   4. Wireframe pass: black lines (RENDERSTYLE_WIREFRAME), depth-tested
+//   1. Surface depth pre-pass: depth test/write on, color writes off — stamps
+//      the front-most surface depth into the depth buffer.
+//   2. Surface color pass: depthFunc EQUAL, depth write off — only the
+//      front-most fragment from pass 1 survives, so a single layer of
+//      semi-transparent surface color blends onto the camera target. Tint is
+//      baked per-vertex from each triangle's face normal at construction
+//      time, so no custom shader is needed.
+//   3. Wireframe pass: black lines (RENDERSTYLE_WIREFRAME) depth-tested
 //      against the surface depth so back-facing edges are hidden.
-//
-// Per-triangle flat normals are baked into the vertex buffer (un-welded
-// vertices) to avoid derivative shimmer at triangle boundaries.
 
-const surfaceVertexGLSL = /* glsl */ `
-    attribute vec3 vertex_position;
-    attribute vec3 vertex_normal;
-    uniform mat4 matrix_model;
-    uniform mat4 matrix_viewProjection;
-    uniform mat3 matrix_normal;
-    varying vec3 vNormal;
-    void main(void) {
-        vNormal = normalize(matrix_normal * vertex_normal);
-        gl_Position = matrix_viewProjection * (matrix_model * vec4(vertex_position, 1.0));
-    }
-`;
+const SURFACE_ALPHA = 0.3;
 
-const surfaceFragmentGLSL = /* glsl */ `
-    varying vec3 vNormal;
-    void main(void) {
-        vec3 n = abs(normalize(vNormal));
-        vec3 color;
-        if (n.x > n.y && n.x > n.z) {
-            color = vec3(0.85);
-        } else if (n.y > n.z) {
-            color = vec3(0.55);
-        } else {
-            color = vec3(0.3);
-        }
-        float alpha = 0.55;
-        gl_FragColor = vec4(color * alpha, alpha);
-    }
-`;
-
-const surfaceVertexWGSL = /* wgsl */ `
-    attribute vertex_position: vec3f;
-    attribute vertex_normal: vec3f;
-    uniform matrix_model: mat4x4f;
-    uniform matrix_viewProjection: mat4x4f;
-    uniform matrix_normal: mat3x3f;
-    varying vNormal: vec3f;
-    @vertex fn vertexMain(input: VertexInput) -> VertexOutput {
-        var output: VertexOutput;
-        output.vNormal = normalize(uniform.matrix_normal * input.vertex_normal);
-        output.position = uniform.matrix_viewProjection * (uniform.matrix_model * vec4f(input.vertex_position, 1.0));
-        return output;
-    }
-`;
-
-const surfaceFragmentWGSL = /* wgsl */ `
-    varying vNormal: vec3f;
-    @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
-        var output: FragmentOutput;
-        let n = abs(normalize(input.vNormal));
-        var color: vec3f;
-        if (n.x > n.y && n.x > n.z) {
-            color = vec3f(0.85);
-        } else if (n.y > n.z) {
-            color = vec3f(0.55);
-        } else {
-            color = vec3f(0.3);
-        }
-        let alpha = 0.55;
-        output.color = vec4f(color * alpha, alpha);
-        return output;
-    }
-`;
-
-// Position-only vertex shader for the depth pre-pass and the wireframe.
-// Includes a dummy varying so PlayCanvas emits the WGSL FragmentInput struct.
-const positionOnlyVertexGLSL = /* glsl */ `
-    attribute vec3 vertex_position;
-    uniform mat4 matrix_model;
-    uniform mat4 matrix_viewProjection;
-    varying float vDummy;
-    void main(void) {
-        vDummy = 0.0;
-        gl_Position = matrix_viewProjection * (matrix_model * vec4(vertex_position, 1.0));
-    }
-`;
-
-const positionOnlyVertexWGSL = /* wgsl */ `
-    attribute vertex_position: vec3f;
-    uniform matrix_model: mat4x4f;
-    uniform matrix_viewProjection: mat4x4f;
-    varying vDummy: f32;
-    @vertex fn vertexMain(input: VertexInput) -> VertexOutput {
-        var output: VertexOutput;
-        output.vDummy = 0.0;
-        output.position = uniform.matrix_viewProjection * (uniform.matrix_model * vec4f(input.vertex_position, 1.0));
-        return output;
-    }
-`;
-
-const constantBlackFragmentGLSL = /* glsl */ `
-    varying float vDummy;
-    void main(void) {
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-    }
-`;
-
-const constantBlackFragmentWGSL = /* wgsl */ `
-    varying vDummy: f32;
-    @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
-        var output: FragmentOutput;
-        output.color = vec4f(0.0, 0.0, 0.0, 1.0);
-        return output;
-    }
-`;
-
-// Build an unindexed mesh where every triangle has three unique vertices, each
-// carrying that triangle's flat face normal. This trades ~3x vertex memory for
-// stable per-fragment shading with no derivative artifacts.
+// Build an unindexed mesh where every triangle has three unique vertices that
+// share the triangle's flat face color (tint by dominant axis of the face
+// normal, alpha baked in). Using per-triangle vertices avoids derivative
+// shimmer and gives the surface a faceted look matching the voxel overlay.
 const buildFlatMesh = (positions: Float32Array, indices: Uint32Array | Uint16Array) => {
     const numTris = Math.floor(indices.length / 3);
     const flatPositions = new Float32Array(numTris * 9);
-    const flatNormals = new Float32Array(numTris * 9);
+    const flatColors = new Float32Array(numTris * 12);
     const flatIndices = new Uint32Array(numTris * 3);
 
     for (let i = 0; i < numTris; i++) {
@@ -163,31 +55,52 @@ const buildFlatMesh = (positions: Float32Array, indices: Uint32Array | Uint16Arr
 
         const e1x = v1x - v0x, e1y = v1y - v0y, e1z = v1z - v0z;
         const e2x = v2x - v0x, e2y = v2y - v0y, e2z = v2z - v0z;
-        let nx = e1y * e2z - e1z * e2y;
-        let ny = e1z * e2x - e1x * e2z;
-        let nz = e1x * e2y - e1y * e2x;
-        const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
-        if (len > 1e-10) {
-            const inv = 1 / len;
-            nx *= inv; ny *= inv; nz *= inv;
+        const nx = e1y * e2z - e1z * e2y;
+        const ny = e1z * e2x - e1x * e2z;
+        const nz = e1x * e2y - e1y * e2x;
+
+        const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+        let gray;
+        if (ax > ay && ax > az) {
+            gray = 0.85;
+        } else if (ay > az) {
+            gray = 0.55;
+        } else {
+            gray = 0.3;
         }
 
-        const o = i * 9;
-        flatPositions[o]     = v0x; flatPositions[o + 1] = v0y; flatPositions[o + 2] = v0z;
-        flatPositions[o + 3] = v1x; flatPositions[o + 4] = v1y; flatPositions[o + 5] = v1z;
-        flatPositions[o + 6] = v2x; flatPositions[o + 7] = v2y; flatPositions[o + 8] = v2z;
+        const op = i * 9;
+        flatPositions[op]     = v0x; flatPositions[op + 1] = v0y; flatPositions[op + 2] = v0z;
+        flatPositions[op + 3] = v1x; flatPositions[op + 4] = v1y; flatPositions[op + 5] = v1z;
+        flatPositions[op + 6] = v2x; flatPositions[op + 7] = v2y; flatPositions[op + 8] = v2z;
 
-        flatNormals[o]     = nx; flatNormals[o + 1] = ny; flatNormals[o + 2] = nz;
-        flatNormals[o + 3] = nx; flatNormals[o + 4] = ny; flatNormals[o + 5] = nz;
-        flatNormals[o + 6] = nx; flatNormals[o + 7] = ny; flatNormals[o + 8] = nz;
+        const oc = i * 12;
+        for (let j = 0; j < 3; j++) {
+            const k = oc + j * 4;
+            flatColors[k]     = gray;
+            flatColors[k + 1] = gray;
+            flatColors[k + 2] = gray;
+            flatColors[k + 3] = SURFACE_ALPHA;
+        }
 
         const oi = i * 3;
-        flatIndices[oi] = oi;
+        flatIndices[oi]     = oi;
         flatIndices[oi + 1] = oi + 1;
         flatIndices[oi + 2] = oi + 2;
     }
 
-    return { flatPositions, flatNormals, flatIndices };
+    return { flatPositions, flatColors, flatIndices };
+};
+
+const makeUnlit = () => {
+    const m = new StandardMaterial();
+    m.useLighting = false;
+    m.useSkybox = false;
+    m.ambient = new Color(0, 0, 0);
+    m.diffuse = new Color(0, 0, 0);
+    m.specular = new Color(0, 0, 0);
+    m.emissive = new Color(0, 0, 0);
+    return m;
 };
 
 class MeshDebugOverlay {
@@ -201,17 +114,17 @@ class MeshDebugOverlay {
         const device = app.graphicsDevice;
         const { positions, indices } = collision;
 
-        const { flatPositions, flatNormals, flatIndices } = buildFlatMesh(positions, indices);
+        const { flatPositions, flatColors, flatIndices } = buildFlatMesh(positions, indices);
 
         const mesh = new Mesh(device);
         mesh.setPositions(flatPositions);
-        mesh.setNormals(flatNormals);
+        mesh.setColors(flatColors);
         mesh.setIndices(flatIndices);
         mesh.update(PRIMITIVE_TRIANGLES);
         mesh.generateWireframe();
 
-        // One overlay layer rendered after everything, with a fresh depth
-        // buffer. Manual sort lets the three passes execute in drawOrder.
+        // Overlay layer rendered after everything, with a fresh depth buffer.
+        // Manual sort keeps the three passes ordered by drawOrder.
         this.layer = new Layer({
             name: 'CollisionOverlay',
             clearColorBuffer: false,
@@ -222,24 +135,16 @@ class MeshDebugOverlay {
         app.scene.layers.push(this.layer);
         camera.camera.layers = [...camera.camera.layers, this.layer.id];
 
-        // Pass 1: depth pre-pass. No color writes, normal depth test/write.
-        const depthMaterial = new ShaderMaterial();
-        depthMaterial.cull = CULLFACE_BACK;
+        // Pass 1: depth pre-pass. No color writes.
+        const depthMaterial = makeUnlit();
         depthMaterial.blendType = BLEND_NONE;
         depthMaterial.depthTest = true;
         depthMaterial.depthWrite = true;
+        depthMaterial.cull = CULLFACE_BACK;
         depthMaterial.redWrite = false;
         depthMaterial.greenWrite = false;
         depthMaterial.blueWrite = false;
         depthMaterial.alphaWrite = false;
-        depthMaterial.shaderDesc = {
-            uniqueName: 'CollisionDepthPrepass',
-            vertexGLSL: positionOnlyVertexGLSL,
-            fragmentGLSL: constantBlackFragmentGLSL,
-            vertexWGSL: positionOnlyVertexWGSL,
-            fragmentWGSL: constantBlackFragmentWGSL,
-            attributes: { vertex_position: SEMANTIC_POSITION }
-        };
         depthMaterial.update();
 
         const depthInstance = new MeshInstance(mesh, depthMaterial);
@@ -251,26 +156,20 @@ class MeshDebugOverlay {
             layers: [this.layer.id]
         });
 
-        // Pass 2: color pass with depth EQUAL. Only the front-most fragment
-        // from pass 1 survives, so premultiplied alpha blends a single layer
-        // of mesh color onto the camera target.
-        const surfaceMaterial = new ShaderMaterial();
-        surfaceMaterial.cull = CULLFACE_BACK;
-        surfaceMaterial.blendType = BLEND_PREMULTIPLIED;
+        // Pass 2: surface color, depth EQUAL. Vertex color drives both the
+        // emissive tint and the opacity, no shaders required.
+        const surfaceMaterial = makeUnlit();
+        surfaceMaterial.emissive = new Color(1, 1, 1);
+        surfaceMaterial.emissiveVertexColor = true;
+        surfaceMaterial.emissiveVertexColorChannel = 'rgb';
+        surfaceMaterial.opacityVertexColor = true;
+        surfaceMaterial.opacityVertexColorChannel = 'a';
+        surfaceMaterial.opacity = 1;
+        surfaceMaterial.blendType = BLEND_NORMAL;
         surfaceMaterial.depthTest = true;
         surfaceMaterial.depthFunc = FUNC_EQUAL;
         surfaceMaterial.depthWrite = false;
-        surfaceMaterial.shaderDesc = {
-            uniqueName: 'CollisionSurface',
-            vertexGLSL: surfaceVertexGLSL,
-            fragmentGLSL: surfaceFragmentGLSL,
-            vertexWGSL: surfaceVertexWGSL,
-            fragmentWGSL: surfaceFragmentWGSL,
-            attributes: {
-                vertex_position: SEMANTIC_POSITION,
-                vertex_normal: SEMANTIC_NORMAL
-            }
-        };
+        surfaceMaterial.cull = CULLFACE_BACK;
         surfaceMaterial.update();
 
         const surfaceInstance = new MeshInstance(mesh, surfaceMaterial);
@@ -282,23 +181,14 @@ class MeshDebugOverlay {
             layers: [this.layer.id]
         });
 
-        // Pass 3: wireframe — black lines depth-tested against the surface so
-        // back-facing edges are hidden. LESSEQUAL keeps front-edge lines from
-        // failing against the depth their own surface wrote.
-        const wireframeMaterial = new ShaderMaterial();
-        wireframeMaterial.cull = CULLFACE_NONE;
+        // Pass 3: wireframe, opaque black, depth-tested against the surface.
+        const wireframeMaterial = makeUnlit();
+        wireframeMaterial.opacity = 1;
         wireframeMaterial.blendType = BLEND_NONE;
         wireframeMaterial.depthTest = true;
         wireframeMaterial.depthFunc = FUNC_LESSEQUAL;
         wireframeMaterial.depthWrite = false;
-        wireframeMaterial.shaderDesc = {
-            uniqueName: 'CollisionWireframeFlat',
-            vertexGLSL: positionOnlyVertexGLSL,
-            fragmentGLSL: constantBlackFragmentGLSL,
-            vertexWGSL: positionOnlyVertexWGSL,
-            fragmentWGSL: constantBlackFragmentWGSL,
-            attributes: { vertex_position: SEMANTIC_POSITION }
-        };
+        wireframeMaterial.cull = CULLFACE_NONE;
         wireframeMaterial.update();
 
         const wireframeInstance = new MeshInstance(mesh, wireframeMaterial);
