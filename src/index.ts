@@ -223,8 +223,8 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
         hasAR: false,
         hasVR: false,
         hasCollision: false,
-        hasVoxelOverlay: false,
-        voxelOverlayEnabled: false,
+        hasCollisionOverlay: false,
+        collisionOverlayEnabled: false,
         isFullscreen: false,
         controlsHidden: false,
         gamingControls: localStorage.getItem('gamingControls') === 'true'

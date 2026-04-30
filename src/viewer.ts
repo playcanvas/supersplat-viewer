@@ -33,9 +33,10 @@ import { Annotations } from './annotations';
 import { CameraManager } from './camera-manager';
 import { Camera } from './cameras/camera';
 import type { Collision } from './collision';
-import { VoxelCollision } from './collision';
+import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
+import { MeshDebugOverlay } from './mesh-debug-overlay';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { Config, Global } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
@@ -161,6 +162,8 @@ class Viewer {
     forceRenderNextFrame = false;
 
     voxelOverlay: VoxelDebugOverlay | null = null;
+
+    meshOverlay: MeshDebugOverlay | null = null;
 
     walkCursor: WalkCursor | null = null;
 
@@ -360,14 +363,23 @@ class Viewer {
 
             state.hasCollision = !!collision;
 
-            // Create voxel debug overlay in WebGPU only (requires voxel-specific properties)
+            // Create collision debug overlay (voxel uses a compute shader, mesh
+            // uses standard line rendering). The voxel path requires WebGPU.
             if (collision instanceof VoxelCollision && config.renderer !== 'webgl') {
                 this.voxelOverlay = new VoxelDebugOverlay(app, collision, camera);
                 this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
-                state.hasVoxelOverlay = true;
+                state.hasCollisionOverlay = true;
 
-                events.on('voxelOverlayEnabled:changed', (value: boolean) => {
+                events.on('collisionOverlayEnabled:changed', (value: boolean) => {
                     this.voxelOverlay.enabled = value;
+                    app.renderNextFrame = true;
+                });
+            } else if (collision instanceof MeshCollision) {
+                this.meshOverlay = new MeshDebugOverlay(app, collision);
+                state.hasCollisionOverlay = true;
+
+                events.on('collisionOverlayEnabled:changed', (value: boolean) => {
+                    this.meshOverlay.enabled = value;
                     app.renderNextFrame = true;
                 });
             }

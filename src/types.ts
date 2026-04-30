@@ -42,8 +42,8 @@ type State = {
     hasAR: boolean;
     hasVR: boolean;
     hasCollision: boolean;
-    hasVoxelOverlay: boolean;
-    voxelOverlayEnabled: boolean;
+    hasCollisionOverlay: boolean;
+    collisionOverlayEnabled: boolean;
     isFullscreen: boolean;
     controlsHidden: boolean;
     gamingControls: boolean;

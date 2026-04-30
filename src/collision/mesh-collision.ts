@@ -330,6 +330,12 @@ const _segClosest = { x: 0, y: 0, z: 0 };
 const _triClosest = { x: 0, y: 0, z: 0 };
 
 class MeshCollision implements Collision {
+    // Source geometry retained so debug overlays can build a wireframe from the
+    // same triangles that drive collision queries.
+    readonly positions: Float32Array;
+
+    readonly indices: Uint32Array | Uint16Array;
+
     private _tris: TriangleData;
 
     private _root: BVHNode;
@@ -349,6 +355,8 @@ class MeshCollision implements Collision {
     private readonly _rayResult = { t: -1, triIdx: -1 };
 
     constructor(positions: Float32Array, indices: Uint32Array | Uint16Array) {
+        this.positions = positions;
+        this.indices = indices;
         const numTris = Math.floor(indices.length / 3);
         const tris: TriangleData = {
             v0x: new Float32Array(numTris),

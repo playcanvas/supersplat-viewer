@@ -44,8 +44,8 @@ class ModeShortcuts {
                 events.fire('inputEvent', 'toggleWalk');
                 break;
             case 'v':
-                if (state.hasVoxelOverlay) {
-                    state.voxelOverlayEnabled = !state.voxelOverlayEnabled;
+                if (state.hasCollisionOverlay) {
+                    state.collisionOverlayEnabled = !state.collisionOverlayEnabled;
                 }
                 break;
             case 'g':
