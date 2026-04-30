@@ -43,11 +43,12 @@ const MAX_STEPS: u32 = 512u;
 // Target wireframe edge width in pixels
 const EDGE_PIXELS: f32 = 1.5;
 
-// Wireframe edge alpha
-const EDGE_ALPHA: f32 = 0.85;
+// Wireframe edge alpha (1.0 = pure black opaque edges, matching the mesh
+// overlay's wireframe pass).
+const EDGE_ALPHA: f32 = 0.8;
 
-// Interior fill alpha (subtle orientation tint)
-const FILL_ALPHA: f32 = 0.12;
+// Interior fill alpha (matching the mesh overlay's surface alpha).
+const FILL_ALPHA: f32 = 0.30;
 
 struct Uniforms {
     invVP: mat4x4<f32>,
@@ -156,14 +157,16 @@ fn edgeFactor(hitPos: vec3f, voxMin: vec3f, voxSize: f32, edgeWidth: f32) -> f32
     return 1.0 - smoothstep(0.0, edgeWidth, edgeDist);
 }
 
-// Shade a voxel hit, returning premultiplied RGBA
-fn shadeVoxelHit(hitPos: vec3f, voxMin: vec3f, voxelRes: f32, ro: vec3f, isFullBlock: bool) -> vec4f {
+// Shade a voxel hit, returning premultiplied RGBA. Uses the same face-axis
+// grayscale palette as the mesh collision overlay (0.85 / 0.55 / 0.30 by
+// dominant axis), with pure black at face edges to mimic that overlay's
+// wireframe pass.
+fn shadeVoxelHit(hitPos: vec3f, voxMin: vec3f, voxelRes: f32, ro: vec3f) -> vec4f {
     let dist = length(hitPos - ro);
     let pixelWorld = 2.0 * dist / (f32(uniforms.screenHeight) * uniforms.projScaleY);
     let ew = clamp(EDGE_PIXELS * pixelWorld / voxelRes, 0.01, 0.5);
 
     let ef = edgeFactor(hitPos, voxMin, voxelRes, ew);
-    let distFade = clamp(1.0 - dist * 0.01, 0.2, 1.0);
 
     let local = (hitPos - voxMin) / voxelRes;
     let fx = min(local.x, 1.0 - local.x);
@@ -178,19 +181,17 @@ fn shadeVoxelHit(hitPos: vec3f, voxMin: vec3f, voxelRes: f32, ro: vec3f, isFullB
     }
 
     var baseColor: vec3f;
-    if (isFullBlock) {
-        if (faceAxis == 0u) { baseColor = vec3f(1.0, 0.25, 0.2); }
-        else if (faceAxis == 1u) { baseColor = vec3f(0.8, 0.15, 0.1); }
-        else { baseColor = vec3f(0.55, 0.08, 0.05); }
-    } else {
-        if (faceAxis == 0u) { baseColor = vec3f(0.7, 0.7, 0.72); }
-        else if (faceAxis == 1u) { baseColor = vec3f(0.5, 0.5, 0.52); }
-        else { baseColor = vec3f(0.33, 0.33, 0.35); }
-    }
+    if (faceAxis == 0u) { baseColor = vec3f(0.85); }
+    else if (faceAxis == 1u) { baseColor = vec3f(0.55); }
+    else { baseColor = vec3f(0.30); }
 
-    let alpha = mix(FILL_ALPHA, EDGE_ALPHA, ef) * distFade;
+    // Mix the surface base color toward black as the edge factor approaches 1
+    // and ramp alpha from FILL_ALPHA up to EDGE_ALPHA so face edges read as
+    // opaque black lines while the interior stays at the surface tint.
+    let color = mix(baseColor, vec3f(0.0), ef);
+    let alpha = mix(FILL_ALPHA, EDGE_ALPHA, ef);
 
-    return vec4f(mix(baseColor, vec3f(0.0), alpha) * alpha, alpha);
+    return vec4f(color * alpha, alpha);
 }
 
 // Blue (0) -> Cyan (0.25) -> Green (0.5) -> Yellow (0.75) -> Red (1.0)
@@ -387,8 +388,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
                             let voxMin = blockOrigin + vec3f(f32(vx), f32(vy), f32(vz)) * voxelRes;
                             let vHit = intersectAABB(ro, invDir, voxMin, voxMin + vec3f(voxelRes));
                             let hitPos = ro + rd * max(vHit.x, 0.0);
-                            let isFullBlock = select(blockResult == 1u, blockResult == 0u, inv);
-                            let result = shadeVoxelHit(hitPos, voxMin, voxelRes, ro, isFullBlock);
+                            let result = shadeVoxelHit(hitPos, voxMin, voxelRes, ro);
                             textureStore(outputTexture, vec2i(px, py), result);
                         } else {
                             let effort = f32(totalWork) / 256.0;
