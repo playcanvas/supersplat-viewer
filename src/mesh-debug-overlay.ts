@@ -1,6 +1,5 @@
 import {
     type AppBase,
-    BLEND_NONE,
     BLEND_NORMAL,
     Color,
     CULLFACE_BACK,
@@ -20,24 +19,30 @@ import {
 import type { MeshCollision } from './collision';
 
 // Single-layer overlay rendered after the gaussians, three passes on a fresh
-// depth buffer, all using stock StandardMaterial:
+// depth buffer:
 //
-//   1. Surface depth pre-pass: depth test/write on, color writes off — stamps
-//      the front-most surface depth into the depth buffer.
-//   2. Surface color pass: depthFunc EQUAL, depth write off — only the
-//      front-most fragment from pass 1 survives, so a single layer of
-//      semi-transparent surface color blends onto the camera target. Tint is
-//      baked per-vertex from each triangle's face normal at construction
-//      time, so no custom shader is needed.
-//   3. Wireframe pass: black lines (RENDERSTYLE_WIREFRAME) depth-tested
-//      against the surface depth so back-facing edges are hidden.
+//   1. Surface depth pre-pass: color writes masked off, depth test/write on.
+//      Stamps the front-most surface depth into the depth buffer.
+//   2. Surface color pass: depthFunc EQUAL, depth write off, vertex-color
+//      tinted via StandardMaterial. Only the front-most fragment from pass 1
+//      survives so a single layer of semi-transparent surface color blends
+//      onto the camera target.
+//   3. Wireframe pass: opaque-looking black lines (RENDERSTYLE_WIREFRAME),
+//      depth-tested against the surface depth so back-facing edges are
+//      hidden.
+//
+// All three passes use BLEND_NORMAL so they share the layer's *transparent*
+// render action. PlayCanvas creates separate opaque and transparent render
+// actions per layer and `clearDepthBuffer` clears the depth buffer for each
+// of them — if the depth pre-pass were opaque, the transparent action would
+// wipe the depth before pass 2 and FUNC_EQUAL would always fail.
 
 const SURFACE_ALPHA = 0.3;
 
 // Build an unindexed mesh where every triangle has three unique vertices that
 // share the triangle's flat face color (tint by dominant axis of the face
-// normal, alpha baked in). Using per-triangle vertices avoids derivative
-// shimmer and gives the surface a faceted look matching the voxel overlay.
+// normal, alpha baked in). Per-triangle vertices give the surface a faceted
+// look matching the voxel overlay.
 const buildFlatMesh = (positions: Float32Array, indices: Uint32Array | Uint16Array) => {
     const numTris = Math.floor(indices.length / 3);
     const flatPositions = new Float32Array(numTris * 9);
@@ -92,14 +97,23 @@ const buildFlatMesh = (positions: Float32Array, indices: Uint32Array | Uint16Arr
     return { flatPositions, flatColors, flatIndices };
 };
 
-const makeUnlit = () => {
+// Configures a StandardMaterial that emits the per-vertex color directly. The
+// depth pre-pass and the color pass use the same configuration (so they
+// compile to identical shaders and produce bit-identical depth values for
+// FUNC_EQUAL); only their write masks and depth state differ.
+const makeSurfaceMaterial = () => {
     const m = new StandardMaterial();
     m.useLighting = false;
     m.useSkybox = false;
     m.ambient = new Color(0, 0, 0);
     m.diffuse = new Color(0, 0, 0);
     m.specular = new Color(0, 0, 0);
-    m.emissive = new Color(0, 0, 0);
+    m.emissive = new Color(1, 1, 1);
+    m.emissiveVertexColor = true;
+    m.emissiveVertexColorChannel = 'rgb';
+    m.opacityVertexColor = true;
+    m.opacityVertexColorChannel = 'a';
+    m.opacity = 1;
     return m;
 };
 
@@ -123,8 +137,6 @@ class MeshDebugOverlay {
         mesh.update(PRIMITIVE_TRIANGLES);
         mesh.generateWireframe();
 
-        // Overlay layer rendered after everything, with a fresh depth buffer.
-        // Manual sort keeps the three passes ordered by drawOrder.
         this.layer = new Layer({
             name: 'CollisionOverlay',
             clearColorBuffer: false,
@@ -135,12 +147,13 @@ class MeshDebugOverlay {
         app.scene.layers.push(this.layer);
         camera.camera.layers = [...camera.camera.layers, this.layer.id];
 
-        // Pass 1: depth pre-pass. No color writes.
-        const depthMaterial = makeUnlit();
-        depthMaterial.blendType = BLEND_NONE;
+        // Pass 1: depth pre-pass. Color writes masked off so only depth lands
+        // in the buffer.
+        const depthMaterial = makeSurfaceMaterial();
+        depthMaterial.cull = CULLFACE_BACK;
+        depthMaterial.blendType = BLEND_NORMAL;
         depthMaterial.depthTest = true;
         depthMaterial.depthWrite = true;
-        depthMaterial.cull = CULLFACE_BACK;
         depthMaterial.redWrite = false;
         depthMaterial.greenWrite = false;
         depthMaterial.blueWrite = false;
@@ -156,20 +169,15 @@ class MeshDebugOverlay {
             layers: [this.layer.id]
         });
 
-        // Pass 2: surface color, depth EQUAL. Vertex color drives both the
-        // emissive tint and the opacity, no shaders required.
-        const surfaceMaterial = makeUnlit();
-        surfaceMaterial.emissive = new Color(1, 1, 1);
-        surfaceMaterial.emissiveVertexColor = true;
-        surfaceMaterial.emissiveVertexColorChannel = 'rgb';
-        surfaceMaterial.opacityVertexColor = true;
-        surfaceMaterial.opacityVertexColorChannel = 'a';
-        surfaceMaterial.opacity = 1;
+        // Pass 2: surface color, depth EQUAL. Only the front-most fragment
+        // from pass 1 survives, so a single layer of vertex color blends onto
+        // the camera target.
+        const surfaceMaterial = makeSurfaceMaterial();
+        surfaceMaterial.cull = CULLFACE_BACK;
         surfaceMaterial.blendType = BLEND_NORMAL;
         surfaceMaterial.depthTest = true;
         surfaceMaterial.depthFunc = FUNC_EQUAL;
         surfaceMaterial.depthWrite = false;
-        surfaceMaterial.cull = CULLFACE_BACK;
         surfaceMaterial.update();
 
         const surfaceInstance = new MeshInstance(mesh, surfaceMaterial);
@@ -181,10 +189,19 @@ class MeshDebugOverlay {
             layers: [this.layer.id]
         });
 
-        // Pass 3: wireframe, opaque black, depth-tested against the surface.
-        const wireframeMaterial = makeUnlit();
+        // Pass 3: wireframe — black lines depth-tested against the surface so
+        // back-facing edges are hidden. BLEND_NORMAL with opacity = 1 looks
+        // opaque but routes through the same transparent render action as the
+        // other two passes, keeping all three under one depth clear.
+        const wireframeMaterial = new StandardMaterial();
+        wireframeMaterial.useLighting = false;
+        wireframeMaterial.useSkybox = false;
+        wireframeMaterial.ambient = new Color(0, 0, 0);
+        wireframeMaterial.diffuse = new Color(0, 0, 0);
+        wireframeMaterial.specular = new Color(0, 0, 0);
+        wireframeMaterial.emissive = new Color(0, 0, 0);
         wireframeMaterial.opacity = 1;
-        wireframeMaterial.blendType = BLEND_NONE;
+        wireframeMaterial.blendType = BLEND_NORMAL;
         wireframeMaterial.depthTest = true;
         wireframeMaterial.depthFunc = FUNC_LESSEQUAL;
         wireframeMaterial.depthWrite = false;
