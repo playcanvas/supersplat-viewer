@@ -37,7 +37,7 @@ import type { MeshCollision } from './collision';
 // of them — if the depth pre-pass were opaque, the transparent action would
 // wipe the depth before pass 2 and FUNC_EQUAL would always fail.
 
-const SURFACE_ALPHA = 0.3;
+const SURFACE_ALPHA = Math.round(0.3 * 255);
 
 // Build an unindexed mesh where every triangle has three unique vertices that
 // share the triangle's flat face color (tint by dominant axis of the face
@@ -46,7 +46,7 @@ const SURFACE_ALPHA = 0.3;
 const buildFlatMesh = (positions: Float32Array, indices: Uint32Array | Uint16Array) => {
     const numTris = Math.floor(indices.length / 3);
     const flatPositions = new Float32Array(numTris * 9);
-    const flatColors = new Float32Array(numTris * 12);
+    const flatColors = new Uint8Array(numTris * 12);
     const flatIndices = new Uint32Array(numTris * 3);
 
     for (let i = 0; i < numTris; i++) {
@@ -67,11 +67,11 @@ const buildFlatMesh = (positions: Float32Array, indices: Uint32Array | Uint16Arr
         const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
         let gray;
         if (ax > ay && ax > az) {
-            gray = 0.85;
+            gray = 217; // 0.85 * 255
         } else if (ay > az) {
-            gray = 0.55;
+            gray = 140; // 0.55 * 255
         } else {
-            gray = 0.3;
+            gray = 76;  // 0.30 * 255
         }
 
         const op = i * 9;
@@ -118,6 +118,10 @@ const makeSurfaceMaterial = () => {
 };
 
 class MeshDebugOverlay {
+    private app: AppBase;
+
+    private camera: Entity;
+
     private layer: Layer;
 
     private entity: Entity;
@@ -125,6 +129,8 @@ class MeshDebugOverlay {
     private _enabled = false;
 
     constructor(app: AppBase, collision: MeshCollision, camera: Entity) {
+        this.app = app;
+        this.camera = camera;
         const device = app.graphicsDevice;
         const { positions, indices } = collision;
 
@@ -132,7 +138,7 @@ class MeshDebugOverlay {
 
         const mesh = new Mesh(device);
         mesh.setPositions(flatPositions);
-        mesh.setColors(flatColors);
+        mesh.setColors32(flatColors);
         mesh.setIndices(flatIndices);
         mesh.update(PRIMITIVE_TRIANGLES);
         mesh.generateWireframe();
@@ -245,6 +251,8 @@ class MeshDebugOverlay {
 
     destroy(): void {
         this.entity?.destroy();
+        this.app.scene.layers.remove(this.layer);
+        this.camera.camera.layers = this.camera.camera.layers.filter(id => id !== this.layer.id);
     }
 }
 
