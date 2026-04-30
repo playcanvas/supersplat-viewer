@@ -33,6 +33,17 @@ interface TriangleData {
     count: number;
 }
 
+// Public read-only view of triangle data, exposed for debug overlays. Keys
+// match the internal TriangleData layout but the typed arrays are presented
+// as readonly to discourage mutation.
+interface TriangleSoA {
+    readonly v0x: Float32Array; readonly v0y: Float32Array; readonly v0z: Float32Array;
+    readonly v1x: Float32Array; readonly v1y: Float32Array; readonly v1z: Float32Array;
+    readonly v2x: Float32Array; readonly v2y: Float32Array; readonly v2z: Float32Array;
+    readonly nx: Float32Array; readonly ny: Float32Array; readonly nz: Float32Array;
+    readonly count: number;
+}
+
 // ---- BVH construction ----
 
 const MAX_LEAF_TRIS = 4;
@@ -330,12 +341,6 @@ const _segClosest = { x: 0, y: 0, z: 0 };
 const _triClosest = { x: 0, y: 0, z: 0 };
 
 class MeshCollision implements Collision {
-    // Source geometry retained so debug overlays can build a wireframe from the
-    // same triangles that drive collision queries.
-    readonly positions: Float32Array;
-
-    readonly indices: Uint32Array | Uint16Array;
-
     private _tris: TriangleData;
 
     private _root: BVHNode;
@@ -355,8 +360,6 @@ class MeshCollision implements Collision {
     private readonly _rayResult = { t: -1, triIdx: -1 };
 
     constructor(positions: Float32Array, indices: Uint32Array | Uint16Array) {
-        this.positions = positions;
-        this.indices = indices;
         const numTris = Math.floor(indices.length / 3);
         const tris: TriangleData = {
             v0x: new Float32Array(numTris),
@@ -406,6 +409,18 @@ class MeshCollision implements Collision {
 
         this._tris = tris;
         this._root = buildBVH(tris, 0, numTris);
+    }
+
+    // ---- Public accessors ----
+
+    /**
+     * Read-only view of the de-indexed triangle data, used by debug overlays.
+     * The underlying typed arrays are reused and must not be mutated.
+     *
+     * @returns the triangle SoA backing this collision.
+     */
+    get triangles(): TriangleSoA {
+        return this._tris;
     }
 
     // ---- Collision interface ----
@@ -873,3 +888,4 @@ class MeshCollision implements Collision {
 }
 
 export { MeshCollision };
+export type { TriangleSoA };

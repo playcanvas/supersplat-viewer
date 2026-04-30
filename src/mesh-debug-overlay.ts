@@ -16,7 +16,7 @@ import {
     StandardMaterial
 } from 'playcanvas';
 
-import type { MeshCollision } from './collision';
+import type { MeshCollision, TriangleSoA } from './collision';
 
 // Single-layer overlay rendered after the gaussians, three passes on a fresh
 // depth buffer:
@@ -58,38 +58,22 @@ const SURFACE_ALPHA  = 0.30;
 // Without CameraFrame, `gammaCorrectOutput` applies `pow(1/2.2)` to the
 // material output, so we feed `pow(gray, 2.2)` here and gamma-correct
 // undoes it; the framebuffer ends up storing the same raw gray value.
-const buildFlatMesh = (
-    positions: Float32Array,
-    indices: Uint32Array | Uint16Array,
-    cameraFrameEnabled: boolean
-) => {
+const buildFlatMesh = (tris: TriangleSoA, cameraFrameEnabled: boolean) => {
     const encode = (v: number) => Math.round((cameraFrameEnabled ? v : Math.pow(v, 2.2)) * 255);
     const grayX = encode(SURFACE_GRAY_X);
     const grayY = encode(SURFACE_GRAY_Y);
     const grayZ = encode(SURFACE_GRAY_Z);
     const alpha = Math.round(SURFACE_ALPHA * 255);
 
-    const numTris = Math.floor(indices.length / 3);
+    const numTris = tris.count;
     const flatPositions = new Float32Array(numTris * 9);
     const flatColors = new Uint8Array(numTris * 12);
     const flatIndices = new Uint32Array(numTris * 3);
 
     for (let i = 0; i < numTris; i++) {
-        const i0 = indices[i * 3] * 3;
-        const i1 = indices[i * 3 + 1] * 3;
-        const i2 = indices[i * 3 + 2] * 3;
-
-        const v0x = positions[i0], v0y = positions[i0 + 1], v0z = positions[i0 + 2];
-        const v1x = positions[i1], v1y = positions[i1 + 1], v1z = positions[i1 + 2];
-        const v2x = positions[i2], v2y = positions[i2 + 1], v2z = positions[i2 + 2];
-
-        const e1x = v1x - v0x, e1y = v1y - v0y, e1z = v1z - v0z;
-        const e2x = v2x - v0x, e2y = v2y - v0y, e2z = v2z - v0z;
-        const nx = e1y * e2z - e1z * e2y;
-        const ny = e1z * e2x - e1x * e2z;
-        const nz = e1x * e2y - e1y * e2x;
-
-        const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+        const ax = Math.abs(tris.nx[i]);
+        const ay = Math.abs(tris.ny[i]);
+        const az = Math.abs(tris.nz[i]);
         let gray;
         if (ax > ay && ax > az) {
             gray = grayX;
@@ -100,9 +84,9 @@ const buildFlatMesh = (
         }
 
         const op = i * 9;
-        flatPositions[op]     = v0x; flatPositions[op + 1] = v0y; flatPositions[op + 2] = v0z;
-        flatPositions[op + 3] = v1x; flatPositions[op + 4] = v1y; flatPositions[op + 5] = v1z;
-        flatPositions[op + 6] = v2x; flatPositions[op + 7] = v2y; flatPositions[op + 8] = v2z;
+        flatPositions[op]     = tris.v0x[i]; flatPositions[op + 1] = tris.v0y[i]; flatPositions[op + 2] = tris.v0z[i];
+        flatPositions[op + 3] = tris.v1x[i]; flatPositions[op + 4] = tris.v1y[i]; flatPositions[op + 5] = tris.v1z[i];
+        flatPositions[op + 6] = tris.v2x[i]; flatPositions[op + 7] = tris.v2y[i]; flatPositions[op + 8] = tris.v2z[i];
 
         const oc = i * 12;
         for (let j = 0; j < 3; j++) {
@@ -153,16 +137,17 @@ class MeshDebugOverlay {
 
     private entity: Entity;
 
+    private materials: StandardMaterial[];
+
     private _enabled = false;
 
     constructor(app: AppBase, collision: MeshCollision, camera: Entity, cameraFrameEnabled: boolean) {
         this.app = app;
         this.camera = camera;
         const device = app.graphicsDevice;
-        const { positions, indices } = collision;
 
         const { flatPositions, flatColors, flatIndices } =
-            buildFlatMesh(positions, indices, cameraFrameEnabled);
+            buildFlatMesh(collision.triangles, cameraFrameEnabled);
 
         const mesh = new Mesh(device);
         mesh.setPositions(flatPositions);
@@ -262,6 +247,8 @@ class MeshDebugOverlay {
         });
         wireframeEntity.render.renderStyle = RENDERSTYLE_WIREFRAME;
 
+        this.materials = [depthMaterial, surfaceMaterial, wireframeMaterial];
+
         this.entity = new Entity('MeshCollisionDebug');
         this.entity.addChild(depthEntity);
         this.entity.addChild(surfaceEntity);
@@ -280,7 +267,13 @@ class MeshDebugOverlay {
     }
 
     destroy(): void {
+        // Entity.destroy() removes child entities and tears down their render
+        // components, which destroy the MeshInstances and decref the shared
+        // Mesh (the last decref destroys its GPU buffers). Materials are not
+        // owned by MeshInstance so destroy them explicitly here.
         this.entity?.destroy();
+        for (const m of this.materials) m.destroy();
+        this.materials.length = 0;
         this.app.scene.layers.remove(this.layer);
         this.camera.camera.layers = this.camera.camera.layers.filter(id => id !== this.layer.id);
     }
