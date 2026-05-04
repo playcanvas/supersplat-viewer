@@ -6,6 +6,7 @@ import { damp } from '../core/math';
 
 const FIXED_DT = 1 / 60;
 const MAX_SUBSTEPS = 10;
+const SURFACE_NORMAL_THRESHOLD = 0.5;
 
 /** Pre-allocated push-out vector for capsule collision */
 const out: PushOut = { x: 0, y: 0, z: 0 };
@@ -19,6 +20,8 @@ const moveStep = [0, 0, 0];
 
 const offset = new Vec3();
 const rotation = new Quat();
+
+type SpawnAnchor = 'eye' | 'floor' | 'ceiling';
 
 /**
  * First-person camera controller with spring-damper suspension over voxel terrain.
@@ -137,16 +140,27 @@ class WalkController implements CameraController {
     onEnter(camera: Camera): void {
         this.goto(camera);
         if (this.collision) {
+            const spawnAnchor = this._queryCapsule(this._position) ? this._findSpawnAnchor(camera.position) : 'eye';
+
+            if (spawnAnchor === 'floor') {
+                this._position.y = camera.position.y + this.eyeHeight;
+            } else if (spawnAnchor === 'ceiling') {
+                this._position.y = camera.position.y - (this.capsuleHeight - this.eyeHeight);
+            }
+
             this._resolveSpawnCollision();
-            this._prevPosition.copy(this._position);
 
             const groundY = this._probeGround(this._position);
             if (groundY !== null) {
                 this._grounded = true;
                 this._velocity.y = 0;
-                this._position.y = groundY + this.hoverHeight + this.eyeHeight;
-                this._prevPosition.copy(this._position);
+
+                if (spawnAnchor === 'eye') {
+                    this._position.y = groundY + this.hoverHeight + this.eyeHeight;
+                }
             }
+
+            this._prevPosition.copy(this._position);
         }
     }
 
@@ -278,22 +292,65 @@ class WalkController implements CameraController {
     }
 
     /**
-     * Push the capsule upward until it clears solid geometry, up to a maximum of
-     * 100 iterations. Only used at spawn time to handle the case where walk mode
-     * activates inside a solid region. Per-frame collision resolution is unaffected,
-     * avoiding the ceiling launch bug.
+     * Resolve the capsule out of solid geometry at spawn time. This is only used
+     * when walk mode activates inside collision.
      */
     private _resolveSpawnCollision() {
-        const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
-        const minStep = this.capsuleRadius;
-
         for (let i = 0; i < 100; i++) {
-            const center = this._position.y - this.eyeHeight + this.capsuleHeight * 0.5;
-            if (!this.collision!.queryCapsule(this._position.x, center, this._position.z, half, this.capsuleRadius, out)) {
+            if (!this._queryCapsule(this._position)) {
                 break;
             }
-            this._position.y += Math.max(out.y, minStep);
+            this._position.add(v.set(out.x, out.y, out.z));
         }
+    }
+
+    /**
+     * Detect whether the incoming camera position is actually a floor or ceiling
+     * surface point rather than an eye position.
+     *
+     * @param pos - Incoming camera position.
+     * @returns Spawn anchor for interpreting the camera position.
+     */
+    private _findSpawnAnchor(pos: Vec3): SpawnAnchor {
+        const range = this.capsuleRadius + this.hoverHeight;
+        const collision = this.collision!;
+        let floorDist = Infinity;
+        let ceilingDist = Infinity;
+
+        const floorHit = collision.queryRay(pos.x, pos.y, pos.z, 0, -1, 0, range);
+        if (floorHit) {
+            const normal = collision.querySurfaceNormal(floorHit.x, floorHit.y, floorHit.z, 0, -1, 0);
+            if (normal.ny > SURFACE_NORMAL_THRESHOLD) {
+                floorDist = Math.abs(pos.y - floorHit.y);
+            }
+        }
+
+        const ceilingHit = collision.queryRay(pos.x, pos.y, pos.z, 0, 1, 0, range);
+        if (ceilingHit) {
+            const normal = collision.querySurfaceNormal(ceilingHit.x, ceilingHit.y, ceilingHit.z, 0, 1, 0);
+            if (normal.ny < -SURFACE_NORMAL_THRESHOLD) {
+                ceilingDist = Math.abs(ceilingHit.y - pos.y);
+            }
+        }
+
+        if (floorDist === Infinity && ceilingDist === Infinity) {
+            return 'eye';
+        }
+
+        return floorDist <= ceilingDist ? 'floor' : 'ceiling';
+    }
+
+    /**
+     * Query the current walk capsule at the supplied eye position.
+     *
+     * @param pos - Eye position in PlayCanvas world space.
+     * @returns True if the capsule overlaps collision.
+     */
+    private _queryCapsule(pos: Vec3): boolean {
+        const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
+        const center = pos.y - this.eyeHeight + this.capsuleHeight * 0.5;
+
+        return this.collision!.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out);
     }
 
     /**

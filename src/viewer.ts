@@ -81,6 +81,12 @@ const rendererTable: Record<Config['renderer'], number> = {
     'compute': GSPLAT_RENDERER_COMPUTE
 };
 
+type GSplatOctreeResourceLike = {
+    octree?: {
+        lodLevels: number;
+    } | null;
+};
+
 const tonemapTable: Record<string, number> = {
     none: TONEMAP_NONE,
     linear: TONEMAP_LINEAR,
@@ -445,7 +451,8 @@ class Viewer {
                     gsplat.lodRangeMax = 1000;
                 } else {
                     // reveal once low lod has loaded for fastest possible reveal
-                    const lodLevels = results[0].gsplat.resource?.octree?.lodLevels;
+                    const resource = results[0].gsplat.resource as GSplatOctreeResourceLike | null;
+                    const lodLevels = resource?.octree?.lodLevels;
                     if (lodLevels) {
                         gsplat.lodRangeMax = gsplat.lodRangeMin = lodLevels - 1;
                     }
