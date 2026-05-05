@@ -168,6 +168,9 @@ class CameraManager {
                         events.fire('walkTarget:clear');
                         startTransition();
                         controllers.walk.resetToSpawn(target);
+                    } else if (state.cameraMode === 'fly') {
+                        startTransition();
+                        controllers.fly.resetToSpawn(target);
                     } else {
                         state.cameraMode = 'orbit';
                         controllers.orbit.goto(resetCamera);
