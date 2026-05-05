@@ -1,7 +1,8 @@
-import { math, Vec3, Quat } from 'playcanvas';
+import { math, Vec3 } from 'playcanvas';
 
 import type { Collision, PushOut } from '../collision';
 import type { CameraFrame, Camera, CameraController } from './camera';
+import { applyFrameRotation, setBasisOffset, setYawBasis } from './camera-utils';
 import { damp } from '../core/math';
 
 const FIXED_DT = 1 / 60;
@@ -20,7 +21,6 @@ const right = new Vec3();
 const moveStep = [0, 0, 0];
 
 const offset = new Vec3();
-const rotation = new Quat();
 const spawnProbe = new Vec3();
 
 /**
@@ -170,8 +170,7 @@ class WalkController implements CameraController {
         const { move, rotate } = inputFrame.read();
 
         // apply rotation at display rate for responsive mouse look
-        this._angles.add(v.set(-rotate[1], -rotate[0], 0));
-        this._angles.x = math.clamp(this._angles.x, -90, 90);
+        applyFrameRotation(this._angles, rotate);
 
         // accumulate movement input so frames without a physics step don't lose input
         this._pendingMove[0] += move[0];
@@ -247,12 +246,8 @@ class WalkController implements CameraController {
         }
 
         // move
-        rotation.setFromEulerAngles(0, this._angles.y, 0);
-        rotation.transformVector(Vec3.FORWARD, forward);
-        rotation.transformVector(Vec3.RIGHT, right);
-        offset.set(0, 0, 0);
-        offset.add(forward.mulScalar(move[2]));
-        offset.add(right.mulScalar(move[0]));
+        setYawBasis(this._angles.y, forward, right);
+        setBasisOffset(offset, move[0], 0, move[2], forward, right, Vec3.UP);
         this._velocity.add(offset.mulScalar(this._grounded ? this.moveGroundSpeed : this.moveAirSpeed));
 
         const dampFactor = this._grounded ? this.velocityDampingGround : this.velocityDampingAir;

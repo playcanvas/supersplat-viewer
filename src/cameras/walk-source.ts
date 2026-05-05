@@ -1,8 +1,7 @@
 import { Vec3 } from 'playcanvas';
 
 import type { CameraFrame } from './camera';
-
-const RAD_TO_DEG = 180 / Math.PI;
+import { ProgressTracker, clampTurnStep, getYawDiffToTarget, smoothTurnRate } from './target-navigation';
 
 /** XZ distance below which the walker considers itself arrived */
 const ARRIVAL_DIST = 0.5;
@@ -49,9 +48,7 @@ class WalkSource {
 
     private _yawRate = 0;
 
-    private _blockedTime = 0;
-
-    private _prevDist = Infinity;
+    private _progress = new ProgressTracker();
 
     get isWalking(): boolean {
         return this._target !== null;
@@ -67,8 +64,7 @@ class WalkSource {
             this._target = new Vec3();
         }
         this._target.copy(target);
-        this._blockedTime = 0;
-        this._prevDist = Infinity;
+        this._progress.reset();
     }
 
     /**
@@ -78,7 +74,7 @@ class WalkSource {
         if (this._target) {
             this._target = null;
             this._yawRate = 0;
-            this._blockedTime = 0;
+            this._progress.reset();
             this.onComplete?.();
         }
     }
@@ -108,31 +104,19 @@ class WalkSource {
         }
 
         // blocked detection: compare with previous frame's distance
-        if (this._prevDist !== Infinity && dt > 0) {
-            const speed = (this._prevDist - xzDist) / dt;
-            if (speed < BLOCKED_SPEED) {
-                this._blockedTime += dt;
-                if (this._blockedTime >= BLOCKED_DURATION) {
-                    this.cancelWalk();
-                    return;
-                }
-            } else {
-                this._blockedTime = 0;
-            }
+        if (this._progress.update(xzDist, dt, BLOCKED_SPEED, BLOCKED_DURATION)) {
+            this.cancelWalk();
+            return;
         }
-        this._prevDist = xzDist;
 
         // yaw toward target with smoothed turn rate
-        const targetYaw = Math.atan2(-dx, -dz) * RAD_TO_DEG;
-        let yawDiff = targetYaw - cameraAngles.y;
-        yawDiff = ((yawDiff % 360) + 540) % 360 - 180;
-
-        const desiredRate = Math.max(-this.maxTurnRate, Math.min(yawDiff * this.turnGain, this.maxTurnRate));
-        const smoothing = 1 - Math.exp(-4 * this.turnGain * dt);
-        this._yawRate += (desiredRate - this._yawRate) * smoothing;
+        const yawDiff = getYawDiffToTarget(dx, dz, cameraAngles.y);
+        this._yawRate = smoothTurnRate(this._yawRate, yawDiff, this.maxTurnRate, this.turnGain, dt);
+        const yawStep = clampTurnStep(this._yawRate, yawDiff, dt);
+        this._yawRate = dt > 0 ? yawStep / dt : this._yawRate;
 
         // WalkController applies: _angles.y += -rotate[0]
-        frame.deltas.rotate.append([-(this._yawRate * dt), 0, 0]);
+        frame.deltas.rotate.append([-yawStep, 0, 0]);
 
         // scale forward speed by alignment: turn in place first, then accelerate
         const alignment = Math.max(0, Math.cos(yawDiff * Math.PI / 180));
