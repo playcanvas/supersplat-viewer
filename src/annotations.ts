@@ -23,8 +23,8 @@ class Annotations {
 
         const updateVisibility = () => {
             const firstPersonGamingControls = (
-                (state.cameraMode === 'walk' && state.gamingControls) ||
-                (state.cameraMode === 'fly' && state.inputMode === 'desktop' && state.gamingControls)
+                (state.cameraMode === 'walk' || state.cameraMode === 'fly') &&
+                state.gamingControls
             );
             const hidden = state.controlsHidden || firstPersonGamingControls;
             parentDom.style.display = hidden ? 'none' : 'block';
@@ -36,7 +36,6 @@ class Annotations {
 
         global.events.on('controlsHidden:changed', updateVisibility);
         global.events.on('cameraMode:changed', updateVisibility);
-        global.events.on('inputMode:changed', updateVisibility);
         global.events.on('gamingControls:changed', updateVisibility);
         updateVisibility();
 

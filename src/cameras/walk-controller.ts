@@ -153,9 +153,8 @@ class WalkController implements CameraController {
     onEnter(camera: Camera): void {
         this.goto(camera);
         if (this.collision) {
-            const groundY = this._findSpawnGround(camera.position);
-            if (groundY !== null) {
-                this._position.y = this._getEyeYFromGround(groundY);
+            if (this._findSpawnPosition(camera.position, spawnProbe)) {
+                this._position.copy(spawnProbe);
                 this._grounded = true;
                 this._velocity.y = 0;
                 this._resolveSpawnCollision();
@@ -338,22 +337,22 @@ class WalkController implements CameraController {
     }
 
     /**
-     * Find a ground height for spawning into walk mode. Prefer ground directly
+     * Find an eye position for spawning into walk mode. Prefer ground directly
      * below the camera; if that is not usable, search down and then up for the
      * first clear walk placement with ground below it.
      *
      * @param pos - Incoming camera position.
-     * @returns Ground height to spawn on, or null to keep the camera position.
+     * @param outPos - Receives the resolved eye position.
+     * @returns True if a spawn position was found.
      */
-    private _findSpawnGround(pos: Vec3): number | null {
+    private _findSpawnPosition(pos: Vec3, outPos: Vec3): boolean {
         const insideSolid = this._isInsideSolid(pos);
 
-        const groundY = this._findClearSpawnGroundBelow(pos, this.spawnSearchRange, !insideSolid);
-        if (groundY !== null) {
-            return groundY;
+        if (this._findClearSpawnGroundBelow(pos, this.spawnSearchRange, !insideSolid, outPos)) {
+            return true;
         }
 
-        return this._searchSpawnGround(pos, -1) ?? this._searchSpawnGround(pos, 1);
+        return this._searchSpawnGround(pos, -1, outPos) || this._searchSpawnGround(pos, 1, outPos);
     }
 
     /**
@@ -361,22 +360,22 @@ class WalkController implements CameraController {
      *
      * @param pos - Starting position.
      * @param direction - Vertical search direction: -1 down, 1 up.
-     * @returns Ground height to spawn on, or null if none was found.
+     * @param outPos - Receives the resolved eye position.
+     * @returns True if a spawn position was found.
      */
-    private _searchSpawnGround(pos: Vec3, direction: -1 | 1): number | null {
+    private _searchSpawnGround(pos: Vec3, direction: -1 | 1, outPos: Vec3): boolean {
         const step = Math.max(this.capsuleRadius, this.hoverHeight, SPAWN_SEARCH_MIN_STEP);
         const endY = pos.y + direction * this.spawnSearchRange;
 
         for (let y = pos.y + direction * step; direction < 0 ? y >= endY : y <= endY; y += direction * step) {
             spawnProbe.set(pos.x, y, pos.z);
 
-            const groundY = this._findClearSpawnGroundBelow(spawnProbe, this.spawnSearchRange, false);
-            if (groundY !== null) {
-                return groundY;
+            if (this._findClearSpawnGroundBelow(spawnProbe, this.spawnSearchRange, false, outPos)) {
+                return true;
             }
         }
 
-        return null;
+        return false;
     }
 
     /**
@@ -386,23 +385,24 @@ class WalkController implements CameraController {
      * @param pos - Ray origin.
      * @param range - Maximum ray distance.
      * @param allowInitialHit - Whether a hit at the ray origin is valid.
-     * @returns Y coordinate of the ground hit, or null if no ground was found.
+     * @param outPos - Receives the resolved eye position.
+     * @returns True if a usable ground position was found.
      */
-    private _findClearSpawnGroundBelow(pos: Vec3, range: number, allowInitialHit: boolean): number | null {
+    private _findClearSpawnGroundBelow(pos: Vec3, range: number, allowInitialHit: boolean, outPos: Vec3): boolean {
         const hit = this.collision!.queryRay(pos.x, pos.y, pos.z, 0, -1, 0, range);
         if (!hit) {
-            return null;
+            return false;
         }
 
         if (!allowInitialHit && Math.abs(pos.y - hit.y) <= SPAWN_HIT_EPSILON) {
-            return null;
+            return false;
         }
 
-        spawnProbe.set(pos.x, this._getEyeYFromGround(hit.y), pos.z);
-        const clear = !this._queryCapsule(spawnProbe);
-        const accepted = clear || this._resolveSpawnCandidate(spawnProbe);
+        outPos.set(pos.x, this._getEyeYFromGround(hit.y), pos.z);
+        const clear = !this._queryCapsule(outPos);
+        const accepted = clear || this._resolveSpawnCandidate(outPos);
 
-        return accepted ? hit.y : null;
+        return accepted;
     }
 
     /**

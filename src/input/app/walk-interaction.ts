@@ -54,7 +54,12 @@ class WalkInteraction {
         const canvas = this._canvas;
         if (!global || !canvas) return;
         const { state } = global;
-        if (state.cameraMode === 'walk' && !state.gamingControls && state.inputMode === 'desktop') {
+        const canClickTarget = state.inputMode === 'desktop' && (
+            (state.cameraMode === 'walk' && !state.gamingControls) ||
+            canTargetFly(global) ||
+            state.cameraMode === 'orbit'
+        );
+        if (canClickTarget) {
             canvas.style.cursor = this._mouseClickTracking ? 'default' : 'pointer';
         } else {
             canvas.style.cursor = '';
@@ -179,7 +184,7 @@ class WalkInteraction {
             if (prev < TAP_EPSILON && this._mouseClickDelta >= TAP_EPSILON) {
                 if (state.cameraMode === 'walk' && !state.gamingControls) {
                     events.fire('walkCancel');
-                } else if (state.cameraMode === 'fly') {
+                } else if (canTargetFly(global)) {
                     events.fire('flyCancel');
                 }
             }
@@ -273,6 +278,7 @@ class WalkInteraction {
 
         // refresh cursor on mode / gaming-controls change
         events.on('cameraMode:changed', this._onCameraModeChanged);
+        events.on('inputMode:changed', this._updateCursor);
         events.on('gamingControls:changed', this._updateCursor);
     }
 
@@ -287,6 +293,7 @@ class WalkInteraction {
             events.off('inputEvent', this._onInputEvent);
             events.off('mobileTap', this._onMobileTap);
             events.off('cameraMode:changed', this._onCameraModeChanged);
+            events.off('inputMode:changed', this._updateCursor);
             events.off('gamingControls:changed', this._updateCursor);
         }
         this._canvas = null;

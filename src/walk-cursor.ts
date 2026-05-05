@@ -208,9 +208,6 @@ class WalkCursor {
                 this.hasSmoothedNormal = false;
                 return;
             }
-            if (this.targetMode === 'orbit') {
-                this.clearTarget();
-            }
             this.updateCursor(e.offsetX, e.offsetY);
         };
 
@@ -469,7 +466,7 @@ class WalkCursor {
             this.state.gamingControls;
         return this.active && !this.walking && (
             (this.state.cameraMode === 'fly' && !flyMouseCaptured) ||
-            this.state.cameraMode === 'orbit'
+            (this.state.cameraMode === 'orbit' && this.targetMode !== 'orbit')
         );
     }
 
@@ -511,6 +508,11 @@ class WalkCursor {
 
     private updateCursor(offsetX: number, offsetY: number) {
         if (!this.active || this.walking) {
+            this.hideCursor();
+            return;
+        }
+
+        if (this.state.cameraMode === 'orbit' && this.targetMode === 'orbit') {
             this.hideCursor();
             return;
         }

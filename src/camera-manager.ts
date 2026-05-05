@@ -123,6 +123,7 @@ class CameraManager {
         // transition state
         const transitionSpeed = 1.0;
         let transitionTimer = 1;
+        let clearOrbitTargetOnTransitionEnd = false;
 
         // start a new camera transition from the current pose
         const startTransition = () => {
@@ -137,6 +138,7 @@ class CameraManager {
             const dt = state.cameraMode === 'anim' && state.animationPaused ? 0 : deltaTime;
 
             // update transition timer
+            const prevTransitionTimer = transitionTimer;
             transitionTimer = Math.min(1, transitionTimer + deltaTime * transitionSpeed);
 
             const controller = getController(state.cameraMode);
@@ -159,6 +161,11 @@ class CameraManager {
             // update animation timeline
             if (state.cameraMode === 'anim') {
                 state.animationTime = controllers.anim.animState.cursor.value;
+            }
+
+            if (clearOrbitTargetOnTransitionEnd && prevTransitionTimer < 1 && transitionTimer === 1) {
+                clearOrbitTargetOnTransitionEnd = false;
+                events.fire('orbitTarget:clear');
             }
         };
 
@@ -272,6 +279,7 @@ class CameraManager {
 
             controllers.orbit.goto(tmpCamera);
             startTransition();
+            clearOrbitTargetOnTransitionEnd = true;
         });
 
         events.on('annotation.activate', (annotation: Annotation) => {
