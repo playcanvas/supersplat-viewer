@@ -163,7 +163,7 @@ class CameraManager {
         };
 
         // handle input events
-        events.on('inputEvent', (eventName, event) => {
+        events.on('inputEvent', (eventName) => {
             switch (eventName) {
                 case 'frame':
                     events.fire('orbitTarget:clear');
@@ -224,8 +224,6 @@ class CameraManager {
                 case 'interrupt':
                     if (state.cameraMode === 'anim') {
                         state.cameraMode = fromMode;
-                    } else if (state.cameraMode === 'fly') {
-                        flySource.cancelFly();
                     }
                     break;
             }

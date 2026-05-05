@@ -120,6 +120,9 @@ class KeyboardMouseDevice implements InputDevice {
         if (isFly && (this._axis.x !== 0 || this._axis.y !== 0 || this._axis.z !== 0)) {
             events.fire('flyCancel');
         }
+        if (isFly && wheel[0] !== 0) {
+            events.fire('flyCancel');
+        }
         if (!isFirstPerson && this._axis.length() > 0) {
             events.fire('inputEvent', 'requestFirstPerson');
         }

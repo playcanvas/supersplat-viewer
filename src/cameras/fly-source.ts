@@ -101,13 +101,16 @@ class FlySource {
      * @param target - The destination.
      */
     flyTo(target: Vec3) {
+        const wasFlying = this._target !== null;
         if (!this._target) {
             this._target = new Vec3();
         }
         this._target.copy(target);
-        this._yawRate = 0;
-        this._pitchRate = 0;
-        this._speed = 0;
+        if (!wasFlying) {
+            this._yawRate = 0;
+            this._pitchRate = 0;
+            this._speed = 0;
+        }
         this._progress.reset();
     }
 
@@ -180,9 +183,13 @@ class FlySource {
         const alignmentScale = smoothstep(0.05, 0.95, alignment);
         const brakeSpeed = Math.sqrt(2 * this.moveDeceleration * activeRemainingDist);
         const arrivalSpeed = activeRemainingDist * ARRIVAL_RATE;
-        const desiredSpeed = Math.min(this.flySpeed, brakeSpeed, arrivalSpeed) * alignmentScale;
-        const speedDelta = (desiredSpeed > this._speed ? this.moveAcceleration : this.moveDeceleration) * dt;
-        this._speed = approach(this._speed, desiredSpeed, speedDelta);
+        const maxSpeed = Math.min(this.flySpeed, brakeSpeed, arrivalSpeed);
+
+        if (maxSpeed > this._speed) {
+            this._speed = approach(this._speed, maxSpeed, this.moveAcceleration * alignmentScale * dt);
+        } else {
+            this._speed = approach(this._speed, maxSpeed, this.moveDeceleration * dt);
+        }
 
         const arrivalMove = activeRemainingDist * (1 - Math.exp(-ARRIVAL_RATE * dt));
         const moveDist = Math.min(this._speed * dt, arrivalMove);
