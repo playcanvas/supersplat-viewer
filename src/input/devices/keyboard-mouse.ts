@@ -1,5 +1,6 @@
 import { KeyboardMouseSource, Vec3 } from 'playcanvas';
 
+import { damp } from '../../core/math';
 import type { Global } from '../../types';
 import {
     DISPLACEMENT_SCALE,
@@ -9,7 +10,9 @@ import {
 import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
 
 const tmpV1 = new Vec3();
+const tmpV2 = new Vec3();
 const keyMove = new Vec3();
+const flyKeyVelocity = new Vec3();
 const panMove = new Vec3();
 const mouseRotate = new Vec3();
 const wheelMove = new Vec3();
@@ -45,6 +48,10 @@ class KeyboardMouseDevice implements InputDevice {
 
     mouseRotateSensitivity: number = 0.5;
 
+    flyMoveAccelerationDamping: number = 0.992;
+
+    flyMoveDecelerationDamping: number = 0.993;
+
     private _source: KeyboardMouseSource = new KeyboardMouseSource();
 
     private _global: Global | null = null;
@@ -60,6 +67,8 @@ class KeyboardMouseDevice implements InputDevice {
     private _ctrl = 0;
 
     private _jump = 0;
+
+    private _flyKeyVelocity = new Vec3();
 
     /**
      * Get the underlying source so other code (PointerLockManager) can
@@ -133,7 +142,21 @@ class KeyboardMouseDevice implements InputDevice {
         const shiftMul = isWalk ? 2 : 4;
         const ctrlMul = isWalk ? 0.5 : 0.25;
         const speed = this.moveSpeed * (this._shift ? shiftMul : this._ctrl ? ctrlMul : 1);
-        v.add(keyMove.mulScalar((isFirstPerson ? 1 : 0) * speed * dt));
+        keyMove.mulScalar(speed);
+        if (isFly) {
+            flyKeyVelocity.copy(keyMove);
+            const damping = flyKeyVelocity.lengthSq() > this._flyKeyVelocity.lengthSq() ?
+                this.flyMoveAccelerationDamping :
+                this.flyMoveDecelerationDamping;
+            this._flyKeyVelocity.lerp(this._flyKeyVelocity, flyKeyVelocity, damp(damping, dt));
+            if (flyKeyVelocity.lengthSq() === 0 && this._flyKeyVelocity.lengthSq() < 1e-4) {
+                this._flyKeyVelocity.set(0, 0, 0);
+            }
+            keyMove.copy(this._flyKeyVelocity);
+        } else {
+            this._flyKeyVelocity.set(0, 0, 0);
+        }
+        v.add(tmpV2.copy(keyMove).mulScalar((isFirstPerson ? 1 : 0) * dt));
         if (isWalk) {
             // Pass jump signal as raw Y; WalkController uses move[1] > 0 as
             // a boolean trigger.
