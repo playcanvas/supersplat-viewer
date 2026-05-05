@@ -243,6 +243,7 @@ class WalkCursor {
         };
 
         events.on('cameraMode:changed', updateActive);
+        events.on('inputMode:changed', updateActive);
         events.on('gamingControls:changed', updateActive);
 
         events.on('walkTo', () => {

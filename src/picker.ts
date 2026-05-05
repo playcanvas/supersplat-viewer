@@ -199,7 +199,6 @@ const pickerShaderPatchState = new WeakMap<object, PickerShaderPatchState>();
 const vec4 = new Vec4();
 const viewProjMat = new Mat4();
 const clearColor = new Color(0, 0, 0, 1);
-const MATRIX_EPSILON = 1e-6;
 const NORMAL_EPSILON = 1e-12;
 const NORMAL_OUTLIER_MIN_DOT = 0.35;
 const NORMAL_SAMPLE_RADII = [1, 2, 4, 8];
@@ -213,15 +212,6 @@ const NORMAL_SAMPLE_DIRECTIONS = [
     [0, -1],
     [1, -1]
 ] as const;
-
-const matrixEquals = (a: Float32Array<ArrayBufferLike>, b: Float32Array<ArrayBufferLike>) => {
-    for (let i = 0; i < 16; i++) {
-        if (Math.abs(a[i] - b[i]) > MATRIX_EPSILON) {
-            return false;
-        }
-    }
-    return true;
-};
 
 type PickSurface = {
     position: Vec3;
@@ -240,6 +230,7 @@ type PickCameraSnapshot = {
 type PickPosition = {
     position: Vec3;
     camera: PickCameraSnapshot;
+    isComputeRenderer: boolean;
 };
 
 // Shared buffer for half-to-float conversion
@@ -380,10 +371,6 @@ class Picker {
         let accumTarget: RenderTarget;
         let accumPass: RenderPassPicker;
         let chunksPatched = false;
-        let cacheReady = false;
-        let cacheWidth = 0;
-        let cacheHeight = 0;
-        let cacheRenderer = -1;
         const cacheCamera: PickCameraSnapshot = {
             position: new Vec3(),
             viewMatrix: new Mat4(),
@@ -434,25 +421,8 @@ class Picker {
             }) as Promise<T>;
         };
 
-        const isCacheValid = (width: number, height: number) => {
+        const updateCache = () => {
             const cam = camera.camera;
-            return cacheReady &&
-                cacheWidth === width &&
-                cacheHeight === height &&
-                cacheRenderer === app.scene.gsplat.currentRenderer &&
-                cam.nearClip === cacheCamera.nearClip &&
-                cam.farClip === cacheCamera.farClip &&
-                cam.projection === cacheCamera.projection &&
-                matrixEquals(cam.viewMatrix.data, cacheCamera.viewMatrix.data) &&
-                matrixEquals(cam.projectionMatrix.data, cacheCamera.projectionMatrix.data);
-        };
-
-        const updateCache = (width: number, height: number) => {
-            const cam = camera.camera;
-            cacheReady = true;
-            cacheWidth = width;
-            cacheHeight = height;
-            cacheRenderer = app.scene.gsplat.currentRenderer;
             cacheCamera.position.copy(camera.getPosition());
             cacheCamera.viewMatrix.copy(cam.viewMatrix);
             cacheCamera.projectionMatrix.copy(cam.projectionMatrix);
@@ -472,10 +442,6 @@ class Picker {
             };
         };
 
-        const invalidateCache = () => {
-            cacheReady = false;
-        };
-
         const readRasterBlock = async (
             blockX: number,
             blockY: number,
@@ -487,36 +453,31 @@ class Picker {
         ) => {
             const texY = graphicsDevice.isWebGL2 ? accumTarget.height - blockY - blockHeight : blockY;
 
-            try {
-                const pixels = await accumBuffer.read(blockX, texY, blockWidth, blockHeight, {
-                    renderTarget: accumTarget,
-                    immediate: true
-                }) as Uint16Array;
+            const pixels = await accumBuffer.read(blockX, texY, blockWidth, blockHeight, {
+                renderTarget: accumTarget,
+                immediate: true
+            }) as Uint16Array;
 
-                return (x: number, y: number) => {
-                    const localX = x - blockX;
-                    const localY = y - blockY;
-                    if (localX < 0 || localX >= blockWidth || localY < 0 || localY >= blockHeight) {
-                        return null;
-                    }
+            return (x: number, y: number) => {
+                const localX = x - blockX;
+                const localY = y - blockY;
+                if (localX < 0 || localX >= blockWidth || localY < 0 || localY >= blockHeight) {
+                    return null;
+                }
 
-                    const row = graphicsDevice.isWebGL2 ? blockHeight - localY - 1 : localY;
-                    const index = (row * blockWidth + localX) * 4;
-                    const r = half2Float(pixels[index]);
-                    const transmittance = half2Float(pixels[index + 3]);
-                    const alpha = 1 - transmittance;
+                const row = graphicsDevice.isWebGL2 ? blockHeight - localY - 1 : localY;
+                const index = (row * blockWidth + localX) * 4;
+                const r = half2Float(pixels[index]);
+                const transmittance = half2Float(pixels[index + 3]);
+                const alpha = 1 - transmittance;
 
-                    if (!Number.isFinite(r) || !Number.isFinite(alpha) || alpha < 1e-6) {
-                        return null;
-                    }
+                if (!Number.isFinite(r) || !Number.isFinite(alpha) || alpha < 1e-6) {
+                    return null;
+                }
 
-                    const normalizedDepth = r / alpha;
-                    return getWorldPoint(pickCamera, x, y, viewportWidth, viewportHeight, normalizedDepth);
-                };
-            } catch (e) {
-                invalidateCache();
-                throw e;
-            }
+                const normalizedDepth = r / alpha;
+                return getWorldPoint(pickCamera, x, y, viewportWidth, viewportHeight, normalizedDepth);
+            };
         };
 
         const pickPosition = async (x: number, y: number): Promise<PickPosition | null> => {
@@ -534,83 +495,69 @@ class Picker {
             if (!worldLayer) {
                 return null;
             }
+            const isComputeRenderer = app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE;
 
-            if (!isCacheValid(width, height)) {
-                // Enable gsplat IDs only while rendering the pick target so we
-                // don't pay the memory/perf cost between pick passes.
-                const prevEnableIds = app.scene.gsplat.enableIds;
-                app.scene.gsplat.enableIds = true;
-                try {
-                    if (app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE) {
-                        enginePicker ??= new EnginePicker(app, 1, 1, true);
-                        enginePicker.resize(width, height);
-                        enginePicker.prepare(camera.camera, app.scene, [worldLayer]);
-                    } else {
-                        if (!chunksPatched) {
-                            registerPickerShaderPatches(app);
-                            chunksPatched = true;
-                        }
-
-                        if (!accumPass) {
-                            initRasterAccum(width, height);
-                        } else {
-                            accumTarget.resize(width, height);
-                        }
-
-                        accumPass.init(accumTarget);
-                        accumPass.setClearColor(clearColor);
-                        accumPass.update(
-                            camera.camera,
-                            app.scene,
-                            [worldLayer],
-                            new Map<number, MeshInstance | GSplatComponent>(),
-                            false
-                        );
-                        accumPass.render();
+            // Enable gsplat IDs only while rendering the pick target so we
+            // don't pay the memory/perf cost between pick passes.
+            const prevEnableIds = app.scene.gsplat.enableIds;
+            app.scene.gsplat.enableIds = true;
+            try {
+                if (isComputeRenderer) {
+                    enginePicker ??= new EnginePicker(app, 1, 1, true);
+                    enginePicker.resize(width, height);
+                    enginePicker.prepare(camera.camera, app.scene, [worldLayer]);
+                } else {
+                    if (!chunksPatched) {
+                        registerPickerShaderPatches(app);
+                        chunksPatched = true;
                     }
 
-                    updateCache(width, height);
-                } catch (e) {
-                    invalidateCache();
-                    throw e;
-                } finally {
-                    app.scene.gsplat.enableIds = prevEnableIds;
+                    if (!accumPass) {
+                        initRasterAccum(width, height);
+                    } else {
+                        accumTarget.resize(width, height);
+                    }
+
+                    accumPass.init(accumTarget);
+                    accumPass.setClearColor(clearColor);
+                    accumPass.update(
+                        camera.camera,
+                        app.scene,
+                        [worldLayer],
+                        new Map<number, MeshInstance | GSplatComponent>(),
+                        false
+                    );
+                    accumPass.render();
                 }
+
+                updateCache();
+            } finally {
+                app.scene.gsplat.enableIds = prevEnableIds;
             }
 
             const pickCamera = getCacheCameraSnapshot();
 
-            if (app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE) {
+            if (isComputeRenderer) {
                 const normalizedDepth = await enginePicker!.getPointDepthAsync(screenX, screenY);
                 const position = normalizedDepth !== null ?
                     getWorldPoint(pickCamera, screenX, screenY, width, height, normalizedDepth) :
                     null;
-                return position ? { position, camera: pickCamera } : null;
+                return position ? { position, camera: pickCamera, isComputeRenderer } : null;
             }
 
-            try {
-                if (app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE) {
-                    invalidateCache();
-                    return null;
-                }
+            const pixels = await readTexture<Uint16Array>(accumBuffer, screenX, screenY, accumTarget);
 
-                const pixels = await readTexture<Uint16Array>(accumBuffer, screenX, screenY, accumTarget);
+            const r = half2Float(pixels[0]);
+            const transmittance = half2Float(pixels[3]);
+            const alpha = 1 - transmittance;
 
-                const r = half2Float(pixels[0]);
-                const transmittance = half2Float(pixels[3]);
-                const alpha = 1 - transmittance;
-
-                if (!Number.isFinite(r) || !Number.isFinite(alpha) || alpha < 1e-6) {
-                    return null;
-                }
-
-                const normalizedDepth = r / alpha;
-                const position = getWorldPoint(pickCamera, screenX, screenY, width, height, normalizedDepth);
-                return position ? { position, camera: pickCamera } : null;
-            } catch (e) {
-                invalidateCache();
-                throw e;
+            if (!Number.isFinite(r) || !Number.isFinite(alpha) || alpha < 1e-6) {
+                return null;
             }
+
+            const normalizedDepth = r / alpha;
+            const position = getWorldPoint(pickCamera, screenX, screenY, width, height, normalizedDepth);
+            return position ? { position, camera: pickCamera, isComputeRenderer } : null;
         };
 
         this.pick = async (x: number, y: number) => {
@@ -634,12 +581,19 @@ class Picker {
             }
             const { position } = picked;
 
+            if (picked.isComputeRenderer) {
+                return {
+                    position,
+                    normal: setCameraFacingNormal(picked.camera.position, position, new Vec3())
+                };
+            }
+
             const maxRadius = NORMAL_SAMPLE_RADII[NORMAL_SAMPLE_RADII.length - 1];
             const blockX = Math.max(0, screenX - maxRadius);
             const blockY = Math.max(0, screenY - maxRadius);
             const blockWidth = Math.min(width - 1, screenX + maxRadius) - blockX + 1;
             const blockHeight = Math.min(height - 1, screenY + maxRadius) - blockY + 1;
-            const rasterBlock = app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE ? null : await readRasterBlock(
+            const rasterBlock = await readRasterBlock(
                 blockX,
                 blockY,
                 blockWidth,
@@ -654,15 +608,7 @@ class Picker {
                     return Promise.resolve(null);
                 }
 
-                if (rasterBlock) {
-                    return Promise.resolve(rasterBlock(px, py));
-                }
-
-                return enginePicker!.getPointDepthAsync(px, py).then((normalizedDepth) => {
-                    return normalizedDepth !== null ?
-                        getWorldPoint(picked.camera, px, py, width, height, normalizedDepth) :
-                        null;
-                });
+                return Promise.resolve(rasterBlock(px, py));
             };
 
             const sampleRings = await Promise.all(NORMAL_SAMPLE_RADII.map((radius) => {
@@ -746,7 +692,6 @@ class Picker {
             accumPass?.destroy();
             accumTarget?.destroy();
             accumBuffer?.destroy();
-            invalidateCache();
         };
     }
 }

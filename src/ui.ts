@@ -236,7 +236,7 @@ const initUI = (global: Global) => {
         'orbitCamera', 'flyCamera', 'fpsCamera',
         'performanceModeRow', 'performanceModeCheck', 'performanceModeOption',
         'gamingControlsDivider', 'gamingControlsRow', 'gamingControlsCheck', 'gamingControlsOption',
-        'desktopClickToWalk', 'desktopGamingControls',
+        'desktopFlyClickToFly', 'desktopClickToWalk', 'desktopGamingControls',
         'touchFlyClickToWalk', 'touchFlyGamingControls',
         'touchClickToWalk', 'touchGamingControls',
         'walkHint',
@@ -368,6 +368,7 @@ const initUI = (global: Global) => {
 
     const updateGamingControls = () => {
         dom.gamingControlsCheck.classList.toggle('active', state.gamingControls);
+        dom.desktopFlyClickToFly.classList.toggle('hidden', state.inputMode === 'desktop' && state.gamingControls);
         if (state.inputMode !== 'desktop') {
             dom.desktopClickToWalk.classList.toggle('hidden', state.gamingControls);
             dom.desktopGamingControls.classList.toggle('hidden', !state.gamingControls);
@@ -380,6 +381,7 @@ const initUI = (global: Global) => {
     };
 
     events.on('gamingControls:changed', updateGamingControls);
+    events.on('inputMode:changed', updateGamingControls);
     updateGamingControls();
 
     // AR/VR

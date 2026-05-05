@@ -36,6 +36,7 @@ class Annotations {
 
         global.events.on('controlsHidden:changed', updateVisibility);
         global.events.on('cameraMode:changed', updateVisibility);
+        global.events.on('inputMode:changed', updateVisibility);
         global.events.on('gamingControls:changed', updateVisibility);
         updateVisibility();
 

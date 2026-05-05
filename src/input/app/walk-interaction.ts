@@ -220,9 +220,11 @@ class WalkInteraction {
         if (eventName !== 'dblclick') return;
         if (!(event instanceof MouseEvent)) return;
         const { events, state } = global;
-        if (state.cameraMode === 'walk') return;
+        const cameraMode = state.cameraMode;
+        if (cameraMode === 'walk') return;
+        const request = ++this._targetPickRequest;
         const target = await this._pickSceneTarget(event.offsetX, event.offsetY);
-        if (target) {
+        if (target && request === this._targetPickRequest && this._global?.state.cameraMode === cameraMode) {
             events.fire('orbitTarget:set', target.position, target.normal);
             events.fire('pick', target.position);
         }
