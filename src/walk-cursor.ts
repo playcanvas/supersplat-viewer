@@ -142,6 +142,8 @@ class WalkCursor {
 
     private surfaceCursorY = 0;
 
+    private hasSurfaceCursorPosition = false;
+
     private surfaceCursorVersion = 0;
 
     private surfaceCursorPickPending = false;
@@ -329,6 +331,7 @@ class WalkCursor {
             this.cursorPath.style.display = 'none';
         }
         this.targetPath.style.display = 'none';
+        this.refreshSurfaceCursor();
     }
 
     private hideCursor() {
@@ -470,9 +473,17 @@ class WalkCursor {
     private updateSurfaceCursor(offsetX: number, offsetY: number) {
         this.surfaceCursorX = offsetX;
         this.surfaceCursorY = offsetY;
+        this.hasSurfaceCursorPosition = true;
         this.surfaceCursorVersion++;
 
         if (!this.surfaceCursorPickPending) {
+            this.processSurfaceCursor();
+        }
+    }
+
+    private refreshSurfaceCursor() {
+        if (this.hasSurfaceCursorPosition && this.shouldShowSurfaceCursor() && !this.surfaceCursorPickPending) {
+            this.surfaceCursorVersion++;
             this.processSurfaceCursor();
         }
     }

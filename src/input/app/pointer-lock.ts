@@ -2,6 +2,9 @@ import type { Global } from '../../types';
 import type { KeyboardMouseDevice } from '../devices/keyboard-mouse';
 
 const isCaptureMode = (mode: string) => mode === 'walk' || mode === 'fly';
+const hasUserActivation = () => (
+    (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive === true
+);
 
 /**
  * Manages the browser's pointer-lock API for first-person gaming controls
@@ -82,10 +85,17 @@ class PointerLockManager {
             return;
         }
 
-        if (value === 'desktop') {
+        if (value === 'desktop' && hasUserActivation()) {
             this._activate();
-        } else {
+        } else if (value !== 'desktop') {
             this._deactivate();
+        }
+    };
+
+    private _onPointerDown = () => {
+        const state = this._global?.state;
+        if (state && state.inputMode === 'desktop' && isCaptureMode(state.cameraMode) && state.gamingControls) {
+            this._activate();
         }
     };
 
@@ -122,6 +132,7 @@ class PointerLockManager {
         events.on('gamingControls:changed', this._onGamingControlsChanged);
         events.on('inputMode:changed', this._onInputModeChanged);
 
+        canvas.addEventListener('pointerdown', this._onPointerDown);
         document.addEventListener('pointerlockchange', this._onPointerLockChange);
         document.addEventListener('pointerlockerror', this._onPointerLockError);
     }
@@ -133,6 +144,7 @@ class PointerLockManager {
             events.off('gamingControls:changed', this._onGamingControlsChanged);
             events.off('inputMode:changed', this._onInputModeChanged);
         }
+        this._canvas?.removeEventListener('pointerdown', this._onPointerDown);
         document.removeEventListener('pointerlockchange', this._onPointerLockChange);
         document.removeEventListener('pointerlockerror', this._onPointerLockError);
         this._canvas = null;

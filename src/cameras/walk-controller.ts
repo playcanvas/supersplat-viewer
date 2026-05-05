@@ -9,6 +9,7 @@ const FIXED_DT = 1 / 60;
 const MAX_SUBSTEPS = 10;
 const SPAWN_HIT_EPSILON = 1e-3;
 const SPAWN_SEARCH_MIN_STEP = 0.05;
+const SPAWN_SEARCH_MAX_STEPS = 128;
 
 /** Pre-allocated push-out vector for capsule collision */
 const out: PushOut = { x: 0, y: 0, z: 0 };
@@ -153,6 +154,7 @@ class WalkController implements CameraController {
     onEnter(camera: Camera): void {
         this.goto(camera);
         if (this.collision) {
+            this._hasSpawn = false;
             if (this._findSpawnPosition(camera.position, spawnProbe)) {
                 this._position.copy(spawnProbe);
                 this._grounded = true;
@@ -364,7 +366,12 @@ class WalkController implements CameraController {
      * @returns True if a spawn position was found.
      */
     private _searchSpawnGround(pos: Vec3, direction: -1 | 1, outPos: Vec3): boolean {
-        const step = Math.max(this.capsuleRadius, this.hoverHeight, SPAWN_SEARCH_MIN_STEP);
+        const step = Math.max(
+            this.capsuleRadius,
+            this.hoverHeight,
+            SPAWN_SEARCH_MIN_STEP,
+            this.spawnSearchRange / SPAWN_SEARCH_MAX_STEPS
+        );
         const endY = pos.y + direction * this.spawnSearchRange;
 
         for (let y = pos.y + direction * step; direction < 0 ? y >= endY : y <= endY; y += direction * step) {

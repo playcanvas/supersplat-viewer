@@ -368,11 +368,9 @@ const initUI = (global: Global) => {
 
     const updateGamingControls = () => {
         dom.gamingControlsCheck.classList.toggle('active', state.gamingControls);
-        dom.desktopFlyClickToFly.classList.toggle('hidden', state.inputMode === 'desktop' && state.gamingControls);
-        if (state.inputMode !== 'desktop') {
-            dom.desktopClickToWalk.classList.toggle('hidden', state.gamingControls);
-            dom.desktopGamingControls.classList.toggle('hidden', !state.gamingControls);
-        }
+        dom.desktopFlyClickToFly.classList.toggle('hidden', state.gamingControls);
+        dom.desktopClickToWalk.classList.toggle('hidden', state.gamingControls);
+        dom.desktopGamingControls.classList.toggle('hidden', !state.gamingControls);
         dom.touchFlyClickToWalk.classList.toggle('hidden', state.gamingControls);
         dom.touchFlyGamingControls.classList.toggle('hidden', !state.gamingControls);
         dom.touchClickToWalk.classList.toggle('hidden', state.gamingControls);
