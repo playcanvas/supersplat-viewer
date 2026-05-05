@@ -152,10 +152,6 @@ class WalkCursor {
 
     private onPointerLeave: () => void;
 
-    private readonly scratchX = new Float64Array(NUM_SAMPLES);
-
-    private readonly scratchY = new Float64Array(NUM_SAMPLES);
-
     private readonly outerX = new Float64Array(NUM_SAMPLES);
 
     private readonly outerY = new Float64Array(NUM_SAMPLES);
@@ -189,10 +185,11 @@ class WalkCursor {
         this.cursorPath.setAttribute('stroke', 'none');
         this.svg.appendChild(this.cursorPath);
 
-        // Walk target: filled circle
+        // Selected target cursor: same ring geometry as hover.
         this.targetPath = document.createElementNS(SVGNS, 'path');
         this.targetPath.setAttribute('fill', 'white');
-        this.targetPath.setAttribute('fill-opacity', '0.5');
+        this.targetPath.setAttribute('fill-opacity', '0.6');
+        this.targetPath.setAttribute('fill-rule', 'evenodd');
         this.targetPath.setAttribute('stroke', 'none');
         this.targetPath.style.display = 'none';
         this.svg.appendChild(this.targetPath);
@@ -415,12 +412,12 @@ class WalkCursor {
         return null;
     }
 
-    private renderCursor(pos: Vec3, normal: Vec3, smooth: boolean) {
+    private renderCursor(pos: Vec3, normal: Vec3) {
         let nx = normal.x;
         let ny = normal.y;
         let nz = normal.z;
 
-        if (smooth && this.hasSmoothedNormal) {
+        if (this.hasSmoothedNormal) {
             const t = NORMAL_SMOOTH_FACTOR;
             nx = this.smoothNx + (nx - this.smoothNx) * t;
             ny = this.smoothNy + (ny - this.smoothNy) * t;
@@ -471,7 +468,7 @@ class WalkCursor {
             }
 
             if (target) {
-                this.renderCursor(target.position, target.normal, false);
+                this.renderCursor(target.position, target.normal);
             } else {
                 this.hideCursor();
             }
@@ -504,7 +501,7 @@ class WalkCursor {
             return;
         }
 
-        this.renderCursor(target.position, target.normal, true);
+        this.renderCursor(target.position, target.normal);
     }
 
     private updateTarget() {
@@ -519,31 +516,18 @@ class WalkCursor {
             return;
         }
 
-        if (this.targetMode === 'orbit') {
-            this.projectCircle(
-                this.targetPos.x, this.targetPos.y, this.targetPos.z,
-                this.targetNormal.x, this.targetNormal.y, this.targetNormal.z,
-                CIRCLE_OUTER_RADIUS, this.outerX, this.outerY
-            );
-            this.projectCircle(
-                this.targetPos.x, this.targetPos.y, this.targetPos.z,
-                this.targetNormal.x, this.targetNormal.y, this.targetNormal.z,
-                CIRCLE_INNER_RADIUS, this.innerX, this.innerY
-            );
-
-            this.cursorPath.setAttribute('d', `${buildBezierRing(this.outerX, this.outerY)} ${buildBezierRing(this.innerX, this.innerY)}`);
-            this.cursorPath.style.display = '';
-            this.svg.style.display = '';
-            return;
-        }
-
         this.projectCircle(
             this.targetPos.x, this.targetPos.y, this.targetPos.z,
             this.targetNormal.x, this.targetNormal.y, this.targetNormal.z,
-            CIRCLE_OUTER_RADIUS, this.scratchX, this.scratchY
+            CIRCLE_OUTER_RADIUS, this.outerX, this.outerY
+        );
+        this.projectCircle(
+            this.targetPos.x, this.targetPos.y, this.targetPos.z,
+            this.targetNormal.x, this.targetNormal.y, this.targetNormal.z,
+            CIRCLE_INNER_RADIUS, this.innerX, this.innerY
         );
 
-        this.targetPath.setAttribute('d', buildBezierRing(this.scratchX, this.scratchY));
+        this.targetPath.setAttribute('d', `${buildBezierRing(this.outerX, this.outerY)} ${buildBezierRing(this.innerX, this.innerY)}`);
         this.targetPath.style.display = '';
         this.svg.style.display = '';
     }
