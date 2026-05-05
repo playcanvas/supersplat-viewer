@@ -47,8 +47,10 @@ class TouchDevice implements InputDevice {
     /** Smoothed strafe/vertical velocity from two-finger pan, -1..1 each. */
     private _panVelocity: [number, number] = [0, 0];
 
-    /** Tap-detection state — touch count and accumulated finger movement. */
+    /** Tap-detection state — touch count, max touches, and accumulated movement. */
     private _tapTouches = 0;
+
+    private _tapMaxTouches = 0;
 
     private _tapDelta = 0;
 
@@ -97,6 +99,9 @@ class TouchDevice implements InputDevice {
             if (prevTaps === 0 && this._tapTouches > 0) {
                 this._tapDelta = 0;
             }
+            if (this._tapTouches > 0) {
+                this._tapMaxTouches = Math.max(this._tapMaxTouches, this._tapTouches);
+            }
 
             if (this._tapTouches > 0) {
                 const prevDelta = this._tapDelta;
@@ -111,7 +116,7 @@ class TouchDevice implements InputDevice {
             }
 
             if (prevTaps > 0 && this._tapTouches === 0) {
-                if (this._tapDelta < TAP_EPSILON) {
+                if (this._tapDelta < TAP_EPSILON && this._tapMaxTouches === 1) {
                     if (isWalk && !gamingControls) {
                         // Walk-interaction listens for this and fires walkTo
                         // after picking.
@@ -128,9 +133,11 @@ class TouchDevice implements InputDevice {
                         this._global!.events.fire('mobileTap');
                     }
                 }
+                this._tapMaxTouches = 0;
             }
         } else {
             this._tapTouches = 0;
+            this._tapMaxTouches = 0;
         }
 
         // smoothed velocities for fly/walk first-person motion (non-gaming)

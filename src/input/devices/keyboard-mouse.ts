@@ -112,6 +112,7 @@ class KeyboardMouseDevice implements InputDevice {
         }
 
         const { isFly, isWalk, isFirstPerson, gamingControls, dt, distance, cameraComponent, mode, touchCount } = ctx;
+        const pan = this._buttons[2] || +(button[2] === -1) || +(touchCount > 1);
 
         // auto-move cancellation and requestFirstPerson events (driven by keyboard axes)
         if (isWalk && (this._axis.x !== 0 || this._axis.z !== 0)) {
@@ -123,15 +124,13 @@ class KeyboardMouseDevice implements InputDevice {
         if (isFly && wheel[0] !== 0) {
             events.fire('flyCancel');
         }
-        if (isFly && gamingControls && (mouse[0] !== 0 || mouse[1] !== 0)) {
+        if (isFly && (gamingControls || pan) && (mouse[0] !== 0 || mouse[1] !== 0)) {
             events.fire('flyCancel');
         }
         if (!isFirstPerson && this._axis.length() > 0) {
             events.fire('inputEvent', 'requestFirstPerson');
         }
 
-        // pan flag: RMB held, RMB just released this frame, or 2+ touches active
-        const pan = this._buttons[2] || +(button[2] === -1) || +(touchCount > 1);
         const orbitFactor = isFirstPerson ? cameraComponent.fov / 120 : 1;
 
         const { deltas } = frame;

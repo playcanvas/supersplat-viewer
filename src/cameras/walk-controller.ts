@@ -158,10 +158,10 @@ class WalkController implements CameraController {
                 this._grounded = true;
                 this._velocity.y = 0;
                 this._resolveSpawnCollision();
+                this._storeSpawn();
             }
 
             this._prevPosition.copy(this._position);
-            this._storeSpawn();
         }
     }
 

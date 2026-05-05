@@ -230,10 +230,7 @@ class WalkCursor {
                           (state.cameraMode === 'fly' && !flyMouseCaptured) ||
                           state.cameraMode === 'orbit';
             this.surfaceCursorVersion++;
-            if (!this.active) {
-                this.cursorPath.style.display = 'none';
-                this.hasSmoothedNormal = false;
-            }
+            this.hideCursor();
             if (this.targetMode && this.targetMode !== state.cameraMode) {
                 this.walking = false;
                 this.clearTarget();
