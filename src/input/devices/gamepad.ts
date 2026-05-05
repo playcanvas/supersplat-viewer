@@ -16,17 +16,26 @@ class GamepadDevice implements InputDevice {
 
     private _source = new GamepadSource();
 
-    attach(_canvas: HTMLCanvasElement, _global: Global): void {
+    private _global: Global | null = null;
+
+    attach(_canvas: HTMLCanvasElement, global: Global): void {
+        this._global = global;
         // GamepadSource polls navigator.getGamepads() — no DOM attach needed.
     }
 
-    detach(): void {}
+    detach(): void {
+        this._global = null;
+    }
 
     update(ctx: UpdateContext, frame: CameraInputFrame): void {
-        const { dt, cameraComponent, isFirstPerson } = ctx;
+        const { dt, cameraComponent, isFly, isFirstPerson } = ctx;
         const { leftStick, rightStick } = this._source.read();
         const orbitFactor = isFirstPerson ? cameraComponent.fov / 120 : 1;
         const { deltas } = frame;
+
+        if (isFly && (leftStick[0] !== 0 || leftStick[1] !== 0 || rightStick[0] !== 0 || rightStick[1] !== 0)) {
+            this._global?.events.fire('flyCancel');
+        }
 
         const v = tmpV.set(0, 0, 0);
         stickMove.set(leftStick[0], 0, -leftStick[1]);

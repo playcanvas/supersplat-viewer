@@ -6,6 +6,7 @@ import {
 } from 'playcanvas';
 
 import type { Collision } from './collision';
+import { Picker } from './picker';
 import type { State } from './types';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -14,6 +15,36 @@ const CIRCLE_OUTER_RADIUS = 0.2;
 const CIRCLE_INNER_RADIUS = 0.17;
 const BEZIER_K = 1 / 6;
 const NORMAL_SMOOTH_FACTOR = 0.25;
+const NORMAL_SNAP_ANGLE = Math.PI / 4;
+const NORMAL_EPSILON = 1e-6;
+
+const createNormalSnapDirections = () => {
+    const result: Vec3[] = [];
+
+    for (let pitchStep = -2; pitchStep <= 2; pitchStep++) {
+        const pitch = pitchStep * NORMAL_SNAP_ANGLE;
+        const cp = Math.cos(pitch);
+        const sy = Math.sin(pitch);
+
+        if (Math.abs(cp) <= NORMAL_EPSILON) {
+            result.push(new Vec3(0, sy > 0 ? 1 : -1, 0));
+            continue;
+        }
+
+        for (let yawStep = 0; yawStep < 8; yawStep++) {
+            const yaw = yawStep * NORMAL_SNAP_ANGLE;
+            result.push(new Vec3(
+                Math.cos(yaw) * cp,
+                sy,
+                Math.sin(yaw) * cp
+            ));
+        }
+    }
+
+    return result;
+};
+
+const NORMAL_SNAP_DIRECTIONS = createNormalSnapDirections();
 
 const tmpV = new Vec3();
 const tmpScreen = new Vec3();
@@ -22,6 +53,13 @@ const bitangent = new Vec3();
 const worldPt = new Vec3();
 const up = new Vec3(0, 1, 0);
 const right = new Vec3(1, 0, 0);
+
+type CursorTarget = {
+    position: Vec3;
+    normal: Vec3;
+};
+
+type TargetMode = 'walk' | 'fly' | 'orbit';
 
 const buildBezierRing = (sx: ArrayLike<number>, sy: ArrayLike<number>) => {
     const n = sx.length;
@@ -40,6 +78,31 @@ const buildBezierRing = (sx: ArrayLike<number>, sy: ArrayLike<number>) => {
     return `${p} Z`;
 };
 
+const snapNormal = (nx: number, ny: number, nz: number, out: Vec3) => {
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (len <= NORMAL_EPSILON) {
+        return out.set(0, 1, 0);
+    }
+
+    const invLen = 1 / len;
+    const x = nx * invLen;
+    const y = ny * invLen;
+    const z = nz * invLen;
+    let best = NORMAL_SNAP_DIRECTIONS[0];
+    let bestDot = -Infinity;
+
+    for (let i = 0; i < NORMAL_SNAP_DIRECTIONS.length; i++) {
+        const candidate = NORMAL_SNAP_DIRECTIONS[i];
+        const dot = candidate.x * x + candidate.y * y + candidate.z * z;
+        if (dot > bestDot) {
+            bestDot = dot;
+            best = candidate;
+        }
+    }
+
+    return out.copy(best);
+};
+
 class WalkCursor {
     private svg: SVGSVGElement;
 
@@ -51,9 +114,13 @@ class WalkCursor {
 
     private camera: Entity;
 
-    private collision: Collision;
+    private collision: Collision | null;
 
     private canvas: HTMLCanvasElement;
+
+    private state: State;
+
+    private picker: Picker | null = null;
 
     private active = false;
 
@@ -63,6 +130,8 @@ class WalkCursor {
 
     private targetNormal: Vec3 | null = null;
 
+    private targetMode: TargetMode | null = null;
+
     private smoothNx = 0;
 
     private smoothNy = 1;
@@ -70,6 +139,14 @@ class WalkCursor {
     private smoothNz = 0;
 
     private hasSmoothedNormal = false;
+
+    private surfaceCursorX = 0;
+
+    private surfaceCursorY = 0;
+
+    private surfaceCursorVersion = 0;
+
+    private surfaceCursorPickPending = false;
 
     private onPointerMove: (e: PointerEvent) => void;
 
@@ -90,7 +167,7 @@ class WalkCursor {
     constructor(
         app: AppBase,
         camera: Entity,
-        collision: Collision,
+        collision: Collision | null,
         events: EventHandler,
         state: State
     ) {
@@ -98,6 +175,7 @@ class WalkCursor {
         this.camera = camera;
         this.collision = collision;
         this.canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
+        this.state = state;
 
         this.svg = document.createElementNS(SVGNS, 'svg');
         this.svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:1';
@@ -124,14 +202,19 @@ class WalkCursor {
         this.onPointerMove = (e: PointerEvent) => {
             if (e.pointerType === 'touch') return;
             if (e.buttons) {
+                this.surfaceCursorVersion++;
                 this.cursorPath.style.display = 'none';
                 this.hasSmoothedNormal = false;
                 return;
+            }
+            if (this.targetMode === 'orbit') {
+                this.clearTarget();
             }
             this.updateCursor(e.offsetX, e.offsetY);
         };
 
         this.onPointerLeave = () => {
+            this.surfaceCursorVersion++;
             this.cursorPath.style.display = 'none';
             this.hasSmoothedNormal = false;
         };
@@ -140,8 +223,18 @@ class WalkCursor {
         this.canvas.addEventListener('pointerleave', this.onPointerLeave);
 
         const updateActive = () => {
-            this.active = state.cameraMode === 'walk' &&
-                          !state.gamingControls;
+            this.active = (state.cameraMode === 'walk' && !state.gamingControls) ||
+                          state.cameraMode === 'fly' ||
+                          state.cameraMode === 'orbit';
+            this.surfaceCursorVersion++;
+            if ((state.cameraMode !== 'walk' || state.gamingControls) && state.cameraMode !== 'fly' && state.cameraMode !== 'orbit') {
+                this.cursorPath.style.display = 'none';
+                this.hasSmoothedNormal = false;
+            }
+            if (this.targetMode && this.targetMode !== state.cameraMode) {
+                this.walking = false;
+                this.clearTarget();
+            }
             if (!this.active) {
                 this.svg.style.display = 'none';
             }
@@ -167,11 +260,46 @@ class WalkCursor {
         });
 
         events.on('walkTarget:set', (pos: Vec3, normal: Vec3) => {
-            this.setTarget(pos, normal);
+            this.setTarget(pos, normal, 'walk');
         });
 
         events.on('walkTarget:clear', () => {
             this.clearTarget();
+        });
+
+        events.on('flyTo', () => {
+            this.walking = true;
+            this.cursorPath.style.display = 'none';
+            this.hasSmoothedNormal = false;
+        });
+
+        events.on('flyCancel', () => {
+            this.walking = false;
+            this.clearTarget();
+        });
+
+        events.on('flyComplete', () => {
+            this.walking = false;
+            this.clearTarget();
+        });
+
+        events.on('flyTarget:set', (pos: Vec3, normal: Vec3) => {
+            this.setTarget(pos, normal, 'fly');
+        });
+
+        events.on('flyTarget:clear', () => {
+            this.clearTarget();
+        });
+
+        events.on('orbitTarget:set', (pos: Vec3, normal: Vec3) => {
+            this.walking = false;
+            this.setTarget(pos, normal, 'orbit');
+        });
+
+        events.on('orbitTarget:clear', () => {
+            if (this.targetMode === 'orbit') {
+                this.clearTarget();
+            }
         });
 
         app.on('prerender', () => {
@@ -181,15 +309,30 @@ class WalkCursor {
         updateActive();
     }
 
-    private setTarget(pos: Vec3, normal: Vec3) {
+    private setTarget(pos: Vec3, normal: Vec3, mode: TargetMode) {
+        this.surfaceCursorVersion++;
         this.targetPos = pos.clone();
         this.targetNormal = normal.clone();
+        this.targetMode = mode;
+        this.cursorPath.style.display = 'none';
+        this.targetPath.style.display = 'none';
+        this.hasSmoothedNormal = false;
     }
 
     private clearTarget() {
+        const mode = this.targetMode;
         this.targetPos = null;
         this.targetNormal = null;
+        this.targetMode = null;
+        if (mode === 'orbit') {
+            this.cursorPath.style.display = 'none';
+        }
         this.targetPath.style.display = 'none';
+    }
+
+    private hideCursor() {
+        this.cursorPath.style.display = 'none';
+        this.hasSmoothedNormal = false;
     }
 
     private projectCircle(
@@ -198,7 +341,7 @@ class WalkCursor {
         radius: number,
         outX: Float64Array, outY: Float64Array
     ) {
-        const normal = tmpV.set(nx, ny, nz);
+        const normal = snapNormal(nx, ny, nz, tmpV);
         if (Math.abs(normal.y) < 0.99) {
             tangent.cross(normal, up).normalize();
         } else {
@@ -225,11 +368,9 @@ class WalkCursor {
         }
     }
 
-    private updateCursor(offsetX: number, offsetY: number) {
-        if (!this.active || this.walking) {
-            this.cursorPath.style.display = 'none';
-            this.hasSmoothedNormal = false;
-            return;
+    private pickCollision(offsetX: number, offsetY: number): CursorTarget | null {
+        if (!this.collision) {
+            return null;
         }
 
         const { camera, collision } = this;
@@ -245,21 +386,41 @@ class WalkCursor {
         );
 
         if (!hit) {
-            this.cursorPath.style.display = 'none';
-            this.hasSmoothedNormal = false;
-            return;
+            return null;
         }
 
-        const px = hit.x;
-        const py = hit.y;
-        const pz = hit.z;
-
         const sn = collision.querySurfaceNormal(hit.x, hit.y, hit.z, tmpV.x, tmpV.y, tmpV.z);
-        let nx = sn.nx;
-        let ny = sn.ny;
-        let nz = sn.nz;
+        return {
+            position: new Vec3(hit.x, hit.y, hit.z),
+            normal: new Vec3(sn.nx, sn.ny, sn.nz)
+        };
+    }
 
-        if (this.hasSmoothedNormal) {
+    private async pickSceneTarget(offsetX: number, offsetY: number): Promise<CursorTarget | null> {
+        const collisionTarget = this.pickCollision(offsetX, offsetY);
+        if (collisionTarget) {
+            return collisionTarget;
+        }
+
+        this.picker ??= new Picker(this.app, this.camera);
+
+        const result = await this.picker.pickSurface(
+            offsetX / this.canvas.clientWidth,
+            offsetY / this.canvas.clientHeight
+        );
+        if (result) {
+            return result;
+        }
+
+        return null;
+    }
+
+    private renderCursor(pos: Vec3, normal: Vec3, smooth: boolean) {
+        let nx = normal.x;
+        let ny = normal.y;
+        let nz = normal.z;
+
+        if (smooth && this.hasSmoothedNormal) {
             const t = NORMAL_SMOOTH_FACTOR;
             nx = this.smoothNx + (nx - this.smoothNx) * t;
             ny = this.smoothNy + (ny - this.smoothNy) * t;
@@ -278,12 +439,72 @@ class WalkCursor {
         this.smoothNz = nz;
         this.hasSmoothedNormal = true;
 
-        this.projectCircle(px, py, pz, nx, ny, nz, CIRCLE_OUTER_RADIUS, this.outerX, this.outerY);
-        this.projectCircle(px, py, pz, nx, ny, nz, CIRCLE_INNER_RADIUS, this.innerX, this.innerY);
+        this.projectCircle(pos.x, pos.y, pos.z, nx, ny, nz, CIRCLE_OUTER_RADIUS, this.outerX, this.outerY);
+        this.projectCircle(pos.x, pos.y, pos.z, nx, ny, nz, CIRCLE_INNER_RADIUS, this.innerX, this.innerY);
 
         this.cursorPath.setAttribute('d', `${buildBezierRing(this.outerX, this.outerY)} ${buildBezierRing(this.innerX, this.innerY)}`);
         this.cursorPath.style.display = '';
         this.svg.style.display = '';
+    }
+
+    private shouldShowSurfaceCursor() {
+        return this.active && !this.walking && (this.state.cameraMode === 'fly' || this.state.cameraMode === 'orbit');
+    }
+
+    private updateSurfaceCursor(offsetX: number, offsetY: number) {
+        this.surfaceCursorX = offsetX;
+        this.surfaceCursorY = offsetY;
+        this.surfaceCursorVersion++;
+
+        if (!this.surfaceCursorPickPending) {
+            this.processSurfaceCursor();
+        }
+    }
+
+    private processSurfaceCursor() {
+        this.surfaceCursorPickPending = true;
+
+        const version = this.surfaceCursorVersion;
+        this.pickSceneTarget(this.surfaceCursorX, this.surfaceCursorY).then((target) => {
+            if (version !== this.surfaceCursorVersion || !this.shouldShowSurfaceCursor()) {
+                return;
+            }
+
+            if (target) {
+                this.renderCursor(target.position, target.normal, false);
+            } else {
+                this.hideCursor();
+            }
+        }).catch(() => {
+            if (version === this.surfaceCursorVersion) {
+                this.hideCursor();
+            }
+        }).finally(() => {
+            this.surfaceCursorPickPending = false;
+            if (version !== this.surfaceCursorVersion && this.shouldShowSurfaceCursor()) {
+                this.processSurfaceCursor();
+            }
+        });
+    }
+
+    private updateCursor(offsetX: number, offsetY: number) {
+        if (!this.active || this.walking) {
+            this.hideCursor();
+            return;
+        }
+
+        if (this.state.cameraMode === 'fly' || this.state.cameraMode === 'orbit') {
+            this.updateSurfaceCursor(offsetX, offsetY);
+            return;
+        }
+
+        const target = this.pickCollision(offsetX, offsetY);
+        if (!target) {
+            this.hideCursor();
+            return;
+        }
+
+        this.renderCursor(target.position, target.normal, true);
     }
 
     private updateTarget() {
@@ -293,8 +514,26 @@ class WalkCursor {
 
         const camPos = this.camera.getPosition();
         const dist = camPos.distance(this.targetPos);
-        if (dist < 2.0) {
+        if (this.targetMode !== 'orbit' && dist < 2.0) {
             this.targetPath.style.display = 'none';
+            return;
+        }
+
+        if (this.targetMode === 'orbit') {
+            this.projectCircle(
+                this.targetPos.x, this.targetPos.y, this.targetPos.z,
+                this.targetNormal.x, this.targetNormal.y, this.targetNormal.z,
+                CIRCLE_OUTER_RADIUS, this.outerX, this.outerY
+            );
+            this.projectCircle(
+                this.targetPos.x, this.targetPos.y, this.targetPos.z,
+                this.targetNormal.x, this.targetNormal.y, this.targetNormal.z,
+                CIRCLE_INNER_RADIUS, this.innerX, this.innerY
+            );
+
+            this.cursorPath.setAttribute('d', `${buildBezierRing(this.outerX, this.outerY)} ${buildBezierRing(this.innerX, this.innerY)}`);
+            this.cursorPath.style.display = '';
+            this.svg.style.display = '';
             return;
         }
 
@@ -312,6 +551,7 @@ class WalkCursor {
     destroy() {
         this.canvas.removeEventListener('pointermove', this.onPointerMove);
         this.canvas.removeEventListener('pointerleave', this.onPointerLeave);
+        this.picker?.release();
         this.svg.remove();
     }
 }

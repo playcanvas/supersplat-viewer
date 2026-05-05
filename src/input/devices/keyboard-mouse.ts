@@ -102,11 +102,14 @@ class KeyboardMouseDevice implements InputDevice {
             this._buttons[i] += button[i];
         }
 
-        const { isWalk, isFirstPerson, dt, distance, cameraComponent, mode, touchCount } = ctx;
+        const { isFly, isWalk, isFirstPerson, dt, distance, cameraComponent, mode, touchCount } = ctx;
 
-        // walk-cancel and requestFirstPerson events (driven by WASD axis)
+        // auto-move cancellation and requestFirstPerson events (driven by keyboard axes)
         if (isWalk && (this._axis.x !== 0 || this._axis.z !== 0)) {
             events.fire('walkCancel');
+        }
+        if (isFly && (this._axis.x !== 0 || this._axis.y !== 0 || this._axis.z !== 0)) {
+            events.fire('flyCancel');
         }
         if (!isFirstPerson && this._axis.length() > 0) {
             events.fire('inputEvent', 'requestFirstPerson');

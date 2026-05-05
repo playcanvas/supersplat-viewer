@@ -393,8 +393,8 @@ class Viewer {
             this.cameraManager = new CameraManager(global, sceneBound, collision);
             applyCamera(this.cameraManager.camera);
 
-            if (collision) {
-                this.walkCursor = new WalkCursor(app, camera, collision, events, state);
+            if (!config.noui) {
+                this.walkCursor = new WalkCursor(app, camera, collision ?? null, events, state);
             }
 
             const { instance } = gsplat;
