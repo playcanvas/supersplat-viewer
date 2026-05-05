@@ -220,11 +220,16 @@ class WalkCursor {
         this.canvas.addEventListener('pointerleave', this.onPointerLeave);
 
         const updateActive = () => {
+            const flyMouseCaptured = (
+                state.cameraMode === 'fly' &&
+                state.inputMode === 'desktop' &&
+                state.gamingControls
+            );
             this.active = (state.cameraMode === 'walk' && !state.gamingControls) ||
-                          state.cameraMode === 'fly' ||
+                          (state.cameraMode === 'fly' && !flyMouseCaptured) ||
                           state.cameraMode === 'orbit';
             this.surfaceCursorVersion++;
-            if ((state.cameraMode !== 'walk' || state.gamingControls) && state.cameraMode !== 'fly' && state.cameraMode !== 'orbit') {
+            if (!this.active) {
                 this.cursorPath.style.display = 'none';
                 this.hasSmoothedNormal = false;
             }
@@ -445,7 +450,13 @@ class WalkCursor {
     }
 
     private shouldShowSurfaceCursor() {
-        return this.active && !this.walking && (this.state.cameraMode === 'fly' || this.state.cameraMode === 'orbit');
+        const flyMouseCaptured = this.state.cameraMode === 'fly' &&
+            this.state.inputMode === 'desktop' &&
+            this.state.gamingControls;
+        return this.active && !this.walking && (
+            (this.state.cameraMode === 'fly' && !flyMouseCaptured) ||
+            this.state.cameraMode === 'orbit'
+        );
     }
 
     private updateSurfaceCursor(offsetX: number, offsetY: number) {

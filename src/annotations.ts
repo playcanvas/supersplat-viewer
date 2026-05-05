@@ -22,7 +22,11 @@ class Annotations {
         const { state } = global;
 
         const updateVisibility = () => {
-            const hidden = state.controlsHidden || (state.cameraMode === 'walk' && state.gamingControls);
+            const firstPersonGamingControls = (
+                (state.cameraMode === 'walk' && state.gamingControls) ||
+                (state.cameraMode === 'fly' && state.inputMode === 'desktop' && state.gamingControls)
+            );
+            const hidden = state.controlsHidden || firstPersonGamingControls;
             parentDom.style.display = hidden ? 'none' : 'block';
             Annotation.opacity = hidden ? 0.0 : 1.0;
             if (this.annotations.length > 0) {

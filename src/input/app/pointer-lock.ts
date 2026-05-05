@@ -1,13 +1,15 @@
 import type { Global } from '../../types';
 import type { KeyboardMouseDevice } from '../devices/keyboard-mouse';
 
+const isCaptureMode = (mode: string) => mode === 'walk' || mode === 'fly';
+
 /**
- * Manages the browser's pointer-lock API for walk-mode + gaming controls
+ * Manages the browser's pointer-lock API for first-person gaming controls
  * on desktop. Toggles in response to `cameraMode:changed` and
  * `gamingControls:changed`, and reverts state if the lock is exited or
  * rejected.
  *
- * Also exposes `recentlyExitedWalk` so the keyboard-shortcut handler can
+ * Also exposes `recentlyExitedCapture` so the keyboard-shortcut handler can
  * de-duplicate the Escape keydown that triggered the lock exit.
  */
 class PointerLockManager {
@@ -17,20 +19,20 @@ class PointerLockManager {
 
     private _keyboardMouse: KeyboardMouseDevice | null = null;
 
-    private _recentlyExitedWalk = false;
+    private _recentlyExitedCapture = false;
 
     private _onPointerLockChange = () => {
         const global = this._global;
         if (!global) return;
         const { state, events } = global;
-        if (!document.pointerLockElement && state.cameraMode === 'walk' && state.gamingControls) {
-            this._recentlyExitedWalk = true;
+        if (!document.pointerLockElement && isCaptureMode(state.cameraMode) && state.gamingControls) {
+            this._recentlyExitedCapture = true;
             requestAnimationFrame(() => {
-                this._recentlyExitedWalk = false;
+                this._recentlyExitedCapture = false;
             });
             if (state.inputMode === 'desktop') {
                 state.gamingControls = false;
-            } else {
+            } else if (state.cameraMode === 'walk') {
                 events.fire('inputEvent', 'exitWalk');
             }
         }
@@ -46,9 +48,9 @@ class PointerLockManager {
         const global = this._global;
         if (!global) return;
         const { state, events } = global;
-        if (state.inputMode === 'desktop') {
+        if (state.inputMode === 'desktop' && isCaptureMode(state.cameraMode)) {
             state.gamingControls = false;
-        } else {
+        } else if (state.cameraMode === 'walk') {
             events.fire('inputEvent', 'exitWalk');
         }
     };
@@ -56,9 +58,9 @@ class PointerLockManager {
     private _onCameraModeChanged = (value: string, prev: string) => {
         const state = this._global?.state;
         if (!state) return;
-        if (value === 'walk' && state.inputMode === 'desktop' && state.gamingControls) {
+        if (isCaptureMode(value) && state.inputMode === 'desktop' && state.gamingControls) {
             this._activate();
-        } else if (prev === 'walk') {
+        } else if (isCaptureMode(prev)) {
             this._deactivate();
         }
     };
@@ -66,7 +68,7 @@ class PointerLockManager {
     private _onGamingControlsChanged = (value: boolean) => {
         const state = this._global?.state;
         if (!state) return;
-        if (state.cameraMode === 'walk' && state.inputMode === 'desktop') {
+        if (isCaptureMode(state.cameraMode) && state.inputMode === 'desktop') {
             if (value) {
                 this._activate();
             } else {
@@ -79,7 +81,9 @@ class PointerLockManager {
         if (this._keyboardMouse) {
             (this._keyboardMouse.source as any)._pointerLock = true;
         }
-        this._canvas?.requestPointerLock();
+        if (document.pointerLockElement !== this._canvas) {
+            this._canvas?.requestPointerLock();
+        }
     }
 
     private _deactivate(): void {
@@ -91,8 +95,8 @@ class PointerLockManager {
         }
     }
 
-    get recentlyExitedWalk(): boolean {
-        return this._recentlyExitedWalk;
+    get recentlyExitedCapture(): boolean {
+        return this._recentlyExitedCapture;
     }
 
     attach(canvas: HTMLCanvasElement, global: Global, keyboardMouse: KeyboardMouseDevice): void {

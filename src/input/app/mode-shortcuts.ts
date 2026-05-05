@@ -1,6 +1,15 @@
 import type { PointerLockManager } from './pointer-lock';
 import type { Global } from '../../types';
 
+const isCaptureMode = (mode: string) => mode === 'walk' || mode === 'fly';
+
+const isWasdKey = (event: KeyboardEvent) => (
+    event.code === 'KeyW' ||
+    event.code === 'KeyA' ||
+    event.code === 'KeyS' ||
+    event.code === 'KeyD'
+);
+
 /**
  * Keyboard shortcuts that switch camera mode and toggle UI affordances.
  * Listens on `window` so the user can press 1/2/3, V, G, H, F, R, Space,
@@ -17,9 +26,9 @@ class ModeShortcuts {
         const { state, events } = global;
 
         if (event.key === 'Escape') {
-            if (this._pointerLock?.recentlyExitedWalk) {
+            if (this._pointerLock?.recentlyExitedCapture) {
                 // already handled by pointerlockchange
-            } else if (state.cameraMode === 'walk' && state.gamingControls && state.inputMode === 'desktop') {
+            } else if (isCaptureMode(state.cameraMode) && state.gamingControls && state.inputMode === 'desktop') {
                 state.gamingControls = false;
             } else if (state.cameraMode === 'walk') {
                 events.fire('inputEvent', 'exitWalk', event);
@@ -58,9 +67,13 @@ class ModeShortcuts {
                 events.fire('inputEvent', 'reset', event);
                 break;
             default:
-                if ((event.code === 'KeyW' || event.code === 'KeyA' || event.code === 'KeyS' || event.code === 'KeyD') &&
-                    state.cameraMode === 'walk' && state.inputMode === 'desktop' && !state.gamingControls) {
-                    state.gamingControls = true;
+                if (isWasdKey(event) && state.inputMode === 'desktop') {
+                    if (!isCaptureMode(state.cameraMode)) {
+                        state.cameraMode = 'fly';
+                    }
+                    if (!state.gamingControls) {
+                        state.gamingControls = true;
+                    }
                 }
                 break;
         }

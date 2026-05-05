@@ -7,6 +7,11 @@ import { TAP_EPSILON } from '../shared';
 
 const tmpV = new Vec3();
 
+const canTargetFly = (global: Global) => (
+    global.state.cameraMode === 'fly' &&
+    !(global.state.inputMode === 'desktop' && global.state.gamingControls)
+);
+
 type PickTarget = {
     position: Vec3;
     normal: Vec3;
@@ -108,11 +113,11 @@ class WalkInteraction {
 
     private async _flyToPickedPosition(offsetX: number, offsetY: number) {
         const global = this._global;
-        if (!global || global.state.cameraMode !== 'fly') return;
+        if (!global || !canTargetFly(global)) return;
 
         const request = ++this._targetPickRequest;
         const target = await this._pickSceneTarget(offsetX, offsetY);
-        if (target && request === this._targetPickRequest && this._global?.state.cameraMode === 'fly') {
+        if (target && request === this._targetPickRequest && this._global && canTargetFly(this._global)) {
             this._global.events.fire('flyTo', target.position, target.normal);
         }
     }
