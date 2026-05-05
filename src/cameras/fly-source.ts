@@ -20,11 +20,8 @@ const ARRIVAL_EPSILON = 0.03;
 /** Forward speed below which arrival can complete */
 const ARRIVAL_SPEED = 0.05;
 
-/** Minimum distance over which to ease into the standoff point */
-const MIN_SLOW_DIST = 0.9;
-
-/** FOV standoff multiplier used as the slow-down zone */
-const SLOW_DIST_RATIO = 0.6;
+/** Converts remaining standoff distance to final approach speed */
+const ARRIVAL_RATE = 1.75;
 
 /** Minimum progress speed (m/s) to not count as blocked */
 const BLOCKED_SPEED = 0.25;
@@ -172,8 +169,9 @@ class FlySource {
         const dist = toTarget.length();
         const stopDistance = getStopDistance(cameraFov);
         const remainingDist = dist - stopDistance;
+        const activeRemainingDist = Math.max(0, remainingDist);
 
-        if (remainingDist <= ARRIVAL_EPSILON && this._speed <= ARRIVAL_SPEED) {
+        if (activeRemainingDist <= ARRIVAL_EPSILON && this._speed <= ARRIVAL_SPEED) {
             this.cancelFly();
             return;
         }
@@ -212,14 +210,14 @@ class FlySource {
 
         const alignment = math.clamp(forward.x * dirX + forward.y * dirY + forward.z * dirZ, 0, 1);
         const alignmentScale = smoothstep(0.05, 0.95, alignment);
-        const brakeSpeed = Math.sqrt(Math.max(0, 2 * this.moveDeceleration * remainingDist));
-        const slowDistance = Math.max(MIN_SLOW_DIST, stopDistance * SLOW_DIST_RATIO);
-        const arrivalScale = smoothstep(ARRIVAL_EPSILON, slowDistance, remainingDist);
-        const desiredSpeed = Math.min(this.flySpeed * arrivalScale, brakeSpeed) * alignmentScale;
+        const brakeSpeed = Math.sqrt(2 * this.moveDeceleration * activeRemainingDist);
+        const arrivalSpeed = activeRemainingDist * ARRIVAL_RATE;
+        const desiredSpeed = Math.min(this.flySpeed, brakeSpeed, arrivalSpeed) * alignmentScale;
         const speedDelta = (desiredSpeed > this._speed ? this.moveAcceleration : this.moveDeceleration) * dt;
         this._speed = approach(this._speed, desiredSpeed, speedDelta);
 
-        const moveDist = Math.min(this._speed * dt, Math.max(0, remainingDist - ARRIVAL_EPSILON));
+        const arrivalMove = activeRemainingDist * (1 - Math.exp(-ARRIVAL_RATE * dt));
+        const moveDist = Math.min(this._speed * dt, arrivalMove);
         if (moveDist > 0) {
             frame.deltas.move.append([0, 0, moveDist]);
         }
