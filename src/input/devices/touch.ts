@@ -100,7 +100,7 @@ class TouchDevice implements InputDevice {
 
             if (this._tapTouches > 0) {
                 const prevDelta = this._tapDelta;
-                this._tapDelta += Math.abs(touch[0]) + Math.abs(touch[1]);
+                this._tapDelta += Math.abs(touch[0]) + Math.abs(touch[1]) + Math.abs(pinch[0]);
                 if (prevDelta < TAP_EPSILON && this._tapDelta >= TAP_EPSILON) {
                     if (isWalk && !gamingControls) {
                         this._global!.events.fire('walkCancel');

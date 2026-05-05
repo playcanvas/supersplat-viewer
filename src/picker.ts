@@ -223,15 +223,23 @@ const matrixEquals = (a: Float32Array<ArrayBufferLike>, b: Float32Array<ArrayBuf
     return true;
 };
 
-const copyMatrix = (src: Float32Array<ArrayBufferLike>, dst: Float32Array<ArrayBuffer>) => {
-    for (let i = 0; i < 16; i++) {
-        dst[i] = src[i];
-    }
-};
-
 type PickSurface = {
     position: Vec3;
     normal: Vec3;
+};
+
+type PickCameraSnapshot = {
+    position: Vec3;
+    viewMatrix: Mat4;
+    projectionMatrix: Mat4;
+    nearClip: number;
+    farClip: number;
+    projection: number;
+};
+
+type PickPosition = {
+    position: Vec3;
+    camera: PickCameraSnapshot;
 };
 
 // Shared buffer for half-to-float conversion
@@ -320,19 +328,17 @@ const unregisterPickerShaderPatches = (app: AppBase) => {
     pickerShaderPatchState.delete(device);
 };
 
-const getWorldPoint = (camera: Entity, x: number, y: number, width: number, height: number, normalizedDepth: number) => {
+const getWorldPoint = (camera: PickCameraSnapshot, x: number, y: number, width: number, height: number, normalizedDepth: number) => {
     if (!Number.isFinite(normalizedDepth) || normalizedDepth < 0 || normalizedDepth > 1) {
         return null;
     }
 
-    const cam = camera.camera;
-    const far = cam.farClip;
-    const near = cam.nearClip;
-    const ndcDepth = cam.projection === PROJECTION_ORTHOGRAPHIC ?
+    const { farClip: far, nearClip: near } = camera;
+    const ndcDepth = camera.projection === PROJECTION_ORTHOGRAPHIC ?
         normalizedDepth :
         far * normalizedDepth / (normalizedDepth * (far - near) + near);
 
-    viewProjMat.mul2(cam.projectionMatrix, cam.viewMatrix).invert();
+    viewProjMat.mul2(camera.projectionMatrix, camera.viewMatrix).invert();
     vec4.set(x / width * 2 - 1, (1 - y / height) * 2 - 1, ndcDepth * 2 - 1, 1);
     viewProjMat.transformVec4(vec4, vec4);
     if (!Number.isFinite(vec4.w) || Math.abs(vec4.w) < 1e-8) {
@@ -347,8 +353,8 @@ const getWorldPoint = (camera: Entity, x: number, y: number, width: number, heig
     return new Vec3(vec4.x, vec4.y, vec4.z);
 };
 
-const setCameraFacingNormal = (camera: Entity, position: Vec3, normal: Vec3) => {
-    normal.sub2(camera.getPosition(), position);
+const setCameraFacingNormal = (cameraPosition: Vec3, position: Vec3, normal: Vec3) => {
+    normal.sub2(cameraPosition, position);
     const len = normal.length();
     if (len > 1e-6) {
         normal.mulScalar(1 / len);
@@ -378,8 +384,14 @@ class Picker {
         let cacheWidth = 0;
         let cacheHeight = 0;
         let cacheRenderer = -1;
-        const cacheView = new Float32Array(16);
-        const cacheProj = new Float32Array(16);
+        const cacheCamera: PickCameraSnapshot = {
+            position: new Vec3(),
+            viewMatrix: new Mat4(),
+            projectionMatrix: new Mat4(),
+            nearClip: 0,
+            farClip: 0,
+            projection: 0
+        };
 
         const initRasterAccum = (width: number, height: number) => {
             accumBuffer = new Texture(graphicsDevice, {
@@ -428,8 +440,11 @@ class Picker {
                 cacheWidth === width &&
                 cacheHeight === height &&
                 cacheRenderer === app.scene.gsplat.currentRenderer &&
-                matrixEquals(cam.viewMatrix.data, cacheView) &&
-                matrixEquals(cam.projectionMatrix.data, cacheProj);
+                cam.nearClip === cacheCamera.nearClip &&
+                cam.farClip === cacheCamera.farClip &&
+                cam.projection === cacheCamera.projection &&
+                matrixEquals(cam.viewMatrix.data, cacheCamera.viewMatrix.data) &&
+                matrixEquals(cam.projectionMatrix.data, cacheCamera.projectionMatrix.data);
         };
 
         const updateCache = (width: number, height: number) => {
@@ -438,8 +453,23 @@ class Picker {
             cacheWidth = width;
             cacheHeight = height;
             cacheRenderer = app.scene.gsplat.currentRenderer;
-            copyMatrix(cam.viewMatrix.data, cacheView);
-            copyMatrix(cam.projectionMatrix.data, cacheProj);
+            cacheCamera.position.copy(camera.getPosition());
+            cacheCamera.viewMatrix.copy(cam.viewMatrix);
+            cacheCamera.projectionMatrix.copy(cam.projectionMatrix);
+            cacheCamera.nearClip = cam.nearClip;
+            cacheCamera.farClip = cam.farClip;
+            cacheCamera.projection = cam.projection;
+        };
+
+        const getCacheCameraSnapshot = (): PickCameraSnapshot => {
+            return {
+                position: cacheCamera.position.clone(),
+                viewMatrix: cacheCamera.viewMatrix.clone(),
+                projectionMatrix: cacheCamera.projectionMatrix.clone(),
+                nearClip: cacheCamera.nearClip,
+                farClip: cacheCamera.farClip,
+                projection: cacheCamera.projection
+            };
         };
 
         const invalidateCache = () => {
@@ -459,7 +489,8 @@ class Picker {
             blockWidth: number,
             blockHeight: number,
             viewportWidth: number,
-            viewportHeight: number
+            viewportHeight: number,
+            pickCamera: PickCameraSnapshot
         ) => {
             const texY = graphicsDevice.isWebGL2 ? accumTarget.height - blockY - blockHeight : blockY;
 
@@ -487,7 +518,7 @@ class Picker {
                     }
 
                     const normalizedDepth = r / alpha;
-                    return getWorldPoint(camera, x, y, viewportWidth, viewportHeight, normalizedDepth);
+                    return getWorldPoint(pickCamera, x, y, viewportWidth, viewportHeight, normalizedDepth);
                 };
             } catch (e) {
                 invalidateCache();
@@ -495,7 +526,7 @@ class Picker {
             }
         };
 
-        this.pick = async (x: number, y: number) => {
+        const pickPosition = async (x: number, y: number): Promise<PickPosition | null> => {
             const width = Math.floor(graphicsDevice.width);
             const height = Math.floor(graphicsDevice.height);
 
@@ -555,8 +586,12 @@ class Picker {
             }
 
             if (app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE) {
-                return await enginePicker!.getWorldPointAsync(screenX, screenY);
+                const pickCamera = getCacheCameraSnapshot();
+                const position = await enginePicker!.getWorldPointAsync(screenX, screenY);
+                return position ? { position, camera: pickCamera } : null;
             }
+
+            const pickCamera = getCacheCameraSnapshot();
 
             try {
                 if (app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE) {
@@ -575,11 +610,17 @@ class Picker {
                 }
 
                 const normalizedDepth = r / alpha;
-                return getWorldPoint(camera, screenX, screenY, width, height, normalizedDepth);
+                const position = getWorldPoint(pickCamera, screenX, screenY, width, height, normalizedDepth);
+                return position ? { position, camera: pickCamera } : null;
             } catch (e) {
                 invalidateCache();
                 throw e;
             }
+        };
+
+        this.pick = async (x: number, y: number) => {
+            const result = await pickPosition(x, y);
+            return result?.position ?? null;
         };
 
         this.pickSurface = async (x: number, y: number) => {
@@ -592,10 +633,11 @@ class Picker {
 
             const screenX = Math.min(width - 1, Math.max(0, Math.floor(x * width)));
             const screenY = Math.min(height - 1, Math.max(0, Math.floor(y * height)));
-            const position = await this.pick((screenX + 0.5) / width, (screenY + 0.5) / height);
-            if (!position) {
+            const picked = await pickPosition((screenX + 0.5) / width, (screenY + 0.5) / height);
+            if (!picked) {
                 return null;
             }
+            const { position } = picked;
 
             const maxRadius = NORMAL_SAMPLE_RADII[NORMAL_SAMPLE_RADII.length - 1];
             const blockX = Math.max(0, screenX - maxRadius);
@@ -608,7 +650,8 @@ class Picker {
                 blockWidth,
                 blockHeight,
                 width,
-                height
+                height,
+                picked.camera
             );
 
             const samplePixel = (px: number, py: number) => {
@@ -630,7 +673,7 @@ class Picker {
                 }));
             }));
 
-            const toCamera = setCameraFacingNormal(camera, position, new Vec3());
+            const toCamera = setCameraFacingNormal(picked.camera.position, position, new Vec3());
             const candidates: Vec3[] = [];
             const va = new Vec3();
             const vb = new Vec3();
