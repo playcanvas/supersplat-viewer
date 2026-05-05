@@ -37,6 +37,7 @@ import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
+import { Picker } from './picker';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { Config, Global } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
@@ -162,6 +163,8 @@ class Viewer {
     inputController: InputController;
 
     cameraManager: CameraManager;
+
+    picker: Picker;
 
     annotations: Annotations;
 
@@ -364,7 +367,8 @@ class Viewer {
                 this.annotations = new Annotations(global, this.cameraFrame != null);
             }
 
-            this.inputController = new InputController(global);
+            this.picker = new Picker(app, camera);
+            this.inputController = new InputController(global, this.picker);
             this.inputController.collision = collision ?? null;
 
             state.hasCollision = !!collision;
@@ -394,7 +398,7 @@ class Viewer {
             applyCamera(this.cameraManager.camera);
 
             if (!config.noui) {
-                this.walkCursor = new WalkCursor(app, camera, collision ?? null, events, state);
+                this.walkCursor = new WalkCursor(app, camera, collision ?? null, events, state, this.picker);
             }
 
             const { instance } = gsplat;

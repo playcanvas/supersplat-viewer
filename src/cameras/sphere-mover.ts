@@ -12,15 +12,53 @@ const COLLISION_SKIN = 1e-3;
 const MAX_SLIDE_ITERATIONS = 3;
 
 const MIN_MOVE_SQ = 1e-10;
+const INV_SQRT2 = 1 / Math.sqrt(2);
+
+const SWEEP_RAY_OFFSETS = [
+    [0, 0, true],
+    [1, 0, false],
+    [-1, 0, false],
+    [0, 1, false],
+    [0, -1, false],
+    [INV_SQRT2, INV_SQRT2, false],
+    [-INV_SQRT2, INV_SQRT2, false],
+    [-INV_SQRT2, -INV_SQRT2, false],
+    [INV_SQRT2, -INV_SQRT2, false]
+] as const;
 
 const v = new Vec3();
 const remainingMove = new Vec3();
 const collisionPush = new Vec3();
 const sweepDir = new Vec3();
 const sweepNormal = new Vec3();
+const sweepTangent = new Vec3();
+const sweepBitangent = new Vec3();
+const sweepOrigin = new Vec3();
+const worldUp = new Vec3(0, 1, 0);
+const worldRight = new Vec3(1, 0, 0);
 
 /** Pre-allocated push-out vector for sphere collision */
 const pushOut: PushOut = { x: 0, y: 0, z: 0 };
+
+type SweepHit = {
+    x: number;
+    y: number;
+    z: number;
+    nx: number;
+    ny: number;
+    nz: number;
+    travel: number;
+};
+
+const sweepHit: SweepHit = {
+    x: 0,
+    y: 0,
+    z: 0,
+    nx: 0,
+    ny: 1,
+    nz: 0,
+    travel: 0
+};
 
 class SphereMover {
     collision: Collision | null = null;
@@ -85,37 +123,81 @@ class SphereMover {
         const distance = Math.sqrt(moveSq);
         sweepDir.copy(move).mulScalar(1 / distance);
 
-        const hit = this.collision!.queryRay(
-            position.x, position.y, position.z,
-            sweepDir.x, sweepDir.y, sweepDir.z,
-            distance + this.radius + COLLISION_SKIN
-        );
-
-        if (!hit) {
+        if (!this._querySweep(position, sweepDir, distance, sweepHit)) {
             position.add(move);
             this.resolve(position);
             return false;
         }
 
-        const hx = hit.x - position.x;
-        const hy = hit.y - position.y;
-        const hz = hit.z - position.z;
-        const hitDistance = Math.max(0, hx * sweepDir.x + hy * sweepDir.y + hz * sweepDir.z);
-        const travel = math.clamp(hitDistance - this.radius - COLLISION_SKIN, 0, distance);
-
-        position.add(v.copy(sweepDir).mulScalar(travel));
+        position.add(v.copy(sweepDir).mulScalar(sweepHit.travel));
         this.resolve(position);
 
-        const surfaceNormal = this.collision!.querySurfaceNormal(
-            hit.x, hit.y, hit.z,
-            sweepDir.x, sweepDir.y, sweepDir.z
-        );
-        sweepNormal.set(surfaceNormal.nx, surfaceNormal.ny, surfaceNormal.nz);
+        sweepNormal.set(sweepHit.nx, sweepHit.ny, sweepHit.nz);
 
-        move.add(v.copy(sweepDir).mulScalar(-travel));
+        move.add(v.copy(sweepDir).mulScalar(-sweepHit.travel));
         this._clipMove(move, sweepNormal);
 
         return true;
+    }
+
+    private _querySweep(position: Vec3, dir: Vec3, distance: number, out: SweepHit): boolean {
+        if (Math.abs(dir.y) < 0.99) {
+            sweepTangent.cross(dir, worldUp).normalize();
+        } else {
+            sweepTangent.cross(dir, worldRight).normalize();
+        }
+        sweepBitangent.cross(dir, sweepTangent).normalize();
+
+        let found = false;
+        let bestTravel = Infinity;
+
+        for (let i = 0; i < SWEEP_RAY_OFFSETS.length; i++) {
+            const [tx, ty, centerRay] = SWEEP_RAY_OFFSETS[i];
+            const radiusOffset = centerRay ? 0 : this.radius;
+            const rayExtension = centerRay ? this.radius : 0;
+
+            sweepOrigin.copy(position);
+            if (!centerRay) {
+                sweepOrigin.add(v.copy(sweepTangent).mulScalar(tx * radiusOffset));
+                sweepOrigin.add(v.copy(sweepBitangent).mulScalar(ty * radiusOffset));
+            }
+
+            const hit = this.collision!.queryRay(
+                sweepOrigin.x, sweepOrigin.y, sweepOrigin.z,
+                dir.x, dir.y, dir.z,
+                distance + rayExtension + COLLISION_SKIN
+            );
+            if (!hit) {
+                continue;
+            }
+
+            const hx = hit.x - sweepOrigin.x;
+            const hy = hit.y - sweepOrigin.y;
+            const hz = hit.z - sweepOrigin.z;
+            const hitDistance = Math.max(0, hx * dir.x + hy * dir.y + hz * dir.z);
+            const clearance = centerRay ? this.radius : 0;
+            const travel = math.clamp(hitDistance - clearance - COLLISION_SKIN, 0, distance);
+            if (travel >= bestTravel) {
+                continue;
+            }
+
+            const surfaceNormal = this.collision!.querySurfaceNormal(
+                hit.x, hit.y, hit.z,
+                dir.x, dir.y, dir.z
+            );
+
+            found = true;
+            bestTravel = travel;
+            out.x = hit.x;
+            out.y = hit.y;
+            out.z = hit.z;
+            out.nx = surfaceNormal.nx;
+            out.ny = surfaceNormal.ny;
+            out.nz = surfaceNormal.nz;
+            out.travel = travel;
+        }
+
+        return found;
     }
 
     private _resolveSphere(position: Vec3, push: Vec3): boolean {

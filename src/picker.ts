@@ -371,6 +371,7 @@ class Picker {
         let accumTarget: RenderTarget;
         let accumPass: RenderPassPicker;
         let chunksPatched = false;
+        let pickQueue = Promise.resolve();
         const cacheCamera: PickCameraSnapshot = {
             position: new Vec3(),
             viewMatrix: new Mat4(),
@@ -560,12 +561,19 @@ class Picker {
             return position ? { position, camera: pickCamera, isComputeRenderer } : null;
         };
 
-        this.pick = async (x: number, y: number) => {
+        const serializePick = <T>(operation: () => Promise<T>): Promise<T> => {
+            // The render targets are shared by all picks on this instance.
+            const result = pickQueue.then(operation, operation);
+            pickQueue = result.then((): void => undefined, (): void => undefined);
+            return result;
+        };
+
+        const pick = async (x: number, y: number) => {
             const result = await pickPosition(x, y);
             return result?.position ?? null;
         };
 
-        this.pickSurface = async (x: number, y: number) => {
+        const pickSurface = async (x: number, y: number) => {
             const width = Math.floor(graphicsDevice.width);
             const height = Math.floor(graphicsDevice.height);
 
@@ -682,6 +690,10 @@ class Picker {
                 normal
             };
         };
+
+        this.pick = (x: number, y: number) => serializePick(() => pick(x, y));
+
+        this.pickSurface = (x: number, y: number) => serializePick(() => pickSurface(x, y));
 
         this.release = () => {
             if (chunksPatched) {

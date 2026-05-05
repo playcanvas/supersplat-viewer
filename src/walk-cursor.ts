@@ -6,7 +6,7 @@ import {
 } from 'playcanvas';
 
 import type { Collision } from './collision';
-import { Picker } from './picker';
+import type { Picker } from './picker';
 import type { State } from './types';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -110,8 +110,6 @@ class WalkCursor {
 
     private targetPath: SVGPathElement;
 
-    private app: AppBase;
-
     private camera: Entity;
 
     private collision: Collision | null;
@@ -120,7 +118,7 @@ class WalkCursor {
 
     private state: State;
 
-    private picker: Picker | null = null;
+    private picker: Picker;
 
     private active = false;
 
@@ -160,18 +158,24 @@ class WalkCursor {
 
     private readonly innerY = new Float64Array(NUM_SAMPLES);
 
+    private readonly collisionTarget: CursorTarget = {
+        position: new Vec3(),
+        normal: new Vec3()
+    };
+
     constructor(
         app: AppBase,
         camera: Entity,
         collision: Collision | null,
         events: EventHandler,
-        state: State
+        state: State,
+        picker: Picker
     ) {
-        this.app = app;
         this.camera = camera;
         this.collision = collision;
         this.canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
         this.state = state;
+        this.picker = picker;
 
         this.svg = document.createElementNS(SVGNS, 'svg');
         this.svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:1';
@@ -410,10 +414,9 @@ class WalkCursor {
         }
 
         const sn = collision.querySurfaceNormal(hit.x, hit.y, hit.z, tmpV.x, tmpV.y, tmpV.z);
-        return {
-            position: new Vec3(hit.x, hit.y, hit.z),
-            normal: new Vec3(sn.nx, sn.ny, sn.nz)
-        };
+        this.collisionTarget.position.set(hit.x, hit.y, hit.z);
+        this.collisionTarget.normal.set(sn.nx, sn.ny, sn.nz);
+        return this.collisionTarget;
     }
 
     private async pickSceneTarget(offsetX: number, offsetY: number): Promise<CursorTarget | null> {
@@ -421,8 +424,6 @@ class WalkCursor {
         if (collisionTarget) {
             return collisionTarget;
         }
-
-        this.picker ??= new Picker(this.app, this.camera);
 
         const result = await this.picker.pickSurface(
             offsetX / this.canvas.clientWidth,
@@ -546,7 +547,6 @@ class WalkCursor {
     destroy() {
         this.canvas.removeEventListener('pointermove', this.onPointerMove);
         this.canvas.removeEventListener('pointerleave', this.onPointerLeave);
-        this.picker?.release();
         this.svg.remove();
     }
 }

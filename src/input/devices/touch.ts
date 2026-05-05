@@ -118,7 +118,7 @@ class TouchDevice implements InputDevice {
                         this._global!.events.fire('mobileTap');
                     } else if (isWalk) {
                         this._tapJump = true;
-                    } else if (isFly) {
+                    } else if (isFly && !gamingControls) {
                         // Walk-interaction listens for this and fires flyTo
                         // after picking.
                         this._global!.events.fire('mobileTap');

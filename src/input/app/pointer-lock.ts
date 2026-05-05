@@ -5,9 +5,8 @@ const isCaptureMode = (mode: string) => mode === 'walk' || mode === 'fly';
 
 /**
  * Manages the browser's pointer-lock API for first-person gaming controls
- * on desktop. Toggles in response to `cameraMode:changed` and
- * `gamingControls:changed`, and reverts state if the lock is exited or
- * rejected.
+ * on desktop. Toggles in response to camera mode, input mode, and
+ * gaming-controls changes, and reverts state if the lock is exited or rejected.
  *
  * Also exposes `recentlyExitedCapture` so the keyboard-shortcut handler can
  * de-duplicate the Escape keydown that triggered the lock exit.
@@ -77,6 +76,19 @@ class PointerLockManager {
         }
     };
 
+    private _onInputModeChanged = (value: string) => {
+        const state = this._global?.state;
+        if (!state || !isCaptureMode(state.cameraMode) || !state.gamingControls) {
+            return;
+        }
+
+        if (value === 'desktop') {
+            this._activate();
+        } else {
+            this._deactivate();
+        }
+    };
+
     private _activate(): void {
         if (this._keyboardMouse) {
             (this._keyboardMouse.source as any)._pointerLock = true;
@@ -108,6 +120,7 @@ class PointerLockManager {
 
         events.on('cameraMode:changed', this._onCameraModeChanged);
         events.on('gamingControls:changed', this._onGamingControlsChanged);
+        events.on('inputMode:changed', this._onInputModeChanged);
 
         document.addEventListener('pointerlockchange', this._onPointerLockChange);
         document.addEventListener('pointerlockerror', this._onPointerLockError);
@@ -118,6 +131,7 @@ class PointerLockManager {
             const { events } = this._global;
             events.off('cameraMode:changed', this._onCameraModeChanged);
             events.off('gamingControls:changed', this._onGamingControlsChanged);
+            events.off('inputMode:changed', this._onInputModeChanged);
         }
         document.removeEventListener('pointerlockchange', this._onPointerLockChange);
         document.removeEventListener('pointerlockerror', this._onPointerLockError);

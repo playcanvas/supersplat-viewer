@@ -10,6 +10,7 @@ import { KeyboardMouseDevice } from './input/devices/keyboard-mouse';
 import { TouchDevice } from './input/devices/touch';
 import { TrackpadDevice } from './input/devices/trackpad';
 import type { UpdateContext } from './input/shared';
+import type { Picker } from './picker';
 import type { Global } from './types';
 
 /**
@@ -34,7 +35,7 @@ class InputController {
 
     private _gamepad = new GamepadDevice();
 
-    private _walkInteraction = new WalkInteraction();
+    private _walkInteraction: WalkInteraction;
 
     private _pointerLock = new PointerLockManager();
 
@@ -50,8 +51,9 @@ class InputController {
         return this._walkInteraction.collision;
     }
 
-    constructor(global: Global) {
+    constructor(global: Global, picker: Picker) {
         this._global = global;
+        this._walkInteraction = new WalkInteraction(picker);
 
         const { app, events } = global;
         const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;

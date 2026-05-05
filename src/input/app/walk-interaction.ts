@@ -1,7 +1,7 @@
 import { Vec3 } from 'playcanvas';
 
 import type { Collision } from '../../collision';
-import { Picker } from '../../picker';
+import type { Picker } from '../../picker';
 import type { Global } from '../../types';
 import { TAP_EPSILON } from '../shared';
 
@@ -25,11 +25,11 @@ type PickTarget = {
 class WalkInteraction {
     collision: Collision | null = null;
 
+    private _picker: Picker;
+
     private _global: Global | null = null;
 
     private _canvas: HTMLCanvasElement | null = null;
-
-    private _picker: Picker | null = null;
 
     private _lastPointerOffsetX = 0;
 
@@ -44,6 +44,10 @@ class WalkInteraction {
     private _targetPickRequest = 0;
 
     private _lastTap = { time: 0, x: 0, y: 0 };
+
+    constructor(picker: Picker) {
+        this._picker = picker;
+    }
 
     private _updateCursor = () => {
         const global = this._global;
@@ -94,10 +98,6 @@ class WalkInteraction {
         const collisionTarget = this._pickCollision(offsetX, offsetY);
         if (collisionTarget) {
             return collisionTarget;
-        }
-
-        if (!this._picker) {
-            this._picker = new Picker(global.app, global.camera);
         }
 
         const result = await this._picker.pickSurface(
@@ -222,11 +222,16 @@ class WalkInteraction {
         const { events, state } = global;
         const cameraMode = state.cameraMode;
         if (cameraMode === 'walk') return;
-        const request = ++this._targetPickRequest;
-        const target = await this._pickSceneTarget(event.offsetX, event.offsetY);
-        if (target && request === this._targetPickRequest && this._global?.state.cameraMode === cameraMode) {
-            events.fire('orbitTarget:set', target.position, target.normal);
-            events.fire('pick', target.position);
+
+        if (cameraMode === 'fly') {
+            this._flyToPickedPosition(event.offsetX, event.offsetY);
+        } else if (cameraMode === 'orbit') {
+            const request = ++this._targetPickRequest;
+            const target = await this._pickSceneTarget(event.offsetX, event.offsetY);
+            if (target && request === this._targetPickRequest && this._global?.state.cameraMode === cameraMode) {
+                events.fire('orbitTarget:set', target.position, target.normal);
+                events.fire('pick', target.position);
+            }
         }
     };
 
@@ -260,7 +265,7 @@ class WalkInteraction {
         canvas.addEventListener('pointermove', this._onPointerMove);
         canvas.addEventListener('pointerup', this._onPointerUp);
 
-        // double-click/tap fallback -> pick -> fire 'pick' event (skipped in walk mode)
+        // double-click/tap fallback -> fly target or orbit focus (skipped in walk mode)
         events.on('inputEvent', this._onInputEvent);
 
         // mobile tap (no movement) → walk/fly target or orbit focus
@@ -286,8 +291,6 @@ class WalkInteraction {
         }
         this._canvas = null;
         this._global = null;
-        this._picker?.release();
-        this._picker = null;
     }
 }
 
