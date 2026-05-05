@@ -163,9 +163,16 @@ class CameraManager {
                     startTransition();
                     break;
                 case 'reset':
-                    state.cameraMode = 'orbit';
-                    controllers.orbit.goto(resetCamera);
-                    startTransition();
+                    if (state.cameraMode === 'walk') {
+                        walkSource.cancelWalk();
+                        events.fire('walkTarget:clear');
+                        startTransition();
+                        controllers.walk.resetToSpawn(target);
+                    } else {
+                        state.cameraMode = 'orbit';
+                        controllers.orbit.goto(resetCamera);
+                        startTransition();
+                    }
                     break;
                 case 'playPause':
                     if (state.hasAnimation) {

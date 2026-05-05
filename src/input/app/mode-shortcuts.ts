@@ -54,6 +54,9 @@ class ModeShortcuts {
             case 'h':
                 events.fire('inputEvent', 'toggleHelp');
                 break;
+            case 'r':
+                events.fire('inputEvent', 'reset', event);
+                break;
             default:
                 if ((event.code === 'KeyW' || event.code === 'KeyA' || event.code === 'KeyS' || event.code === 'KeyD') &&
                     state.cameraMode === 'walk' && state.inputMode === 'desktop' && !state.gamingControls) {
@@ -66,9 +69,6 @@ class ModeShortcuts {
             switch (event.key) {
                 case 'f':
                     events.fire('inputEvent', 'frame', event);
-                    break;
-                case 'r':
-                    events.fire('inputEvent', 'reset', event);
                     break;
                 case ' ':
                     events.fire('inputEvent', 'playPause', event);

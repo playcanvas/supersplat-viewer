@@ -130,6 +130,10 @@ class WalkController implements CameraController {
 
     private _angles = new Vec3();
 
+    private _spawnPosition = new Vec3();
+
+    private _spawnAngles = new Vec3();
+
     private _velocity = new Vec3();
 
     private _pendingMove = [0, 0, 0];
@@ -141,6 +145,10 @@ class WalkController implements CameraController {
     private _jumping = false;
 
     private _jumpHeld = false;
+
+    private _spawnGrounded = false;
+
+    private _hasSpawn = false;
 
     onEnter(camera: Camera): void {
         this.goto(camera);
@@ -154,6 +162,7 @@ class WalkController implements CameraController {
             }
 
             this._prevPosition.copy(this._position);
+            this._storeSpawn();
         }
     }
 
@@ -275,9 +284,45 @@ class WalkController implements CameraController {
         this._angles.set(camera.angles.x, camera.angles.y, 0);
 
         // reset velocity and state
+        this._resetMotion();
+    }
+
+    /**
+     * Reset the controller to the spawn pose captured on the last walk-mode entry.
+     *
+     * @param camera - Camera state to update with the spawn pose.
+     * @returns True if a spawn pose was available.
+     */
+    resetToSpawn(camera: Camera): boolean {
+        if (!this._hasSpawn) {
+            return false;
+        }
+
+        this._position.copy(this._spawnPosition);
+        this._prevPosition.copy(this._position);
+        this._angles.copy(this._spawnAngles);
+        this._resetMotion();
+        this._grounded = this._spawnGrounded;
+
+        camera.position.copy(this._position);
+        camera.angles.copy(this._angles);
+        camera.fov = this.fov;
+
+        return true;
+    }
+
+    private _storeSpawn() {
+        this._spawnPosition.copy(this._position);
+        this._spawnAngles.copy(this._angles);
+        this._spawnGrounded = this._grounded;
+        this._hasSpawn = true;
+    }
+
+    private _resetMotion() {
         this._velocity.set(0, 0, 0);
         this._grounded = false;
         this._jumping = false;
+        this._jumpHeld = false;
         this._pendingMove[0] = 0;
         this._pendingMove[1] = 0;
         this._pendingMove[2] = 0;
@@ -306,7 +351,9 @@ class WalkController implements CameraController {
      * @returns Ground height to spawn on, or null to keep the camera position.
      */
     private _findSpawnGround(pos: Vec3): number | null {
-        const groundY = this._findClearSpawnGroundBelow(pos, this.spawnSearchRange, !this._isInsideSolid(pos));
+        const insideSolid = this._isInsideSolid(pos);
+
+        const groundY = this._findClearSpawnGroundBelow(pos, this.spawnSearchRange, !insideSolid);
         if (groundY !== null) {
             return groundY;
         }
@@ -357,7 +404,10 @@ class WalkController implements CameraController {
         }
 
         spawnProbe.set(pos.x, this._getEyeYFromGround(hit.y), pos.z);
-        return this._queryCapsule(spawnProbe) ? null : hit.y;
+        const clear = !this._queryCapsule(spawnProbe);
+        const accepted = clear || this._resolveSpawnCandidate(spawnProbe);
+
+        return accepted ? hit.y : null;
     }
 
     /**
@@ -378,6 +428,54 @@ class WalkController implements CameraController {
      */
     private _isInsideSolid(pos: Vec3): boolean {
         return this.collision!.querySphere(pos.x, pos.y, pos.z, SPAWN_HIT_EPSILON, out);
+    }
+
+    /**
+     * Try to resolve a spawn candidate and verify it remains supported by ground.
+     *
+     * @param pos - Candidate eye position to resolve in place.
+     * @returns True if the candidate can be made clear and still stand on ground.
+     */
+    private _resolveSpawnCandidate(pos: Vec3): boolean {
+        const startX = pos.x;
+        const startY = pos.y;
+        const startZ = pos.z;
+        const maxResolveDistance = this.capsuleRadius + this.hoverHeight;
+        const maxResolveDistanceSq = maxResolveDistance * maxResolveDistance;
+
+        for (let i = 0; i < 100; i++) {
+            if (!this._queryCapsule(pos)) {
+                return this._hasSpawnGroundSupport(pos);
+            }
+
+            pos.add(v.set(out.x, out.y, out.z));
+
+            const dx = pos.x - startX;
+            const dy = pos.y - startY;
+            const dz = pos.z - startZ;
+            if (dx * dx + dy * dy + dz * dz > maxResolveDistanceSq) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Verify the resolved spawn candidate is still standing close to ground.
+     *
+     * @param pos - Resolved candidate eye position.
+     * @returns True if ground support is still valid.
+     */
+    private _hasSpawnGroundSupport(pos: Vec3): boolean {
+        const groundY = this._probeGround(pos);
+        if (groundY === null) {
+            return false;
+        }
+
+        const clearance = pos.y - this.eyeHeight - groundY;
+        return clearance >= -SPAWN_HIT_EPSILON &&
+            clearance <= this.hoverHeight + this.capsuleRadius + SPAWN_HIT_EPSILON;
     }
 
     /**
