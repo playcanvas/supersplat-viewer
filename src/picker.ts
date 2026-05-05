@@ -1,5 +1,5 @@
 /**
- * Double-click world picking for splat scenes.
+ * World picking for splat scenes.
  *
  * - **Compute renderer (WebGPU tiled-compute)**: uses engine `Picker` with depth enabled — expected
  *   depth is already provided by the tile-composite path.
@@ -476,13 +476,6 @@ class Picker {
             cacheReady = false;
         };
 
-        const pickPixel = (x: number, y: number, width: number, height: number) => {
-            const sx = Math.min(width - 1, Math.max(0, x));
-            const sy = Math.min(height - 1, Math.max(0, y));
-
-            return this.pick((sx + 0.5) / width, (sy + 0.5) / height);
-        };
-
         const readRasterBlock = async (
             blockX: number,
             blockY: number,
@@ -585,13 +578,15 @@ class Picker {
                 }
             }
 
+            const pickCamera = getCacheCameraSnapshot();
+
             if (app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE) {
-                const pickCamera = getCacheCameraSnapshot();
-                const position = await enginePicker!.getWorldPointAsync(screenX, screenY);
+                const normalizedDepth = await enginePicker!.getPointDepthAsync(screenX, screenY);
+                const position = normalizedDepth !== null ?
+                    getWorldPoint(pickCamera, screenX, screenY, width, height, normalizedDepth) :
+                    null;
                 return position ? { position, camera: pickCamera } : null;
             }
-
-            const pickCamera = getCacheCameraSnapshot();
 
             try {
                 if (app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE) {
@@ -659,9 +654,15 @@ class Picker {
                     return Promise.resolve(null);
                 }
 
-                return rasterBlock ?
-                    Promise.resolve(rasterBlock(px, py)) :
-                    pickPixel(px, py, width, height);
+                if (rasterBlock) {
+                    return Promise.resolve(rasterBlock(px, py));
+                }
+
+                return enginePicker!.getPointDepthAsync(px, py).then((normalizedDepth) => {
+                    return normalizedDepth !== null ?
+                        getWorldPoint(picked.camera, px, py, width, height, normalizedDepth) :
+                        null;
+                });
             };
 
             const sampleRings = await Promise.all(NORMAL_SAMPLE_RADII.map((radius) => {

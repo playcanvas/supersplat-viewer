@@ -5,7 +5,7 @@ import type { Collision, PushOut } from '../collision';
 /** Extra resolve passes above the collider's internal iteration for tight corners */
 const MAX_COLLISION_PASSES = 4;
 
-/** Small clearance that keeps the sphere from resting exactly on a voxel face */
+/** Small clearance that keeps the sphere from resting exactly on a collision surface */
 const COLLISION_SKIN = 1e-3;
 
 /** Maximum surface planes to slide along in a single frame */

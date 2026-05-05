@@ -24,11 +24,11 @@ const offset = new Vec3();
 const spawnProbe = new Vec3();
 
 /**
- * First-person camera controller with spring-damper suspension over voxel terrain.
+ * First-person camera controller with spring-damper suspension over collision terrain.
  *
  * Movement is constrained to the horizontal plane (XZ) relative to the camera yaw.
  * Vertical positioning uses a spring-damper system that hovers the capsule above the
- * voxel surface, filtering out terrain noise for smooth camera motion. Capsule
+ * collision surface, filtering out terrain noise for smooth camera motion. Capsule
  * collision handles walls and obstacles. When airborne, normal gravity applies.
  */
 class WalkController implements CameraController {
@@ -99,7 +99,7 @@ class WalkController implements CameraController {
 
     /**
      * Target clearance from capsule bottom to ground surface in meters.
-     * The capsule hovers this far above terrain to avoid bouncing on noisy voxels.
+     * The capsule hovers this far above terrain to avoid bouncing on noisy surfaces.
      */
     hoverHeight = 0.2;
 
@@ -489,7 +489,7 @@ class WalkController implements CameraController {
     /**
      * Cast multiple rays downward to find the average ground surface height.
      * Uses 5 rays (center + 4 cardinal at capsule radius) to spatially filter
-     * noisy voxel heights, giving the spring a smoother target.
+     * noisy collision heights, giving the spring a smoother target.
      *
      * @param pos - Eye position in PlayCanvas world space.
      * @returns Average ground surface Y in PlayCanvas space, or null if no ground found.

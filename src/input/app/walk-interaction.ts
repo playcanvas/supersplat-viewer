@@ -151,7 +151,8 @@ class WalkInteraction {
             this._updateCursor();
         }
 
-        // manual double-tap detection (iOS doesn't send dblclick)
+        // Manual double-click/tap detection for platforms that do not emit
+        // reliable native dblclick events on the canvas.
         const now = Date.now();
         const delay = Math.max(0, now - this._lastTap.time);
         if (delay < 300 &&
@@ -257,7 +258,7 @@ class WalkInteraction {
         canvas.addEventListener('pointermove', this._onPointerMove);
         canvas.addEventListener('pointerup', this._onPointerUp);
 
-        // double-click fallback → pick → fire 'pick' event (skipped in walk mode)
+        // double-click/tap fallback -> pick -> fire 'pick' event (skipped in walk mode)
         events.on('inputEvent', this._onInputEvent);
 
         // mobile tap (no movement) → walk/fly target or orbit focus
