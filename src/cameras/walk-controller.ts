@@ -6,7 +6,8 @@ import { damp } from '../core/math';
 
 const FIXED_DT = 1 / 60;
 const MAX_SUBSTEPS = 10;
-const SURFACE_NORMAL_THRESHOLD = 0.5;
+const SPAWN_HIT_EPSILON = 1e-3;
+const SPAWN_SEARCH_MIN_STEP = 0.05;
 
 /** Pre-allocated push-out vector for capsule collision */
 const out: PushOut = { x: 0, y: 0, z: 0 };
@@ -20,8 +21,7 @@ const moveStep = [0, 0, 0];
 
 const offset = new Vec3();
 const rotation = new Quat();
-
-type SpawnAnchor = 'eye' | 'floor' | 'ceiling';
+const spawnProbe = new Vec3();
 
 /**
  * First-person camera controller with spring-damper suspension over voxel terrain.
@@ -119,6 +119,11 @@ class WalkController implements CameraController {
      */
     groundProbeRange = 1.0;
 
+    /**
+     * Maximum vertical raycast distance to search for walk spawn ground.
+     */
+    spawnSearchRange = 1000;
+
     private _position = new Vec3();
 
     private _prevPosition = new Vec3();
@@ -140,24 +145,12 @@ class WalkController implements CameraController {
     onEnter(camera: Camera): void {
         this.goto(camera);
         if (this.collision) {
-            const spawnAnchor = this._queryCapsule(this._position) ? this._findSpawnAnchor(camera.position) : 'eye';
-
-            if (spawnAnchor === 'floor') {
-                this._position.y = camera.position.y + this.eyeHeight;
-            } else if (spawnAnchor === 'ceiling') {
-                this._position.y = camera.position.y - (this.capsuleHeight - this.eyeHeight);
-            }
-
-            this._resolveSpawnCollision();
-
-            const groundY = this._probeGround(this._position);
+            const groundY = this._findSpawnGround(camera.position);
             if (groundY !== null) {
+                this._position.y = this._getEyeYFromGround(groundY);
                 this._grounded = true;
                 this._velocity.y = 0;
-
-                if (spawnAnchor === 'eye') {
-                    this._position.y = groundY + this.hoverHeight + this.eyeHeight;
-                }
+                this._resolveSpawnCollision();
             }
 
             this._prevPosition.copy(this._position);
@@ -305,39 +298,86 @@ class WalkController implements CameraController {
     }
 
     /**
-     * Detect whether the incoming camera position is actually a floor or ceiling
-     * surface point rather than an eye position.
+     * Find a ground height for spawning into walk mode. Prefer ground directly
+     * below the camera; if that is not usable, search down and then up for the
+     * first clear walk placement with ground below it.
      *
      * @param pos - Incoming camera position.
-     * @returns Spawn anchor for interpreting the camera position.
+     * @returns Ground height to spawn on, or null to keep the camera position.
      */
-    private _findSpawnAnchor(pos: Vec3): SpawnAnchor {
-        const range = this.capsuleRadius + this.hoverHeight;
-        const collision = this.collision!;
-        let floorDist = Infinity;
-        let ceilingDist = Infinity;
+    private _findSpawnGround(pos: Vec3): number | null {
+        const groundY = this._findClearSpawnGroundBelow(pos, this.spawnSearchRange, !this._isInsideSolid(pos));
+        if (groundY !== null) {
+            return groundY;
+        }
 
-        const floorHit = collision.queryRay(pos.x, pos.y, pos.z, 0, -1, 0, range);
-        if (floorHit) {
-            const normal = collision.querySurfaceNormal(floorHit.x, floorHit.y, floorHit.z, 0, -1, 0);
-            if (normal.ny > SURFACE_NORMAL_THRESHOLD) {
-                floorDist = Math.abs(pos.y - floorHit.y);
+        return this._searchSpawnGround(pos, -1) ?? this._searchSpawnGround(pos, 1);
+    }
+
+    /**
+     * Search vertically for a clear walk spawn placement with ground below it.
+     *
+     * @param pos - Starting position.
+     * @param direction - Vertical search direction: -1 down, 1 up.
+     * @returns Ground height to spawn on, or null if none was found.
+     */
+    private _searchSpawnGround(pos: Vec3, direction: -1 | 1): number | null {
+        const step = Math.max(this.capsuleRadius, this.hoverHeight, SPAWN_SEARCH_MIN_STEP);
+        const endY = pos.y + direction * this.spawnSearchRange;
+
+        for (let y = pos.y + direction * step; direction < 0 ? y >= endY : y <= endY; y += direction * step) {
+            spawnProbe.set(pos.x, y, pos.z);
+
+            const groundY = this._findClearSpawnGroundBelow(spawnProbe, this.spawnSearchRange, false);
+            if (groundY !== null) {
+                return groundY;
             }
         }
 
-        const ceilingHit = collision.queryRay(pos.x, pos.y, pos.z, 0, 1, 0, range);
-        if (ceilingHit) {
-            const normal = collision.querySurfaceNormal(ceilingHit.x, ceilingHit.y, ceilingHit.z, 0, 1, 0);
-            if (normal.ny < -SURFACE_NORMAL_THRESHOLD) {
-                ceilingDist = Math.abs(ceilingHit.y - pos.y);
-            }
+        return null;
+    }
+
+    /**
+     * Find the first collision surface below a point that can hold a clear walk
+     * capsule.
+     *
+     * @param pos - Ray origin.
+     * @param range - Maximum ray distance.
+     * @param allowInitialHit - Whether a hit at the ray origin is valid.
+     * @returns Y coordinate of the ground hit, or null if no ground was found.
+     */
+    private _findClearSpawnGroundBelow(pos: Vec3, range: number, allowInitialHit: boolean): number | null {
+        const hit = this.collision!.queryRay(pos.x, pos.y, pos.z, 0, -1, 0, range);
+        if (!hit) {
+            return null;
         }
 
-        if (floorDist === Infinity && ceilingDist === Infinity) {
-            return 'eye';
+        if (!allowInitialHit && Math.abs(pos.y - hit.y) <= SPAWN_HIT_EPSILON) {
+            return null;
         }
 
-        return floorDist <= ceilingDist ? 'floor' : 'ceiling';
+        spawnProbe.set(pos.x, this._getEyeYFromGround(hit.y), pos.z);
+        return this._queryCapsule(spawnProbe) ? null : hit.y;
+    }
+
+    /**
+     * Convert a ground height to the walk controller's eye position.
+     *
+     * @param groundY - Ground surface height.
+     * @returns Eye position Y.
+     */
+    private _getEyeYFromGround(groundY: number): number {
+        return groundY + this.hoverHeight + this.eyeHeight;
+    }
+
+    /**
+     * Test whether the incoming camera point starts inside solid collision.
+     *
+     * @param pos - Point to test.
+     * @returns True if the point overlaps solid collision.
+     */
+    private _isInsideSolid(pos: Vec3): boolean {
+        return this.collision!.querySphere(pos.x, pos.y, pos.z, SPAWN_HIT_EPSILON, out);
     }
 
     /**
