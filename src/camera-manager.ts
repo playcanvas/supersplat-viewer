@@ -144,7 +144,7 @@ class CameraManager {
             if (state.cameraMode === 'walk') {
                 walkSource.update(dt, this.camera.position, this.camera.angles, frame);
             } else if (state.cameraMode === 'fly') {
-                flySource.update(dt, this.camera.position, this.camera.angles, frame);
+                flySource.update(dt, this.camera.position, this.camera.angles, this.camera.fov, frame);
             }
 
             controller.update(dt, frame, target);

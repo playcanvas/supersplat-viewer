@@ -3,9 +3,16 @@ import { math, Quat, Vec3 } from 'playcanvas';
 import type { CameraFrame } from './camera';
 
 const RAD_TO_DEG = 180 / Math.PI;
+const DEG_TO_RAD = Math.PI / 180;
 
-/** 3D distance below which the flyer considers itself arrived */
-const ARRIVAL_DIST = 0.5;
+/** Target-space radius to keep visible at the stopping distance */
+const STOP_VIEW_RADIUS = 0.75;
+
+/** Minimum standoff from the target */
+const MIN_STOP_DIST = 0.75;
+
+/** Maximum standoff from the target */
+const MAX_STOP_DIST = 4.0;
 
 /** Minimum progress speed (m/s) to not count as blocked */
 const BLOCKED_SPEED = 0.25;
@@ -19,6 +26,35 @@ const rotation = new Quat();
 
 const shortestAngle = (angle: number) => ((angle % 360) + 540) % 360 - 180;
 
+const getStopDistance = (fov: number) => {
+    const halfFov = math.clamp(fov, 15, 120) * DEG_TO_RAD * 0.5;
+    return math.clamp(STOP_VIEW_RADIUS / Math.tan(halfFov), MIN_STOP_DIST, MAX_STOP_DIST);
+};
+
+const approach = (value: number, target: number, maxDelta: number) => {
+    if (value < target) {
+        return Math.min(target, value + maxDelta);
+    }
+
+    return Math.max(target, value - maxDelta);
+};
+
+const smoothstep = (edge0: number, edge1: number, value: number) => {
+    const t = math.clamp((value - edge0) / (edge1 - edge0), 0, 1);
+    return t * t * (3 - 2 * t);
+};
+
+const clampStep = (rate: number, remaining: number, dt: number) => {
+    const step = rate * dt;
+    if (Math.abs(remaining) < 1e-4) {
+        return 0;
+    }
+
+    return Math.sign(step) === Math.sign(remaining) && Math.abs(step) > Math.abs(remaining) ?
+        remaining :
+        step;
+};
+
 /**
  * Generates synthetic move/rotate input to auto-fly toward a target position.
  */
@@ -31,12 +67,27 @@ class FlySource {
     /**
      * Maximum pitch/yaw turn rate in degrees per second.
      */
-    maxTurnRate = 240;
+    maxTurnRate = 180;
 
     /**
      * Proportional gain mapping angular error (degrees) to desired turn rate.
      */
-    turnGain = 5;
+    turnGain = 4;
+
+    /**
+     * Maximum pitch/yaw turn acceleration in degrees per second squared.
+     */
+    turnAcceleration = 720;
+
+    /**
+     * Maximum forward acceleration in meters per second squared.
+     */
+    moveAcceleration = 6;
+
+    /**
+     * Maximum forward braking in meters per second squared.
+     */
+    moveDeceleration = 8;
 
     /**
      * Callback fired when an auto-flight completes or is cancelled.
@@ -48,6 +99,8 @@ class FlySource {
     private _yawRate = 0;
 
     private _pitchRate = 0;
+
+    private _speed = 0;
 
     private _blockedTime = 0;
 
@@ -67,6 +120,9 @@ class FlySource {
             this._target = new Vec3();
         }
         this._target.copy(target);
+        this._yawRate = 0;
+        this._pitchRate = 0;
+        this._speed = 0;
         this._blockedTime = 0;
         this._prevDist = Infinity;
     }
@@ -79,6 +135,7 @@ class FlySource {
             this._target = null;
             this._yawRate = 0;
             this._pitchRate = 0;
+            this._speed = 0;
             this._blockedTime = 0;
             this._prevDist = Infinity;
             this.onComplete?.();
@@ -92,16 +149,19 @@ class FlySource {
      * @param dt - Frame delta time in seconds.
      * @param cameraPosition - Camera world position.
      * @param cameraAngles - Camera Euler angles in degrees.
+     * @param cameraFov - Camera vertical field-of-view in degrees.
      * @param frame - The shared CameraFrame to append deltas to.
      */
-    update(dt: number, cameraPosition: Vec3, cameraAngles: Vec3, frame: CameraFrame) {
+    update(dt: number, cameraPosition: Vec3, cameraAngles: Vec3, cameraFov: number, frame: CameraFrame) {
         if (!this._target) return;
 
         const target = this._target;
         toTarget.sub2(target, cameraPosition);
         const dist = toTarget.length();
+        const stopDistance = getStopDistance(cameraFov);
+        const remainingDist = dist - stopDistance;
 
-        if (dist < ARRIVAL_DIST) {
+        if (remainingDist <= 0) {
             this.cancelFly();
             return;
         }
@@ -123,26 +183,36 @@ class FlySource {
 
         const desiredYawRate = math.clamp(yawDiff * this.turnGain, -this.maxTurnRate, this.maxTurnRate);
         const desiredPitchRate = math.clamp(pitchDiff * this.turnGain, -this.maxTurnRate, this.maxTurnRate);
-        const smoothing = 1 - Math.exp(-4 * this.turnGain * dt);
 
-        this._yawRate += (desiredYawRate - this._yawRate) * smoothing;
-        this._pitchRate += (desiredPitchRate - this._pitchRate) * smoothing;
+        this._yawRate = approach(this._yawRate, desiredYawRate, this.turnAcceleration * dt);
+        this._pitchRate = approach(this._pitchRate, desiredPitchRate, this.turnAcceleration * dt);
+
+        const yawStep = clampStep(this._yawRate, yawDiff, dt);
+        const pitchStep = clampStep(this._pitchRate, pitchDiff, dt);
+        this._yawRate = yawStep / dt;
+        this._pitchRate = pitchStep / dt;
 
         // FlyController applies: _angles += [-rotateY, -rotateX, 0]
-        frame.deltas.rotate.append([-(this._yawRate * dt), -(this._pitchRate * dt), 0]);
+        frame.deltas.rotate.append([-yawStep, -pitchStep, 0]);
 
-        rotation.setFromEulerAngles(cameraAngles);
+        rotation.setFromEulerAngles(cameraAngles.x + pitchStep, cameraAngles.y + yawStep, 0);
         rotation.transformVector(Vec3.FORWARD, forward);
 
         const alignment = math.clamp(forward.x * dirX + forward.y * dirY + forward.z * dirZ, 0, 1);
-        const moveDist = Math.min(this.flySpeed * dt * alignment, Math.max(0, dist - ARRIVAL_DIST));
+        const alignmentScale = smoothstep(0.05, 0.95, alignment);
+        const brakeSpeed = Math.sqrt(Math.max(0, 2 * this.moveDeceleration * remainingDist));
+        const desiredSpeed = Math.min(this.flySpeed, brakeSpeed) * alignmentScale;
+        const speedDelta = (desiredSpeed > this._speed ? this.moveAcceleration : this.moveDeceleration) * dt;
+        this._speed = approach(this._speed, desiredSpeed, speedDelta);
+
+        const moveDist = Math.min(this._speed * dt, remainingDist);
         if (moveDist > 0) {
             frame.deltas.move.append([0, 0, moveDist]);
         }
 
         // Only treat low progress as blocked once the camera is substantially
         // facing the target; otherwise a large turn-in-place would cancel early.
-        if (alignment > 0.5 && this._prevDist !== Infinity) {
+        if (alignment > 0.5 && this._speed > BLOCKED_SPEED && this._prevDist !== Infinity) {
             const speed = (this._prevDist - dist) / dt;
             if (speed < BLOCKED_SPEED) {
                 this._blockedTime += dt;
