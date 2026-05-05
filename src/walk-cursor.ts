@@ -370,6 +370,23 @@ class WalkCursor {
         }
     }
 
+    private renderRing(path: SVGPathElement, pos: Vec3, normal: Vec3) {
+        this.projectCircle(
+            pos.x, pos.y, pos.z,
+            normal.x, normal.y, normal.z,
+            CIRCLE_OUTER_RADIUS, this.outerX, this.outerY
+        );
+        this.projectCircle(
+            pos.x, pos.y, pos.z,
+            normal.x, normal.y, normal.z,
+            CIRCLE_INNER_RADIUS, this.innerX, this.innerY
+        );
+
+        path.setAttribute('d', `${buildBezierRing(this.outerX, this.outerY)} ${buildBezierRing(this.innerX, this.innerY)}`);
+        path.style.display = '';
+        this.svg.style.display = '';
+    }
+
     private pickCollision(offsetX: number, offsetY: number): CursorTarget | null {
         if (!this.collision) {
             return null;
@@ -441,12 +458,7 @@ class WalkCursor {
         this.smoothNz = nz;
         this.hasSmoothedNormal = true;
 
-        this.projectCircle(pos.x, pos.y, pos.z, nx, ny, nz, CIRCLE_OUTER_RADIUS, this.outerX, this.outerY);
-        this.projectCircle(pos.x, pos.y, pos.z, nx, ny, nz, CIRCLE_INNER_RADIUS, this.innerX, this.innerY);
-
-        this.cursorPath.setAttribute('d', `${buildBezierRing(this.outerX, this.outerY)} ${buildBezierRing(this.innerX, this.innerY)}`);
-        this.cursorPath.style.display = '';
-        this.svg.style.display = '';
+        this.renderRing(this.cursorPath, pos, tmpV.set(nx, ny, nz));
     }
 
     private shouldShowSurfaceCursor() {
@@ -527,20 +539,7 @@ class WalkCursor {
             return;
         }
 
-        this.projectCircle(
-            this.targetPos.x, this.targetPos.y, this.targetPos.z,
-            this.targetNormal.x, this.targetNormal.y, this.targetNormal.z,
-            CIRCLE_OUTER_RADIUS, this.outerX, this.outerY
-        );
-        this.projectCircle(
-            this.targetPos.x, this.targetPos.y, this.targetPos.z,
-            this.targetNormal.x, this.targetNormal.y, this.targetNormal.z,
-            CIRCLE_INNER_RADIUS, this.innerX, this.innerY
-        );
-
-        this.targetPath.setAttribute('d', `${buildBezierRing(this.outerX, this.outerY)} ${buildBezierRing(this.innerX, this.innerY)}`);
-        this.targetPath.style.display = '';
-        this.svg.style.display = '';
+        this.renderRing(this.targetPath, this.targetPos, this.targetNormal);
     }
 
     destroy() {
