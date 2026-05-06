@@ -203,20 +203,25 @@ class WalkCursor {
         this.svg.style.display = 'none';
 
         this.onPointerMove = (e: PointerEvent) => {
-            if (e.pointerType === 'touch') return;
-            if (e.buttons) {
+            if (e.pointerType === 'touch') {
+                this.hasSurfaceCursorPosition = false;
                 this.surfaceCursorVersion++;
-                this.cursorPath.style.display = 'none';
-                this.hasSmoothedNormal = false;
+                this.hideCursor();
+                return;
+            }
+            if (e.buttons) {
+                this.hasSurfaceCursorPosition = false;
+                this.surfaceCursorVersion++;
+                this.hideCursor();
                 return;
             }
             this.updateCursor(e.offsetX, e.offsetY);
         };
 
         this.onPointerLeave = () => {
+            this.hasSurfaceCursorPosition = false;
             this.surfaceCursorVersion++;
-            this.cursorPath.style.display = 'none';
-            this.hasSmoothedNormal = false;
+            this.hideCursor();
         };
 
         this.canvas.addEventListener('pointermove', this.onPointerMove);
@@ -233,6 +238,9 @@ class WalkCursor {
                           state.cameraMode === 'orbit';
             this.surfaceCursorVersion++;
             this.hideCursor();
+            if (state.inputMode !== 'desktop') {
+                this.hasSurfaceCursorPosition = false;
+            }
             if (this.targetMode && this.targetMode !== state.cameraMode) {
                 this.walking = false;
                 this.clearTarget();
@@ -464,7 +472,10 @@ class WalkCursor {
         const flyMouseCaptured = this.state.cameraMode === 'fly' &&
             this.state.inputMode === 'desktop' &&
             this.state.gamingControls;
-        return this.active && !this.walking && (
+        return this.active &&
+            this.state.inputMode === 'desktop' &&
+            this.hasSurfaceCursorPosition &&
+            !this.walking && (
             (this.state.cameraMode === 'fly' && !flyMouseCaptured) ||
             (this.state.cameraMode === 'orbit' && this.targetMode !== 'orbit')
         );

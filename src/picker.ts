@@ -230,6 +230,10 @@ type PickCameraSnapshot = {
 type PickPosition = {
     position: Vec3;
     camera: PickCameraSnapshot;
+    screenX: number;
+    screenY: number;
+    width: number;
+    height: number;
     isComputeRenderer: boolean;
 };
 
@@ -543,7 +547,7 @@ class Picker {
                 const position = normalizedDepth !== null ?
                     getWorldPoint(pickCamera, screenX, screenY, width, height, normalizedDepth) :
                     null;
-                return position ? { position, camera: pickCamera, isComputeRenderer } : null;
+                return position ? { position, camera: pickCamera, screenX, screenY, width, height, isComputeRenderer } : null;
             }
 
             const pixels = await readTexture<Uint16Array>(accumBuffer, screenX, screenY, accumTarget);
@@ -558,7 +562,7 @@ class Picker {
 
             const normalizedDepth = r / alpha;
             const position = getWorldPoint(pickCamera, screenX, screenY, width, height, normalizedDepth);
-            return position ? { position, camera: pickCamera, isComputeRenderer } : null;
+            return position ? { position, camera: pickCamera, screenX, screenY, width, height, isComputeRenderer } : null;
         };
 
         const serializePick = <T>(operation: () => Promise<T>): Promise<T> => {
@@ -574,20 +578,11 @@ class Picker {
         };
 
         const pickSurface = async (x: number, y: number) => {
-            const width = Math.floor(graphicsDevice.width);
-            const height = Math.floor(graphicsDevice.height);
-
-            if (width <= 0 || height <= 0) {
-                return null;
-            }
-
-            const screenX = Math.min(width - 1, Math.max(0, Math.floor(x * width)));
-            const screenY = Math.min(height - 1, Math.max(0, Math.floor(y * height)));
-            const picked = await pickPosition((screenX + 0.5) / width, (screenY + 0.5) / height);
+            const picked = await pickPosition(x, y);
             if (!picked) {
                 return null;
             }
-            const { position } = picked;
+            const { position, screenX, screenY, width, height } = picked;
 
             if (picked.isComputeRenderer) {
                 return {

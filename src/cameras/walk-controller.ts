@@ -131,9 +131,13 @@ class WalkController implements CameraController {
 
     private _angles = new Vec3();
 
+    private _distance = 1;
+
     private _spawnPosition = new Vec3();
 
     private _spawnAngles = new Vec3();
+
+    private _spawnDistance = 1;
 
     private _velocity = new Vec3();
 
@@ -202,6 +206,7 @@ class WalkController implements CameraController {
         const alpha = this._accumulator / FIXED_DT;
         camera.position.lerp(this._prevPosition, this._position, alpha);
         camera.angles.set(this._angles.x, this._angles.y, 0);
+        camera.distance = this._distance;
         camera.fov = this.fov;
     }
 
@@ -278,6 +283,7 @@ class WalkController implements CameraController {
 
         // angles (clamp pitch to avoid gimbal lock)
         this._angles.set(camera.angles.x, camera.angles.y, 0);
+        this._distance = camera.distance;
 
         // reset velocity and state
         this._resetMotion();
@@ -297,11 +303,13 @@ class WalkController implements CameraController {
         this._position.copy(this._spawnPosition);
         this._prevPosition.copy(this._position);
         this._angles.copy(this._spawnAngles);
+        this._distance = this._spawnDistance;
         this._resetMotion();
         this._grounded = this._spawnGrounded;
 
         camera.position.copy(this._position);
         camera.angles.copy(this._angles);
+        camera.distance = this._distance;
         camera.fov = this.fov;
 
         return true;
@@ -310,6 +318,7 @@ class WalkController implements CameraController {
     private _storeSpawn() {
         this._spawnPosition.copy(this._position);
         this._spawnAngles.copy(this._angles);
+        this._spawnDistance = this._distance;
         this._spawnGrounded = this._grounded;
         this._hasSpawn = true;
     }
