@@ -116,16 +116,16 @@ class KeyboardMouseDevice implements InputDevice {
 
         // auto-move cancellation and requestFirstPerson events (driven by keyboard axes)
         if (isWalk && (this._axis.x !== 0 || this._axis.z !== 0)) {
-            events.fire('walkCancel');
+            events.fire('navigateCancel');
         }
         if (isFly && (this._axis.x !== 0 || this._axis.y !== 0 || this._axis.z !== 0)) {
-            events.fire('flyCancel');
+            events.fire('navigateCancel');
         }
         if (isFly && wheel[0] !== 0) {
-            events.fire('flyCancel');
+            events.fire('navigateCancel');
         }
         if (isFly && (gamingControls || pan) && (mouse[0] !== 0 || mouse[1] !== 0)) {
-            events.fire('flyCancel');
+            events.fire('navigateCancel');
         }
         if (!isFirstPerson && this._axis.length() > 0) {
             events.fire('inputEvent', 'requestFirstPerson');

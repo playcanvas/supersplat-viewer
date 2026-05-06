@@ -254,51 +254,29 @@ class WalkCursor {
         events.on('inputMode:changed', updateActive);
         events.on('gamingControls:changed', updateActive);
 
-        events.on('walkTo', () => {
+        events.on('navigateTo', () => {
             this.walking = true;
             this.cursorPath.style.display = 'none';
             this.hasSmoothedNormal = false;
         });
 
-        events.on('walkCancel', () => {
+        events.on('navigateCancel', () => {
             this.walking = false;
             this.clearTarget();
         });
 
-        events.on('walkComplete', () => {
+        events.on('navigateComplete', () => {
             this.walking = false;
             this.clearTarget();
         });
 
-        events.on('walkTarget:set', (pos: Vec3, normal: Vec3) => {
-            this.setTarget(pos, normal, 'walk');
+        events.on('navTarget:set', (pos: Vec3, normal: Vec3) => {
+            const mode = state.cameraMode === 'walk' || state.cameraMode === 'fly' ?
+                state.cameraMode : 'walk';
+            this.setTarget(pos, normal, mode);
         });
 
-        events.on('walkTarget:clear', () => {
-            this.clearTarget();
-        });
-
-        events.on('flyTo', () => {
-            this.walking = true;
-            this.cursorPath.style.display = 'none';
-            this.hasSmoothedNormal = false;
-        });
-
-        events.on('flyCancel', () => {
-            this.walking = false;
-            this.clearTarget();
-        });
-
-        events.on('flyComplete', () => {
-            this.walking = false;
-            this.clearTarget();
-        });
-
-        events.on('flyTarget:set', (pos: Vec3, normal: Vec3) => {
-            this.setTarget(pos, normal, 'fly');
-        });
-
-        events.on('flyTarget:clear', () => {
+        events.on('navTarget:clear', () => {
             this.clearTarget();
         });
 

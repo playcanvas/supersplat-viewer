@@ -1,7 +1,5 @@
 import { math, Quat, Vec3 } from 'playcanvas';
 
-import { damp } from '../core/math';
-
 const rotation = new Quat();
 
 /**
@@ -97,37 +95,8 @@ const setBasisOffset = (
     return out;
 };
 
-/**
- * Interpolate Euler angles using shortest-path angle interpolation.
- *
- * @param result - Receives the interpolated angles.
- * @param a - Start angles.
- * @param b - End angles.
- * @param t - Interpolation factor.
- * @returns The mutated result.
- */
-const lerpAngles = (result: Vec3, a: Vec3, b: Vec3, t: number) => {
-    result.x = math.lerpAngle(a.x, b.x, t) % 360;
-    result.y = math.lerpAngle(a.y, b.y, t) % 360;
-    result.z = math.lerpAngle(a.z, b.z, t) % 360;
-    return result;
-};
-
-/**
- * Convert a damping value to a frame-rate-independent interpolation alpha.
- *
- * @param damping - Damping factor.
- * @param dt - Delta time in seconds.
- * @returns Interpolation alpha for this frame.
- */
-const dampAlpha = (damping: number, dt: number) => {
-    return dt > 0 ? damp(damping, dt) : 0;
-};
-
 export {
     applyFrameRotation,
-    dampAlpha,
-    lerpAngles,
     setBasisOffset,
     setCameraBasis,
     setCameraForward,

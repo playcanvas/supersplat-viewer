@@ -76,7 +76,7 @@ class TrackpadDevice implements InputDevice {
         } else {
             // fly / walk: always rotate (shift is a speed modifier, not a gesture)
             if (mode === 'fly') {
-                this._global!.events.fire('flyCancel');
+                this._global!.events.fire('navigateCancel');
             }
             this._orbit[0] += deltaX;
             this._orbit[1] += deltaY;

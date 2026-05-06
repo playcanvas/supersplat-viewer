@@ -123,7 +123,7 @@ class WalkInteraction {
         const request = ++this._targetPickRequest;
         const target = await this._pickSceneTarget(offsetX, offsetY);
         if (target && request === this._targetPickRequest && this._global && canTargetFly(this._global)) {
-            this._global.events.fire('flyTo', target.position, target.normal);
+            this._global.events.fire('navigateTo', target.position, target.normal);
         }
     }
 
@@ -182,10 +182,8 @@ class WalkInteraction {
             const prev = this._mouseClickDelta;
             this._mouseClickDelta += Math.abs(event.movementX) + Math.abs(event.movementY);
             if (prev < TAP_EPSILON && this._mouseClickDelta >= TAP_EPSILON) {
-                if (state.cameraMode === 'walk' && !state.gamingControls) {
-                    events.fire('walkCancel');
-                } else if (canTargetFly(global)) {
-                    events.fire('flyCancel');
+                if ((state.cameraMode === 'walk' && !state.gamingControls) || canTargetFly(global)) {
+                    events.fire('navigateCancel');
                 }
             }
         }
@@ -207,7 +205,7 @@ class WalkInteraction {
                 if (state.cameraMode === 'walk' && !state.gamingControls) {
                     const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
                     if (result) {
-                        events.fire('walkTo', result.position, result.normal);
+                        events.fire('navigateTo', result.position, result.normal);
                     }
                 } else if (state.cameraMode === 'fly') {
                     this._flyToPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY);
@@ -252,7 +250,7 @@ class WalkInteraction {
         if (state.cameraMode === 'walk' && !state.gamingControls) {
             const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
             if (result) {
-                events.fire('walkTo', result.position, result.normal);
+                events.fire('navigateTo', result.position, result.normal);
             }
         } else if (state.cameraMode === 'fly') {
             this._flyToPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY);

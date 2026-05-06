@@ -3,13 +3,11 @@ import { math, Vec3 } from 'playcanvas';
 import type { Collision, PushOut } from '../collision';
 import type { CameraFrame, Camera, CameraController } from './camera';
 import { applyFrameRotation, setBasisOffset, setYawBasis } from './camera-utils';
+import { findWalkSpawn } from './walk-spawn';
 import { damp } from '../core/math';
 
 const FIXED_DT = 1 / 60;
 const MAX_SUBSTEPS = 10;
-const SPAWN_HIT_EPSILON = 1e-3;
-const SPAWN_SEARCH_MIN_STEP = 0.05;
-const SPAWN_SEARCH_MAX_STEPS = 128;
 
 /** Pre-allocated push-out vector for capsule collision */
 const out: PushOut = { x: 0, y: 0, z: 0 };
@@ -159,11 +157,10 @@ class WalkController implements CameraController {
         this.goto(camera);
         if (this.collision) {
             this._hasSpawn = false;
-            if (this._findSpawnPosition(camera.position, spawnProbe)) {
+            if (findWalkSpawn(this.collision, camera.position, this, spawnProbe)) {
                 this._position.copy(spawnProbe);
                 this._grounded = true;
                 this._velocity.y = 0;
-                this._resolveSpawnCollision();
                 this._storeSpawn();
             }
 
@@ -332,174 +329,6 @@ class WalkController implements CameraController {
         this._pendingMove[1] = 0;
         this._pendingMove[2] = 0;
         this._accumulator = 0;
-    }
-
-    /**
-     * Resolve the capsule out of solid geometry at spawn time. This is only used
-     * when walk mode activates inside collision.
-     */
-    private _resolveSpawnCollision() {
-        for (let i = 0; i < 100; i++) {
-            if (!this._queryCapsule(this._position)) {
-                break;
-            }
-            this._position.add(v.set(out.x, out.y, out.z));
-        }
-    }
-
-    /**
-     * Find an eye position for spawning into walk mode. Prefer ground directly
-     * below the camera; if that is not usable, search down and then up for the
-     * first clear walk placement with ground below it.
-     *
-     * @param pos - Incoming camera position.
-     * @param outPos - Receives the resolved eye position.
-     * @returns True if a spawn position was found.
-     */
-    private _findSpawnPosition(pos: Vec3, outPos: Vec3): boolean {
-        const insideSolid = this._isInsideSolid(pos);
-
-        if (this._findClearSpawnGroundBelow(pos, this.spawnSearchRange, !insideSolid, outPos)) {
-            return true;
-        }
-
-        return this._searchSpawnGround(pos, -1, outPos) || this._searchSpawnGround(pos, 1, outPos);
-    }
-
-    /**
-     * Search vertically for a clear walk spawn placement with ground below it.
-     *
-     * @param pos - Starting position.
-     * @param direction - Vertical search direction: -1 down, 1 up.
-     * @param outPos - Receives the resolved eye position.
-     * @returns True if a spawn position was found.
-     */
-    private _searchSpawnGround(pos: Vec3, direction: -1 | 1, outPos: Vec3): boolean {
-        const step = Math.max(
-            this.capsuleRadius,
-            this.hoverHeight,
-            SPAWN_SEARCH_MIN_STEP,
-            this.spawnSearchRange / SPAWN_SEARCH_MAX_STEPS
-        );
-        const endY = pos.y + direction * this.spawnSearchRange;
-
-        for (let y = pos.y + direction * step; direction < 0 ? y >= endY : y <= endY; y += direction * step) {
-            spawnProbe.set(pos.x, y, pos.z);
-
-            if (this._findClearSpawnGroundBelow(spawnProbe, this.spawnSearchRange, false, outPos)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Find the first collision surface below a point that can hold a clear walk
-     * capsule.
-     *
-     * @param pos - Ray origin.
-     * @param range - Maximum ray distance.
-     * @param allowInitialHit - Whether a hit at the ray origin is valid.
-     * @param outPos - Receives the resolved eye position.
-     * @returns True if a usable ground position was found.
-     */
-    private _findClearSpawnGroundBelow(pos: Vec3, range: number, allowInitialHit: boolean, outPos: Vec3): boolean {
-        const hit = this.collision!.queryRay(pos.x, pos.y, pos.z, 0, -1, 0, range);
-        if (!hit) {
-            return false;
-        }
-
-        if (!allowInitialHit && Math.abs(pos.y - hit.y) <= SPAWN_HIT_EPSILON) {
-            return false;
-        }
-
-        outPos.set(pos.x, this._getEyeYFromGround(hit.y), pos.z);
-        const clear = !this._queryCapsule(outPos);
-        const accepted = clear || this._resolveSpawnCandidate(outPos);
-
-        return accepted;
-    }
-
-    /**
-     * Convert a ground height to the walk controller's eye position.
-     *
-     * @param groundY - Ground surface height.
-     * @returns Eye position Y.
-     */
-    private _getEyeYFromGround(groundY: number): number {
-        return groundY + this.hoverHeight + this.eyeHeight;
-    }
-
-    /**
-     * Test whether the incoming camera point starts inside solid collision.
-     *
-     * @param pos - Point to test.
-     * @returns True if the point overlaps solid collision.
-     */
-    private _isInsideSolid(pos: Vec3): boolean {
-        return this.collision!.querySphere(pos.x, pos.y, pos.z, SPAWN_HIT_EPSILON, out);
-    }
-
-    /**
-     * Try to resolve a spawn candidate and verify it remains supported by ground.
-     *
-     * @param pos - Candidate eye position to resolve in place.
-     * @returns True if the candidate can be made clear and still stand on ground.
-     */
-    private _resolveSpawnCandidate(pos: Vec3): boolean {
-        const startX = pos.x;
-        const startY = pos.y;
-        const startZ = pos.z;
-        const maxResolveDistance = this.capsuleRadius + this.hoverHeight;
-        const maxResolveDistanceSq = maxResolveDistance * maxResolveDistance;
-
-        for (let i = 0; i < 100; i++) {
-            if (!this._queryCapsule(pos)) {
-                return this._hasSpawnGroundSupport(pos);
-            }
-
-            pos.add(v.set(out.x, out.y, out.z));
-
-            const dx = pos.x - startX;
-            const dy = pos.y - startY;
-            const dz = pos.z - startZ;
-            if (dx * dx + dy * dy + dz * dz > maxResolveDistanceSq) {
-                return false;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Verify the resolved spawn candidate is still standing close to ground.
-     *
-     * @param pos - Resolved candidate eye position.
-     * @returns True if ground support is still valid.
-     */
-    private _hasSpawnGroundSupport(pos: Vec3): boolean {
-        const groundY = this._probeGround(pos);
-        if (groundY === null) {
-            return false;
-        }
-
-        const clearance = pos.y - this.eyeHeight - groundY;
-        return clearance >= -SPAWN_HIT_EPSILON &&
-            clearance <= this.hoverHeight + this.capsuleRadius + SPAWN_HIT_EPSILON;
-    }
-
-    /**
-     * Query the current walk capsule at the supplied eye position.
-     *
-     * @param pos - Eye position in PlayCanvas world space.
-     * @returns True if the capsule overlaps collision.
-     */
-    private _queryCapsule(pos: Vec3): boolean {
-        const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
-        const center = pos.y - this.eyeHeight + this.capsuleHeight * 0.5;
-
-        return this.collision!.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out);
     }
 
     /**

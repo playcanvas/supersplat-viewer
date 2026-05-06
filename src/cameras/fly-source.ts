@@ -1,9 +1,10 @@
 import { math, Vec3 } from 'playcanvas';
 
-import type { CameraFrame } from './camera';
+import type { Camera, CameraFrame } from './camera';
 import { setCameraForward } from './camera-utils';
 import {
     ProgressTracker,
+    type TargetSource,
     approach,
     clampTurnStep,
     getPitchToDirection,
@@ -50,7 +51,7 @@ const getStopDistance = (fov: number) => {
 /**
  * Generates synthetic move/rotate input to auto-fly toward a target position.
  */
-class FlySource {
+class FlySource implements TargetSource {
     /**
      * Forward input scale (matches InputController.moveSpeed).
      */
@@ -91,7 +92,7 @@ class FlySource {
 
     private _progress = new ProgressTracker();
 
-    get isFlying(): boolean {
+    get isActive(): boolean {
         return this._target !== null;
     }
 
@@ -100,7 +101,7 @@ class FlySource {
      *
      * @param target - The destination.
      */
-    flyTo(target: Vec3) {
+    navigateTo(target: Vec3) {
         const wasFlying = this._target !== null;
         if (!this._target) {
             this._target = new Vec3();
@@ -117,7 +118,7 @@ class FlySource {
     /**
      * Cancel any active auto-flight.
      */
-    cancelFly() {
+    cancel() {
         if (this._target) {
             this._target = null;
             this._yawRate = 0;
@@ -133,23 +134,23 @@ class FlySource {
      * the camera controller reads the frame.
      *
      * @param dt - Frame delta time in seconds.
-     * @param cameraPosition - Camera world position.
-     * @param cameraAngles - Camera Euler angles in degrees.
-     * @param cameraFov - Camera vertical field-of-view in degrees.
+     * @param camera - The current camera state (read-only).
      * @param frame - The shared CameraFrame to append deltas to.
      */
-    update(dt: number, cameraPosition: Vec3, cameraAngles: Vec3, cameraFov: number, frame: CameraFrame) {
+    update(dt: number, camera: Camera, frame: CameraFrame) {
         if (!this._target) return;
 
         const target = this._target;
+        const cameraPosition = camera.position;
+        const cameraAngles = camera.angles;
         toTarget.sub2(target, cameraPosition);
         const dist = toTarget.length();
-        const stopDistance = getStopDistance(cameraFov);
+        const stopDistance = getStopDistance(camera.fov);
         const remainingDist = dist - stopDistance;
         const activeRemainingDist = Math.max(0, remainingDist);
 
         if (activeRemainingDist <= ARRIVAL_EPSILON && this._speed <= ARRIVAL_SPEED) {
-            this.cancelFly();
+            this.cancel();
             return;
         }
 
@@ -200,7 +201,7 @@ class FlySource {
         // Only treat low progress as blocked once the camera is substantially
         // facing the target; otherwise a large turn-in-place would cancel early.
         if (this._progress.update(dist, dt, BLOCKED_SPEED, BLOCKED_DURATION, alignment > 0.5 && this._speed > BLOCKED_SPEED)) {
-            this.cancelFly();
+            this.cancel();
         }
     }
 }
