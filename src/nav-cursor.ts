@@ -179,6 +179,8 @@ class CursorRing {
 
     private svg: SVGSVGElement;
 
+    private canvas: HTMLCanvasElement;
+
     private camera: Entity;
 
     private smoothing: boolean;
@@ -203,8 +205,9 @@ class CursorRing {
 
     private readonly innerY = new Float64Array(NUM_SAMPLES);
 
-    constructor(svg: SVGSVGElement, camera: Entity, smoothing: boolean, screenPixels: number | null) {
+    constructor(svg: SVGSVGElement, canvas: HTMLCanvasElement, camera: Entity, smoothing: boolean, screenPixels: number | null) {
         this.svg = svg;
+        this.canvas = canvas;
         this.camera = camera;
         this.smoothing = smoothing;
         this.screenPixels = screenPixels;
@@ -278,7 +281,7 @@ class CursorRing {
         }
 
         const outerRadius = this.screenPixels !== null ?
-            worldRadiusForPixels(this.camera, this.svg.clientHeight || 1, pos, this.screenPixels) :
+            worldRadiusForPixels(this.camera, this.canvas.clientHeight || 1, pos, this.screenPixels) :
             BASE_OUTER_RADIUS;
         const innerRadius = outerRadius * INNER_OUTER_RATIO;
 
@@ -373,8 +376,8 @@ class NavCursor {
         this.canvas.parentElement!.appendChild(this.svg);
 
         const screenPixels = sceneSize < SMALL_SCENE_THRESHOLD ? SCREEN_OUTER_PIXELS : null;
-        this.hoverRing = new CursorRing(this.svg, camera, true, screenPixels);
-        this.targetRing = new CursorRing(this.svg, camera, false, screenPixels);
+        this.hoverRing = new CursorRing(this.svg, this.canvas, camera, true, screenPixels);
+        this.targetRing = new CursorRing(this.svg, this.canvas, camera, false, screenPixels);
 
         this.svg.style.display = 'none';
 
