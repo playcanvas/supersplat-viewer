@@ -71,7 +71,7 @@
             <div id="poster"></div>
 
             <!-- SuperSplat Branding -->
-            <a id="supersplatBranding" class="hidden" target="_blank" rel="noopener noreferrer">
+            <a id="viewerBranding" class="hidden" target="_blank" rel="noopener noreferrer">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 32 32">
                     <g class='stroke'><use href="#supersplatIcon"/></g>
                     <g class='fill'><use href="#supersplatIcon"/></g>
@@ -206,11 +206,15 @@
 
             <!-- Info Panel -->
             <div id="infoPanel" class="hidden">
-                <div id="infoPanelContent" onpointerdown="event.stopPropagation()">
-                    <div id="tabs">
-                        <div id="desktopTab" class="tab active">Desktop</div>
-                        <div id="touchTab" class="tab">Touch</div>
-                    </div>
+                <div id="infoPanelContent" onpointerdown="event.stopPropagation()" onwheel="event.stopPropagation()">
+                    <a id="viewerTitle" target="_blank" rel="noopener noreferrer">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 32 32">
+                            <g class='stroke'><use href="#supersplatIcon"/></g>
+                            <g class='fill'><use href="#supersplatIcon"/></g>
+                        </svg>
+                        <span class="title-name">SuperSplat Viewer</span>
+                        <span class="title-version">v<span id="appVersionLabel"></span></span>
+                    </a>
                     <div id="infoPanels">
                         <div id="desktopInfoPanel">
                             <div class="control-spacer"></div>
@@ -382,6 +386,10 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+                    <div id="tabs">
+                        <div id="desktopTab" class="tab active">Desktop</div>
+                        <div id="touchTab" class="tab">Touch</div>
                     </div>
                 </div>
             </div>

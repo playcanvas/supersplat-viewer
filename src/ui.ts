@@ -1,5 +1,6 @@
 import { EventHandler } from 'playcanvas';
 
+import { version as appVersion } from '../package.json';
 import type { Annotation } from './settings';
 import { Tooltip } from './tooltip';
 import { Global } from './types';
@@ -246,11 +247,14 @@ const initUI = (global: Global) => {
         'showCollision',
         'tooltip',
         'annotationNav', 'annotationPrev', 'annotationNext', 'annotationInfo', 'annotationNavTitle',
-        'supersplatBranding'
+        'viewerBranding', 'viewerTitle', 'appVersionLabel'
     ].reduce((acc: Record<string, HTMLElement>, id) => {
         acc[id] = document.getElementById(id);
         return acc;
     }, {});
+
+    // populate the info-panel title with the app version
+    dom.appVersionLabel.textContent = appVersion;
 
     // Remove focus from buttons after click so keyboard input isn't captured by the UI
     dom.ui.addEventListener('click', () => {
@@ -727,8 +731,9 @@ const initUI = (global: Global) => {
             viewUrl.pathname = '/view';
         }
 
-        (dom.supersplatBranding as HTMLAnchorElement).href = viewUrl.toString();
-        dom.supersplatBranding.classList.remove('hidden');
+        (dom.viewerBranding as HTMLAnchorElement).href = viewUrl.toString();
+        dom.viewerBranding.classList.remove('hidden');
+        (dom.viewerTitle as HTMLAnchorElement).href = viewUrl.toString();
     }
 };
 
