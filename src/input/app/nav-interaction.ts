@@ -22,7 +22,7 @@ type PickTarget = {
  * on mobile, and double-click-to-pick fallback. Uses collision first and
  * rendered-scene picking when collision is unavailable.
  */
-class WalkInteraction {
+class NavInteraction {
     collision: Collision | null = null;
 
     private _picker: Picker;
@@ -223,18 +223,20 @@ class WalkInteraction {
         if (eventName !== 'dblclick') return;
         if (!(event instanceof MouseEvent)) return;
         const { events, state } = global;
-        const cameraMode = state.cameraMode;
-        if (cameraMode === 'walk') return;
+        // dblclick swaps the active mode and uses the picked target:
+        //   fly          → orbit, focus orbit at point
+        //   orbit / walk → fly, navigate fly toward point
+        const request = ++this._targetPickRequest;
+        const target = await this._pickSceneTarget(event.offsetX, event.offsetY);
+        if (!target || request !== this._targetPickRequest) return;
 
-        if (cameraMode === 'fly') {
-            this._flyToPickedPosition(event.offsetX, event.offsetY);
-        } else if (cameraMode === 'orbit') {
-            const request = ++this._targetPickRequest;
-            const target = await this._pickSceneTarget(event.offsetX, event.offsetY);
-            if (target && request === this._targetPickRequest && this._global?.state.cameraMode === cameraMode) {
-                events.fire('orbitTarget:set', target.position, target.normal);
-                events.fire('pick', target.position);
-            }
+        const currentMode = this._global?.state.cameraMode;
+        if (currentMode === 'fly') {
+            events.fire('orbitTarget:set', target.position, target.normal);
+            events.fire('pick', target.position);
+        } else if (currentMode === 'orbit' || currentMode === 'walk') {
+            state.cameraMode = 'fly';
+            events.fire('navigateTo', target.position, target.normal);
         }
     };
 
@@ -299,4 +301,4 @@ class WalkInteraction {
     }
 }
 
-export { WalkInteraction };
+export { NavInteraction };
