@@ -23,7 +23,7 @@ type Config = {
     fullload: boolean;                          // load all streaming LOD data before first frame
     aa: boolean;                                // render with antialiasing
     budget?: number;                            // override splat budget in millions (overrides platform + performanceMode table)
-    renderer: 'webgl' | 'cpu-sort' | 'gpu-sort' | 'compute';
+    renderer: 'webgl' | 'webgpu';
     heatmap: boolean;                           // render heatmap debug overlay (WebGPU only)
 };
 

@@ -1,11 +1,8 @@
 /**
  * World picking for splat scenes.
  *
- * - **Compute renderer (WebGPU tiled-compute)**: uses engine `Picker` with depth enabled — expected
- *   depth is already provided by the tile-composite path.
- * - **Raster renderers (WebGL, CPU / GPU sort, etc.)**: custom `pickPS` / `gsplatPS` patch plus
- *   `RGBA16F` alpha-weighted depth accumulation, because the stock pick pass encodes splat IDs /
- *   last-fragment depth rather than expected depth.
+ * Uses a custom `pickPS` / `gsplatPS` patch plus `RGBA16F` alpha-weighted depth accumulation,
+ * because the stock pick pass encodes splat IDs / last-fragment depth rather than expected depth.
  */
 
 import {
@@ -20,10 +17,8 @@ import {
     BLENDMODE_ONE,
     BLENDMODE_ONE_MINUS_SRC_ALPHA,
     FILTER_NEAREST,
-    GSPLAT_RENDERER_COMPUTE,
     PIXELFORMAT_RGBA16F,
     PROJECTION_ORTHOGRAPHIC,
-    Picker as EnginePicker,
     Color,
     Mat4,
     RenderPassPicker,
@@ -245,7 +240,6 @@ type PickPosition = {
     screenY: number;
     width: number;
     height: number;
-    isComputeRenderer: boolean;
 };
 
 // Shared buffer for half-to-float conversion
@@ -528,7 +522,6 @@ class Picker {
     constructor(app: AppBase, camera: Entity) {
         const { graphicsDevice } = app;
 
-        let enginePicker: EnginePicker | undefined;
         let accumBuffer: Texture;
         let accumTarget: RenderTarget;
         let accumPass: RenderPassPicker;
@@ -650,7 +643,6 @@ class Picker {
         const ensureRendered = (
             width: number,
             height: number,
-            isComputeRenderer: boolean,
             worldLayer: Layer
         ) => {
             if (cameraMatches(width, height)) {
@@ -662,34 +654,28 @@ class Picker {
             const prevEnableIds = app.scene.gsplat.enableIds;
             app.scene.gsplat.enableIds = true;
             try {
-                if (isComputeRenderer) {
-                    enginePicker ??= new EnginePicker(app, 1, 1, true);
-                    enginePicker.resize(width, height);
-                    enginePicker.prepare(camera.camera, app.scene, [worldLayer]);
-                } else {
-                    if (!chunksPatched) {
-                        registerPickerShaderPatches(app);
-                        chunksPatched = true;
-                    }
-
-                    if (!accumPass) {
-                        initRasterAccum(width, height);
-                    } else if (cacheWidth !== width || cacheHeight !== height) {
-                        cacheValid = false;
-                        accumTarget.resize(width, height);
-                    }
-
-                    accumPass.init(accumTarget);
-                    accumPass.setClearColor(clearColor);
-                    accumPass.update(
-                        camera.camera,
-                        app.scene,
-                        [worldLayer],
-                        new Map<number, MeshInstance | GSplatComponent>(),
-                        false
-                    );
-                    accumPass.render();
+                if (!chunksPatched) {
+                    registerPickerShaderPatches(app);
+                    chunksPatched = true;
                 }
+
+                if (!accumPass) {
+                    initRasterAccum(width, height);
+                } else if (cacheWidth !== width || cacheHeight !== height) {
+                    cacheValid = false;
+                    accumTarget.resize(width, height);
+                }
+
+                accumPass.init(accumTarget);
+                accumPass.setClearColor(clearColor);
+                accumPass.update(
+                    camera.camera,
+                    app.scene,
+                    [worldLayer],
+                    new Map<number, MeshInstance | GSplatComponent>(),
+                    false
+                );
+                accumPass.render();
 
                 updateCache(width, height);
                 cacheValid = true;
@@ -714,12 +700,11 @@ class Picker {
 
             const screenX = Math.min(width - 1, Math.max(0, Math.floor(x * width)));
             const screenY = Math.min(height - 1, Math.max(0, Math.floor(y * height)));
-            const isComputeRenderer = app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE;
 
-            ensureRendered(width, height, isComputeRenderer, worldLayer);
+            ensureRendered(width, height, worldLayer);
             const pickCamera = getCacheCameraSnapshot();
 
-            return { width, height, screenX, screenY, isComputeRenderer, pickCamera };
+            return { width, height, screenX, screenY, pickCamera };
         };
 
         const pickPosition = async (x: number, y: number): Promise<PickPosition | null> => {
@@ -727,15 +712,7 @@ class Picker {
             if (!sample) {
                 return null;
             }
-            const { width, height, screenX, screenY, isComputeRenderer, pickCamera } = sample;
-
-            if (isComputeRenderer) {
-                const normalizedDepth = await enginePicker!.getPointDepthAsync(screenX, screenY);
-                const position = normalizedDepth !== null ?
-                    getWorldPoint(pickCamera, screenX, screenY, width, height, normalizedDepth) :
-                    null;
-                return position ? { position, camera: pickCamera, screenX, screenY, width, height, isComputeRenderer } : null;
-            }
+            const { width, height, screenX, screenY, pickCamera } = sample;
 
             const pixels = await readTexture<Uint16Array>(accumBuffer, screenX, screenY, accumTarget);
 
@@ -749,7 +726,7 @@ class Picker {
 
             const normalizedDepth = r / alpha;
             const position = getWorldPoint(pickCamera, screenX, screenY, width, height, normalizedDepth);
-            return position ? { position, camera: pickCamera, screenX, screenY, width, height, isComputeRenderer } : null;
+            return position ? { position, camera: pickCamera, screenX, screenY, width, height } : null;
         };
 
         const serializePick = <T>(operation: () => Promise<T>): Promise<T> => {
@@ -769,21 +746,7 @@ class Picker {
             if (!sample) {
                 return null;
             }
-            const { width, height, screenX, screenY, isComputeRenderer, pickCamera } = sample;
-
-            if (isComputeRenderer) {
-                const normalizedDepth = await enginePicker!.getPointDepthAsync(screenX, screenY);
-                const position = normalizedDepth !== null ?
-                    getWorldPoint(pickCamera, screenX, screenY, width, height, normalizedDepth) :
-                    null;
-                if (!position) {
-                    return null;
-                }
-                return {
-                    position,
-                    normal: new Vec3(0, 1, 0)
-                };
-            }
+            const { width, height, screenX, screenY, pickCamera } = sample;
 
             // Single block read serves both depth (center pixel) and normal
             // samples. Sized to the maximum possible ring pixel-radius so the
@@ -860,7 +823,6 @@ class Picker {
                 unregisterPickerShaderPatches(app);
                 chunksPatched = false;
             }
-            enginePicker?.destroy();
             accumPass?.destroy();
             accumTarget?.destroy();
             accumBuffer?.destroy();
