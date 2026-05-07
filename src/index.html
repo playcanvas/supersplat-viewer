@@ -21,20 +21,7 @@
             const settingsUrl = url.searchParams.has('settings') ? url.searchParams.get('settings') : './settings.json';
             const contentUrl = url.searchParams.has('content') ? url.searchParams.get('content') : './scene.compressed.ply';
 
-            // ?webgpu picks the best WebGPU renderer for the platform: compute on
-            // macOS (where the raster gpu-sort path stalls) and gpu-sort elsewhere.
-            // Prefer userAgentData when available, fall back to the deprecated
-            // navigator.platform / userAgent. Exclude iPad desktop mode, which
-            // reports as Mac but should not take the macOS path.
-            const uaPlatform = navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || '';
-            const isIPad = navigator.maxTouchPoints > 1 && /Mac/i.test(navigator.platform || '');
-            const isMac = !isIPad && /macOS|Mac/i.test(uaPlatform);
-            const renderer =
-                url.searchParams.has('compute')  ? 'compute' :
-                url.searchParams.has('gpu-sort') ? 'gpu-sort' :
-                url.searchParams.has('cpu-sort') ? 'cpu-sort' :
-                url.searchParams.has('webgpu')   ? (isMac ? 'compute' : 'gpu-sort') :
-                                                   'webgl';
+            const renderer = url.searchParams.has('webgpu') ? 'webgpu' : 'webgl';
 
             const budgetParam = url.searchParams.get('budget');
             const budget = budgetParam !== null ? Number(budgetParam) : undefined;

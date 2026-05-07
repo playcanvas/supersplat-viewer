@@ -39,13 +39,11 @@ The app supports a number of URL parameters (these are subject to change):
 
 ### Renderer
 
-By default the viewer uses WebGL. The flags below opt into WebGPU rendering paths:
+By default the viewer uses WebGL. The flag below opts into WebGPU rendering:
 
 | Parameter | Description |
 | --------- | ----------- |
-| `compute` | Use the WebGPU compute renderer |
-| `gpu` | Use the WebGPU GPU sort renderer |
-| `cpu` | Use the WebGPU CPU sort renderer |
+| `webgpu` | Use the WebGPU hybrid renderer (raster + GPU radix sort) |
 | `aa` | Enable antialiasing (WebGL only) |
 | `nofx` | Disable post effects |
 | `hpr` | Override `highPrecisionRendering` from settings (`?hpr`, `?hpr=1`, `?hpr=true`, `?hpr=enable` to enable) |

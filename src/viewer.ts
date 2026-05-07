@@ -24,7 +24,6 @@ import {
     GSPLAT_DEBUG_NONE,
     GSPLAT_RENDERER_RASTER_CPU_SORT,
     GSPLAT_RENDERER_RASTER_GPU_SORT,
-    GSPLAT_RENDERER_COMPUTE,
     GSplatComponent,
     platform
 } from 'playcanvas';
@@ -53,16 +52,6 @@ const patchChunk = (source: string, search: string, replacement: string, name: s
     return source.replace(search, replacement);
 };
 
-// post-effect settings used when post effects are forcibly disabled (e.g. ?nofx
-// while the compute renderer still requires CameraFrame for tile composite).
-const noPostEffects: PostEffectSettings = {
-    sharpness: { enabled: false, amount: 0 },
-    bloom: { enabled: false, intensity: 0, blurLevel: 0 },
-    grading: { enabled: false, brightness: 0, contrast: 1, saturation: 1, tint: [1, 1, 1] },
-    vignette: { enabled: false, intensity: 0, inner: 0, outer: 0, curvature: 0 },
-    fringing: { enabled: false, intensity: 0 }
-};
-
 const gammaChunkGlsl = `
 vec3 prepareOutputFromGamma(vec3 gammaColor, float depth) {
     return gammaColor;
@@ -77,9 +66,7 @@ fn prepareOutputFromGamma(gammaColor: vec3f, depth: f32) -> vec3f {
 
 const rendererTable: Record<Config['renderer'], number> = {
     'webgl': GSPLAT_RENDERER_RASTER_CPU_SORT,
-    'cpu-sort': GSPLAT_RENDERER_RASTER_CPU_SORT,
-    'gpu-sort': GSPLAT_RENDERER_RASTER_GPU_SORT,
-    'compute': GSPLAT_RENDERER_COMPUTE
+    'webgpu': GSPLAT_RENDERER_RASTER_GPU_SORT
 };
 
 type GSplatOctreeResourceLike = {
@@ -183,8 +170,7 @@ class Viewer {
         },
         wgsl: {
             gsplatOutputVS: string,
-            skyboxPS: string,
-            gsplatTileCompositePS: string
+            skyboxPS: string
         }
     };
 
@@ -211,8 +197,7 @@ class Viewer {
             },
             wgsl: {
                 gsplatOutputVS: wgsl.get('gsplatOutputVS'),
-                skyboxPS: wgsl.get('skyboxPS'),
-                gsplatTileCompositePS: wgsl.get('gsplatTileCompositePS')
+                skyboxPS: wgsl.get('skyboxPS')
             }
         };
 
@@ -546,13 +531,10 @@ class Viewer {
         // hpr override takes precedence over settings.highPrecisionRendering
         const highPrecisionRendering = config.hpr ?? settings.highPrecisionRendering;
 
-        // compute renderer requires CameraFrame to perform tile composite output,
-        // so it must be enabled even when post effects are suppressed via ?nofx.
-        const computeRequiresCameraFrame = config.renderer === 'compute';
         const postFxRequested = !config.nofx &&
             (anyPostEffectEnabled(postEffectSettings) || highPrecisionRendering);
 
-        const enableCameraFrame = !app.xr.active && (computeRequiresCameraFrame || postFxRequested);
+        const enableCameraFrame = !app.xr.active && postFxRequested;
 
         if (enableCameraFrame) {
             // create instance
@@ -564,8 +546,7 @@ class Viewer {
             cameraFrame.enabled = true;
             cameraFrame.rendering.toneMapping = tonemapTable[settings.tonemapping];
             cameraFrame.rendering.renderFormats = highPrecisionRendering ? [PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F] : [];
-            cameraFrame.rendering.sceneDepthMap = config.renderer === 'compute'; // needed for annotations
-            applyPostEffectSettings(cameraFrame, postFxRequested ? postEffectSettings : noPostEffects);
+            applyPostEffectSettings(cameraFrame, postEffectSettings);
             cameraFrame.update();
 
             // force gsplat shader to write gamma-space colors
@@ -591,17 +572,6 @@ class Viewer {
                 )
             );
 
-            // force tile composite shader to write gamma-space colors (inline pow replaces the
-            // gammaCorrectOutput call which is a no-op under CameraFrame's GAMMA_NONE)
-            ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatTileCompositePS',
-                patchChunk(
-                    this.origChunks.wgsl.gsplatTileCompositePS,
-                    'gammaCorrectOutput(toneMap(linear.rgb))',
-                    'pow(toneMap(linear.rgb) + 0.0000001, vec3f(1.0 / 2.2))',
-                    'wgsl gsplatTileCompositePS gamma override'
-                )
-            );
-
             // ensure the final compose blit doesn't perform linear->gamma conversion.
             RenderTarget.prototype.isColorBufferSrgb = function (index) {
                 return this === app.graphicsDevice.backBuffer ? true : origIsColorBufferSrgb.call(this, index);
@@ -620,7 +590,6 @@ class Viewer {
             ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatOutputVS', this.origChunks.wgsl.gsplatOutputVS);
             ShaderChunks.get(app.graphicsDevice, 'glsl').set('skyboxPS', this.origChunks.glsl.skyboxPS);
             ShaderChunks.get(app.graphicsDevice, 'wgsl').set('skyboxPS', this.origChunks.wgsl.skyboxPS);
-            ShaderChunks.get(app.graphicsDevice, 'wgsl').set('gsplatTileCompositePS', this.origChunks.wgsl.gsplatTileCompositePS);
 
             // restore original isColorBufferSrgb behavior
             RenderTarget.prototype.isColorBufferSrgb = origIsColorBufferSrgb;

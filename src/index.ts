@@ -92,7 +92,7 @@ const loadSkybox = (app: AppBase, url: string) => {
 };
 
 const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
-    const useWebGPU = config.renderer !== 'webgl';
+    const useWebGPU = config.renderer === 'webgpu';
 
     // Create the graphics device
     const device = await createGraphicsDevice(canvas, {
@@ -104,7 +104,7 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
         powerPreference: 'high-performance'
     });
 
-    console.log(`Renderer: ${device.deviceType}, ${config.renderer === 'webgl' ? 'cpu-sort' : config.renderer}`);
+    console.log(`Renderer: ${device.deviceType}`);
 
     // Set maxPixelRatio so the XR framebuffer scale factor is computed correctly.
     // Regular rendering bypasses maxPixelRatio via the custom initCanvas sizing.
