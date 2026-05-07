@@ -481,8 +481,13 @@ class WalkCursor {
         this.surfaceCursorPickPending = true;
 
         const version = this.surfaceCursorVersion;
+        // Render the result even if the version moved on. The picked position
+        // is correct for the X/Y the pick was queried with, just a few pixels
+        // behind the current pointer; the .finally() block re-fires another
+        // pick to catch up. Discarding here would leave the cursor frozen
+        // during continuous mouse motion.
         this.pickSceneTarget(this.surfaceCursorX, this.surfaceCursorY).then((target) => {
-            if (version !== this.surfaceCursorVersion || !this.shouldShowSurfaceCursor()) {
+            if (!this.shouldShowSurfaceCursor()) {
                 return;
             }
 
