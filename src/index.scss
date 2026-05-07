@@ -108,8 +108,13 @@ button {
     text-decoration: none;
     white-space: nowrap;
     cursor: pointer;
+    transition: color 150ms ease;
 
-    color: $clr-text-light;
+    color: $clr-text;
+
+    &:hover {
+        color: $clr-text-light;
+    }
 
     > svg {
         height: 16px;
@@ -129,7 +134,7 @@ button {
             }
 
             &.fill {
-                fill: currentColor;
+                fill: $clr-accent;
                 stroke: none;
             }
         }
@@ -493,7 +498,7 @@ button {
             border-bottom: 1px solid rgba(white, 0.06);
             text-decoration: none;
             white-space: nowrap;
-            color: $clr-text-light;
+            color: $clr-text;
 
             > svg {
                 height: 20px;
@@ -510,7 +515,7 @@ button {
                     }
 
                     &.fill {
-                        fill: currentColor;
+                        fill: $clr-accent;
                         stroke: none;
                     }
                 }
@@ -533,7 +538,7 @@ button {
                 transition: color 150ms ease;
 
                 &:hover {
-                    color: $clr-accent;
+                    color: $clr-text-light;
                 }
             }
         }
