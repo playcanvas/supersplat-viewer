@@ -376,6 +376,9 @@ class Picker {
         let accumPass: RenderPassPicker;
         let chunksPatched = false;
         let pickQueue = Promise.resolve();
+        let cacheValid = false;
+        let cacheWidth = 0;
+        let cacheHeight = 0;
         const cacheCamera: PickCameraSnapshot = {
             position: new Vec3(),
             viewMatrix: new Mat4(),
@@ -426,7 +429,7 @@ class Picker {
             }) as Promise<T>;
         };
 
-        const updateCache = () => {
+        const updateCache = (width: number, height: number) => {
             const cam = camera.camera;
             cacheCamera.position.copy(camera.getPosition());
             cacheCamera.viewMatrix.copy(cam.viewMatrix);
@@ -434,6 +437,21 @@ class Picker {
             cacheCamera.nearClip = cam.nearClip;
             cacheCamera.farClip = cam.farClip;
             cacheCamera.projection = cam.projection;
+            cacheWidth = width;
+            cacheHeight = height;
+        };
+
+        const cameraMatches = (width: number, height: number) => {
+            const cam = camera.camera;
+            return cacheValid &&
+                cacheWidth === width &&
+                cacheHeight === height &&
+                cacheCamera.position.equals(camera.getPosition()) &&
+                cacheCamera.viewMatrix.equals(cam.viewMatrix) &&
+                cacheCamera.projectionMatrix.equals(cam.projectionMatrix) &&
+                cacheCamera.nearClip === cam.nearClip &&
+                cacheCamera.farClip === cam.farClip &&
+                cacheCamera.projection === cam.projection;
         };
 
         const getCacheCameraSnapshot = (): PickCameraSnapshot => {
@@ -502,42 +520,48 @@ class Picker {
             }
             const isComputeRenderer = app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE;
 
-            // Enable gsplat IDs only while rendering the pick target so we
-            // don't pay the memory/perf cost between pick passes.
-            const prevEnableIds = app.scene.gsplat.enableIds;
-            app.scene.gsplat.enableIds = true;
-            try {
-                if (isComputeRenderer) {
-                    enginePicker ??= new EnginePicker(app, 1, 1, true);
-                    enginePicker.resize(width, height);
-                    enginePicker.prepare(camera.camera, app.scene, [worldLayer]);
-                } else {
-                    if (!chunksPatched) {
-                        registerPickerShaderPatches(app);
-                        chunksPatched = true;
-                    }
-
-                    if (!accumPass) {
-                        initRasterAccum(width, height);
+            // Skip the render entirely if the camera and viewport match the previous
+            // pick — the accumulation buffer / engine picker state is still valid.
+            if (!cameraMatches(width, height)) {
+                // Enable gsplat IDs only while rendering the pick target so we
+                // don't pay the memory/perf cost between pick passes.
+                const prevEnableIds = app.scene.gsplat.enableIds;
+                app.scene.gsplat.enableIds = true;
+                try {
+                    if (isComputeRenderer) {
+                        enginePicker ??= new EnginePicker(app, 1, 1, true);
+                        enginePicker.resize(width, height);
+                        enginePicker.prepare(camera.camera, app.scene, [worldLayer]);
                     } else {
-                        accumTarget.resize(width, height);
+                        if (!chunksPatched) {
+                            registerPickerShaderPatches(app);
+                            chunksPatched = true;
+                        }
+
+                        if (!accumPass) {
+                            initRasterAccum(width, height);
+                        } else if (cacheWidth !== width || cacheHeight !== height) {
+                            cacheValid = false;
+                            accumTarget.resize(width, height);
+                        }
+
+                        accumPass.init(accumTarget);
+                        accumPass.setClearColor(clearColor);
+                        accumPass.update(
+                            camera.camera,
+                            app.scene,
+                            [worldLayer],
+                            new Map<number, MeshInstance | GSplatComponent>(),
+                            false
+                        );
+                        accumPass.render();
                     }
 
-                    accumPass.init(accumTarget);
-                    accumPass.setClearColor(clearColor);
-                    accumPass.update(
-                        camera.camera,
-                        app.scene,
-                        [worldLayer],
-                        new Map<number, MeshInstance | GSplatComponent>(),
-                        false
-                    );
-                    accumPass.render();
+                    updateCache(width, height);
+                    cacheValid = true;
+                } finally {
+                    app.scene.gsplat.enableIds = prevEnableIds;
                 }
-
-                updateCache();
-            } finally {
-                app.scene.gsplat.enableIds = prevEnableIds;
             }
 
             const pickCamera = getCacheCameraSnapshot();
@@ -699,6 +723,7 @@ class Picker {
             accumPass?.destroy();
             accumTarget?.destroy();
             accumBuffer?.destroy();
+            cacheValid = false;
         };
     }
 }
