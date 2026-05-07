@@ -264,7 +264,7 @@ class CursorRing {
     }
 }
 
-class WalkCursor {
+class NavCursor {
     private svg: SVGSVGElement;
 
     private hoverRing: CursorRing;
@@ -287,7 +287,7 @@ class WalkCursor {
 
     private active = false;
 
-    private walking = false;
+    private navigating = false;
 
     private targetPos: Vec3 | null = null;
 
@@ -384,7 +384,7 @@ class WalkCursor {
                 this.hasSurfaceCursorPosition = false;
             }
             if (this.targetMode && this.targetMode !== state.cameraMode) {
-                this.walking = false;
+                this.navigating = false;
                 this.clearTarget();
             }
             if (!this.active) {
@@ -397,17 +397,17 @@ class WalkCursor {
         events.on('gamingControls:changed', updateActive);
 
         events.on('navigateTo', () => {
-            this.walking = true;
+            this.navigating = true;
             this.hoverRing.hide();
         });
 
         events.on('navigateCancel', () => {
-            this.walking = false;
+            this.navigating = false;
             this.clearTarget();
         });
 
         events.on('navigateComplete', () => {
-            this.walking = false;
+            this.navigating = false;
             this.clearTarget();
         });
 
@@ -422,7 +422,7 @@ class WalkCursor {
         });
 
         events.on('orbitTarget:set', (pos: Vec3, normal: Vec3) => {
-            this.walking = false;
+            this.navigating = false;
             this.setTarget(pos, normal, 'orbit');
         });
 
@@ -508,7 +508,7 @@ class WalkCursor {
         return this.active &&
             this.state.inputMode === 'desktop' &&
             this.hasSurfaceCursorPosition &&
-            !this.walking && (
+            !this.navigating && (
             (this.state.cameraMode === 'fly' && !flyMouseCaptured) ||
             (this.state.cameraMode === 'orbit' && this.targetMode !== 'orbit')
         );
@@ -595,7 +595,7 @@ class WalkCursor {
     }
 
     private updateCursor(offsetX: number, offsetY: number) {
-        if (!this.active || this.walking) {
+        if (!this.active || this.navigating) {
             this.hoverRing.hide();
             return;
         }
@@ -642,4 +642,4 @@ class WalkCursor {
     }
 }
 
-export { WalkCursor };
+export { NavCursor };

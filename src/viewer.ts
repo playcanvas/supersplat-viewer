@@ -37,11 +37,11 @@ import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
 import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
+import { NavCursor } from './nav-cursor';
 import { Picker } from './picker';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { Config, Global } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
-import { WalkCursor } from './walk-cursor';
 
 // String.replace wrapper that warns when the source substring is missing, so
 // shader chunk patches against the engine fail loudly instead of silently
@@ -174,7 +174,7 @@ class Viewer {
 
     meshOverlay: MeshDebugOverlay | null = null;
 
-    walkCursor: WalkCursor | null = null;
+    navCursor: NavCursor | null = null;
 
     origChunks: {
         glsl: {
@@ -398,7 +398,7 @@ class Viewer {
             applyCamera(this.cameraManager.camera);
 
             if (!config.noui) {
-                this.walkCursor = new WalkCursor(app, camera, collision ?? null, events, state, this.picker);
+                this.navCursor = new NavCursor(app, camera, collision ?? null, events, state, this.picker);
             }
 
             const { instance } = gsplat;
