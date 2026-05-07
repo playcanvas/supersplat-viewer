@@ -56,6 +56,8 @@ class WalkSource implements TargetSource {
 
     private _progress = new ProgressTracker();
 
+    private _speedMul = 1;
+
     get isActive(): boolean {
         return this._target !== null;
     }
@@ -64,12 +66,15 @@ class WalkSource implements TargetSource {
      * Begin auto-walking toward a world-space target position.
      *
      * @param target - The destination (XZ used for navigation).
+     * @param speedMul - Forward-speed multiplier (mirrors gaming-controls
+     * shift/ctrl: 2 for run, 0.5 for crawl). Defaults to 1.
      */
-    navigateTo(target: Vec3) {
+    navigateTo(target: Vec3, speedMul = 1) {
         if (!this._target) {
             this._target = new Vec3();
         }
         this._target.copy(target);
+        this._speedMul = speedMul;
         this._progress.reset();
     }
 
@@ -127,7 +132,7 @@ class WalkSource implements TargetSource {
 
         // scale forward speed by alignment: turn in place first, then accelerate
         const alignment = Math.max(0, Math.cos(yawDiff * Math.PI / 180));
-        frame.deltas.move.append([0, 0, this.walkSpeed * dt * alignment]);
+        frame.deltas.move.append([0, 0, this.walkSpeed * this._speedMul * dt * alignment]);
     }
 }
 

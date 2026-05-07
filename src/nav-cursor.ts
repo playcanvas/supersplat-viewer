@@ -14,8 +14,13 @@ import type { State } from './types';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const NUM_SAMPLES = 12;
-const CIRCLE_OUTER_RADIUS = 0.2;
-const CIRCLE_INNER_RADIUS = 0.17;
+const BASE_OUTER_RADIUS = 0.2;
+const INNER_OUTER_RATIO = 0.17 / 0.2;
+// Scenes with halfExtents.length() below this are smaller than the walk
+// capsule (~1.5 m) — not navigable in walk mode and the world-space ring
+// engulfs the whole scene. Switch the cursor to a fixed screen size instead.
+const SMALL_SCENE_THRESHOLD = 2;
+const SCREEN_OUTER_PIXELS = 60;
 const BEZIER_K = 1 / 6;
 const NORMAL_SMOOTH_FACTOR = 0.25;
 const NORMAL_SNAP_ANGLE = Math.PI / 4;
@@ -85,6 +90,23 @@ const right = new Vec3(1, 0, 0);
 const tmpViewPos = new Vec3();
 const tmpClipVec = new Vec4();
 const tmpViewProj = new Mat4();
+
+// Compute the world-space radius such that a circle at `pos` projects to a
+// ring of `pixelDiameter` on screen. Used for the small-scene cursor mode
+// where we want a constant screen size regardless of zoom.
+const worldRadiusForPixels = (camera: Entity, canvasHeight: number, pos: Vec3, pixelDiameter: number): number => {
+    const cam = camera.camera;
+    if (cam.projection === PROJECTION_ORTHOGRAPHIC) {
+        return pixelDiameter * cam.orthoHeight / canvasHeight;
+    }
+    const camPos = camera.getPosition();
+    const dx = pos.x - camPos.x;
+    const dy = pos.y - camPos.y;
+    const dz = pos.z - camPos.z;
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const halfFovTan = Math.tan(cam.fov * Math.PI / 360);
+    return pixelDiameter * distance * halfFovTan / canvasHeight;
+};
 
 const worldPointToDepth = (camera: PickCameraSnapshot, worldPos: Vec3) => {
     if (camera.projection === PROJECTION_ORTHOGRAPHIC) {
@@ -157,9 +179,15 @@ class CursorRing {
 
     private svg: SVGSVGElement;
 
+    private canvas: HTMLCanvasElement;
+
     private camera: Entity;
 
     private smoothing: boolean;
+
+    // null = world-space ring (fixed world radius, shrinks with distance);
+    // number = constant on-screen diameter in pixels.
+    private screenPixels: number | null;
 
     private smoothNx = 0;
 
@@ -177,10 +205,12 @@ class CursorRing {
 
     private readonly innerY = new Float64Array(NUM_SAMPLES);
 
-    constructor(svg: SVGSVGElement, camera: Entity, smoothing: boolean) {
+    constructor(svg: SVGSVGElement, canvas: HTMLCanvasElement, camera: Entity, smoothing: boolean, screenPixels: number | null) {
         this.svg = svg;
+        this.canvas = canvas;
         this.camera = camera;
         this.smoothing = smoothing;
+        this.screenPixels = screenPixels;
 
         this.path = document.createElementNS(SVGNS, 'path');
         this.path.setAttribute('fill', 'white');
@@ -250,8 +280,13 @@ class CursorRing {
             this.hasSmoothedNormal = true;
         }
 
-        this.projectCircle(pos.x, pos.y, pos.z, nx, ny, nz, CIRCLE_OUTER_RADIUS, this.outerX, this.outerY);
-        this.projectCircle(pos.x, pos.y, pos.z, nx, ny, nz, CIRCLE_INNER_RADIUS, this.innerX, this.innerY);
+        const outerRadius = this.screenPixels !== null ?
+            worldRadiusForPixels(this.camera, this.canvas.clientHeight || 1, pos, this.screenPixels) :
+            BASE_OUTER_RADIUS;
+        const innerRadius = outerRadius * INNER_OUTER_RATIO;
+
+        this.projectCircle(pos.x, pos.y, pos.z, nx, ny, nz, outerRadius, this.outerX, this.outerY);
+        this.projectCircle(pos.x, pos.y, pos.z, nx, ny, nz, innerRadius, this.innerX, this.innerY);
 
         this.path.setAttribute('d', `${buildBezierRing(this.outerX, this.outerY)} ${buildBezierRing(this.innerX, this.innerY)}`);
         this.path.style.display = '';
@@ -326,7 +361,8 @@ class NavCursor {
         collision: Collision | null,
         events: EventHandler,
         state: State,
-        picker: Picker
+        picker: Picker,
+        sceneSize: number
     ) {
         this.camera = camera;
         this.collision = collision;
@@ -339,8 +375,9 @@ class NavCursor {
         this.svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:1';
         this.canvas.parentElement!.appendChild(this.svg);
 
-        this.hoverRing = new CursorRing(this.svg, camera, true);
-        this.targetRing = new CursorRing(this.svg, camera, false);
+        const screenPixels = sceneSize < SMALL_SCENE_THRESHOLD ? SCREEN_OUTER_PIXELS : null;
+        this.hoverRing = new CursorRing(this.svg, this.canvas, camera, true, screenPixels);
+        this.targetRing = new CursorRing(this.svg, this.canvas, camera, false, screenPixels);
 
         this.svg.style.display = 'none';
 

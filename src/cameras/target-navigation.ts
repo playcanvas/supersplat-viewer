@@ -10,7 +10,7 @@ import type { Camera, CameraFrame } from './camera';
 interface TargetSource {
     isActive: boolean;
     onComplete: (() => void) | null;
-    navigateTo(target: Vec3): void;
+    navigateTo(target: Vec3, speedMul?: number): void;
     cancel(): void;
     update(dt: number, camera: Camera, frame: CameraFrame): void;
 }

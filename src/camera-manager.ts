@@ -295,10 +295,10 @@ class CameraManager {
         });
 
         // tap-to-navigate: start auto-driving the active mode toward a picked position
-        events.on('navigateTo', (position: Vec3, normal: Vec3) => {
+        events.on('navigateTo', (position: Vec3, normal: Vec3, speedMul = 1) => {
             const source = sourcesByMode[state.cameraMode];
             if (source) {
-                source.navigateTo(position);
+                source.navigateTo(position, speedMul);
                 events.fire('navTarget:set', position, normal);
             }
         });

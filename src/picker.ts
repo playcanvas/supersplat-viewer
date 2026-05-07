@@ -201,8 +201,18 @@ const vec4 = new Vec4();
 const viewProjMat = new Mat4();
 const clearColor = new Color(0, 0, 0, 1);
 const NORMAL_EPSILON = 1e-12;
-const NORMAL_OUTLIER_MIN_DOT = 0.35;
-const NORMAL_SAMPLE_RADII = [1, 2, 4, 8];
+const NORMAL_DEGENERATE_EPSILON = 1e-20;
+// Sampling for the surface-normal estimator runs on a circular footprint of
+// fixed *world* radius, projected to pixels at the picked-point's depth.
+// Keeping the world area constant means adjacent cursor positions sample
+// almost the same world cluster, which stabilises the plane fit. The pixel
+// radius is clamped so distant picks still get enough samples and very-close
+// picks don't blow the block read.
+const NORMAL_SAMPLE_WORLD_RADIUS = 0.2;
+const NORMAL_SAMPLE_MIN_PX = 6;
+const NORMAL_SAMPLE_MAX_PX = 48;
+const NORMAL_RING_FRACTIONS = [0.3, 0.55, 0.8, 1.0];
+const NORMAL_OUTLIER_THRESHOLD = 2.5;
 const NORMAL_SAMPLE_DIRECTIONS = [
     [1, 0],
     [1, 1],
@@ -378,6 +388,134 @@ const setCameraFacingNormal = (cameraPosition: Vec3, position: Vec3, normal: Vec
     }
 
     return normal;
+};
+
+type PlaneFit = {
+    cx: number; cy: number; cz: number;
+    vx: number; vy: number; vz: number;
+};
+
+// Project a world-space radius around `pos` to its on-screen pixel radius for
+// the given camera. Uses the projection matrix's [1][1] entry (= 1/tan(fov/2)
+// for perspective, = 1/orthoHeight for orthographic) so we don't need fov or
+// orthoHeight on the snapshot.
+const worldRadiusToPixelRadius = (cam: PickCameraSnapshot, pos: Vec3, canvasHeight: number, worldRadius: number): number => {
+    const projY = cam.projectionMatrix.data[5];
+    if (cam.projection === PROJECTION_ORTHOGRAPHIC) {
+        return worldRadius * projY * canvasHeight / 2;
+    }
+    const dx = pos.x - cam.position.x;
+    const dy = pos.y - cam.position.y;
+    const dz = pos.z - cam.position.z;
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (distance < 1e-6) return Infinity;
+    return worldRadius * projY * canvasHeight / (2 * distance);
+};
+
+// Single least-squares plane fit through a cluster of 3D points. The normal
+// is the eigenvector of the smallest eigenvalue of the points' 3x3 covariance
+// matrix, computed in closed form (analytic eigendecomposition for 3x3
+// symmetric, Smith 1961). Returns null on degenerate input.
+const fitPlaneOnce = (points: Vec3[]): PlaneFit | null => {
+    const n = points.length;
+    if (n < 3) return null;
+
+    let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < n; i++) {
+        cx += points[i].x; cy += points[i].y; cz += points[i].z;
+    }
+    cx /= n; cy /= n; cz /= n;
+
+    let cxx = 0, cxy = 0, cxz = 0, cyy = 0, cyz = 0, czz = 0;
+    for (let i = 0; i < n; i++) {
+        const dx = points[i].x - cx;
+        const dy = points[i].y - cy;
+        const dz = points[i].z - cz;
+        cxx += dx * dx; cxy += dx * dy; cxz += dx * dz;
+        cyy += dy * dy; cyz += dy * dz; czz += dz * dz;
+    }
+
+    const q = (cxx + cyy + czz) / 3;
+    const a = cxx - q, b = cyy - q, c = czz - q;
+    const p2 = a * a + b * b + c * c + 2 * (cxy * cxy + cxz * cxz + cyz * cyz);
+    if (p2 < NORMAL_DEGENERATE_EPSILON) return null;
+    const p = Math.sqrt(p2 / 6);
+    const inv = 1 / p;
+    const Bxx = a * inv, Bxy = cxy * inv, Bxz = cxz * inv;
+    const Byy = b * inv, Byz = cyz * inv, Bzz = c * inv;
+    const detB = Bxx * (Byy * Bzz - Byz * Byz) -
+                 Bxy * (Bxy * Bzz - Byz * Bxz) +
+                 Bxz * (Bxy * Byz - Byy * Bxz);
+    const r = Math.max(-1, Math.min(1, detB / 2));
+    const phi = Math.acos(r) / 3;
+    const lambdaMin = q + 2 * p * Math.cos(phi + 2 * Math.PI / 3);
+
+    const Mxx = cxx - lambdaMin, Myy = cyy - lambdaMin, Mzz = czz - lambdaMin;
+    const v1x = cxy * cyz - cxz * Myy;
+    const v1y = cxz * cxy - Mxx * cyz;
+    const v1z = Mxx * Myy - cxy * cxy;
+    const v2x = cxy * Mzz - cxz * cyz;
+    const v2y = cxz * cxz - Mxx * Mzz;
+    const v2z = Mxx * cyz - cxy * cxz;
+    const v3x = Myy * Mzz - cyz * cyz;
+    const v3y = cyz * cxz - cxy * Mzz;
+    const v3z = cxy * cyz - Myy * cxz;
+    const l1 = v1x * v1x + v1y * v1y + v1z * v1z;
+    const l2 = v2x * v2x + v2y * v2y + v2z * v2z;
+    const l3 = v3x * v3x + v3y * v3y + v3z * v3z;
+    let vx: number, vy: number, vz: number, lSq: number;
+    if (l1 >= l2 && l1 >= l3) {
+        vx = v1x; vy = v1y; vz = v1z; lSq = l1;
+    } else if (l2 >= l3) {
+        vx = v2x; vy = v2y; vz = v2z; lSq = l2;
+    } else {
+        vx = v3x; vy = v3y; vz = v3z; lSq = l3;
+    }
+    if (lSq < NORMAL_EPSILON) return null;
+    const invLen = 1 / Math.sqrt(lSq);
+    return { cx, cy, cz, vx: vx * invLen, vy: vy * invLen, vz: vz * invLen };
+};
+
+// Two-pass plane fit: first pass on all points, then drop points whose
+// distance from the fitted plane exceeds NORMAL_OUTLIER_THRESHOLD * the mean
+// residual, refit on the inliers. Sign-flips the result toward toCamera so
+// the cursor's tangent basis stays consistent. Returns false on degenerate
+// input (fewer than 3 points, collinear/coincident samples).
+const fitPlaneNormal = (points: Vec3[], toCamera: Vec3, outNormal: Vec3): boolean => {
+    const first = fitPlaneOnce(points);
+    if (!first) return false;
+
+    let residualSum = 0;
+    for (let i = 0; i < points.length; i++) {
+        const dx = points[i].x - first.cx;
+        const dy = points[i].y - first.cy;
+        const dz = points[i].z - first.cz;
+        residualSum += Math.abs(dx * first.vx + dy * first.vy + dz * first.vz);
+    }
+    const threshold = (residualSum / points.length) * NORMAL_OUTLIER_THRESHOLD;
+
+    const inliers: Vec3[] = [];
+    for (let i = 0; i < points.length; i++) {
+        const dx = points[i].x - first.cx;
+        const dy = points[i].y - first.cy;
+        const dz = points[i].z - first.cz;
+        if (Math.abs(dx * first.vx + dy * first.vy + dz * first.vz) <= threshold) {
+            inliers.push(points[i]);
+        }
+    }
+
+    let result = first;
+    if (inliers.length >= 3 && inliers.length < points.length) {
+        const refined = fitPlaneOnce(inliers);
+        if (refined) result = refined;
+    }
+
+    let { vx, vy, vz } = result;
+    if (vx * toCamera.x + vy * toCamera.y + vz * toCamera.z < 0) {
+        vx = -vx; vy = -vy; vz = -vz;
+    }
+    outNormal.set(vx, vy, vz);
+    return true;
 };
 
 class Picker {
@@ -647,12 +785,13 @@ class Picker {
                 };
             }
 
-            // Single block read serves both depth (center pixel) and normal samples (ring).
-            const maxRadius = NORMAL_SAMPLE_RADII[NORMAL_SAMPLE_RADII.length - 1];
-            const blockX = Math.max(0, screenX - maxRadius);
-            const blockY = Math.max(0, screenY - maxRadius);
-            const blockWidth = Math.min(width - 1, screenX + maxRadius) - blockX + 1;
-            const blockHeight = Math.min(height - 1, screenY + maxRadius) - blockY + 1;
+            // Single block read serves both depth (center pixel) and normal
+            // samples. Sized to the maximum possible ring pixel-radius so the
+            // dynamic ring offsets always lie inside the buffer we read.
+            const blockX = Math.max(0, screenX - NORMAL_SAMPLE_MAX_PX);
+            const blockY = Math.max(0, screenY - NORMAL_SAMPLE_MAX_PX);
+            const blockWidth = Math.min(width - 1, screenX + NORMAL_SAMPLE_MAX_PX) - blockX + 1;
+            const blockHeight = Math.min(height - 1, screenY + NORMAL_SAMPLE_MAX_PX) - blockY + 1;
             const rasterBlock = await readRasterBlock(
                 blockX,
                 blockY,
@@ -675,66 +814,34 @@ class Picker {
                 return rasterBlock(px, py);
             };
 
-            const sampleRings = NORMAL_SAMPLE_RADII.map((radius) => {
+            // Pixel radius corresponding to a fixed world radius at the
+            // picked-point's depth. Clamped so distant picks still sample
+            // enough pixels and very-close picks stay inside the block read.
+            const pixelRadius = Math.max(NORMAL_SAMPLE_MIN_PX,
+                Math.min(NORMAL_SAMPLE_MAX_PX,
+                    worldRadiusToPixelRadius(pickCamera, position, height, NORMAL_SAMPLE_WORLD_RADIUS)));
+            const ringPixelRadii = NORMAL_RING_FRACTIONS.map(f => Math.max(1, Math.round(f * pixelRadius)));
+            const sampleRings = ringPixelRadii.map((radius) => {
                 return NORMAL_SAMPLE_DIRECTIONS.map(([dx, dy]) => {
                     return samplePixel(screenX + dx * radius, screenY + dy * radius);
                 });
             });
 
             const toCamera = setCameraFacingNormal(pickCamera.position, position, new Vec3());
-            const candidates: Vec3[] = [];
-            const va = new Vec3();
-            const vb = new Vec3();
-            const sampleNormal = new Vec3();
 
-            sampleRings.forEach((points) => {
-                for (let i = 0; i < NORMAL_SAMPLE_DIRECTIONS.length; i++) {
-                    const pointA = points[i];
-                    const pointB = points[(i + 1) % NORMAL_SAMPLE_DIRECTIONS.length];
-                    if (!pointA || !pointB) {
-                        continue;
-                    }
-
-                    va.sub2(pointA, position);
-                    vb.sub2(pointB, position);
-                    if (va.lengthSq() <= NORMAL_EPSILON || vb.lengthSq() <= NORMAL_EPSILON) {
-                        continue;
-                    }
-
-                    // Direction order is clockwise in screen space. Screen Y points
-                    // down, so crossing next by current gives a camera-facing normal.
-                    sampleNormal.cross(vb, va);
-                    if (sampleNormal.lengthSq() <= NORMAL_EPSILON) {
-                        continue;
-                    }
-
-                    const candidate = sampleNormal.clone().normalize();
-                    if (candidate.dot(toCamera) < 0) {
-                        candidate.mulScalar(-1);
-                    }
-                    candidates.push(candidate);
+            // Collect every valid 3D sample: the picked position plus all ring
+            // samples that didn't fall off-screen or fail the depth read.
+            const fitPoints: Vec3[] = [position];
+            for (let i = 0; i < sampleRings.length; i++) {
+                const ring = sampleRings[i];
+                for (let j = 0; j < ring.length; j++) {
+                    const pt = ring[j];
+                    if (pt) fitPoints.push(pt);
                 }
-            });
+            }
 
             const normal = new Vec3();
-            candidates.forEach((candidate) => {
-                normal.add(candidate);
-            });
-
-            if (normal.lengthSq() > NORMAL_EPSILON) {
-                normal.normalize();
-
-                const refined = new Vec3();
-                candidates.forEach((candidate) => {
-                    if (candidate.dot(normal) >= NORMAL_OUTLIER_MIN_DOT) {
-                        refined.add(candidate);
-                    }
-                });
-
-                if (refined.lengthSq() > NORMAL_EPSILON) {
-                    normal.copy(refined).normalize();
-                }
-            } else {
+            if (!fitPlaneNormal(fitPoints, toCamera, normal)) {
                 normal.copy(toCamera);
             }
 
