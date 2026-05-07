@@ -232,8 +232,10 @@ class NavInteraction {
 
         const currentMode = this._global?.state.cameraMode;
         if (currentMode === 'fly') {
-            events.fire('orbitTarget:set', target.position, target.normal);
+            // 'pick' switches mode to orbit, which cancels the active fly nav
+            // and would clobber any pre-set orbit target — set it after.
             events.fire('pick', target.position);
+            events.fire('orbitTarget:set', target.position, target.normal);
         } else if (currentMode === 'orbit' || currentMode === 'walk') {
             state.cameraMode = 'fly';
             events.fire('navigateTo', target.position, target.normal);
