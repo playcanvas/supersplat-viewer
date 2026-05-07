@@ -47,7 +47,7 @@ class OrbitController implements CameraController {
     private _attach(camera: Camera) {
         p.position.copy(camera.position);
         p.angles.copy(camera.angles);
-        p.distance = camera.distance;
+        p.distance = Math.max(camera.distance, this.controller.zoomRange.x);
         this.controller.attach(p, false);
     }
 }

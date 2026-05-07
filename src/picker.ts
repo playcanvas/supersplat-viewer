@@ -343,7 +343,7 @@ const captureCameraSnapshot = (camera: Entity, out: PickCameraSnapshot) => {
     out.projection = cam.projection;
 };
 
-const getWorldPoint = (camera: PickCameraSnapshot, x: number, y: number, width: number, height: number, normalizedDepth: number) => {
+const getWorldPoint = (camera: PickCameraSnapshot, x: number, y: number, width: number, height: number, normalizedDepth: number, out?: Vec3) => {
     if (!Number.isFinite(normalizedDepth) || normalizedDepth < 0 || normalizedDepth > 1) {
         return null;
     }
@@ -365,7 +365,7 @@ const getWorldPoint = (camera: PickCameraSnapshot, x: number, y: number, width: 
         return null;
     }
 
-    return new Vec3(vec4.x, vec4.y, vec4.z);
+    return (out ?? new Vec3()).set(vec4.x, vec4.y, vec4.z);
 };
 
 const setCameraFacingNormal = (cameraPosition: Vec3, position: Vec3, normal: Vec3) => {

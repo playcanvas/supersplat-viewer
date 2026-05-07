@@ -309,6 +309,8 @@ class WalkCursor {
 
     private hasSurfaceSample = false;
 
+    private scratchHoverPos = new Vec3();
+
     private onPointerMove: (e: PointerEvent) => void;
 
     private onPointerLeave: () => void;
@@ -540,7 +542,8 @@ class WalkCursor {
             this.surfaceCursorY,
             sample.width,
             sample.height,
-            sample.normalizedDepth
+            sample.normalizedDepth,
+            this.scratchHoverPos
         );
         if (!position) {
             this.hoverRing.hide();
