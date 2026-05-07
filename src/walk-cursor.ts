@@ -2,11 +2,14 @@ import {
     type AppBase,
     type Entity,
     type EventHandler,
-    Vec3
+    Mat4,
+    PROJECTION_ORTHOGRAPHIC,
+    Vec3,
+    Vec4
 } from 'playcanvas';
 
 import type { Collision } from './collision';
-import type { Picker } from './picker';
+import { getWorldPoint, type PickCameraSnapshot, type Picker } from './picker';
 import type { State } from './types';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -79,10 +82,66 @@ const worldPt = new Vec3();
 const up = new Vec3(0, 1, 0);
 const right = new Vec3(1, 0, 0);
 
+const tmpViewPos = new Vec3();
+const tmpClipVec = new Vec4();
+const tmpViewProj = new Mat4();
+
+const captureCameraSnapshot = (camera: Entity, out: PickCameraSnapshot) => {
+    const cam = camera.camera;
+    out.position.copy(camera.getPosition());
+    out.viewMatrix.copy(cam.viewMatrix);
+    out.projectionMatrix.copy(cam.projectionMatrix);
+    out.nearClip = cam.nearClip;
+    out.farClip = cam.farClip;
+    out.projection = cam.projection;
+};
+
+const worldPointToDepth = (camera: PickCameraSnapshot, worldPos: Vec3) => {
+    if (camera.projection === PROJECTION_ORTHOGRAPHIC) {
+        tmpViewProj.mul2(camera.projectionMatrix, camera.viewMatrix);
+        tmpClipVec.set(worldPos.x, worldPos.y, worldPos.z, 1);
+        tmpViewProj.transformVec4(tmpClipVec, tmpClipVec);
+        if (Math.abs(tmpClipVec.w) < 1e-8) {
+            return -1;
+        }
+        return (tmpClipVec.z / tmpClipVec.w + 1) * 0.5;
+    }
+    camera.viewMatrix.transformPoint(worldPos, tmpViewPos);
+    const linearDepth = -tmpViewPos.z;
+    const range = camera.farClip - camera.nearClip;
+    if (range <= 0) {
+        return -1;
+    }
+    return (linearDepth - camera.nearClip) / range;
+};
+
 type CursorTarget = {
     position: Vec3;
     normal: Vec3;
 };
+
+type SurfaceSample = {
+    normalizedDepth: number;
+    normal: Vec3;
+    camera: PickCameraSnapshot;
+    width: number;
+    height: number;
+};
+
+const createSurfaceSample = (): SurfaceSample => ({
+    normalizedDepth: 0,
+    normal: new Vec3(),
+    camera: {
+        position: new Vec3(),
+        viewMatrix: new Mat4(),
+        projectionMatrix: new Mat4(),
+        nearClip: 0,
+        farClip: 0,
+        projection: 0
+    },
+    width: 0,
+    height: 0
+});
 
 type TargetMode = 'walk' | 'fly' | 'orbit';
 
@@ -255,6 +314,10 @@ class WalkCursor {
     private surfaceCursorVersion = 0;
 
     private surfaceCursorPickPending = false;
+
+    private surfaceSample: SurfaceSample = createSurfaceSample();
+
+    private hasSurfaceSample = false;
 
     private onPointerMove: (e: PointerEvent) => void;
 
@@ -463,9 +526,35 @@ class WalkCursor {
         this.hasSurfaceCursorPosition = true;
         this.surfaceCursorVersion++;
 
+        // Render immediately using the most recent depth sample, re-projecting
+        // at the new pointer position. The async pick below will refresh the
+        // sample.
+        this.renderSurfaceCursor();
+
         if (!this.surfaceCursorPickPending) {
             this.processSurfaceCursor();
         }
+    }
+
+    private renderSurfaceCursor() {
+        if (!this.hasSurfaceSample || !this.shouldShowSurfaceCursor()) {
+            this.hoverRing.hide();
+            return;
+        }
+        const sample = this.surfaceSample;
+        const position = getWorldPoint(
+            sample.camera,
+            this.surfaceCursorX,
+            this.surfaceCursorY,
+            sample.width,
+            sample.height,
+            sample.normalizedDepth
+        );
+        if (!position) {
+            this.hoverRing.hide();
+            return;
+        }
+        this.hoverRing.render(position, sample.normal);
     }
 
     private refreshSurfaceCursor() {
@@ -479,23 +568,27 @@ class WalkCursor {
         this.surfaceCursorPickPending = true;
 
         const version = this.surfaceCursorVersion;
-        // Render the result even if the version moved on. The picked position
-        // is correct for the X/Y the pick was queried with, just a few pixels
-        // behind the current pointer; the .finally() block re-fires another
-        // pick to catch up. Discarding here would leave the cursor frozen
-        // during continuous mouse motion.
+        // Capture the camera at pick fire time so the depth we extract from
+        // the result is interpretable through the same view/projection. The
+        // surface cursor only animates while the camera is static, so this
+        // snapshot matches the camera the picker actually rendered with.
+        captureCameraSnapshot(this.camera, this.surfaceSample.camera);
+        const snapshotWidth = this.canvas.clientWidth;
+        const snapshotHeight = this.canvas.clientHeight;
         this.pickSceneTarget(this.surfaceCursorX, this.surfaceCursorY).then((target) => {
-            if (!this.shouldShowSurfaceCursor()) {
-                return;
-            }
-
             if (target) {
-                this.hoverRing.render(target.position, target.normal);
+                this.surfaceSample.normalizedDepth = worldPointToDepth(this.surfaceSample.camera, target.position);
+                this.surfaceSample.normal.copy(target.normal);
+                this.surfaceSample.width = snapshotWidth;
+                this.surfaceSample.height = snapshotHeight;
+                this.hasSurfaceSample = this.surfaceSample.normalizedDepth >= 0;
             } else {
-                this.hoverRing.hide();
+                this.hasSurfaceSample = false;
             }
+            this.renderSurfaceCursor();
         }).catch(() => {
             if (version === this.surfaceCursorVersion) {
+                this.hasSurfaceSample = false;
                 this.hoverRing.hide();
             }
         }).finally(() => {

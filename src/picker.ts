@@ -758,5 +758,5 @@ class Picker {
     }
 }
 
-export type { PickSurface };
-export { Picker };
+export type { PickSurface, PickCameraSnapshot };
+export { Picker, getWorldPoint };
