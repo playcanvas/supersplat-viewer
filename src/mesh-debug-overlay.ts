@@ -52,7 +52,7 @@ const SURFACE_ALPHA  = 0.30;
 //
 // `cameraFrameEnabled` controls how the per-vertex color is encoded so the
 // overlay looks identical between the WebGL (no CameraFrame) and
-// WebGPU/compute (CameraFrame) paths. With CameraFrame on, the engine's
+// WebGPU (CameraFrame) paths. With CameraFrame on, the engine's
 // `gammaCorrectOutput` is a no-op (GAMMA_NONE) and the StandardMaterial
 // output lands in the framebuffer as-is — so we feed the raw gray value.
 // Without CameraFrame, `gammaCorrectOutput` applies `pow(1/2.2)` to the
