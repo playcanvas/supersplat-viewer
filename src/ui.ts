@@ -237,7 +237,7 @@ const initUI = (global: Global) => {
         'orbitCamera', 'flyCamera', 'fpsCamera',
         'performanceModeRow', 'performanceModeCheck', 'performanceModeOption',
         'gamingControlsDivider', 'gamingControlsRow', 'gamingControlsCheck', 'gamingControlsOption',
-        'desktopFlyClickToFly', 'desktopClickToWalk', 'desktopGamingControls',
+        'desktopFlyClickToFly', 'desktopFlyGamingControls', 'desktopClickToWalk', 'desktopGamingControls',
         'touchFlyClickToWalk', 'touchFlyGamingControls',
         'touchClickToWalk', 'touchGamingControls',
         'walkHint',
@@ -373,6 +373,7 @@ const initUI = (global: Global) => {
     const updateGamingControls = () => {
         dom.gamingControlsCheck.classList.toggle('active', state.gamingControls);
         dom.desktopFlyClickToFly.classList.toggle('hidden', state.gamingControls);
+        dom.desktopFlyGamingControls.classList.toggle('hidden', !state.gamingControls);
         dom.desktopClickToWalk.classList.toggle('hidden', state.gamingControls);
         dom.desktopGamingControls.classList.toggle('hidden', !state.gamingControls);
         dom.touchFlyClickToWalk.classList.toggle('hidden', state.gamingControls);

@@ -221,11 +221,11 @@
                             <h1>Orbit Mode</h1>
                             <div class="control-item">
                                 <span class="control-action">Orbit</span>
-                                <span class="control-key">Left Mouse</span>
+                                <span class="control-key">Left Click + Drag</span>
                             </div>
                             <div class="control-item">
                                 <span class="control-action">Pan</span>
-                                <span class="control-key">Right Mouse</span>
+                                <span class="control-key">Right Click + Drag</span>
                             </div>
                             <div class="control-item">
                                 <span class="control-action">Zoom</span>
@@ -233,7 +233,11 @@
                             </div>
                             <div class="control-item">
                                 <span class="control-action">Set Focus</span>
-                                <span class="control-key">Click</span>
+                                <span class="control-key">Left Click</span>
+                            </div>
+                            <div class="control-item">
+                                <span class="control-action">Fly to Point</span>
+                                <span class="control-key">Double-click</span>
                             </div>
                             <div class="control-item">
                                 <span class="control-action">Frame Scene</span>
@@ -245,32 +249,68 @@
                             </div>
                             <div class="control-spacer"></div>
                             <h1>Fly Mode</h1>
-                            <div id="desktopFlyClickToFly" class="control-item">
-                                <span class="control-action">Fly To</span>
-                                <span class="control-key">Click</span>
+                            <div id="desktopFlyClickToFly">
+                                <div class="control-item">
+                                    <span class="control-action">Fly To</span>
+                                    <span class="control-key">Left Click</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Look Around</span>
+                                    <span class="control-key">Left Click + Drag</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Pan</span>
+                                    <span class="control-key">Right Click + Drag</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Move</span>
+                                    <span class="control-key">W,S,A,D</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Run / Slow</span>
+                                    <span class="control-key">Shift / Ctrl</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Focus Point</span>
+                                    <span class="control-key">Double-click</span>
+                                </div>
                             </div>
-                            <div class="control-item">
-                                <span class="control-action">Look Around</span>
-                                <span class="control-key">Click + Drag</span>
-                            </div>
-                            <div class="control-item">
-                                <span class="control-action">Pan</span>
-                                <span class="control-key">Right Mouse</span>
-                            </div>
-                            <div class="control-item">
-                                <span class="control-action">Move</span>
-                                <span class="control-key">W,S,A,D</span>
+                            <div id="desktopFlyGamingControls" class="hidden">
+                                <div class="control-item">
+                                    <span class="control-action">Look Around</span>
+                                    <span class="control-key">Mouse</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Move</span>
+                                    <span class="control-key">W,S,A,D</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Vertical</span>
+                                    <span class="control-key">Q,E</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Run / Slow</span>
+                                    <span class="control-key">Shift / Ctrl</span>
+                                </div>
                             </div>
                             <div class="control-spacer"></div>
                             <h1>Walk Mode</h1>
                             <div id="desktopClickToWalk">
                                 <div class="control-item">
                                     <span class="control-action">Walk To</span>
-                                    <span class="control-key">Click</span>
+                                    <span class="control-key">Left Click</span>
                                 </div>
                                 <div class="control-item">
                                     <span class="control-action">Look Around</span>
-                                    <span class="control-key">Click + Drag</span>
+                                    <span class="control-key">Left Click + Drag</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Run / Slow</span>
+                                    <span class="control-key">Shift / Ctrl</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Fly to Point</span>
+                                    <span class="control-key">Double-click</span>
                                 </div>
                             </div>
                             <div id="desktopGamingControls">
@@ -286,6 +326,10 @@
                                     <span class="control-action">Jump</span>
                                     <span class="control-key">Space</span>
                                 </div>
+                                <div class="control-item">
+                                    <span class="control-action">Run / Slow</span>
+                                    <span class="control-key">Shift / Ctrl</span>
+                                </div>
                             </div>
                             <div class="control-spacer"></div>
                             <h1>Mode Switching</h1>
@@ -298,11 +342,15 @@
                                 <span class="control-key">2</span>
                             </div>
                             <div class="control-item">
-                                <span class="control-action">Walk Mode</span>
+                                <span class="control-action">Toggle Walk</span>
                                 <span class="control-key">3</span>
                             </div>
                             <div class="control-item">
-                                <span class="control-action">Voxel Overlay</span>
+                                <span class="control-action">Toggle Gaming Controls</span>
+                                <span class="control-key">G</span>
+                            </div>
+                            <div class="control-item">
+                                <span class="control-action">Show Collision</span>
                                 <span class="control-key">V</span>
                             </div>
                             <div class="control-item">
@@ -312,6 +360,10 @@
                             <div class="control-item">
                                 <span class="control-action">Toggle Help</span>
                                 <span class="control-key">H</span>
+                            </div>
+                            <div class="control-item">
+                                <span class="control-action">Exit / Cancel</span>
+                                <span class="control-key">Esc</span>
                             </div>
                         </div>
                         <div id="touchInfoPanel" class="hidden">
@@ -333,6 +385,10 @@
                                 <span class="control-action">Set Focus</span>
                                 <span class="control-key">Tap</span>
                             </div>
+                            <div class="control-item">
+                                <span class="control-action">Fly to Point</span>
+                                <span class="control-key">Double-tap</span>
+                            </div>
                             <div class="control-spacer"></div>
                             <h1>Fly Mode</h1>
                             <div id="touchFlyClickToWalk">
@@ -347,6 +403,10 @@
                                 <div class="control-item">
                                     <span class="control-action">Move</span>
                                     <span class="control-key">Pinch / Two Finger Drag</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Focus Point</span>
+                                    <span class="control-key">Double-tap</span>
                                 </div>
                             </div>
                             <div id="touchFlyGamingControls" class="hidden">
@@ -369,6 +429,10 @@
                                 <div class="control-item">
                                     <span class="control-action">Look Around</span>
                                     <span class="control-key">Touch + Drag</span>
+                                </div>
+                                <div class="control-item">
+                                    <span class="control-action">Fly to Point</span>
+                                    <span class="control-key">Double-tap</span>
                                 </div>
                             </div>
                             <div id="touchGamingControls" class="hidden">
