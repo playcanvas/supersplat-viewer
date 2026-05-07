@@ -324,6 +324,25 @@ const unregisterPickerShaderPatches = (app: AppBase) => {
     pickerShaderPatchState.delete(device);
 };
 
+const createPickCameraSnapshot = (): PickCameraSnapshot => ({
+    position: new Vec3(),
+    viewMatrix: new Mat4(),
+    projectionMatrix: new Mat4(),
+    nearClip: 0,
+    farClip: 0,
+    projection: 0
+});
+
+const captureCameraSnapshot = (camera: Entity, out: PickCameraSnapshot) => {
+    const cam = camera.camera;
+    out.position.copy(camera.getPosition());
+    out.viewMatrix.copy(cam.viewMatrix);
+    out.projectionMatrix.copy(cam.projectionMatrix);
+    out.nearClip = cam.nearClip;
+    out.farClip = cam.farClip;
+    out.projection = cam.projection;
+};
+
 const getWorldPoint = (camera: PickCameraSnapshot, x: number, y: number, width: number, height: number, normalizedDepth: number) => {
     if (!Number.isFinite(normalizedDepth) || normalizedDepth < 0 || normalizedDepth > 1) {
         return null;
@@ -380,14 +399,7 @@ class Picker {
         let cacheValid = false;
         let cacheWidth = 0;
         let cacheHeight = 0;
-        const cacheCamera: PickCameraSnapshot = {
-            position: new Vec3(),
-            viewMatrix: new Mat4(),
-            projectionMatrix: new Mat4(),
-            nearClip: 0,
-            farClip: 0,
-            projection: 0
-        };
+        const cacheCamera: PickCameraSnapshot = createPickCameraSnapshot();
 
         const initRasterAccum = (width: number, height: number) => {
             accumBuffer = new Texture(graphicsDevice, {
@@ -431,13 +443,7 @@ class Picker {
         };
 
         const updateCache = (width: number, height: number) => {
-            const cam = camera.camera;
-            cacheCamera.position.copy(camera.getPosition());
-            cacheCamera.viewMatrix.copy(cam.viewMatrix);
-            cacheCamera.projectionMatrix.copy(cam.projectionMatrix);
-            cacheCamera.nearClip = cam.nearClip;
-            cacheCamera.farClip = cam.farClip;
-            cacheCamera.projection = cam.projection;
+            captureCameraSnapshot(camera, cacheCamera);
             cacheWidth = width;
             cacheHeight = height;
         };
@@ -447,7 +453,6 @@ class Picker {
             return cacheValid &&
                 cacheWidth === width &&
                 cacheHeight === height &&
-                cacheCamera.position.equals(camera.getPosition()) &&
                 cacheCamera.viewMatrix.equals(cam.viewMatrix) &&
                 cacheCamera.projectionMatrix.equals(cam.projectionMatrix) &&
                 cacheCamera.nearClip === cam.nearClip &&
@@ -456,14 +461,14 @@ class Picker {
         };
 
         const getCacheCameraSnapshot = (): PickCameraSnapshot => {
-            return {
-                position: cacheCamera.position.clone(),
-                viewMatrix: cacheCamera.viewMatrix.clone(),
-                projectionMatrix: cacheCamera.projectionMatrix.clone(),
-                nearClip: cacheCamera.nearClip,
-                farClip: cacheCamera.farClip,
-                projection: cacheCamera.projection
-            };
+            const snapshot = createPickCameraSnapshot();
+            snapshot.position.copy(cacheCamera.position);
+            snapshot.viewMatrix.copy(cacheCamera.viewMatrix);
+            snapshot.projectionMatrix.copy(cacheCamera.projectionMatrix);
+            snapshot.nearClip = cacheCamera.nearClip;
+            snapshot.farClip = cacheCamera.farClip;
+            snapshot.projection = cacheCamera.projection;
+            return snapshot;
         };
 
         const readRasterBlock = async (
@@ -555,7 +560,7 @@ class Picker {
             }
         };
 
-        const pickPosition = async (x: number, y: number): Promise<PickPosition | null> => {
+        const prepareSample = (x: number, y: number) => {
             const width = Math.floor(graphicsDevice.width);
             const height = Math.floor(graphicsDevice.height);
 
@@ -564,16 +569,27 @@ class Picker {
                 return null;
             }
 
-            const screenX = Math.min(width - 1, Math.max(0, Math.floor(x * width)));
-            const screenY = Math.min(height - 1, Math.max(0, Math.floor(y * height)));
             const worldLayer = app.scene.layers.getLayerByName('World');
             if (!worldLayer) {
                 return null;
             }
+
+            const screenX = Math.min(width - 1, Math.max(0, Math.floor(x * width)));
+            const screenY = Math.min(height - 1, Math.max(0, Math.floor(y * height)));
             const isComputeRenderer = app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE;
 
             ensureRendered(width, height, isComputeRenderer, worldLayer);
             const pickCamera = getCacheCameraSnapshot();
+
+            return { width, height, screenX, screenY, isComputeRenderer, pickCamera };
+        };
+
+        const pickPosition = async (x: number, y: number): Promise<PickPosition | null> => {
+            const sample = prepareSample(x, y);
+            if (!sample) {
+                return null;
+            }
+            const { width, height, screenX, screenY, isComputeRenderer, pickCamera } = sample;
 
             if (isComputeRenderer) {
                 const normalizedDepth = await enginePicker!.getPointDepthAsync(screenX, screenY);
@@ -611,23 +627,11 @@ class Picker {
         };
 
         const pickSurface = async (x: number, y: number) => {
-            const width = Math.floor(graphicsDevice.width);
-            const height = Math.floor(graphicsDevice.height);
-
-            if (width <= 0 || height <= 0) {
+            const sample = prepareSample(x, y);
+            if (!sample) {
                 return null;
             }
-
-            const screenX = Math.min(width - 1, Math.max(0, Math.floor(x * width)));
-            const screenY = Math.min(height - 1, Math.max(0, Math.floor(y * height)));
-            const worldLayer = app.scene.layers.getLayerByName('World');
-            if (!worldLayer) {
-                return null;
-            }
-            const isComputeRenderer = app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE;
-
-            ensureRendered(width, height, isComputeRenderer, worldLayer);
-            const pickCamera = getCacheCameraSnapshot();
+            const { width, height, screenX, screenY, isComputeRenderer, pickCamera } = sample;
 
             if (isComputeRenderer) {
                 const normalizedDepth = await enginePicker!.getPointDepthAsync(screenX, screenY);
@@ -759,4 +763,4 @@ class Picker {
 }
 
 export type { PickSurface, PickCameraSnapshot };
-export { Picker, getWorldPoint };
+export { Picker, getWorldPoint, captureCameraSnapshot };

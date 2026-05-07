@@ -9,7 +9,7 @@ import {
 } from 'playcanvas';
 
 import type { Collision } from './collision';
-import { getWorldPoint, type PickCameraSnapshot, type Picker } from './picker';
+import { captureCameraSnapshot, getWorldPoint, type PickCameraSnapshot, type Picker } from './picker';
 import type { State } from './types';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -85,16 +85,6 @@ const right = new Vec3(1, 0, 0);
 const tmpViewPos = new Vec3();
 const tmpClipVec = new Vec4();
 const tmpViewProj = new Mat4();
-
-const captureCameraSnapshot = (camera: Entity, out: PickCameraSnapshot) => {
-    const cam = camera.camera;
-    out.position.copy(camera.getPosition());
-    out.viewMatrix.copy(cam.viewMatrix);
-    out.projectionMatrix.copy(cam.projectionMatrix);
-    out.nearClip = cam.nearClip;
-    out.farClip = cam.farClip;
-    out.projection = cam.projection;
-};
 
 const worldPointToDepth = (camera: PickCameraSnapshot, worldPos: Vec3) => {
     if (camera.projection === PROJECTION_ORTHOGRAPHIC) {
@@ -272,10 +262,6 @@ class CursorRing {
         this.path.style.display = 'none';
         this.hasSmoothedNormal = false;
     }
-
-    resetSmoothing() {
-        this.hasSmoothedNormal = false;
-    }
 }
 
 class WalkCursor {
@@ -294,6 +280,10 @@ class WalkCursor {
     private state: State;
 
     private picker: Picker;
+
+    private app: AppBase;
+
+    private onPrerender: () => void;
 
     private active = false;
 
@@ -341,6 +331,7 @@ class WalkCursor {
         this.canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
         this.state = state;
         this.picker = picker;
+        this.app = app;
 
         this.svg = document.createElementNS(SVGNS, 'svg');
         this.svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:1';
@@ -439,9 +430,10 @@ class WalkCursor {
             }
         });
 
-        app.on('prerender', () => {
+        this.onPrerender = () => {
             this.updateTarget();
-        });
+        };
+        app.on('prerender', this.onPrerender);
 
         updateActive();
     }
@@ -640,6 +632,7 @@ class WalkCursor {
     }
 
     destroy() {
+        this.app.off('prerender', this.onPrerender);
         this.canvas.removeEventListener('pointermove', this.onPointerMove);
         this.canvas.removeEventListener('pointerleave', this.onPointerLeave);
         this.svg.remove();
