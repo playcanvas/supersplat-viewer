@@ -643,7 +643,7 @@ class Picker {
                 }
                 return {
                     position,
-                    normal: setCameraFacingNormal(pickCamera.position, position, new Vec3())
+                    normal: new Vec3(0, 1, 0)
                 };
             }
 
