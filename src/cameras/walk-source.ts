@@ -1,7 +1,13 @@
 import { Vec3 } from 'playcanvas';
 
-import type { CameraFrame } from './camera';
-import { ProgressTracker, clampTurnStep, getYawDiffToTarget, smoothTurnRate } from './target-navigation';
+import type { Camera, CameraFrame } from './camera';
+import {
+    ProgressTracker,
+    type TargetSource,
+    clampTurnStep,
+    getYawDiffToTarget,
+    smoothTurnRate
+} from './target-navigation';
 
 /** XZ distance below which the walker considers itself arrived */
 const ARRIVAL_DIST = 0.5;
@@ -19,7 +25,7 @@ const BLOCKED_DURATION = 0.2;
  * duplicated physics. Each frame it appends yaw-rotation and forward-movement
  * deltas to the shared CameraFrame, and monitors arrival / blocked conditions.
  */
-class WalkSource {
+class WalkSource implements TargetSource {
     /**
      * Forward input scale (matches InputController.moveSpeed for consistent
      * speed with regular WASD walking).
@@ -50,7 +56,7 @@ class WalkSource {
 
     private _progress = new ProgressTracker();
 
-    get isWalking(): boolean {
+    get isActive(): boolean {
         return this._target !== null;
     }
 
@@ -59,7 +65,7 @@ class WalkSource {
      *
      * @param target - The destination (XZ used for navigation).
      */
-    walkTo(target: Vec3) {
+    navigateTo(target: Vec3) {
         if (!this._target) {
             this._target = new Vec3();
         }
@@ -70,7 +76,7 @@ class WalkSource {
     /**
      * Cancel any active auto-walk.
      */
-    cancelWalk() {
+    cancel() {
         if (this._target) {
             this._target = null;
             this._yawRate = 0;
@@ -84,14 +90,15 @@ class WalkSource {
      * before* the camera controller reads the frame.
      *
      * @param dt - Frame delta time in seconds.
-     * @param cameraPosition - Camera world position (previous frame output).
-     * @param cameraAngles - Camera Euler angles in degrees (previous frame output).
+     * @param camera - The current camera state (read-only).
      * @param frame - The shared CameraFrame to append deltas to.
      */
-    update(dt: number, cameraPosition: Vec3, cameraAngles: Vec3, frame: CameraFrame) {
+    update(dt: number, camera: Camera, frame: CameraFrame) {
         if (!this._target) return;
 
         const target = this._target;
+        const cameraPosition = camera.position;
+        const cameraAngles = camera.angles;
 
         const dx = target.x - cameraPosition.x;
         const dz = target.z - cameraPosition.z;
@@ -99,13 +106,13 @@ class WalkSource {
 
         // arrival
         if (xzDist < ARRIVAL_DIST) {
-            this.cancelWalk();
+            this.cancel();
             return;
         }
 
         // blocked detection: compare with previous frame's distance
         if (this._progress.update(xzDist, dt, BLOCKED_SPEED, BLOCKED_DURATION)) {
-            this.cancelWalk();
+            this.cancel();
             return;
         }
 

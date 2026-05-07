@@ -10,6 +10,7 @@ import { Camera, type CameraFrame, type CameraController } from './cameras/camer
 import { FlyController } from './cameras/fly-controller';
 import { FlySource } from './cameras/fly-source';
 import { OrbitController } from './cameras/orbit-controller';
+import type { TargetSource } from './cameras/target-navigation';
 import { WalkController } from './cameras/walk-controller';
 import { WalkSource } from './cameras/walk-source';
 import type { Collision } from './collision';
@@ -88,13 +89,13 @@ class CameraManager {
         controllers.walk.collision = collision;
 
         const walkSource = new WalkSource();
-        walkSource.onComplete = () => {
-            events.fire('walkComplete');
-        };
-
         const flySource = new FlySource();
-        flySource.onComplete = () => {
-            events.fire('flyComplete');
+        const sourcesByMode: Partial<Record<CameraMode, TargetSource>> = {
+            walk: walkSource,
+            fly: flySource
+        };
+        walkSource.onComplete = flySource.onComplete = () => {
+            events.fire('navigateComplete');
         };
 
         const getController = (cameraMode: CameraMode): CameraController => {
@@ -143,11 +144,7 @@ class CameraManager {
 
             const controller = getController(state.cameraMode);
 
-            if (state.cameraMode === 'walk') {
-                walkSource.update(dt, this.camera.position, this.camera.angles, frame);
-            } else if (state.cameraMode === 'fly') {
-                flySource.update(dt, this.camera.position, this.camera.angles, this.camera.fov, frame);
-            }
+            sourcesByMode[state.cameraMode]?.update(dt, this.camera, frame);
 
             controller.update(dt, frame, target);
 
@@ -180,12 +177,12 @@ class CameraManager {
                     break;
                 case 'reset':
                     if (state.cameraMode === 'walk') {
-                        walkSource.cancelWalk();
-                        events.fire('walkTarget:clear');
+                        walkSource.cancel();
+                        events.fire('navTarget:clear');
                         startTransition();
                         controllers.walk.resetToSpawn(target);
                     } else if (state.cameraMode === 'fly') {
-                        flySource.cancelFly();
+                        flySource.cancel();
                         startTransition();
                         controllers.fly.resetToSpawn(target);
                     } else {
@@ -237,12 +234,8 @@ class CameraManager {
         });
 
         // handle camera mode switching
-        events.on('cameraMode:changed', (value, prev) => {
-            if (prev === 'walk') {
-                walkSource.cancelWalk();
-            } else if (prev === 'fly') {
-                flySource.cancelFly();
-            }
+        events.on('cameraMode:changed', (value: CameraMode, prev: CameraMode) => {
+            sourcesByMode[prev]?.cancel();
 
             // snapshot the current pose before any controller mutation
             startTransition();
@@ -301,40 +294,23 @@ class CameraManager {
             startTransition();
         });
 
-        // tap-to-walk: start auto-walking toward a picked 3D position
-        events.on('walkTo', (position: Vec3, normal: Vec3) => {
-            if (state.cameraMode === 'walk') {
-                walkSource.walkTo(position);
-                events.fire('walkTarget:set', position, normal);
+        // tap-to-navigate: start auto-driving the active mode toward a picked position
+        events.on('navigateTo', (position: Vec3, normal: Vec3) => {
+            const source = sourcesByMode[state.cameraMode];
+            if (source) {
+                source.navigateTo(position);
+                events.fire('navTarget:set', position, normal);
             }
         });
 
-        // cancel any active auto-walk
-        events.on('walkCancel', () => {
-            walkSource.cancelWalk();
-            events.fire('walkTarget:clear');
+        // cancel any active auto-navigation in the current mode
+        events.on('navigateCancel', () => {
+            sourcesByMode[state.cameraMode]?.cancel();
+            events.fire('navTarget:clear');
         });
 
-        events.on('walkComplete', () => {
-            events.fire('walkTarget:clear');
-        });
-
-        // click/tap-to-fly: start auto-flying toward a picked 3D position
-        events.on('flyTo', (position: Vec3, normal: Vec3) => {
-            if (state.cameraMode === 'fly') {
-                flySource.flyTo(position);
-                events.fire('flyTarget:set', position, normal);
-            }
-        });
-
-        // cancel any active auto-flight
-        events.on('flyCancel', () => {
-            flySource.cancelFly();
-            events.fire('flyTarget:clear');
-        });
-
-        events.on('flyComplete', () => {
-            events.fire('flyTarget:clear');
+        events.on('navigateComplete', () => {
+            events.fire('navTarget:clear');
         });
     }
 }

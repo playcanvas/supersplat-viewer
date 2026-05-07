@@ -88,7 +88,7 @@ class TouchDevice implements InputDevice {
         this._touchCount += count[0];
 
         if (isFly && gamingControls && (this._joystick[0] !== 0 || this._joystick[1] !== 0)) {
-            this._global!.events.fire('flyCancel');
+            this._global!.events.fire('navigateCancel');
         }
 
         // tap detection for click/tap target and focus modes
@@ -107,10 +107,8 @@ class TouchDevice implements InputDevice {
                 const prevDelta = this._tapDelta;
                 this._tapDelta += Math.abs(touch[0]) + Math.abs(touch[1]) + Math.abs(pinch[0]);
                 if (prevDelta < TAP_EPSILON && this._tapDelta >= TAP_EPSILON) {
-                    if (isWalk && !gamingControls) {
-                        this._global!.events.fire('walkCancel');
-                    } else if (isFly) {
-                        this._global!.events.fire('flyCancel');
+                    if ((isWalk && !gamingControls) || isFly) {
+                        this._global!.events.fire('navigateCancel');
                     }
                 }
             }
@@ -118,13 +116,13 @@ class TouchDevice implements InputDevice {
             if (prevTaps > 0 && this._tapTouches === 0) {
                 if (this._tapDelta < TAP_EPSILON && this._tapMaxTouches === 1) {
                     if (isWalk && !gamingControls) {
-                        // Walk-interaction listens for this and fires walkTo
+                        // Walk-interaction listens for this and fires navigateTo
                         // after picking.
                         this._global!.events.fire('mobileTap');
                     } else if (isWalk) {
                         this._tapJump = true;
                     } else if (isFly && !gamingControls) {
-                        // Walk-interaction listens for this and fires flyTo
+                        // Walk-interaction listens for this and fires navigateTo
                         // after picking.
                         this._global!.events.fire('mobileTap');
                     } else if (isOrbit) {

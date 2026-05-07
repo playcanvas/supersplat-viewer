@@ -12,6 +12,7 @@ import {
     type AppBase,
     type Entity,
     type GSplatComponent,
+    type Layer,
     type MeshInstance,
     ADDRESS_CLAMP_TO_EDGE,
     BLENDEQUATION_ADD,
@@ -323,7 +324,26 @@ const unregisterPickerShaderPatches = (app: AppBase) => {
     pickerShaderPatchState.delete(device);
 };
 
-const getWorldPoint = (camera: PickCameraSnapshot, x: number, y: number, width: number, height: number, normalizedDepth: number) => {
+const createPickCameraSnapshot = (): PickCameraSnapshot => ({
+    position: new Vec3(),
+    viewMatrix: new Mat4(),
+    projectionMatrix: new Mat4(),
+    nearClip: 0,
+    farClip: 0,
+    projection: 0
+});
+
+const captureCameraSnapshot = (camera: Entity, out: PickCameraSnapshot) => {
+    const cam = camera.camera;
+    out.position.copy(camera.getPosition());
+    out.viewMatrix.copy(cam.viewMatrix);
+    out.projectionMatrix.copy(cam.projectionMatrix);
+    out.nearClip = cam.nearClip;
+    out.farClip = cam.farClip;
+    out.projection = cam.projection;
+};
+
+const getWorldPoint = (camera: PickCameraSnapshot, x: number, y: number, width: number, height: number, normalizedDepth: number, out?: Vec3) => {
     if (!Number.isFinite(normalizedDepth) || normalizedDepth < 0 || normalizedDepth > 1) {
         return null;
     }
@@ -345,7 +365,7 @@ const getWorldPoint = (camera: PickCameraSnapshot, x: number, y: number, width: 
         return null;
     }
 
-    return new Vec3(vec4.x, vec4.y, vec4.z);
+    return (out ?? new Vec3()).set(vec4.x, vec4.y, vec4.z);
 };
 
 const setCameraFacingNormal = (cameraPosition: Vec3, position: Vec3, normal: Vec3) => {
@@ -376,14 +396,10 @@ class Picker {
         let accumPass: RenderPassPicker;
         let chunksPatched = false;
         let pickQueue = Promise.resolve();
-        const cacheCamera: PickCameraSnapshot = {
-            position: new Vec3(),
-            viewMatrix: new Mat4(),
-            projectionMatrix: new Mat4(),
-            nearClip: 0,
-            farClip: 0,
-            projection: 0
-        };
+        let cacheValid = false;
+        let cacheWidth = 0;
+        let cacheHeight = 0;
+        const cacheCamera: PickCameraSnapshot = createPickCameraSnapshot();
 
         const initRasterAccum = (width: number, height: number) => {
             accumBuffer = new Texture(graphicsDevice, {
@@ -426,25 +442,33 @@ class Picker {
             }) as Promise<T>;
         };
 
-        const updateCache = () => {
+        const updateCache = (width: number, height: number) => {
+            captureCameraSnapshot(camera, cacheCamera);
+            cacheWidth = width;
+            cacheHeight = height;
+        };
+
+        const cameraMatches = (width: number, height: number) => {
             const cam = camera.camera;
-            cacheCamera.position.copy(camera.getPosition());
-            cacheCamera.viewMatrix.copy(cam.viewMatrix);
-            cacheCamera.projectionMatrix.copy(cam.projectionMatrix);
-            cacheCamera.nearClip = cam.nearClip;
-            cacheCamera.farClip = cam.farClip;
-            cacheCamera.projection = cam.projection;
+            return cacheValid &&
+                cacheWidth === width &&
+                cacheHeight === height &&
+                cacheCamera.viewMatrix.equals(cam.viewMatrix) &&
+                cacheCamera.projectionMatrix.equals(cam.projectionMatrix) &&
+                cacheCamera.nearClip === cam.nearClip &&
+                cacheCamera.farClip === cam.farClip &&
+                cacheCamera.projection === cam.projection;
         };
 
         const getCacheCameraSnapshot = (): PickCameraSnapshot => {
-            return {
-                position: cacheCamera.position.clone(),
-                viewMatrix: cacheCamera.viewMatrix.clone(),
-                projectionMatrix: cacheCamera.projectionMatrix.clone(),
-                nearClip: cacheCamera.nearClip,
-                farClip: cacheCamera.farClip,
-                projection: cacheCamera.projection
-            };
+            const snapshot = createPickCameraSnapshot();
+            snapshot.position.copy(cacheCamera.position);
+            snapshot.viewMatrix.copy(cacheCamera.viewMatrix);
+            snapshot.projectionMatrix.copy(cacheCamera.projectionMatrix);
+            snapshot.nearClip = cacheCamera.nearClip;
+            snapshot.farClip = cacheCamera.farClip;
+            snapshot.projection = cacheCamera.projection;
+            return snapshot;
         };
 
         const readRasterBlock = async (
@@ -485,22 +509,15 @@ class Picker {
             };
         };
 
-        const pickPosition = async (x: number, y: number): Promise<PickPosition | null> => {
-            const width = Math.floor(graphicsDevice.width);
-            const height = Math.floor(graphicsDevice.height);
-
-            // bail out if the device hasn't been sized yet
-            if (width <= 0 || height <= 0) {
-                return null;
+        const ensureRendered = (
+            width: number,
+            height: number,
+            isComputeRenderer: boolean,
+            worldLayer: Layer
+        ) => {
+            if (cameraMatches(width, height)) {
+                return;
             }
-
-            const screenX = Math.min(width - 1, Math.max(0, Math.floor(x * width)));
-            const screenY = Math.min(height - 1, Math.max(0, Math.floor(y * height)));
-            const worldLayer = app.scene.layers.getLayerByName('World');
-            if (!worldLayer) {
-                return null;
-            }
-            const isComputeRenderer = app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE;
 
             // Enable gsplat IDs only while rendering the pick target so we
             // don't pay the memory/perf cost between pick passes.
@@ -519,7 +536,8 @@ class Picker {
 
                     if (!accumPass) {
                         initRasterAccum(width, height);
-                    } else {
+                    } else if (cacheWidth !== width || cacheHeight !== height) {
+                        cacheValid = false;
                         accumTarget.resize(width, height);
                     }
 
@@ -535,12 +553,43 @@ class Picker {
                     accumPass.render();
                 }
 
-                updateCache();
+                updateCache(width, height);
+                cacheValid = true;
             } finally {
                 app.scene.gsplat.enableIds = prevEnableIds;
             }
+        };
 
+        const prepareSample = (x: number, y: number) => {
+            const width = Math.floor(graphicsDevice.width);
+            const height = Math.floor(graphicsDevice.height);
+
+            // bail out if the device hasn't been sized yet
+            if (width <= 0 || height <= 0) {
+                return null;
+            }
+
+            const worldLayer = app.scene.layers.getLayerByName('World');
+            if (!worldLayer) {
+                return null;
+            }
+
+            const screenX = Math.min(width - 1, Math.max(0, Math.floor(x * width)));
+            const screenY = Math.min(height - 1, Math.max(0, Math.floor(y * height)));
+            const isComputeRenderer = app.scene.gsplat.currentRenderer === GSPLAT_RENDERER_COMPUTE;
+
+            ensureRendered(width, height, isComputeRenderer, worldLayer);
             const pickCamera = getCacheCameraSnapshot();
+
+            return { width, height, screenX, screenY, isComputeRenderer, pickCamera };
+        };
+
+        const pickPosition = async (x: number, y: number): Promise<PickPosition | null> => {
+            const sample = prepareSample(x, y);
+            if (!sample) {
+                return null;
+            }
+            const { width, height, screenX, screenY, isComputeRenderer, pickCamera } = sample;
 
             if (isComputeRenderer) {
                 const normalizedDepth = await enginePicker!.getPointDepthAsync(screenX, screenY);
@@ -578,19 +627,27 @@ class Picker {
         };
 
         const pickSurface = async (x: number, y: number) => {
-            const picked = await pickPosition(x, y);
-            if (!picked) {
+            const sample = prepareSample(x, y);
+            if (!sample) {
                 return null;
             }
-            const { position, screenX, screenY, width, height } = picked;
+            const { width, height, screenX, screenY, isComputeRenderer, pickCamera } = sample;
 
-            if (picked.isComputeRenderer) {
+            if (isComputeRenderer) {
+                const normalizedDepth = await enginePicker!.getPointDepthAsync(screenX, screenY);
+                const position = normalizedDepth !== null ?
+                    getWorldPoint(pickCamera, screenX, screenY, width, height, normalizedDepth) :
+                    null;
+                if (!position) {
+                    return null;
+                }
                 return {
                     position,
-                    normal: setCameraFacingNormal(picked.camera.position, position, new Vec3())
+                    normal: new Vec3(0, 1, 0)
                 };
             }
 
+            // Single block read serves both depth (center pixel) and normal samples (ring).
             const maxRadius = NORMAL_SAMPLE_RADII[NORMAL_SAMPLE_RADII.length - 1];
             const blockX = Math.max(0, screenX - maxRadius);
             const blockY = Math.max(0, screenY - maxRadius);
@@ -603,27 +660,28 @@ class Picker {
                 blockHeight,
                 width,
                 height,
-                picked.camera
+                pickCamera
             );
+
+            const position = rasterBlock(screenX, screenY);
+            if (!position) {
+                return null;
+            }
 
             const samplePixel = (px: number, py: number) => {
                 if (px < 0 || px >= width || py < 0 || py >= height) {
-                    return Promise.resolve(null);
+                    return null;
                 }
-
-                return Promise.resolve(rasterBlock(px, py));
+                return rasterBlock(px, py);
             };
 
-            const sampleRings = await Promise.all(NORMAL_SAMPLE_RADII.map((radius) => {
-                return Promise.all(NORMAL_SAMPLE_DIRECTIONS.map(([dx, dy]) => {
-                    const px = screenX + dx * radius;
-                    const py = screenY + dy * radius;
+            const sampleRings = NORMAL_SAMPLE_RADII.map((radius) => {
+                return NORMAL_SAMPLE_DIRECTIONS.map(([dx, dy]) => {
+                    return samplePixel(screenX + dx * radius, screenY + dy * radius);
+                });
+            });
 
-                    return samplePixel(px, py);
-                }));
-            }));
-
-            const toCamera = setCameraFacingNormal(picked.camera.position, position, new Vec3());
+            const toCamera = setCameraFacingNormal(pickCamera.position, position, new Vec3());
             const candidates: Vec3[] = [];
             const va = new Vec3();
             const vb = new Vec3();
@@ -699,9 +757,10 @@ class Picker {
             accumPass?.destroy();
             accumTarget?.destroy();
             accumBuffer?.destroy();
+            cacheValid = false;
         };
     }
 }
 
-export type { PickSurface };
-export { Picker };
+export type { PickSurface, PickCameraSnapshot };
+export { Picker, getWorldPoint, captureCameraSnapshot };

@@ -34,7 +34,7 @@ class GamepadDevice implements InputDevice {
         const { deltas } = frame;
 
         if (isFly && (leftStick[0] !== 0 || leftStick[1] !== 0 || rightStick[0] !== 0 || rightStick[1] !== 0)) {
-            this._global?.events.fire('flyCancel');
+            this._global?.events.fire('navigateCancel');
         }
 
         const v = tmpV.set(0, 0, 0);

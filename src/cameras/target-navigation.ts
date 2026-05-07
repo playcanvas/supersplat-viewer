@@ -1,4 +1,19 @@
-import { math } from 'playcanvas';
+import { math, Vec3 } from 'playcanvas';
+
+import type { Camera, CameraFrame } from './camera';
+
+/**
+ * Generates synthetic move/rotate input to navigate a controller toward a
+ * world-space target. Implementations append to the shared CameraFrame each
+ * tick and signal completion via the onComplete callback.
+ */
+interface TargetSource {
+    isActive: boolean;
+    onComplete: (() => void) | null;
+    navigateTo(target: Vec3): void;
+    cancel(): void;
+    update(dt: number, camera: Camera, frame: CameraFrame): void;
+}
 
 const RAD_TO_DEG = 180 / Math.PI;
 
@@ -94,3 +109,4 @@ export {
     smoothTurnRate,
     smoothstep
 };
+export type { TargetSource };
