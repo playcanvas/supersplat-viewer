@@ -440,19 +440,24 @@ class Viewer {
                     }
                 };
 
-                const getBudget = () => {
-                    if (config.budget !== undefined && Number.isFinite(config.budget) && config.budget > 0) {
-                        return config.budget;
-                    }
-                    const quality = platform.mobile ? budgets.mobile : budgets.desktop;
-                    return state.performanceMode ? quality.low : quality.high;
+                const applyPerfSettings = () => {
+                    const budget = () => {
+                        if (config.budget !== undefined && Number.isFinite(config.budget) && config.budget > 0) {
+                            return config.budget;
+                        }
+                        const quality = platform.mobile ? budgets.mobile : budgets.desktop;
+                        return state.performanceMode ? quality.low : quality.high;
+                    };
+
+                    gsplat.splatBudget = budget() * 1000000;
+                    gsplat.lodRangeMin = 0;
+                    gsplat.lodRangeMax = 1000;
+                    gsplat.colorUpdateAngle = state.performanceMode ? 4 : 2;
                 };
 
                 if (config.fullload) {
                     // reveal once full quality has finished loading (used for screenshots)
-                    gsplat.splatBudget = getBudget() * 1000000;
-                    gsplat.lodRangeMin = 0;
-                    gsplat.lodRangeMax = 1000;
+                    applyPerfSettings();
                 } else {
                     // reveal once low lod has loaded for fastest possible reveal
                     const resource = results[0].gsplat.resource as GSplatOctreeResourceLike | null;
@@ -502,13 +507,8 @@ class Viewer {
                         state.readyToRender = true;
 
                         // handle quality mode changes
-                        const updateLod = () => {
-                            gsplat.splatBudget = getBudget() * 1000000;
-                            gsplat.lodRangeMin = 0;
-                            gsplat.lodRangeMax = 1000;
-                        };
-                        events.on('performanceMode:changed', updateLod);
-                        updateLod();
+                        events.on('performanceMode:changed', applyPerfSettings);
+                        applyPerfSettings();
 
                         // debug colorize lods
                         gsplat.debug = config.colorize ? GSPLAT_DEBUG_LOD : GSPLAT_DEBUG_NONE;
