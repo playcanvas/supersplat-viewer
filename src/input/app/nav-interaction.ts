@@ -12,6 +12,20 @@ const canTargetFly = (global: Global) => (
     !(global.state.inputMode === 'desktop' && global.state.gamingControls)
 );
 
+// Mirror gaming-controls speed modifiers: shift = run/boost, ctrl = crawl/slow.
+// Multipliers match keyboard-mouse.ts so click-nav and held-key movement feel the same.
+const computeClickSpeedMul = (event: MouseEvent | undefined, mode: string): number => {
+    if (!event) return 1;
+    if (mode === 'walk') {
+        if (event.shiftKey) return 2;
+        if (event.ctrlKey) return 0.5;
+    } else if (mode === 'fly') {
+        if (event.shiftKey) return 4;
+        if (event.ctrlKey) return 0.25;
+    }
+    return 1;
+};
+
 type PickTarget = {
     position: Vec3;
     normal: Vec3;
@@ -116,14 +130,15 @@ class NavInteraction {
         return null;
     }
 
-    private async _flyToPickedPosition(offsetX: number, offsetY: number) {
+    private async _flyToPickedPosition(offsetX: number, offsetY: number, event?: MouseEvent) {
         const global = this._global;
         if (!global || !canTargetFly(global)) return;
 
         const request = ++this._targetPickRequest;
         const target = await this._pickSceneTarget(offsetX, offsetY);
         if (target && request === this._targetPickRequest && this._global && canTargetFly(this._global)) {
-            this._global.events.fire('navigateTo', target.position, target.normal);
+            const speedMul = computeClickSpeedMul(event, this._global.state.cameraMode);
+            this._global.events.fire('navigateTo', target.position, target.normal, speedMul);
         }
     }
 
@@ -205,10 +220,11 @@ class NavInteraction {
                 if (state.cameraMode === 'walk' && !state.gamingControls) {
                     const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
                     if (result) {
-                        events.fire('navigateTo', result.position, result.normal);
+                        const speedMul = computeClickSpeedMul(event, state.cameraMode);
+                        events.fire('navigateTo', result.position, result.normal, speedMul);
                     }
                 } else if (state.cameraMode === 'fly') {
-                    this._flyToPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY);
+                    this._flyToPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY, event);
                 } else if (state.cameraMode === 'orbit') {
                     this._focusPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY);
                 }
@@ -238,7 +254,9 @@ class NavInteraction {
             events.fire('orbitTarget:set', target.position, target.normal);
         } else if (currentMode === 'orbit' || currentMode === 'walk') {
             state.cameraMode = 'fly';
-            events.fire('navigateTo', target.position, target.normal);
+            // Modifiers apply against the destination mode (fly), not the source.
+            const speedMul = computeClickSpeedMul(event, 'fly');
+            events.fire('navigateTo', target.position, target.normal, speedMul);
         }
     };
 

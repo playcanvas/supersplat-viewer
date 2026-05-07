@@ -92,6 +92,8 @@ class FlySource implements TargetSource {
 
     private _progress = new ProgressTracker();
 
+    private _speedMul = 1;
+
     get isActive(): boolean {
         return this._target !== null;
     }
@@ -100,13 +102,16 @@ class FlySource implements TargetSource {
      * Begin auto-flying toward a world-space target position.
      *
      * @param target - The destination.
+     * @param speedMul - Forward-speed multiplier (mirrors gaming-controls
+     * shift/ctrl: 4 for boost, 0.25 for slow). Defaults to 1.
      */
-    navigateTo(target: Vec3) {
+    navigateTo(target: Vec3, speedMul = 1) {
         const wasFlying = this._target !== null;
         if (!this._target) {
             this._target = new Vec3();
         }
         this._target.copy(target);
+        this._speedMul = speedMul;
         if (!wasFlying) {
             this._yawRate = 0;
             this._pitchRate = 0;
@@ -184,7 +189,7 @@ class FlySource implements TargetSource {
         const alignmentScale = smoothstep(0.05, 0.95, alignment);
         const brakeSpeed = Math.sqrt(2 * this.moveDeceleration * activeRemainingDist);
         const arrivalSpeed = activeRemainingDist * ARRIVAL_RATE;
-        const maxSpeed = Math.min(this.flySpeed, brakeSpeed, arrivalSpeed);
+        const maxSpeed = Math.min(this.flySpeed * this._speedMul, brakeSpeed, arrivalSpeed);
 
         if (maxSpeed > this._speed) {
             this._speed = approach(this._speed, maxSpeed, this.moveAcceleration * alignmentScale * dt);
