@@ -13,10 +13,12 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 const NUM_SAMPLES = 12;
 const BASE_OUTER_RADIUS = 0.2;
 const INNER_OUTER_RATIO = 0.17 / 0.2;
-// Screen-space diameter (in pixels) of the navigation target ring when
-// shown in fly / orbit modes. In walk mode the hover and target rings are
-// world-space (BASE_OUTER_RADIUS) because the user is on the ground and
-// world-size feedback reads as a physical "footprint".
+// Screen-space diameter (in CSS pixels) used for both hover and target
+// rings when the scene has no collision data. With collision present the
+// rings render world-space (BASE_OUTER_RADIUS) so they orient to the
+// surface; without collision the picks fall back to splat depth and a
+// fixed pixel size is more legible. Selection happens in
+// screenPixelsForRing(), keyed on state.hasCollision.
 const SCREEN_OUTER_PIXELS = 48;
 const BEZIER_K = 1 / 6;
 const NORMAL_SMOOTH_FACTOR = 0.25;
@@ -136,10 +138,6 @@ class CursorRing {
 
     private smoothing: boolean;
 
-    // null = world-space ring (fixed world radius, shrinks with distance);
-    // number = constant on-screen diameter in pixels.
-    screenPixels: number | null = null;
-
     private smoothNx = 0;
 
     private smoothNy = 1;
@@ -204,7 +202,9 @@ class CursorRing {
         }
     }
 
-    render(pos: Vec3, normal: Vec3) {
+    // screenPixels: null → world-space ring (fixed world radius, shrinks
+    // with distance); number → constant on-screen diameter in CSS pixels.
+    render(pos: Vec3, normal: Vec3, screenPixels: number | null) {
         snapNormal(normal.x, normal.y, normal.z, tmpV);
         let nx = tmpV.x;
         let ny = tmpV.y;
@@ -230,8 +230,8 @@ class CursorRing {
             this.hasSmoothedNormal = true;
         }
 
-        const outerRadius = this.screenPixels !== null ?
-            worldRadiusForPixels(this.camera, this.canvas.clientHeight || 1, pos, this.screenPixels) :
+        const outerRadius = screenPixels !== null ?
+            worldRadiusForPixels(this.camera, this.canvas.clientHeight || 1, pos, screenPixels) :
             BASE_OUTER_RADIUS;
         const innerRadius = outerRadius * INNER_OUTER_RATIO;
 
@@ -449,8 +449,7 @@ class NavCursor {
             return;
         }
 
-        this.hoverRing.screenPixels = this.screenPixelsForRing();
-        this.hoverRing.render(target.position, target.normal);
+        this.hoverRing.render(target.position, target.normal, this.screenPixelsForRing());
     }
 
     private updateTarget() {
@@ -465,8 +464,7 @@ class NavCursor {
             return;
         }
 
-        this.targetRing.screenPixels = this.screenPixelsForRing();
-        this.targetRing.render(this.targetPos, this.targetNormal);
+        this.targetRing.render(this.targetPos, this.targetNormal, this.screenPixelsForRing());
     }
 
     destroy() {
