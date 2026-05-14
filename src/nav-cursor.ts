@@ -17,7 +17,7 @@ const INNER_OUTER_RATIO = 0.17 / 0.2;
 // shown in fly / orbit modes. In walk mode the hover and target rings are
 // world-space (BASE_OUTER_RADIUS) because the user is on the ground and
 // world-size feedback reads as a physical "footprint".
-const SCREEN_OUTER_PIXELS = 60;
+const SCREEN_OUTER_PIXELS = 48;
 const BEZIER_K = 1 / 6;
 const NORMAL_SMOOTH_FACTOR = 0.25;
 const NORMAL_SNAP_ANGLE = Math.PI / 4;
