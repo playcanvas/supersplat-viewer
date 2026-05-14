@@ -16,9 +16,10 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 const NUM_SAMPLES = 12;
 const BASE_OUTER_RADIUS = 0.2;
 const INNER_OUTER_RATIO = 0.17 / 0.2;
-// Scenes with halfExtents.length() below this are smaller than the walk
-// capsule (~1.5 m) — not navigable in walk mode and the world-space ring
-// engulfs the whole scene. Switch the cursor to a fixed screen size instead.
+// In walk mode, scenes with halfExtents.length() below this are smaller
+// than the walk capsule (~1.5 m) — not navigable and the world-space ring
+// engulfs the whole scene. Switch the walk cursor to a fixed screen size
+// instead. Fly and orbit always use the screen-sized cursor regardless.
 const SMALL_SCENE_THRESHOLD = 2;
 const SCREEN_OUTER_PIXELS = 60;
 const BEZIER_K = 1 / 6;
@@ -187,7 +188,7 @@ class CursorRing {
 
     // null = world-space ring (fixed world radius, shrinks with distance);
     // number = constant on-screen diameter in pixels.
-    private screenPixels: number | null;
+    screenPixels: number | null = null;
 
     private smoothNx = 0;
 
@@ -205,12 +206,11 @@ class CursorRing {
 
     private readonly innerY = new Float64Array(NUM_SAMPLES);
 
-    constructor(svg: SVGSVGElement, canvas: HTMLCanvasElement, camera: Entity, smoothing: boolean, screenPixels: number | null) {
+    constructor(svg: SVGSVGElement, canvas: HTMLCanvasElement, camera: Entity, smoothing: boolean) {
         this.svg = svg;
         this.canvas = canvas;
         this.camera = camera;
         this.smoothing = smoothing;
-        this.screenPixels = screenPixels;
 
         this.path = document.createElementNS(SVGNS, 'path');
         this.path.setAttribute('fill', 'white');
@@ -320,6 +320,8 @@ class NavCursor {
 
     private onPrerender: () => void;
 
+    private walkScreenPixels: number | null;
+
     private active = false;
 
     private navigating = false;
@@ -375,9 +377,9 @@ class NavCursor {
         this.svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:1';
         this.canvas.parentElement!.appendChild(this.svg);
 
-        const screenPixels = sceneSize < SMALL_SCENE_THRESHOLD ? SCREEN_OUTER_PIXELS : null;
-        this.hoverRing = new CursorRing(this.svg, this.canvas, camera, true, screenPixels);
-        this.targetRing = new CursorRing(this.svg, this.canvas, camera, false, screenPixels);
+        this.walkScreenPixels = sceneSize < SMALL_SCENE_THRESHOLD ? SCREEN_OUTER_PIXELS : null;
+        this.hoverRing = new CursorRing(this.svg, this.canvas, camera, true);
+        this.targetRing = new CursorRing(this.svg, this.canvas, camera, false);
 
         this.svg.style.display = 'none';
 
@@ -475,6 +477,10 @@ class NavCursor {
         app.on('prerender', this.onPrerender);
 
         updateActive();
+    }
+
+    private screenPixelsForMode(mode: TargetMode): number | null {
+        return mode === 'walk' ? this.walkScreenPixels : SCREEN_OUTER_PIXELS;
     }
 
     private setTarget(pos: Vec3, normal: Vec3, mode: TargetMode) {
@@ -586,6 +592,7 @@ class NavCursor {
             this.hoverRing.hide();
             return;
         }
+        this.hoverRing.screenPixels = SCREEN_OUTER_PIXELS;
         this.hoverRing.render(position, sample.normal);
     }
 
@@ -653,11 +660,12 @@ class NavCursor {
             return;
         }
 
+        this.hoverRing.screenPixels = this.walkScreenPixels;
         this.hoverRing.render(target.position, target.normal);
     }
 
     private updateTarget() {
-        if (!this.active || !this.targetPos || !this.targetNormal) {
+        if (!this.active || !this.targetPos || !this.targetNormal || !this.targetMode) {
             return;
         }
 
@@ -668,6 +676,7 @@ class NavCursor {
             return;
         }
 
+        this.targetRing.screenPixels = this.screenPixelsForMode(this.targetMode);
         this.targetRing.render(this.targetPos, this.targetNormal);
     }
 
