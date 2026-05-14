@@ -87,8 +87,9 @@ const up = new Vec3(0, 1, 0);
 const right = new Vec3(1, 0, 0);
 
 // Compute the world-space radius such that a circle at `pos` projects to a
-// ring of `pixelDiameter` on screen. Used for the small-scene cursor mode
-// where we want a constant screen size regardless of zoom.
+// ring of `pixelDiameter` on screen. Used by the no-collision sizing path
+// (see screenPixelsForRing) to keep a constant on-screen diameter
+// regardless of camera distance.
 const worldRadiusForPixels = (camera: Entity, canvasHeight: number, pos: Vec3, pixelDiameter: number): number => {
     const cam = camera.camera;
     if (cam.projection === PROJECTION_ORTHOGRAPHIC) {

@@ -66,6 +66,10 @@ class TrackpadDevice implements InputDevice {
         // the target; in fly/walk mode looks around. Applies to both mouse
         // wheel and trackpad swipe — we can't distinguish them, and the
         // modifier signals intent either way.
+        // Corner case: user physically holds Ctrl AND pinches at the same
+        // time — both flags are true, the gesture lands here as rotate
+        // rather than pinch. Intentional: physical Ctrl is the explicit
+        // signal, so it wins over the synthetic-Ctrl pinch heuristic.
         const isCtrlRotate = event.ctrlKey && this._ctrlDown;
         // Shift + wheel/swipe: pan (= strafe + vertical) in all modes. The
         // downstream camera controllers translate the screen-space pan
