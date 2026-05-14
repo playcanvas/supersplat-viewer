@@ -643,8 +643,9 @@ const initUI = (global: Global) => {
         if (type === 'interrupt') dismissWalkHint();
     });
 
-    // show/hide the FPS button based on voxel data availability
-    events.on('hasCollision:changed', (value: boolean) => {
+    // show/hide the FPS button based on whether walk mode is offered
+    // (collision data exists AND scene is large enough to walk around in)
+    events.on('walkAllowed:changed', (value: boolean) => {
         dom.fpsCamera.classList.toggle('hidden', !value);
         // adjust fly button shape: middle when FPS is visible, right when hidden
         dom.flyCamera.classList.toggle('middle', value);

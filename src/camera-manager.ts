@@ -21,6 +21,18 @@ import { CameraMode, Global } from './types';
 const tmpCamera = new Camera();
 const tmpv = new Vec3();
 
+// Walk mode is only enabled when the scene's horizontal footprint is large
+// enough to walk around in. Vertical extent (Y) is irrelevant — a tall but
+// narrow scene isn't walkable. Both X and Z ranges must exceed this
+// minimum (in metres); below it walk mode is hidden and the viewer falls
+// back to fly as the default first-person mode.
+const WALK_MIN_HORIZONTAL_RANGE = 5;
+
+const isWalkAllowed = (bbox: BoundingBox, collision: Collision | null): boolean => {
+    const { x, z } = bbox.halfExtents;
+    return !!collision && x * 2 >= WALK_MIN_HORIZONTAL_RANGE && z * 2 >= WALK_MIN_HORIZONTAL_RANGE;
+};
+
 const createCamera = (position: Vec3, target: Vec3, fov: number) => {
     const result = new Camera();
     result.look(position, target);
@@ -46,6 +58,8 @@ class CameraManager {
 
     constructor(global: Global, bbox: BoundingBox, collision: Collision | null = null) {
         const { events, settings, state } = global;
+
+        const walkAllowed = isWalkAllowed(bbox, collision);
 
         const camera0 = settings.cameras[0]?.initial;
         const defaultFov = camera0?.fov ?? 75;
@@ -107,12 +121,12 @@ class CameraManager {
         state.animationDuration = controllers.anim ? controllers.anim.animState.cursor.duration : 0;
 
         // initialize camera mode and initial camera position
-        state.cameraMode = state.hasAnimation ? 'anim' : (isObjectExperience ? 'orbit' : (collision ? 'walk' : 'fly'));
+        state.cameraMode = state.hasAnimation ? 'anim' : (isObjectExperience ? 'orbit' : (walkAllowed ? 'walk' : 'fly'));
         this.camera.copy(resetCamera);
 
         const target = new Camera(this.camera);             // the active controller updates this
         const from = new Camera(this.camera);               // stores the previous camera state during transition
-        const defaultMode: CameraMode = isObjectExperience ? 'orbit' : (collision ? 'walk' : 'fly');
+        const defaultMode: CameraMode = isObjectExperience ? 'orbit' : (walkAllowed ? 'walk' : 'fly');
         let fromMode: CameraMode = defaultMode;
 
         // tracks the mode to restore when exiting walk
@@ -206,7 +220,7 @@ class CameraManager {
                     state.cameraMode = 'fly';
                     break;
                 case 'toggleWalk':
-                    if (collision) {
+                    if (walkAllowed) {
                         if (state.cameraMode === 'walk') {
                             state.cameraMode = preWalkMode;
                         } else {
@@ -315,4 +329,4 @@ class CameraManager {
     }
 }
 
-export { CameraManager };
+export { CameraManager, isWalkAllowed };
