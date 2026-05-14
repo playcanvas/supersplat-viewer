@@ -388,7 +388,7 @@ class Viewer {
             applyCamera(this.cameraManager.camera);
 
             if (!config.noui) {
-                this.navCursor = new NavCursor(app, camera, collision ?? null, events, state, this.picker);
+                this.navCursor = new NavCursor(app, camera, collision ?? null, events, state);
             }
 
             const { instance } = gsplat;

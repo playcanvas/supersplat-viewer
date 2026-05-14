@@ -7,7 +7,6 @@ import {
 } from 'playcanvas';
 
 import type { Collision } from './collision';
-import type { Picker } from './picker';
 import type { State } from './types';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -265,8 +264,6 @@ class NavCursor {
 
     private state: State;
 
-    private picker: Picker;
-
     private app: AppBase;
 
     private onPrerender: () => void;
@@ -298,14 +295,12 @@ class NavCursor {
         camera: Entity,
         collision: Collision | null,
         events: EventHandler,
-        state: State,
-        picker: Picker
+        state: State
     ) {
         this.camera = camera;
         this.collision = collision;
         this.canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
         this.state = state;
-        this.picker = picker;
         this.app = app;
 
         this.svg = document.createElementNS(SVGNS, 'svg');
