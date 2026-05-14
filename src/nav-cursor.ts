@@ -2,25 +2,22 @@ import {
     type AppBase,
     type Entity,
     type EventHandler,
-    Mat4,
     PROJECTION_ORTHOGRAPHIC,
-    Vec3,
-    Vec4
+    Vec3
 } from 'playcanvas';
 
 import type { Collision } from './collision';
-import { captureCameraSnapshot, getWorldPoint, type PickCameraSnapshot, type Picker } from './picker';
+import type { Picker } from './picker';
 import type { State } from './types';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const NUM_SAMPLES = 12;
 const BASE_OUTER_RADIUS = 0.2;
 const INNER_OUTER_RATIO = 0.17 / 0.2;
-// In walk mode, scenes with halfExtents.length() below this are smaller
-// than the walk capsule (~1.5 m) — not navigable and the world-space ring
-// engulfs the whole scene. Switch the walk cursor to a fixed screen size
-// instead. Fly and orbit always use the screen-sized cursor regardless.
-const SMALL_SCENE_THRESHOLD = 2;
+// Screen-space diameter (in pixels) of the navigation target ring when
+// shown in fly / orbit modes. In walk mode the hover and target rings are
+// world-space (BASE_OUTER_RADIUS) because the user is on the ground and
+// world-size feedback reads as a physical "footprint".
 const SCREEN_OUTER_PIXELS = 60;
 const BEZIER_K = 1 / 6;
 const NORMAL_SMOOTH_FACTOR = 0.25;
@@ -88,10 +85,6 @@ const worldPt = new Vec3();
 const up = new Vec3(0, 1, 0);
 const right = new Vec3(1, 0, 0);
 
-const tmpViewPos = new Vec3();
-const tmpClipVec = new Vec4();
-const tmpViewProj = new Mat4();
-
 // Compute the world-space radius such that a circle at `pos` projects to a
 // ring of `pixelDiameter` on screen. Used for the small-scene cursor mode
 // where we want a constant screen size regardless of zoom.
@@ -109,52 +102,10 @@ const worldRadiusForPixels = (camera: Entity, canvasHeight: number, pos: Vec3, p
     return pixelDiameter * distance * halfFovTan / canvasHeight;
 };
 
-const worldPointToDepth = (camera: PickCameraSnapshot, worldPos: Vec3) => {
-    if (camera.projection === PROJECTION_ORTHOGRAPHIC) {
-        tmpViewProj.mul2(camera.projectionMatrix, camera.viewMatrix);
-        tmpClipVec.set(worldPos.x, worldPos.y, worldPos.z, 1);
-        tmpViewProj.transformVec4(tmpClipVec, tmpClipVec);
-        if (Math.abs(tmpClipVec.w) < 1e-8) {
-            return -1;
-        }
-        return (tmpClipVec.z / tmpClipVec.w + 1) * 0.5;
-    }
-    camera.viewMatrix.transformPoint(worldPos, tmpViewPos);
-    const linearDepth = -tmpViewPos.z;
-    const range = camera.farClip - camera.nearClip;
-    if (range <= 0) {
-        return -1;
-    }
-    return (linearDepth - camera.nearClip) / range;
-};
-
 type CursorTarget = {
     position: Vec3;
     normal: Vec3;
 };
-
-type SurfaceSample = {
-    normalizedDepth: number;
-    normal: Vec3;
-    camera: PickCameraSnapshot;
-    width: number;
-    height: number;
-};
-
-const createSurfaceSample = (): SurfaceSample => ({
-    normalizedDepth: 0,
-    normal: new Vec3(),
-    camera: {
-        position: new Vec3(),
-        viewMatrix: new Mat4(),
-        projectionMatrix: new Mat4(),
-        nearClip: 0,
-        farClip: 0,
-        projection: 0
-    },
-    width: 0,
-    height: 0
-});
 
 type TargetMode = 'walk' | 'fly' | 'orbit';
 
@@ -320,9 +271,10 @@ class NavCursor {
 
     private onPrerender: () => void;
 
-    private walkScreenPixels: number | null;
-
-    private active = false;
+    // True when the hover ring should track the pointer. Only walk mode
+    // (with mouse navigation, not gaming controls) shows the hover ring;
+    // fly/orbit only show the target ring on click.
+    private hoverActive = false;
 
     private navigating = false;
 
@@ -331,22 +283,6 @@ class NavCursor {
     private targetNormal: Vec3 | null = null;
 
     private targetMode: TargetMode | null = null;
-
-    private surfaceCursorX = 0;
-
-    private surfaceCursorY = 0;
-
-    private hasSurfaceCursorPosition = false;
-
-    private surfaceCursorVersion = 0;
-
-    private surfaceCursorPickPending = false;
-
-    private surfaceSample: SurfaceSample = createSurfaceSample();
-
-    private hasSurfaceSample = false;
-
-    private scratchHoverPos = new Vec3();
 
     private onPointerMove: (e: PointerEvent) => void;
 
@@ -363,8 +299,7 @@ class NavCursor {
         collision: Collision | null,
         events: EventHandler,
         state: State,
-        picker: Picker,
-        sceneSize: number
+        picker: Picker
     ) {
         this.camera = camera;
         this.collision = collision;
@@ -377,22 +312,13 @@ class NavCursor {
         this.svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:1';
         this.canvas.parentElement!.appendChild(this.svg);
 
-        this.walkScreenPixels = sceneSize < SMALL_SCENE_THRESHOLD ? SCREEN_OUTER_PIXELS : null;
         this.hoverRing = new CursorRing(this.svg, this.canvas, camera, true);
         this.targetRing = new CursorRing(this.svg, this.canvas, camera, false);
 
         this.svg.style.display = 'none';
 
         this.onPointerMove = (e: PointerEvent) => {
-            if (e.pointerType === 'touch') {
-                this.hasSurfaceCursorPosition = false;
-                this.surfaceCursorVersion++;
-                this.hoverRing.hide();
-                return;
-            }
-            if (e.buttons) {
-                this.hasSurfaceCursorPosition = false;
-                this.surfaceCursorVersion++;
+            if (e.pointerType === 'touch' || e.buttons) {
                 this.hoverRing.hide();
                 return;
             }
@@ -400,8 +326,6 @@ class NavCursor {
         };
 
         this.onPointerLeave = () => {
-            this.hasSurfaceCursorPosition = false;
-            this.surfaceCursorVersion++;
             this.hoverRing.hide();
         };
 
@@ -409,25 +333,13 @@ class NavCursor {
         this.canvas.addEventListener('pointerleave', this.onPointerLeave);
 
         const updateActive = () => {
-            const flyMouseCaptured = (
-                state.cameraMode === 'fly' &&
-                state.inputMode === 'desktop' &&
-                state.gamingControls
-            );
-            this.active = (state.cameraMode === 'walk' && !state.gamingControls) ||
-                          (state.cameraMode === 'fly' && !flyMouseCaptured) ||
-                          state.cameraMode === 'orbit';
-            this.surfaceCursorVersion++;
+            // Hover ring only in walk mode with mouse navigation. Gaming
+            // controls use pointer-lock and don't need a hover preview.
+            this.hoverActive = state.cameraMode === 'walk' && !state.gamingControls;
             this.hoverRing.hide();
-            if (state.inputMode !== 'desktop') {
-                this.hasSurfaceCursorPosition = false;
-            }
             if (this.targetMode && this.targetMode !== state.cameraMode) {
                 this.navigating = false;
                 this.clearTarget();
-            }
-            if (!this.active) {
-                this.svg.style.display = 'none';
             }
         };
 
@@ -479,12 +391,16 @@ class NavCursor {
         updateActive();
     }
 
-    private screenPixelsForMode(mode: TargetMode): number | null {
-        return mode === 'walk' ? this.walkScreenPixels : SCREEN_OUTER_PIXELS;
+    // Ring sizing is per-scene: when the scene has collision data we get
+    // accurate surface picks with real normals, so world-space rings read
+    // as physical footprints on the surface with visible orientation.
+    // Without collision the pick falls back to splat depth which can be
+    // noisy at distance, so a fixed screen-size ring is more legible.
+    private screenPixelsForRing(): number | null {
+        return this.state.hasCollision ? null : SCREEN_OUTER_PIXELS;
     }
 
     private setTarget(pos: Vec3, normal: Vec3, mode: TargetMode) {
-        this.surfaceCursorVersion++;
         this.targetPos = pos.clone();
         this.targetNormal = normal.clone();
         this.targetMode = mode;
@@ -493,15 +409,10 @@ class NavCursor {
     }
 
     private clearTarget() {
-        const mode = this.targetMode;
         this.targetPos = null;
         this.targetNormal = null;
         this.targetMode = null;
-        if (mode === 'orbit') {
-            this.hoverRing.hide();
-        }
         this.targetRing.hide();
-        this.refreshSurfaceCursor();
     }
 
     private pickCollision(offsetX: number, offsetY: number): CursorTarget | null {
@@ -531,126 +442,9 @@ class NavCursor {
         return this.collisionTarget;
     }
 
-    private async pickSceneTarget(offsetX: number, offsetY: number): Promise<CursorTarget | null> {
-        const collisionTarget = this.pickCollision(offsetX, offsetY);
-        if (collisionTarget) {
-            return collisionTarget;
-        }
-
-        const result = await this.picker.pickSurface(
-            offsetX / this.canvas.clientWidth,
-            offsetY / this.canvas.clientHeight
-        );
-        return result ?? null;
-    }
-
-    private shouldShowSurfaceCursor() {
-        const flyMouseCaptured = this.state.cameraMode === 'fly' &&
-            this.state.inputMode === 'desktop' &&
-            this.state.gamingControls;
-        return this.active &&
-            this.state.inputMode === 'desktop' &&
-            this.hasSurfaceCursorPosition &&
-            !this.navigating && (
-            (this.state.cameraMode === 'fly' && !flyMouseCaptured) ||
-            (this.state.cameraMode === 'orbit' && this.targetMode !== 'orbit')
-        );
-    }
-
-    private updateSurfaceCursor(offsetX: number, offsetY: number) {
-        this.surfaceCursorX = offsetX;
-        this.surfaceCursorY = offsetY;
-        this.hasSurfaceCursorPosition = true;
-        this.surfaceCursorVersion++;
-
-        // Render immediately using the most recent depth sample, re-projecting
-        // at the new pointer position. The async pick below will refresh the
-        // sample.
-        this.renderSurfaceCursor();
-
-        if (!this.surfaceCursorPickPending) {
-            this.processSurfaceCursor();
-        }
-    }
-
-    private renderSurfaceCursor() {
-        if (!this.hasSurfaceSample || !this.shouldShowSurfaceCursor()) {
-            this.hoverRing.hide();
-            return;
-        }
-        const sample = this.surfaceSample;
-        const position = getWorldPoint(
-            sample.camera,
-            this.surfaceCursorX,
-            this.surfaceCursorY,
-            sample.width,
-            sample.height,
-            sample.normalizedDepth,
-            this.scratchHoverPos
-        );
-        if (!position) {
-            this.hoverRing.hide();
-            return;
-        }
-        this.hoverRing.screenPixels = SCREEN_OUTER_PIXELS;
-        this.hoverRing.render(position, sample.normal);
-    }
-
-    private refreshSurfaceCursor() {
-        if (this.hasSurfaceCursorPosition && this.shouldShowSurfaceCursor() && !this.surfaceCursorPickPending) {
-            this.surfaceCursorVersion++;
-            this.processSurfaceCursor();
-        }
-    }
-
-    private processSurfaceCursor() {
-        this.surfaceCursorPickPending = true;
-
-        const version = this.surfaceCursorVersion;
-        // Capture the camera at pick fire time so the depth we extract from
-        // the result is interpretable through the same view/projection. The
-        // surface cursor only animates while the camera is static, so this
-        // snapshot matches the camera the picker actually rendered with.
-        captureCameraSnapshot(this.camera, this.surfaceSample.camera);
-        const snapshotWidth = this.canvas.clientWidth;
-        const snapshotHeight = this.canvas.clientHeight;
-        this.pickSceneTarget(this.surfaceCursorX, this.surfaceCursorY).then((target) => {
-            if (target) {
-                this.surfaceSample.normalizedDepth = worldPointToDepth(this.surfaceSample.camera, target.position);
-                this.surfaceSample.normal.copy(target.normal);
-                this.surfaceSample.width = snapshotWidth;
-                this.surfaceSample.height = snapshotHeight;
-                this.hasSurfaceSample = this.surfaceSample.normalizedDepth >= 0;
-            } else {
-                this.hasSurfaceSample = false;
-            }
-            this.renderSurfaceCursor();
-        }).catch(() => {
-            if (version === this.surfaceCursorVersion) {
-                this.hasSurfaceSample = false;
-                this.hoverRing.hide();
-            }
-        }).finally(() => {
-            this.surfaceCursorPickPending = false;
-            if (version !== this.surfaceCursorVersion && this.shouldShowSurfaceCursor()) {
-                this.processSurfaceCursor();
-            }
-        });
-    }
-
     private updateCursor(offsetX: number, offsetY: number) {
-        if (!this.active || this.navigating) {
+        if (!this.hoverActive || this.navigating) {
             this.hoverRing.hide();
-            return;
-        }
-
-        if (this.state.cameraMode === 'orbit' && this.targetMode === 'orbit') {
-            this.hoverRing.hide();
-            return;
-        }
-
-        if (this.state.cameraMode === 'fly' || this.state.cameraMode === 'orbit') {
-            this.updateSurfaceCursor(offsetX, offsetY);
             return;
         }
 
@@ -660,12 +454,12 @@ class NavCursor {
             return;
         }
 
-        this.hoverRing.screenPixels = this.walkScreenPixels;
+        this.hoverRing.screenPixels = this.screenPixelsForRing();
         this.hoverRing.render(target.position, target.normal);
     }
 
     private updateTarget() {
-        if (!this.active || !this.targetPos || !this.targetNormal || !this.targetMode) {
+        if (!this.targetPos || !this.targetNormal || !this.targetMode) {
             return;
         }
 
@@ -676,7 +470,7 @@ class NavCursor {
             return;
         }
 
-        this.targetRing.screenPixels = this.screenPixelsForMode(this.targetMode);
+        this.targetRing.screenPixels = this.screenPixelsForRing();
         this.targetRing.render(this.targetPos, this.targetNormal);
     }
 

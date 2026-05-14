@@ -29,7 +29,7 @@ import {
 } from 'playcanvas';
 
 import { Annotations } from './annotations';
-import { CameraManager } from './camera-manager';
+import { CameraManager, isWalkAllowed } from './camera-manager';
 import { Camera } from './cameras/camera';
 import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
@@ -356,7 +356,12 @@ class Viewer {
             this.inputController = new InputController(global, this.picker);
             this.inputController.collision = collision ?? null;
 
+            // hasCollision = collision data exists (drives fly-mode collision
+            // detection and the voxel/mesh debug overlay availability).
+            // walkAllowed = walk mode is offered to the user; requires both
+            // collision data and a scene large enough to walk around in.
             state.hasCollision = !!collision;
+            state.walkAllowed = isWalkAllowed(sceneBound, collision ?? null);
 
             // Create collision debug overlay (voxel uses a compute shader, mesh
             // uses standard line rendering). The voxel path requires WebGPU.
@@ -383,7 +388,7 @@ class Viewer {
             applyCamera(this.cameraManager.camera);
 
             if (!config.noui) {
-                this.navCursor = new NavCursor(app, camera, collision ?? null, events, state, this.picker, sceneBound.halfExtents.length());
+                this.navCursor = new NavCursor(app, camera, collision ?? null, events, state, this.picker);
             }
 
             const { instance } = gsplat;
