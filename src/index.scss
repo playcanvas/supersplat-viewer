@@ -123,21 +123,6 @@ button {
         padding: 8px;
         border-radius: 6px;
         background-color: rgba(black, 0.3);
-
-        > g {
-            &.stroke {
-                fill: black;
-                stroke: black;
-                stroke-width: 2;
-                stroke-linejoin: round;
-                opacity: 0.4;
-            }
-
-            &.fill {
-                fill: $clr-accent;
-                stroke: none;
-            }
-        }
     }
 
     > span {
