@@ -141,7 +141,12 @@ class TouchDevice implements InputDevice {
         // Two-finger pan: orbit pans the target, fly strafes/rises in the
         // camera basis. Identical 1:1 screen-space mapping in both modes so
         // dragging feels the same — what your fingers move, the camera moves.
+        // Walk reuses the same path for strafe but must keep y at 0 since
+        // WalkController treats any nonzero move[1] as a jump trigger.
         screenToWorld(cameraComponent, touch[0], touch[1], distance, orbitMove);
+        if (isWalk) {
+            orbitMove.y = 0;
+        }
         v.add(orbitMove.mulScalar((orbit + directFly) * double));
         if (gamingControls) {
             // joystick UI drives strafe + forward/back in fly/walk
