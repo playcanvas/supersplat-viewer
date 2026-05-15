@@ -335,6 +335,12 @@ class Viewer {
             };
 
             window.animationDuration = state.animationDuration;
+
+            // Camera state get/set — useful from devtools for capturing a
+            // pose during debugging (`copy(getCameraState())`) and
+            // restoring it later via `setCameraState({...})`.
+            window.getCameraState = () => this.cameraManager.getCameraState();
+            window.setCameraState = snapshot => this.cameraManager.setCameraState(snapshot);
         });
 
         // wait for the model to load
