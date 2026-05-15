@@ -130,33 +130,34 @@ class TouchDevice implements InputDevice {
         const double = this._touchCount > 1 ? 1 : 0;
         const orbitFactor = isFirstPerson ? cameraComponent.fov / 120 : 1;
         const dragInvert = (isFirstPerson && !gamingControls) ? -1 : 1;
-        // Fly contributes to the direct two-finger model only outside gaming
-        // controls (gaming uses the joystick instead).
-        const directFly = fly * (gamingControls ? 0 : 1);
+        // First-person modes (fly and walk) opt into the direct two-finger
+        // model only outside gaming controls (gaming uses the joystick).
+        const directFirstPerson = fly * (gamingControls ? 0 : 1);
 
         const { deltas } = frame;
 
         // move
         const v = tmpV.set(0, 0, 0);
-        // Two-finger pan: orbit pans the target, fly strafes/rises in the
-        // camera basis. Identical 1:1 screen-space mapping in both modes so
-        // dragging feels the same — what your fingers move, the camera moves.
-        // Walk reuses the same path for strafe but must keep y at 0 since
+        // Two-finger pan: orbit pans the target; fly strafes/rises in the
+        // camera basis; walk strafes along the ground plane. Identical 1:1
+        // screen-space mapping in every mode so dragging feels the same —
+        // what your fingers move, the camera moves. Walk zeros y because
         // WalkController treats any nonzero move[1] as a jump trigger.
         screenToWorld(cameraComponent, touch[0], touch[1], distance, orbitMove);
         if (isWalk) {
             orbitMove.y = 0;
         }
-        v.add(orbitMove.mulScalar((orbit + directFly) * double));
+        v.add(orbitMove.mulScalar((orbit + directFirstPerson) * double));
         if (gamingControls) {
             // joystick UI drives strafe + forward/back in fly/walk
             flyMoveTmp.set(this._joystick[0], 0, -this._joystick[1]);
             v.add(flyMoveTmp.mulScalar(fly * this.moveSpeed * dt));
         }
         // Two-finger pinch z: orbit interprets +z as "farther from target"
-        // (close-pinch = +pinch[0] = zoom out). Fly interprets +z as "forward"
-        // so spreading (pinch[0] < 0) should move forward — flip the sign.
-        pinchMoveTmp.set(0, 0, (orbit - directFly) * pinch[0]);
+        // (close-pinch = +pinch[0] = zoom out). First-person modes interpret
+        // +z as "forward", so spreading (pinch[0] < 0) should move forward —
+        // flip the sign there.
+        pinchMoveTmp.set(0, 0, (orbit - directFirstPerson) * pinch[0]);
         v.add(pinchMoveTmp.mulScalar(double * this.pinchSpeed * DISPLACEMENT_SCALE));
         // tap-to-jump in walk + gaming controls
         if (isWalk && this._tapJump) {
