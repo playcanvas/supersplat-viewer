@@ -1,4 +1,4 @@
-import { math, MultiTouchSource, Vec3 } from 'playcanvas';
+import { MultiTouchSource, Vec3 } from 'playcanvas';
 
 import type { Global } from '../../types';
 import {
@@ -11,7 +11,6 @@ import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
 const tmpV = new Vec3();
 const orbitMove = new Vec3();
 const flyMoveTmp = new Vec3();
-const flyTouchPan = new Vec3();
 const pinchMoveTmp = new Vec3();
 const orbitRotate = new Vec3();
 const flyRotate = new Vec3();
@@ -25,12 +24,6 @@ class TouchDevice implements InputDevice {
 
     touchRotateSensitivity: number = 1.5;
 
-    touchPinchMoveSensitivity: number = 1.5;
-
-    pinchVelocitySensitivity: number = 0.006;
-
-    panVelocitySensitivity: number = 0.005;
-
     private _source = new MultiTouchSource();
 
     private _global: Global | null = null;
@@ -40,12 +33,6 @@ class TouchDevice implements InputDevice {
 
     /** UI joystick value [x, y], -1..1. */
     private _joystick: [number, number] = [0, 0];
-
-    /** Smoothed forward/back velocity from pinch gesture (-1..1). */
-    private _pinchVelocity = 0;
-
-    /** Smoothed strafe/vertical velocity from two-finger pan, -1..1 each. */
-    private _panVelocity: [number, number] = [0, 0];
 
     /** Tap-detection state — touch count, max touches, and accumulated movement. */
     private _tapTouches = 0;
@@ -138,50 +125,34 @@ class TouchDevice implements InputDevice {
             this._tapMaxTouches = 0;
         }
 
-        // smoothed velocities for fly/walk first-person motion (non-gaming)
-        if (isFirstPerson && !gamingControls && this._touchCount > 1) {
-            // pinch[0] = oldDist - newDist: negative when spreading,
-            // positive when closing. Spreading = forward → subtract.
-            this._pinchVelocity -= pinch[0] * this.pinchVelocitySensitivity;
-            this._pinchVelocity = math.clamp(this._pinchVelocity, -1.0, 1.0);
-            this._panVelocity[0] += touch[0] * this.panVelocitySensitivity;
-            this._panVelocity[0] = math.clamp(this._panVelocity[0], -1.0, 1.0);
-            this._panVelocity[1] += touch[1] * this.panVelocitySensitivity;
-            this._panVelocity[1] = math.clamp(this._panVelocity[1], -1.0, 1.0);
-        } else if (isFirstPerson && this._touchCount <= 1) {
-            this._pinchVelocity = 0;
-            this._panVelocity[0] = 0;
-            this._panVelocity[1] = 0;
-        }
-
         const orbit = isOrbit ? 1 : 0;
         const fly = isFirstPerson ? 1 : 0;
         const double = this._touchCount > 1 ? 1 : 0;
         const orbitFactor = isFirstPerson ? cameraComponent.fov / 120 : 1;
         const dragInvert = (isFirstPerson && !gamingControls) ? -1 : 1;
+        // Fly contributes to the direct two-finger model only outside gaming
+        // controls (gaming uses the joystick instead).
+        const directFly = fly * (gamingControls ? 0 : 1);
 
         const { deltas } = frame;
 
         // move
         const v = tmpV.set(0, 0, 0);
-        // two-finger orbit-pan when in orbit mode (single touch is rotate, double is pan)
+        // Two-finger pan: orbit pans the target, fly strafes/rises in the
+        // camera basis. Identical 1:1 screen-space mapping in both modes so
+        // dragging feels the same — what your fingers move, the camera moves.
         screenToWorld(cameraComponent, touch[0], touch[1], distance, orbitMove);
-        v.add(orbitMove.mulScalar(orbit * double));
+        v.add(orbitMove.mulScalar((orbit + directFly) * double));
         if (gamingControls) {
             // joystick UI drives strafe + forward/back in fly/walk
             flyMoveTmp.set(this._joystick[0], 0, -this._joystick[1]);
             v.add(flyMoveTmp.mulScalar(fly * this.moveSpeed * dt));
-        } else {
-            // smoothed pan velocity → strafe (X) and vertical (Y, fly only)
-            flyTouchPan.set(this._panVelocity[0], isWalk ? 0 : -this._panVelocity[1], 0);
-            v.add(flyTouchPan.mulScalar(fly * this.touchPinchMoveSensitivity * this.moveSpeed * dt));
-            // smoothed pinch velocity → forward/back
-            flyMoveTmp.set(0, 0, this._pinchVelocity);
-            v.add(flyMoveTmp.mulScalar(fly * this.touchPinchMoveSensitivity * this.moveSpeed * dt));
         }
-        // raw pinch for orbit-mode zoom
-        pinchMoveTmp.set(0, 0, pinch[0]);
-        v.add(pinchMoveTmp.mulScalar(orbit * double * this.pinchSpeed * DISPLACEMENT_SCALE));
+        // Two-finger pinch z: orbit interprets +z as "farther from target"
+        // (close-pinch = +pinch[0] = zoom out). Fly interprets +z as "forward"
+        // so spreading (pinch[0] < 0) should move forward — flip the sign.
+        pinchMoveTmp.set(0, 0, (orbit - directFly) * pinch[0]);
+        v.add(pinchMoveTmp.mulScalar(double * this.pinchSpeed * DISPLACEMENT_SCALE));
         // tap-to-jump in walk + gaming controls
         if (isWalk && this._tapJump) {
             v.y = 1;
