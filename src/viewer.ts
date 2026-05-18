@@ -34,6 +34,7 @@ import { Camera } from './cameras/camera';
 import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
+import { DebugPanel } from './debug';
 import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
 import { NavCursor } from './nav-cursor';
@@ -162,6 +163,8 @@ class Viewer {
     meshOverlay: MeshDebugOverlay | null = null;
 
     navCursor: NavCursor | null = null;
+
+    debugPanel: DebugPanel | null = null;
 
     origChunks: {
         glsl: {
@@ -335,12 +338,6 @@ class Viewer {
             };
 
             window.animationDuration = state.animationDuration;
-
-            // Camera state get/set — useful from devtools for capturing a
-            // pose during debugging (`copy(getCameraState())`) and
-            // restoring it later via `setCameraState({...})`.
-            window.getCameraState = () => this.cameraManager.getCameraState();
-            window.setCameraState = snapshot => this.cameraManager.setCameraState(snapshot);
         });
 
         // wait for the model to load
@@ -396,6 +393,8 @@ class Viewer {
             if (!config.noui) {
                 this.navCursor = new NavCursor(app, camera, collision ?? null, events, state);
             }
+
+            this.debugPanel = new DebugPanel(app, this.cameraManager, config.debug);
 
             const { instance } = gsplat;
             if (instance) {
