@@ -1,6 +1,8 @@
-import { Vec3, type AppBase } from 'playcanvas';
+import { Vec3 } from 'playcanvas';
 
-import type { CameraManager, CameraStateSnapshot } from '../camera-manager';
+import type { CameraManager } from '../camera-manager';
+import type { Global } from '../types';
+import { captureCameraState, restoreCameraState, type CameraStateSnapshot } from './camera-state';
 
 // Developer / debug panel. Hidden by default; surfaced via `?debug` URL
 // param or Ctrl+Shift+D keyboard shortcut. DOM and styles are injected
@@ -93,7 +95,7 @@ const parseVector = (text: string): [number, number, number] | null => {
 };
 
 class DebugPanel {
-    private readonly _app: AppBase;
+    private readonly _global: Global;
 
     private readonly _cameraManager: CameraManager;
 
@@ -125,11 +127,11 @@ class DebugPanel {
         }
     };
 
-    constructor(app: AppBase, cameraManager: CameraManager, autoShow: boolean) {
-        this._app = app;
+    constructor(global: Global, cameraManager: CameraManager) {
+        this._global = global;
         this._cameraManager = cameraManager;
         window.addEventListener('keydown', this._onKeyDown);
-        if (autoShow) {
+        if (global.config.debug) {
             this.show();
         }
     }
@@ -141,9 +143,9 @@ class DebugPanel {
             this._build();
         }
         this._root!.style.display = '';
-        this._app.on('prerender', this._onPrerender);
-        window.getCameraState = () => this._cameraManager.getCameraState();
-        window.setCameraState = snapshot => this._cameraManager.setCameraState(snapshot);
+        this._global.app.on('prerender', this._onPrerender);
+        window.getCameraState = () => captureCameraState(this._cameraManager, this._global.state);
+        window.setCameraState = snapshot => restoreCameraState(this._cameraManager, this._global.state, snapshot);
         this._render();
     }
 
@@ -153,7 +155,7 @@ class DebugPanel {
         if (this._root) {
             this._root.style.display = 'none';
         }
-        this._app.off('prerender', this._onPrerender);
+        this._global.app.off('prerender', this._onPrerender);
         delete window.getCameraState;
         delete window.setCameraState;
     }
@@ -260,20 +262,19 @@ class DebugPanel {
     }
 
     private _applyPosition(pos: [number, number, number]) {
-        const snap = this._cameraManager.getCameraState();
-        snap.position = pos;
-        this._cameraManager.setCameraState(snap);
+        this._cameraManager.camera.position.set(pos[0], pos[1], pos[2]);
+        this._cameraManager.snap();
     }
 
     private _applyFocus(focus: [number, number, number]) {
         // Keep camera position fixed; recompute angles + distance so the
         // camera looks at the new focus point. Camera.look() does the math
-        // in place; setCameraState then re-seeds the active controller.
+        // in place; snap() then re-seeds the active controller.
         const cam = this._cameraManager.camera;
         const from = this._focusTmp.copy(cam.position);
         const to = new Vec3(focus[0], focus[1], focus[2]);
         cam.look(from, to);
-        this._cameraManager.setCameraState(this._cameraManager.getCameraState());
+        this._cameraManager.snap();
     }
 
     private _render() {
@@ -291,7 +292,7 @@ class DebugPanel {
     }
 
     private async _copy() {
-        const snapshot = this._cameraManager.getCameraState();
+        const snapshot = captureCameraState(this._cameraManager, this._global.state);
         try {
             await navigator.clipboard.writeText(JSON.stringify(snapshot));
             this._flash(this._copyButton);
@@ -304,7 +305,7 @@ class DebugPanel {
         try {
             const text = await navigator.clipboard.readText();
             const snapshot = JSON.parse(text) as CameraStateSnapshot;
-            this._cameraManager.setCameraState(snapshot);
+            restoreCameraState(this._cameraManager, this._global.state, snapshot);
             this._flash(this._pasteButton);
         } catch (err) {
             console.warn('[debug-panel] paste failed', err);

@@ -50,20 +50,14 @@ const createFrameCamera = (bbox: BoundingBox, fov: number) => {
     );
 };
 
-type CameraStateSnapshot = {
-    position: [number, number, number];
-    angles: [number, number, number];
-    distance: number;
-    fov: number;
-    mode: CameraMode;
-};
-
 class CameraManager {
     update: (deltaTime: number, cameraFrame: CameraFrame) => void;
 
-    getCameraState: () => CameraStateSnapshot;
-
-    setCameraState: (snapshot: CameraStateSnapshot) => void;
+    // Re-seed the active controller from the current camera pose and
+    // cancel any in-progress transition lerp. Use after externally
+    // mutating `camera` and/or `state.cameraMode` to make the change
+    // visible instantly.
+    snap: () => void;
 
     // holds the camera state
     camera = new Camera();
@@ -158,28 +152,10 @@ class CameraManager {
             transitionTimer = 0;
         };
 
-        this.getCameraState = () => ({
-            position: [this.camera.position.x, this.camera.position.y, this.camera.position.z],
-            angles: [this.camera.angles.x, this.camera.angles.y, this.camera.angles.z],
-            distance: this.camera.distance,
-            fov: this.camera.fov,
-            mode: state.cameraMode
-        });
-
-        this.setCameraState = (snapshot: CameraStateSnapshot) => {
-            this.camera.position.set(snapshot.position[0], snapshot.position[1], snapshot.position[2]);
-            this.camera.angles.set(snapshot.angles[0], snapshot.angles[1], snapshot.angles[2]);
-            this.camera.distance = snapshot.distance;
-            this.camera.fov = snapshot.fov;
-
-            if (state.cameraMode === snapshot.mode) {
-                getController(snapshot.mode).onEnter(this.camera);
-            } else {
-                state.cameraMode = snapshot.mode;
-            }
+        this.snap = () => {
+            getController(state.cameraMode).onEnter(this.camera);
             target.copy(this.camera);
             transitionTimer = 1;
-
             global.app.renderNextFrame = true;
         };
 
@@ -367,4 +343,3 @@ class CameraManager {
 }
 
 export { CameraManager, isWalkAllowed };
-export type { CameraStateSnapshot };

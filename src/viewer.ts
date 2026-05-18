@@ -394,7 +394,7 @@ class Viewer {
                 this.navCursor = new NavCursor(app, camera, collision ?? null, events, state);
             }
 
-            this.debugPanel = new DebugPanel(app, this.cameraManager, config.debug);
+            this.debugPanel = new DebugPanel(global, this.cameraManager);
 
             const { instance } = gsplat;
             if (instance) {
