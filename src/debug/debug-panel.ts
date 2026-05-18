@@ -195,7 +195,7 @@ class DebugPanel {
                 <button data-id="paste">Paste</button>
             </div>
             <div class="buttons">
-                <button data-id="screenshot">Download screenshot</button>
+                <button data-id="screenshot">Screenshot</button>
             </div>
         `;
         document.body.appendChild(root);
