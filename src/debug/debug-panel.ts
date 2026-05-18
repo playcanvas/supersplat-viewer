@@ -111,6 +111,8 @@ class DebugPanel {
 
     private _pasteButton: HTMLButtonElement | null = null;
 
+    private _screenshotButton: HTMLButtonElement | null = null;
+
     private _editing: HTMLSpanElement | null = null;
 
     private _editCanceled = false;
@@ -192,6 +194,9 @@ class DebugPanel {
                 <button data-id="copy">Copy</button>
                 <button data-id="paste">Paste</button>
             </div>
+            <div class="buttons">
+                <button data-id="screenshot">Download screenshot</button>
+            </div>
         `;
         document.body.appendChild(root);
 
@@ -200,9 +205,11 @@ class DebugPanel {
         this._focusValue = root.querySelector('[data-id="focus"]')!;
         this._copyButton = root.querySelector('[data-id="copy"]')!;
         this._pasteButton = root.querySelector('[data-id="paste"]')!;
+        this._screenshotButton = root.querySelector('[data-id="screenshot"]')!;
 
         this._copyButton.addEventListener('click', () => this._copy());
         this._pasteButton.addEventListener('click', () => this._paste());
+        this._screenshotButton.addEventListener('click', () => this._screenshot());
         this._wireEditable(this._positionValue, 'position');
         this._wireEditable(this._focusValue, 'focus');
     }
@@ -310,6 +317,35 @@ class DebugPanel {
         } catch (err) {
             console.warn('[debug-panel] paste failed', err);
         }
+    }
+
+    private _screenshot() {
+        const app = this._global.app;
+        const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
+
+        // PlayCanvas runs with preserveDrawingBuffer off, so the canvas
+        // pixels are only readable in the same task as the render. Force
+        // a render and capture in frameend.
+        app.renderNextFrame = true;
+        app.once('frameend', () => {
+            // Quality 1.0 with image/webp produces lossless WebP in
+            // Chromium / Firefox. Safari (which lacks WebP encode) falls
+            // back to PNG automatically — blob.type tells us which.
+            canvas.toBlob((blob) => {
+                if (!blob) {
+                    console.warn('[debug-panel] screenshot toBlob returned null');
+                    return;
+                }
+                const ext = blob.type === 'image/webp' ? 'webp' : 'png';
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `supersplat-viewer.${ext}`;
+                a.click();
+                URL.revokeObjectURL(url);
+                this._flash(this._screenshotButton);
+            }, 'image/webp', 1.0);
+        });
     }
 
     private _flash(el: HTMLElement | null) {
