@@ -143,6 +143,9 @@ class WalkController implements CameraController {
     onEnter(camera: Camera): void {
         this.goto(camera);
         if (this.collision) {
+            // Spawn is scoped to this walk-mode entry; reset so a stale spawn
+            // from a previous entry can't be restored if this entry fails.
+            this._spawn.clear();
             // Treat the walk capsule as a tight-superset cylinder for spawn.
             // The carve was produced with a separable XYZ dilation (flat ends,
             // no hemispheres), so cylinder math matches the data exactly.

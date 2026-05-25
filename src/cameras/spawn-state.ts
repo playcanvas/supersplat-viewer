@@ -42,6 +42,15 @@ class SpawnState {
     }
 
     /**
+     * Forget any previously-stored spawn pose so a subsequent `has` check
+     * reports false. Used by controllers that scope spawn to a single mode
+     * entry (e.g. walk).
+     */
+    clear() {
+        this._has = false;
+    }
+
+    /**
      * Copy the captured pose into the supplied targets. Caller must check
      * `has` first; calling `restore` before `store` writes zeroes.
      *
