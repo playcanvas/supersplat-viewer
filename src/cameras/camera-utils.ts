@@ -1,5 +1,7 @@
 import { math, Quat, Vec3 } from 'playcanvas';
 
+import { damp } from '../core/math';
+
 const rotation = new Quat();
 
 /**
@@ -95,8 +97,31 @@ const setBasisOffset = (
     return out;
 };
 
+/**
+ * Lerp Euler angles toward a target using frame-rate-independent shortest-path
+ * interpolation. Yaw/roll are wrapped to keep magnitudes bounded across long
+ * sessions; pitch is left untouched since callers clamp it.
+ *
+ * @param angles - Current angles, mutated toward target.
+ * @param target - Target angles.
+ * @param damping - Damping factor in [0,1). Higher = smoother.
+ * @param dt - Delta time in seconds.
+ * @returns The mutated angles.
+ */
+const dampAngles = (angles: Vec3, target: Vec3, damping: number, dt: number) => {
+    if (dt <= 0) {
+        return angles;
+    }
+    const t = damp(damping, dt);
+    angles.x = math.lerpAngle(angles.x, target.x, t);
+    angles.y = math.lerpAngle(angles.y, target.y, t) % 360;
+    angles.z = math.lerpAngle(angles.z, target.z, t) % 360;
+    return angles;
+};
+
 export {
     applyFrameRotation,
+    dampAngles,
     setBasisOffset,
     setCameraBasis,
     setCameraForward,
