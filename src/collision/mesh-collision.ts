@@ -5,7 +5,7 @@ import {
 } from 'playcanvas';
 import type { AppBase } from 'playcanvas';
 
-import { PENETRATION_EPSILON, resolveIterative } from './collision';
+import { PENETRATION_EPSILON, VOXEL_SIZE, resolveIterative } from './collision';
 import type { Collision, PushOut, RayHit } from './collision';
 
 // ---- BVH node layout ----
@@ -474,6 +474,13 @@ class MeshCollision implements Collision {
             (rx, ry, rz, push) => this._deepestCapsulePenetration(rx, ry, rz, halfHeight, radius, push),
             this._constraintNormals, this._push, out
         );
+    }
+
+    isFreeAt(x: number, y: number, z: number): boolean {
+        // Approximation: a point is in free space iff no triangle is within
+        // half a voxel of it. Matches the voxel-grid notion for data derived
+        // from the same VOXEL_SIZE carve.
+        return !this._deepestSpherePenetration(x, y, z, VOXEL_SIZE * 0.5, this._push);
     }
 
     querySurfaceNormal(

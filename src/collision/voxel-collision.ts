@@ -287,6 +287,14 @@ class VoxelCollision implements Collision {
         return false;
     }
 
+    isFreeAt(x: number, y: number, z: number): boolean {
+        const res = this._voxelResolution;
+        const ix = Math.floor((x - this._gridMinX) / res);
+        const iy = Math.floor((y - this._gridMinY) / res);
+        const iz = Math.floor((z - this._gridMinZ) / res);
+        return !this.isVoxelSolid(ix, iy, iz);
+    }
+
     querySurfaceNormal(
         x: number, y: number, z: number,
         rdx: number, rdy: number, rdz: number
@@ -942,6 +950,10 @@ class FlippedVoxelCollision extends VoxelCollision {
             out.y = -out.y;
         }
         return result;
+    }
+
+    isFreeAt(x: number, y: number, z: number): boolean {
+        return super.isFreeAt(-x, -y, z);
     }
 }
 

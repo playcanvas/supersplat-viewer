@@ -43,7 +43,19 @@ interface Collision {
         x: number, y: number, z: number,
         rdx: number, rdy: number, rdz: number
     ): { nx: number; ny: number; nz: number };
+
+    /**
+     * Test whether the voxel cell containing (x, y, z) is part of the free
+     * (carved-out) region — i.e. some valid capsule placement covered this
+     * voxel during carve, so it's reachable space rather than solid geometry.
+     * For voxel data this is a direct cell lookup; mesh implementations
+     * approximate it as "no surface within half a voxel of the point."
+     */
+    isFreeAt(x: number, y: number, z: number): boolean;
 }
+
+/** World-space voxel cell size assumed by the carve and spawn algorithms. */
+const VOXEL_SIZE = 0.05;
 
 /** Minimum penetration depth to report (avoids floating-point noise) */
 const PENETRATION_EPSILON = 1e-4;
@@ -130,5 +142,5 @@ function resolveIterative(
     return hasSignificantPush;
 }
 
-export { PENETRATION_EPSILON, resolveIterative };
+export { PENETRATION_EPSILON, VOXEL_SIZE, resolveIterative };
 export type { Collision, PushOut, RayHit };
