@@ -1,7 +1,7 @@
 import { math, Quat, Vec3 } from 'playcanvas';
 
 import type { CameraFrame } from './camera';
-import { damp } from '../core/math';
+import { damp, mod } from '../core/math';
 
 /**
  * Shared damping factor for controller smoothing (rotate / move / zoom) so
@@ -114,7 +114,7 @@ const setBasisOffset = (
  *
  * @param angles - Current angles, mutated toward target.
  * @param target - Target angles.
- * @param damping - Damping factor in [0,1). Higher = smoother.
+ * @param damping - Damping factor in [0, 1]. Higher = smoother (1 = never moves).
  * @param dt - Delta time in seconds.
  * @returns The mutated angles.
  */
@@ -124,8 +124,8 @@ const dampAngles = (angles: Vec3, target: Vec3, damping: number, dt: number) => 
     }
     const t = damp(damping, dt);
     angles.x = math.lerpAngle(angles.x, target.x, t);
-    angles.y = math.lerpAngle(angles.y, target.y, t) % 360;
-    angles.z = math.lerpAngle(angles.z, target.z, t) % 360;
+    angles.y = mod(math.lerpAngle(angles.y, target.y, t), 360);
+    angles.z = mod(math.lerpAngle(angles.z, target.z, t), 360);
     return angles;
 };
 
