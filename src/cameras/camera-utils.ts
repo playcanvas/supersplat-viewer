@@ -1,6 +1,16 @@
 import { math, Quat, Vec3 } from 'playcanvas';
 
+import type { CameraFrame } from './camera';
 import { damp } from '../core/math';
+
+/**
+ * Shared damping factor for controller smoothing (rotate / move / zoom) so
+ * orbit, fly, and walk feel the same. Used as `damp(damping, dt)` →
+ * `1 - damping^(dt*1000)`. Higher means smoother / more lag. Not used for
+ * physics-style velocity decay (e.g. walk's grounded/air velocity damping),
+ * which has different tuning needs.
+ */
+const DEFAULT_CONTROLLER_DAMPING = 0.97;
 
 const rotation = new Quat();
 
@@ -119,9 +129,23 @@ const dampAngles = (angles: Vec3, target: Vec3, damping: number, dt: number) => 
     return angles;
 };
 
+/**
+ * Discard any pending input deltas in the frame. `InputFrame.read()` zeros
+ * deltas as a side-effect of reading, so calling this prevents accumulated
+ * input from leaking into the next controller when a non-input-driven mode
+ * (e.g. animation) is active.
+ *
+ * @param frame - The camera frame whose deltas should be drained.
+ */
+const drainInputFrame = (frame: CameraFrame) => {
+    frame.read();
+};
+
 export {
+    DEFAULT_CONTROLLER_DAMPING,
     applyFrameRotation,
     dampAngles,
+    drainInputFrame,
     setBasisOffset,
     setCameraBasis,
     setCameraForward,

@@ -2,7 +2,7 @@ import { math, Vec3 } from 'playcanvas';
 
 import type { Collision, PushOut } from '../collision';
 import type { CameraFrame, Camera, CameraController } from './camera';
-import { applyFrameRotation, dampAngles, setBasisOffset, setYawBasis } from './camera-utils';
+import { DEFAULT_CONTROLLER_DAMPING, applyFrameRotation, dampAngles, setBasisOffset, setYawBasis } from './camera-utils';
 import { findWalkSpawn } from './walk-spawn';
 import { damp } from '../core/math';
 
@@ -77,14 +77,9 @@ class WalkController implements CameraController {
     moveAirSpeed = 1;
 
     /**
-     * Movement damping factor (0 = no damping, 1 = full damping)
-     */
-    moveDamping = 0.97;
-
-    /**
      * Rotation damping factor (0 = no damping, 1 = full damping)
      */
-    rotateDamping = 0.97;
+    rotateDamping = DEFAULT_CONTROLLER_DAMPING;
 
     /**
      * Velocity damping factor when grounded (0 = no damping, 1 = full damping)

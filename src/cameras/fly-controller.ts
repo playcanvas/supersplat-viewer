@@ -2,7 +2,7 @@ import { Vec3 } from 'playcanvas';
 
 import type { Collision } from '../collision';
 import type { CameraFrame, Camera, CameraController } from './camera';
-import { applyFrameRotation, dampAngles, setBasisOffset, setCameraBasis } from './camera-utils';
+import { DEFAULT_CONTROLLER_DAMPING, applyFrameRotation, dampAngles, setBasisOffset, setCameraBasis } from './camera-utils';
 import { SphereMover } from './sphere-mover';
 
 /** Radius of the camera collision sphere (meters) */
@@ -16,7 +16,7 @@ const offset = new Vec3();
 class FlyController implements CameraController {
     fov = 90;
 
-    rotateDamping = 0.97;
+    rotateDamping = DEFAULT_CONTROLLER_DAMPING;
 
     private _position = new Vec3();
 
