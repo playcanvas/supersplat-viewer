@@ -149,9 +149,13 @@ class WalkController implements CameraController {
             // Treat the walk capsule as a tight-superset cylinder for spawn.
             // The carve was produced with a separable XYZ dilation (flat ends,
             // no hemispheres), so cylinder math matches the data exactly.
+            // Include `hoverHeight` in the height so the ceiling-clearance
+            // check accounts for the placed capsule's full vertical envelope:
+            // foot sits at `floor + hoverHeight`, head at `floor + hoverHeight
+            // + capsuleHeight`.
             if (findCylinderSpawn(this.collision,
                 camera.position.x, camera.position.y, camera.position.z,
-                this.capsuleHeight * 0.5, this.capsuleRadius, spawnProbe)) {
+                (this.capsuleHeight + this.hoverHeight) * 0.5, this.capsuleRadius, spawnProbe)) {
                 // spawnProbe is the floor world position the cylinder rests
                 // on. Eye sits hoverHeight + eyeHeight above the floor.
                 this._position.set(

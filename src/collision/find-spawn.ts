@@ -1,7 +1,8 @@
 import type { Collision } from './collision';
 
-/** Maximum distance (metres) from the spawn origin to search for a valid placement. */
+/** Maximum Euclidean distance (metres) from the spawn origin to search for a valid placement. */
 const SEARCH_RADIUS = 5;
+const SEARCH_RADIUS_SQ = SEARCH_RADIUS * SEARCH_RADIUS;
 
 /** Ray budget when probing for ground/ceiling under or above a candidate column. */
 const RAY_MAX_DIST = 1000;
@@ -59,7 +60,7 @@ const findSphereSpawn = (
                     if (absDx < r && absDy < r && absDz < r) continue;
 
                     const distSq = (dx * dx + dy * dy + dz * dz) * step * step;
-                    if (distSq >= bestDistSq) continue;
+                    if (distSq >= bestDistSq || distSq > SEARCH_RADIUS_SQ) continue;
 
                     const cx = ox + dx * step;
                     const cy = oy + dy * step;
@@ -143,17 +144,17 @@ const findCylinderSpawn = (
                     if (absDx < r && absDy < r && absDz < r) continue;
 
                     const distSq = (dx * dx + dy * dy + dz * dz) * step * step;
-                    if (distSq >= bestDistSq) continue;
+                    if (distSq >= bestDistSq || distSq > SEARCH_RADIUS_SQ) continue;
 
                     const cx = ox + dx * step;
                     const cy = oy + dy * step;
                     const cz = oz + dz * step;
 
-                    // Stage 1: cheap filter — only consider free voxels with
-                    // some ground below at this column.
+                    // Stage 1: cheap filter — only consider free voxels.
+                    // The footprint loop below will reject candidates whose
+                    // center column has no ground support, so no separate
+                    // down-ray probe is needed here.
                     if (!collision.isFreeAt(cx, cy, cz)) continue;
-                    const probe = collision.queryRay(cx, cy, cz, 0, -1, 0, RAY_MAX_DIST);
-                    if (!probe) continue;
 
                     // Stage 2/3: fan rays through the xz footprint.
                     let floor = -Infinity;
