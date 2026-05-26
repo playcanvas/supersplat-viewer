@@ -1,4 +1,3 @@
-import { VOXEL_SIZE } from './collision';
 import type { Collision } from './collision';
 
 /** Maximum distance (metres) from the spawn origin to search for a valid placement. */
@@ -22,9 +21,9 @@ const scratchPush = { x: 0, y: 0, z: 0 };
  * fits clear of geometry. Output is the sphere centre. Used for fly-camera
  * spawn — fly cameras have no ground constraint.
  *
- * Lattice search across 0.05 m voxel-spaced offsets from the origin, ordered
- * by Chebyshev shell with Euclidean tie-break within a shell. Search bounded
- * by `SEARCH_RADIUS`.
+ * Lattice search across voxel-spaced offsets from the origin (step =
+ * `collision.voxelResolution`), ordered by Chebyshev shell with Euclidean
+ * tie-break within a shell. Search bounded by `SEARCH_RADIUS`.
  *
  * @param collision - Active collision implementation.
  * @param ox - Origin X (world space).
@@ -40,7 +39,7 @@ const findSphereSpawn = (
     radius: number,
     out: SpawnOut
 ): boolean => {
-    const step = VOXEL_SIZE;
+    const step = collision.voxelResolution;
     const maxCells = Math.ceil(SEARCH_RADIUS / step);
 
     let bestDistSq = Infinity;
@@ -90,8 +89,9 @@ const findSphereSpawn = (
  *
  * 1. Lattice search for the closest free voxel `C` (per `isFreeAt`) that has
  *    geometry somewhere below — i.e. a downward ray from `C` hits.
- * 2. At `(C.x, C.z)`, fan rays up and down from `C.y` through every 0.05 m
- *    cell within the xz footprint disc. Compute, across columns:
+ * 2. At `(C.x, C.z)`, fan rays up and down from `C.y` through every cell
+ *    (step = `collision.voxelResolution`) within the xz footprint disc.
+ *    Compute, across columns:
  *      - `floor = max(yDown_i)`         (highest ground in the footprint)
  *      - `ceiling = min(yUp_i)`         (lowest obstruction overhead, or ∞)
  *    Every column must have a `yDown` hit; otherwise the cylinder is partly
@@ -119,10 +119,13 @@ const findCylinderSpawn = (
     radius: number,
     out: SpawnOut
 ): boolean => {
-    const step = VOXEL_SIZE;
+    const step = collision.voxelResolution;
     const maxCells = Math.ceil(SEARCH_RADIUS / step);
-    const footCells = Math.floor(radius / step);
-    const footCellsSq = footCells * footCells;
+    // Round up so float division (e.g. 0.2 / 0.05) can't accidentally drop
+    // the outer ring of footprint cells; the Euclidean check below trims any
+    // overshoot back to the true radius.
+    const footCells = Math.ceil(radius / step);
+    const radiusSq = radius * radius;
 
     let bestDistSq = Infinity;
     let found = false;
@@ -158,12 +161,14 @@ const findCylinderSpawn = (
                     let supported = true;
 
                     for (let i = -footCells; i <= footCells && supported; i++) {
-                        const iSq = i * i;
+                        const fxOff = i * step;
+                        const fxOffSq = fxOff * fxOff;
                         for (let j = -footCells; j <= footCells; j++) {
-                            if (iSq + j * j > footCellsSq) continue;
+                            const fzOff = j * step;
+                            if (fxOffSq + fzOff * fzOff > radiusSq) continue;
 
-                            const fx = cx + i * step;
-                            const fz = cz + j * step;
+                            const fx = cx + fxOff;
+                            const fz = cz + fzOff;
 
                             const down = collision.queryRay(fx, cy, fz, 0, -1, 0, RAY_MAX_DIST);
                             if (!down) {

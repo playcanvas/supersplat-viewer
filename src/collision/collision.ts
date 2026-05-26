@@ -52,10 +52,22 @@ interface Collision {
      * approximate it as "no surface within half a voxel of the point."
      */
     isFreeAt(x: number, y: number, z: number): boolean;
+
+    /**
+     * World-space size of one voxel cell, as encoded in the underlying carve
+     * data. Spawn search and `isFreeAt` use this as their step size; assuming
+     * a fixed value would silently misbehave on data carved at a different
+     * resolution.
+     */
+    readonly voxelResolution: number;
 }
 
-/** World-space voxel cell size assumed by the carve and spawn algorithms. */
-const VOXEL_SIZE = 0.05;
+/**
+ * Fallback voxel cell size for mesh collision, which doesn't carry the carve
+ * metadata itself. Assumes the mesh was generated from a voxel grid at this
+ * resolution (matches the default `splat-transform --voxel-carve` output).
+ */
+const DEFAULT_VOXEL_RESOLUTION = 0.05;
 
 /** Minimum penetration depth to report (avoids floating-point noise) */
 const PENETRATION_EPSILON = 1e-4;
@@ -142,5 +154,5 @@ function resolveIterative(
     return hasSignificantPush;
 }
 
-export { PENETRATION_EPSILON, VOXEL_SIZE, resolveIterative };
+export { DEFAULT_VOXEL_RESOLUTION, PENETRATION_EPSILON, resolveIterative };
 export type { Collision, PushOut, RayHit };

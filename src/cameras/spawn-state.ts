@@ -52,7 +52,8 @@ class SpawnState {
 
     /**
      * Copy the captured pose into the supplied targets. Caller must check
-     * `has` first; calling `restore` before `store` writes zeroes.
+     * `has` first; calling `restore` before `store` returns the field
+     * defaults (position and angles zeroed, distance `1`).
      *
      * @param position - Mutated with the stored world position.
      * @param angles - Mutated with the stored Euler angles.
