@@ -393,11 +393,13 @@ const initUI = (global: Global) => {
     const vrChanged = () => dom.vrMode.classList[state.hasVR ? 'remove' : 'add']('hidden');
 
     // XR sessions require a WebGL device. Under WebGPU, prompt the user to reload
-    // the viewer with the WebGL renderer before starting AR/VR.
+    // the viewer with the WebGL renderer before starting AR/VR. Use replace() so
+    // the renderer-switch reload doesn't add a back-button entry — important
+    // because the viewer often runs inside an iframe (e.g. superspl.at /scene).
     const reloadWithWebgl = () => {
         const reloadUrl = new URL(location.href);
         reloadUrl.searchParams.set('webgl', '');
-        location.href = reloadUrl.toString();
+        location.replace(reloadUrl.toString());
     };
 
     const showXrModal = () => dom.xrModal.classList.remove('hidden');
