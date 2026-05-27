@@ -492,7 +492,7 @@
             <div id="tooltip"></div>
 
             <!-- XR WebGL-required modal -->
-            <div id="xrModal" class="hidden">
+            <div id="xrModal" class="hidden" onwheel="event.stopPropagation()">
                 <div id="xrModalContent" onpointerdown="event.stopPropagation()">
                     <h2>WebGL Required</h2>
                     <p>AR and VR are not supported on the WebGPU renderer. Pressing OK will reload the viewer with WebGL.</p>

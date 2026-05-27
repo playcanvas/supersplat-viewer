@@ -108,11 +108,9 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
 
     console.log(`Renderer: ${device.deviceType}`);
 
-    // Reconcile config with the actual device — the engine may have fallen back
-    // from WebGPU to WebGL2, in which case downstream code (voxel overlay, XR,
-    // gsplat renderer selection) should treat this as the WebGL path.
-    // eslint-disable-next-line require-atomic-updates
-    config.renderer = device.deviceType === 'webgpu' ? 'webgpu' : 'webgl';
+    // The engine may have fallen back from WebGPU to WebGL2; downstream code
+    // (voxel overlay, XR, gsplat renderer selection) needs the *actual* renderer.
+    const renderer: 'webgl' | 'webgpu' = device.deviceType === 'webgpu' ? 'webgpu' : 'webgl';
 
     // Set maxPixelRatio so the XR framebuffer scale factor is computed correctly.
     // Regular rendering bypasses maxPixelRatio via the custom initCanvas sizing.
@@ -143,7 +141,7 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
 
     app.scene.ambientLight.set(0.51, 0.55, 0.65);
 
-    return { app, camera };
+    return { app, camera, renderer };
 };
 
 // initialize canvas size and resizing
@@ -204,7 +202,7 @@ const initCanvas = (global: Global) => {
 };
 
 const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config) => {
-    const { app, camera } = await createApp(canvas, config);
+    const { app, camera, renderer } = await createApp(canvas, config);
 
     // create events
     const events = new EventHandler();
@@ -245,7 +243,8 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
         config,
         state,
         events,
-        camera
+        camera,
+        renderer
     };
 
     initCanvas(global);

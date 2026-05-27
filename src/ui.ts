@@ -410,7 +410,7 @@ const initUI = (global: Global) => {
     dom.xrModal.addEventListener('pointerdown', hideXrModal);
 
     const handleXrClick = (type: 'AR' | 'VR') => {
-        if (config.renderer !== 'webgl') {
+        if (global.renderer !== 'webgl') {
             showXrModal();
         } else {
             events.fire(type === 'AR' ? 'startAR' : 'startVR');
