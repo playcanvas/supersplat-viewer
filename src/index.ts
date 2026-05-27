@@ -18,6 +18,7 @@ import { App } from './app';
 import { MeshCollision, loadVoxelCollision } from './collision';
 import type { Collision } from './collision';
 import { observe } from './core/observe';
+import { initLocalization } from './localization';
 import { importSettings } from './settings';
 import type { Config, Global } from './types';
 import { initPoster, initUI } from './ui';
@@ -264,6 +265,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
     initXr(global);
 
     // Initialize user interface
+    initLocalization();
     initUI(global);
 
     // Load model
