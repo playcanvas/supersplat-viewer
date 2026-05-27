@@ -31,15 +31,18 @@ const detectLocale = (): string => {
         new URLSearchParams(location.search).get('lang'),
         ...(navigator.languages ?? [navigator.language])
     ];
+    const keys = Object.keys(dictionaries);
     for (const c of candidates) {
         if (!c) continue;
-        if (dictionaries[c]) return c;
-        const base = c.split('-')[0];
-        if (dictionaries[base]) return base;
-        // Fall back to any region-specific variant that shares the base
-        // (e.g. navigator "pt" → "pt-BR", "zh" → "zh-CN").
-        const variant = Object.keys(dictionaries).find(k => k.split('-')[0] === base);
-        if (variant) return variant;
+        const lc = c.toLowerCase();
+        const base = lc.split('-')[0];
+        // 1. exact tag match (case-insensitive: "DE" → "de", "pt-br" → "pt-BR")
+        // 2. base-language match ("fr-CA" → "fr")
+        // 3. any region variant sharing the base ("pt" → "pt-BR", "zh" → "zh-CN")
+        const match = keys.find(k => k.toLowerCase() === lc) ??
+            keys.find(k => k.toLowerCase() === base) ??
+            keys.find(k => k.toLowerCase().split('-')[0] === base);
+        if (match) return match;
     }
     return 'en';
 };
