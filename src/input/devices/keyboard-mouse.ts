@@ -4,8 +4,6 @@ import { InputFrame } from '../input-frame';
 import { movementState } from '../movement-state';
 import type { InputDevice } from '../shared';
 
-const PASSIVE = { passive: false, capture: false };
-
 const KEY_CODES = {
     A: 0,
     B: 1,
@@ -66,11 +64,11 @@ type KeyboardMouseDeltas = {
 };
 
 /**
- * Keyboard + mouse reader (layer 1): pure, mode-agnostic. Binds its own DOM
- * listeners, accumulates raw deltas (engine-free port of the PlayCanvas
- * `KeyboardMouseSource`) into a private buffer, integrates the held-state shared
- * across modes, and exposes normalized signals. No camera-mode logic, no tuning
- * constants, no intents — the control schemes own those.
+ * Keyboard + mouse reader (layer 1): pure, mode-agnostic. Does NOT register its
+ * own DOM listeners — the central `DomEventSource` owns registration and calls
+ * the public `on*` handlers (the coordinator wires them in explicit order). The
+ * handlers accumulate raw deltas into a private buffer; `update()` integrates
+ * the held-state shared across modes and refreshes the exposed signals.
  *
  * macOS Meta-key fix is baked into the raw reading (macOS swallows `keyup` for
  * keys released while Cmd is held); a public `pointerLock` setter lets the
@@ -153,12 +151,14 @@ class KeyboardMouseDevice implements InputDevice {
         return this._pointerLock;
     }
 
-    private _onWheel = (event: WheelEvent) => {
+    onWheel = (e: Event): void => {
+        const event = e as WheelEvent;
         event.preventDefault();
         this._raw.deltas.wheel.append([event.deltaY]);
     };
 
-    private _onPointerDown = (event: PointerEvent) => {
+    onPointerDown = (e: Event): void => {
+        const event = e as PointerEvent;
         this._movement.down(event);
 
         if (event.pointerType !== 'mouse') {
@@ -182,7 +182,8 @@ class KeyboardMouseDevice implements InputDevice {
         this._pointerId = event.pointerId;
     };
 
-    private _onPointerMove = (event: PointerEvent) => {
+    onPointerMove = (e: Event): void => {
+        const event = e as PointerEvent;
         // Native movementX/Y under pointer lock, otherwise our screen-delta tracker.
         const [movementX, movementY] = this._pointerLock && document.pointerLockElement === this._element ?
             [event.movementX, event.movementY] :
@@ -205,7 +206,8 @@ class KeyboardMouseDevice implements InputDevice {
         this._raw.deltas.mouse.append([movementX, movementY]);
     };
 
-    private _onPointerUp = (event: PointerEvent) => {
+    onPointerUp = (e: Event): void => {
+        const event = e as PointerEvent;
         this._movement.up(event);
 
         if (event.pointerType !== 'mouse') {
@@ -224,11 +226,12 @@ class KeyboardMouseDevice implements InputDevice {
         this._pointerId = -1;
     };
 
-    private _onContextMenu = (event: MouseEvent) => {
-        event.preventDefault();
+    onContextMenu = (e: Event): void => {
+        e.preventDefault();
     };
 
-    private _onKeyDown = (event: KeyboardEvent) => {
+    onKeyDown = (e: Event): void => {
+        const event = e as KeyboardEvent;
         // macOS Meta-key fix: clear all keys when Meta is involved, and ignore
         // keys arriving while Cmd is held (their keyup is swallowed by the OS).
         if (event.key === 'Meta') {
@@ -245,7 +248,8 @@ class KeyboardMouseDevice implements InputDevice {
         this._setKey(event.code, 1);
     };
 
-    private _onKeyUp = (event: KeyboardEvent) => {
+    onKeyUp = (e: Event): void => {
+        const event = e as KeyboardEvent;
         if (event.key === 'Meta') {
             this._keyNow.fill(0);
             return;
@@ -283,36 +287,10 @@ class KeyboardMouseDevice implements InputDevice {
 
     attach(canvas: HTMLCanvasElement): void {
         this._element = canvas;
-
-        canvas.addEventListener('wheel', this._onWheel, PASSIVE);
-        canvas.addEventListener('pointerdown', this._onPointerDown);
-        canvas.addEventListener('pointermove', this._onPointerMove);
-        canvas.addEventListener('pointerup', this._onPointerUp);
-        canvas.addEventListener('pointercancel', this._onPointerUp);
-        canvas.addEventListener('pointerleave', this._onPointerUp);
-        canvas.addEventListener('lostpointercapture', this._onPointerUp);
-        canvas.addEventListener('contextmenu', this._onContextMenu);
-
-        window.addEventListener('keydown', this._onKeyDown, false);
-        window.addEventListener('keyup', this._onKeyUp, false);
     }
 
     detach(): void {
-        if (this._element) {
-            this._element.removeEventListener('wheel', this._onWheel, PASSIVE);
-            this._element.removeEventListener('pointerdown', this._onPointerDown);
-            this._element.removeEventListener('pointermove', this._onPointerMove);
-            this._element.removeEventListener('pointerup', this._onPointerUp);
-            this._element.removeEventListener('pointercancel', this._onPointerUp);
-            this._element.removeEventListener('pointerleave', this._onPointerUp);
-            this._element.removeEventListener('lostpointercapture', this._onPointerUp);
-            this._element.removeEventListener('contextmenu', this._onContextMenu);
-            this._element = null;
-        }
-
-        window.removeEventListener('keydown', this._onKeyDown, false);
-        window.removeEventListener('keyup', this._onKeyUp, false);
-
+        this._element = null;
         this._keyNow.fill(0);
         this._keyPrev.fill(0);
         this._read();

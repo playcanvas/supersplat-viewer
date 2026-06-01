@@ -1,5 +1,6 @@
 import type { PointerLockManager } from './pointer-lock';
 import type { Global } from '../../types';
+import type { DomEventSource } from '../dom-event-source';
 
 const isCaptureMode = (mode: string) => mode === 'walk' || mode === 'fly';
 
@@ -90,14 +91,14 @@ class ModeShortcuts {
         }
     };
 
-    attach(global: Global, pointerLock: PointerLockManager): void {
+    attach(global: Global, pointerLock: PointerLockManager, source: DomEventSource): void {
         this._global = global;
         this._pointerLock = pointerLock;
-        window.addEventListener('keydown', this._onKeyDown);
+        source.on('window', 'keydown', this._onKeyDown);
     }
 
     detach(): void {
-        window.removeEventListener('keydown', this._onKeyDown);
+        // window keydown listener is owned by the DomEventSource
         this._global = null;
         this._pointerLock = null;
     }

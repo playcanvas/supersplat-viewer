@@ -387,7 +387,7 @@ class Viewer {
             applyCamera(this.cameraManager.camera);
 
             if (!config.noui) {
-                this.navCursor = new NavCursor(app, camera, collision ?? null, events, state);
+                this.navCursor = new NavCursor(app, camera, collision ?? null, events, state, this.inputController.domSource);
             }
 
             this.debugPanel = new DebugPanel(global, this.cameraManager);

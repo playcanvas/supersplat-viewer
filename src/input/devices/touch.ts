@@ -10,14 +10,13 @@ type MultiTouchDeltas = {
 };
 
 /**
- * Touch reader (layer 1): pure, mode-agnostic. Binds its own multi-touch
- * listeners, accumulates raw deltas (engine-free port of the PlayCanvas
- * `MultiTouchSource`) into a private buffer, tracks the running touch count, and
- * runs mode-agnostic tap detection — exposing `tapped`/`dragExceeded` as facts.
- * The schemes decide what a tap *means* per mode. No mode logic, no intents.
+ * Touch reader (layer 1): pure, mode-agnostic. Does NOT register its own DOM
+ * listeners — the central `DomEventSource` calls the public `on*` handlers. The
+ * handlers accumulate raw deltas into a private buffer; `update()` tracks the
+ * running touch count and runs mode-agnostic tap detection, exposing
+ * `tapped`/`dragExceeded` as facts (the schemes decide what a tap means).
  *
- * The virtual-joystick value is pushed in by the coordinator (`setJoystick`) so
- * the reader needs no app event bus.
+ * The virtual-joystick value is pushed in by the coordinator (`setJoystick`).
  */
 class TouchDevice implements InputDevice {
     /** This-frame touch delta [dx, dy] (single-finger move or two-finger pan). */
@@ -74,7 +73,8 @@ class TouchDevice implements InputDevice {
         this.joystick[1] = y;
     }
 
-    private _onPointerDown = (event: PointerEvent) => {
+    onPointerDown = (e: Event): void => {
+        const event = e as PointerEvent;
         this._movement.down(event);
 
         if (event.pointerType !== 'touch') {
@@ -93,7 +93,8 @@ class TouchDevice implements InputDevice {
         }
     };
 
-    private _onPointerMove = (event: PointerEvent) => {
+    onPointerMove = (e: Event): void => {
+        const event = e as PointerEvent;
         const [movementX, movementY] = this._movement.move(event);
 
         if (event.pointerType !== 'touch') {
@@ -125,7 +126,8 @@ class TouchDevice implements InputDevice {
         }
     };
 
-    private _onPointerUp = (event: PointerEvent) => {
+    onPointerUp = (e: Event): void => {
+        const event = e as PointerEvent;
         this._movement.up(event);
 
         if (event.pointerType !== 'touch') {
@@ -144,8 +146,8 @@ class TouchDevice implements InputDevice {
         this._posY = 0;
     };
 
-    private _onContextMenu = (event: MouseEvent) => {
-        event.preventDefault();
+    onContextMenu = (e: Event): void => {
+        e.preventDefault();
     };
 
     private _midPoint(): [number, number] {
@@ -170,22 +172,10 @@ class TouchDevice implements InputDevice {
 
     attach(canvas: HTMLCanvasElement): void {
         this._element = canvas;
-        canvas.addEventListener('pointerdown', this._onPointerDown);
-        canvas.addEventListener('pointermove', this._onPointerMove);
-        canvas.addEventListener('pointerup', this._onPointerUp);
-        canvas.addEventListener('pointercancel', this._onPointerUp);
-        canvas.addEventListener('contextmenu', this._onContextMenu);
     }
 
     detach(): void {
-        if (this._element) {
-            this._element.removeEventListener('pointerdown', this._onPointerDown);
-            this._element.removeEventListener('pointermove', this._onPointerMove);
-            this._element.removeEventListener('pointerup', this._onPointerUp);
-            this._element.removeEventListener('pointercancel', this._onPointerUp);
-            this._element.removeEventListener('contextmenu', this._onContextMenu);
-            this._element = null;
-        }
+        this._element = null;
         this._pointerEvents.clear();
         this._raw.read();
     }

@@ -1,13 +1,13 @@
 import type { InputDevice } from '../shared';
 
 /**
- * Trackpad reader (layer 1): pure, mode-agnostic. Owns its own wheel/modifier
- * listeners, classifies the gesture (synthetic-Ctrl pinch / physical-Ctrl rotate
- * / Shift pan), and on a match claims the event (preventDefault +
- * stopImmediatePropagation) and accumulates the raw deltas. Exposes the gesture
- * + a `claimed` flag; fires no intents and reads no camera state — the
- * coordinator turns `claimed` into `interrupt`, and the schemes act on the
- * gesture.
+ * Trackpad reader (layer 1): pure, mode-agnostic. Does NOT register its own DOM
+ * listeners — the central `DomEventSource` calls the public `on*` handlers. It
+ * classifies the wheel gesture (synthetic-Ctrl pinch / physical-Ctrl rotate /
+ * Shift pan); on a match it `preventDefault`s, accumulates the raw deltas, sets
+ * `claimed`, and **returns `true` to claim the event** (the source then skips
+ * the keyboard-mouse reader's wheel handler — explicit, ordered, no
+ * `stopImmediatePropagation`). Fires no intents and reads no camera state.
  */
 class TrackpadDevice implements InputDevice {
     /** This-frame ctrl-rotate gesture [dx, dy]. */
@@ -39,27 +39,27 @@ class TrackpadDevice implements InputDevice {
     // momentum tails. Modifier-key state we can trust 100%.
     private _ctrlDown = false;
 
-    private _canvas: HTMLCanvasElement | null = null;
-
-    private _onKeyDown = (event: KeyboardEvent) => {
-        if (event.key === 'Control') {
+    onKeyDown = (e: Event): void => {
+        if ((e as KeyboardEvent).key === 'Control') {
             this._ctrlDown = true;
         }
     };
 
-    private _onKeyUp = (event: KeyboardEvent) => {
-        if (event.key === 'Control') {
+    onKeyUp = (e: Event): void => {
+        if ((e as KeyboardEvent).key === 'Control') {
             this._ctrlDown = false;
         }
     };
 
     // Window blur (alt-tab, focus another app) drops keyup events, so
     // clear Ctrl state defensively to avoid getting stuck.
-    private _onBlur = () => {
+    onBlur = (): void => {
         this._ctrlDown = false;
     };
 
-    private _onWheel = (event: WheelEvent) => {
+    onWheel = (e: Event): boolean | void => {
+        const event = e as WheelEvent;
+
         // Synthetic Ctrl (macOS pinch-to-zoom, Magic Mouse pinch): ctrlKey
         // is true on the event but the user isn't physically holding Ctrl.
         // Routes to trackpad-tuned zoom.
@@ -73,17 +73,12 @@ class TrackpadDevice implements InputDevice {
         const isShiftPan = event.shiftKey;
 
         if (!isPinch && !isCtrlRotate && !isShiftPan) {
-            // Bare wheel (mouse or trackpad swipe) falls through to the
-            // keyboard-mouse reader for standard forward/back motion.
+            // Bare wheel (mouse or trackpad swipe): not claimed — falls through
+            // to the keyboard-mouse reader for standard forward/back motion.
             return;
         }
 
         event.preventDefault();
-        // stopImmediatePropagation() blocks the keyboard-mouse reader's wheel
-        // handler (also on this canvas) so the delta doesn't double-up, and the
-        // canvas-level interrupt listener — the coordinator re-fires interrupt
-        // from the `claimed` flag instead.
-        event.stopImmediatePropagation();
         this._claimed = true;
 
         const { deltaX, deltaY } = event;
@@ -97,33 +92,16 @@ class TrackpadDevice implements InputDevice {
             this._pan[0] += deltaX;
             this._pan[1] += deltaY;
         }
+
+        // claim the event — the source skips the keyboard-mouse wheel handler
+        return true;
     };
 
-    /**
-     * Trackpad must attach BEFORE the keyboard-mouse reader so its
-     * `stopImmediatePropagation()` blocks that reader's wheel handler for
-     * trackpad bursts. The coordinator enforces this by attaching trackpad
-     * first. Keyboard listeners attach on `window` so Ctrl state is tracked
-     * even when focus is on a UI overlay.
-     *
-     * @param canvas - The canvas element to listen to.
-     */
-    attach(canvas: HTMLCanvasElement): void {
-        this._canvas = canvas;
-        canvas.addEventListener('wheel', this._onWheel, { passive: false });
-        window.addEventListener('keydown', this._onKeyDown);
-        window.addEventListener('keyup', this._onKeyUp);
-        window.addEventListener('blur', this._onBlur);
+    attach(_canvas: HTMLCanvasElement): void {
+        // No self-registration — the DomEventSource owns the listeners.
     }
 
     detach(): void {
-        if (this._canvas) {
-            this._canvas.removeEventListener('wheel', this._onWheel);
-            this._canvas = null;
-        }
-        window.removeEventListener('keydown', this._onKeyDown);
-        window.removeEventListener('keyup', this._onKeyUp);
-        window.removeEventListener('blur', this._onBlur);
         this._ctrlDown = false;
         this._orbit[0] = this._orbit[1] = 0;
         this._pan[0] = this._pan[1] = 0;

@@ -1,5 +1,6 @@
 import type { Global } from '../../types';
 import type { KeyboardMouseDevice } from '../devices/keyboard-mouse';
+import type { DomEventSource } from '../dom-event-source';
 
 const isCaptureMode = (mode: string) => mode === 'walk' || mode === 'fly';
 const hasUserActivation = () => (
@@ -121,7 +122,7 @@ class PointerLockManager {
         return this._recentlyExitedCapture;
     }
 
-    attach(canvas: HTMLCanvasElement, global: Global, keyboardMouse: KeyboardMouseDevice): void {
+    attach(canvas: HTMLCanvasElement, global: Global, keyboardMouse: KeyboardMouseDevice, source: DomEventSource): void {
         this._canvas = canvas;
         this._global = global;
         this._keyboardMouse = keyboardMouse;
@@ -132,7 +133,8 @@ class PointerLockManager {
         events.on('gamingControls:changed', this._onGamingControlsChanged);
         events.on('inputMode:changed', this._onInputModeChanged);
 
-        canvas.addEventListener('pointerdown', this._onPointerDown);
+        source.on('canvas', 'pointerdown', this._onPointerDown);
+        // pointer-lock lifecycle is document-level, not input dispatch — keep direct
         document.addEventListener('pointerlockchange', this._onPointerLockChange);
         document.addEventListener('pointerlockerror', this._onPointerLockError);
     }
@@ -144,7 +146,6 @@ class PointerLockManager {
             events.off('gamingControls:changed', this._onGamingControlsChanged);
             events.off('inputMode:changed', this._onInputModeChanged);
         }
-        this._canvas?.removeEventListener('pointerdown', this._onPointerDown);
         document.removeEventListener('pointerlockchange', this._onPointerLockChange);
         document.removeEventListener('pointerlockerror', this._onPointerLockError);
         this._canvas = null;

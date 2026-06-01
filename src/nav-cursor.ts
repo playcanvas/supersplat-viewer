@@ -7,6 +7,7 @@ import {
 } from 'playcanvas';
 
 import type { Collision } from './collision';
+import type { DomEventSource } from './input/dom-event-source';
 import type { State } from './types';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -297,7 +298,8 @@ class NavCursor {
         camera: Entity,
         collision: Collision | null,
         events: EventHandler,
-        state: State
+        state: State,
+        source: DomEventSource
     ) {
         this.camera = camera;
         this.collision = collision;
@@ -326,8 +328,8 @@ class NavCursor {
             this.hoverRing.hide();
         };
 
-        this.canvas.addEventListener('pointermove', this.onPointerMove);
-        this.canvas.addEventListener('pointerleave', this.onPointerLeave);
+        source.on('canvas', 'pointermove', this.onPointerMove);
+        source.on('canvas', 'pointerleave', this.onPointerLeave);
 
         const updateActive = () => {
             // Hover ring only in walk mode with mouse navigation. Gaming
@@ -472,8 +474,7 @@ class NavCursor {
 
     destroy() {
         this.app.off('prerender', this.onPrerender);
-        this.canvas.removeEventListener('pointermove', this.onPointerMove);
-        this.canvas.removeEventListener('pointerleave', this.onPointerLeave);
+        // pointer listeners are owned by the DomEventSource
         this.svg.remove();
     }
 }

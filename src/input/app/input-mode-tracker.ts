@@ -1,4 +1,5 @@
 import type { Global } from '../../types';
+import type { DomEventSource } from '../dom-event-source';
 
 /**
  * Watches global pointer events and updates `state.inputMode` to reflect
@@ -13,15 +14,14 @@ class InputModeTracker {
         }
     };
 
-    attach(global: Global): void {
+    attach(global: Global, source: DomEventSource): void {
         this._global = global;
-        window.addEventListener('pointerdown', this._onPointer);
-        window.addEventListener('pointermove', this._onPointer);
+        source.on('window', 'pointerdown', this._onPointer);
+        source.on('window', 'pointermove', this._onPointer);
     }
 
     detach(): void {
-        window.removeEventListener('pointerdown', this._onPointer);
-        window.removeEventListener('pointermove', this._onPointer);
+        // window pointer listeners are owned by the DomEventSource
         this._global = null;
     }
 }

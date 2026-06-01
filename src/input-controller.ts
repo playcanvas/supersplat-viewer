@@ -7,6 +7,7 @@ import { GamepadDevice } from './input/devices/gamepad';
 import { KeyboardMouseDevice } from './input/devices/keyboard-mouse';
 import { TouchDevice } from './input/devices/touch';
 import { TrackpadDevice } from './input/devices/trackpad';
+import { DomEventSource } from './input/dom-event-source';
 import { InputFrame } from './input/input-frame';
 import type { ControlScheme, Devices } from './input/schemes/control-scheme';
 import { FlyScheme } from './input/schemes/fly';
@@ -38,6 +39,8 @@ class InputController {
 
     private _gamepad = new GamepadDevice();
 
+    private _domSource = new DomEventSource();
+
     private _navInteraction: NavInteraction;
 
     private _pointerLock = new PointerLockManager();
@@ -54,6 +57,11 @@ class InputController {
 
     /** Previous active camera mode, to fire scheme.enter() on a change. */
     private _prevMode: CameraMode | null = null;
+
+    // The central DOM event source (so viewer-level consumers can subscribe).
+    get domSource(): DomEventSource {
+        return this._domSource;
+    }
 
     set collision(value: Collision | null) {
         this._navInteraction.collision = value;
@@ -82,35 +90,69 @@ class InputController {
         const { app, events } = global;
         const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
 
-        // Trackpad MUST attach before the keyboard-mouse reader so its wheel
-        // handler runs first; otherwise stopImmediatePropagation can't block
-        // that reader from also accumulating the wheel delta.
+        // central DOM event source — binds the canvas/window listeners up front
+        this._domSource.attach(canvas);
+
+        // readers hold the canvas (for pointer capture / lock checks) but do not
+        // self-register; the source dispatches DOM events to their handlers.
         this._trackpad.attach(canvas);
         this._keyboardMouse.attach(canvas);
         this._touch.attach(canvas);
         this._gamepad.attach(canvas);
 
-        // forward the virtual-joystick value into the touch reader, keeping the
-        // reader itself free of the app event bus
+        // interrupt / interact: raw-input "activity" signals (consumed by the UI)
+        const interrupt = (event: Event) => {
+            events.fire('inputEvent', 'interrupt', event);
+        };
+        const interact = (event: Event) => {
+            events.fire('inputEvent', 'interact', event);
+        };
+
+        // Wire DOM events to handlers in EXPLICIT order. The wheel order is the
+        // load-bearing one: interrupt fires for every wheel, then trackpad claims
+        // (returns true) to skip the keyboard-mouse reader so the delta isn't
+        // double-counted — replacing the old attach-order + stopImmediatePropagation.
+        const src = this._domSource;
+        src.on('canvas', 'wheel', interrupt);
+        src.on('canvas', 'wheel', this._trackpad.onWheel);
+        src.on('canvas', 'wheel', this._keyboardMouse.onWheel);
+
+        src.on('canvas', 'pointerdown', interrupt);
+        src.on('canvas', 'pointerdown', this._keyboardMouse.onPointerDown);
+        src.on('canvas', 'pointerdown', this._touch.onPointerDown);
+
+        src.on('canvas', 'pointermove', interact);
+        src.on('canvas', 'pointermove', this._keyboardMouse.onPointerMove);
+        src.on('canvas', 'pointermove', this._touch.onPointerMove);
+
+        src.on('canvas', 'pointerup', this._keyboardMouse.onPointerUp);
+        src.on('canvas', 'pointerup', this._touch.onPointerUp);
+        src.on('canvas', 'pointercancel', this._keyboardMouse.onPointerUp);
+        src.on('canvas', 'pointercancel', this._touch.onPointerUp);
+        src.on('canvas', 'pointerleave', this._keyboardMouse.onPointerUp);
+        src.on('canvas', 'lostpointercapture', this._keyboardMouse.onPointerUp);
+
+        src.on('canvas', 'contextmenu', interrupt);
+        src.on('canvas', 'contextmenu', this._keyboardMouse.onContextMenu);
+        src.on('canvas', 'contextmenu', this._touch.onContextMenu);
+
+        src.on('canvas', 'keydown', interrupt);
+
+        src.on('window', 'keydown', this._keyboardMouse.onKeyDown);
+        src.on('window', 'keydown', this._trackpad.onKeyDown);
+        src.on('window', 'keyup', this._keyboardMouse.onKeyUp);
+        src.on('window', 'keyup', this._trackpad.onKeyUp);
+        src.on('window', 'blur', this._trackpad.onBlur);
+
+        // forward the virtual-joystick value into the touch reader
         events.on('joystickInput', (value: { x: number; y: number }) => {
             this._touch.setJoystick(value.x, value.y);
         });
 
-        this._navInteraction.attach(canvas, global);
-        this._pointerLock.attach(canvas, global, this._keyboardMouse);
-        this._modeShortcuts.attach(global, this._pointerLock);
-        this._inputModeTracker.attach(global);
-
-        // canvas-level signals: anything that interrupts an animation /
-        // closes the settings panel / dismisses the walk hint
-        ['wheel', 'pointerdown', 'contextmenu', 'keydown'].forEach((eventName) => {
-            canvas.addEventListener(eventName, (event) => {
-                events.fire('inputEvent', 'interrupt', event);
-            });
-        });
-        canvas.addEventListener('pointermove', (event) => {
-            events.fire('inputEvent', 'interact', event);
-        });
+        this._navInteraction.attach(canvas, global, this._domSource);
+        this._pointerLock.attach(canvas, global, this._keyboardMouse, this._domSource);
+        this._modeShortcuts.attach(global, this._pointerLock, this._domSource);
+        this._inputModeTracker.attach(global, this._domSource);
     }
 
     update(dt: number, distance: number) {
@@ -132,14 +174,11 @@ class InputController {
         this._trackpad.update();
         this._gamepad.update();
 
-        // cross-mode intents the per-mode schemes can't own: requestFirstPerson
-        // fires in orbit AND anim; interrupt re-fires for a claimed trackpad
-        // gesture (the reader stopImmediatePropagation'd the canvas-level one).
+        // requestFirstPerson is the one cross-mode intent the per-mode schemes
+        // can't own — it fires in orbit AND anim (neither has a first-person
+        // scheme). interrupt/interact now fire synchronously via the DOM source.
         if (!isFirstPerson && this._keyboardMouse.axis.length() > 0) {
             events.fire('inputEvent', 'requestFirstPerson');
-        }
-        if (this._trackpad.claimed) {
-            events.fire('inputEvent', 'interrupt');
         }
 
         // reset the newly-active scheme's per-mode state on a mode change

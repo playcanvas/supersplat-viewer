@@ -3,6 +3,7 @@ import { Vec3 } from 'playcanvas';
 import type { Collision } from '../../collision';
 import type { Picker } from '../../picker';
 import type { Global } from '../../types';
+import type { DomEventSource } from '../dom-event-source';
 import { TAP_EPSILON } from '../shared';
 
 const tmpV = new Vec3();
@@ -281,14 +282,14 @@ class NavInteraction {
         }
     };
 
-    attach(canvas: HTMLCanvasElement, global: Global): void {
+    attach(canvas: HTMLCanvasElement, global: Global, source: DomEventSource): void {
         this._canvas = canvas;
         this._global = global;
         const { events } = global;
 
-        canvas.addEventListener('pointerdown', this._onPointerDown);
-        canvas.addEventListener('pointermove', this._onPointerMove);
-        canvas.addEventListener('pointerup', this._onPointerUp);
+        source.on('canvas', 'pointerdown', this._onPointerDown);
+        source.on('canvas', 'pointermove', this._onPointerMove);
+        source.on('canvas', 'pointerup', this._onPointerUp);
 
         // double-click/tap fallback -> fly target or orbit focus (skipped in walk mode)
         events.on('inputEvent', this._onInputEvent);
@@ -303,11 +304,8 @@ class NavInteraction {
     }
 
     detach(): void {
-        if (this._canvas) {
-            this._canvas.removeEventListener('pointerdown', this._onPointerDown);
-            this._canvas.removeEventListener('pointermove', this._onPointerMove);
-            this._canvas.removeEventListener('pointerup', this._onPointerUp);
-        }
+        // pointer listeners are owned by the DomEventSource; only the
+        // app-event subscriptions are ours to remove.
         if (this._global) {
             const { events } = this._global;
             events.off('inputEvent', this._onInputEvent);
