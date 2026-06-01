@@ -1,7 +1,9 @@
-import { GamepadSource, Vec3 } from 'playcanvas';
+import { Vec3 } from 'playcanvas';
+
 
 import type { Global } from '../../types';
 import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
+import { GamepadSource } from '../sources/gamepad';
 
 const tmpV = new Vec3();
 const stickMove = new Vec3();

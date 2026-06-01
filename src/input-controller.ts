@@ -1,5 +1,3 @@
-import { InputFrame } from 'playcanvas';
-
 import type { Collision } from './collision';
 import { InputModeTracker } from './input/app/input-mode-tracker';
 import { ModeShortcuts } from './input/app/mode-shortcuts';
@@ -10,6 +8,7 @@ import { KeyboardMouseDevice } from './input/devices/keyboard-mouse';
 import { TouchDevice } from './input/devices/touch';
 import { TrackpadDevice } from './input/devices/trackpad';
 import type { UpdateContext } from './input/shared';
+import { InputFrame } from './input/sources/input-frame';
 import type { Picker } from './picker';
 import type { Global } from './types';
 

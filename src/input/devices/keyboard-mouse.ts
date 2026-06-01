@@ -1,4 +1,5 @@
-import { KeyboardMouseSource, Vec3 } from 'playcanvas';
+import { Vec3 } from 'playcanvas';
+
 
 import { damp } from '../../core/math';
 import type { Global } from '../../types';
@@ -8,6 +9,7 @@ import {
     screenToWorld
 } from '../shared';
 import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
+import { KeyboardMouseSource } from '../sources/keyboard-mouse';
 
 const tmpV1 = new Vec3();
 const tmpV2 = new Vec3();
@@ -16,28 +18,6 @@ const flyKeyVelocity = new Vec3();
 const panMove = new Vec3();
 const mouseRotate = new Vec3();
 const wheelMove = new Vec3();
-
-// Patch keydown / keyup so meta-key combinations don't leave keys stuck on
-// macOS (the OS swallows keyup for any key released while Cmd is held).
-const patchKeyboardMeta = (desktopInput: any) => {
-    const origOnKeyDown = desktopInput._onKeyDown;
-    desktopInput._onKeyDown = (event: KeyboardEvent) => {
-        if (event.key === 'Meta') {
-            desktopInput._keyNow.fill(0);
-        } else if (!event.metaKey) {
-            origOnKeyDown(event);
-        }
-    };
-
-    const origOnKeyUp = desktopInput._onKeyUp;
-    desktopInput._onKeyUp = (event: KeyboardEvent) => {
-        if (event.key === 'Meta') {
-            desktopInput._keyNow.fill(0);
-        } else if (!event.metaKey) {
-            origOnKeyUp(event);
-        }
-    };
-};
 
 class KeyboardMouseDevice implements InputDevice {
     moveSpeed: number = 4;
@@ -83,7 +63,6 @@ class KeyboardMouseDevice implements InputDevice {
 
     attach(canvas: HTMLCanvasElement, global: Global): void {
         this._global = global;
-        patchKeyboardMeta(this._source);
         this._source.attach(canvas);
     }
 

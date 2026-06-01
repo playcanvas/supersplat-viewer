@@ -45,7 +45,7 @@ class PointerLockManager {
         // etc). Revert state so we don't end up stuck in walk mode without
         // mouse capture.
         if (this._keyboardMouse) {
-            (this._keyboardMouse.source as any)._pointerLock = false;
+            this._keyboardMouse.source.pointerLock = false;
         }
         const global = this._global;
         if (!global) return;
@@ -101,7 +101,7 @@ class PointerLockManager {
 
     private _activate(): void {
         if (this._keyboardMouse) {
-            (this._keyboardMouse.source as any)._pointerLock = true;
+            this._keyboardMouse.source.pointerLock = true;
         }
         if (document.pointerLockElement !== this._canvas) {
             this._canvas?.requestPointerLock();
@@ -110,7 +110,7 @@ class PointerLockManager {
 
     private _deactivate(): void {
         if (this._keyboardMouse) {
-            (this._keyboardMouse.source as any)._pointerLock = false;
+            this._keyboardMouse.source.pointerLock = false;
         }
         if (document.pointerLockElement === this._canvas) {
             document.exitPointerLock();

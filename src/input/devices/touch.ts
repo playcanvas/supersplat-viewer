@@ -1,4 +1,5 @@
-import { MultiTouchSource, Vec3 } from 'playcanvas';
+import { Vec3 } from 'playcanvas';
+
 
 import type { Global } from '../../types';
 import {
@@ -7,6 +8,7 @@ import {
     screenToWorld
 } from '../shared';
 import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
+import { MultiTouchSource } from '../sources/multi-touch';
 
 const tmpV = new Vec3();
 const orbitMove = new Vec3();
