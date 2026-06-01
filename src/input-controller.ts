@@ -7,12 +7,12 @@ import { GamepadDevice } from './input/devices/gamepad';
 import { KeyboardMouseDevice } from './input/devices/keyboard-mouse';
 import { TouchDevice } from './input/devices/touch';
 import { TrackpadDevice } from './input/devices/trackpad';
+import { InputFrame } from './input/input-frame';
 import type { ControlScheme, Devices } from './input/schemes/control-scheme';
 import { FlyScheme } from './input/schemes/fly';
 import { OrbitScheme } from './input/schemes/orbit';
 import { WalkScheme } from './input/schemes/walk';
 import type { UpdateContext } from './input/shared';
-import { InputFrame } from './input/sources/input-frame';
 import type { Picker } from './picker';
 import type { CameraMode, Global } from './types';
 
@@ -81,7 +81,7 @@ class InputController {
 
         // Trackpad MUST attach before KeyboardMouseDevice so its wheel
         // handler runs first; otherwise stopImmediatePropagation can't
-        // block KeyboardMouseSource from also accumulating the wheel delta.
+        // block the keyboard-mouse device from also accumulating the wheel delta.
         this._trackpad.attach(canvas, global);
         this._keyboardMouse.attach(canvas, global);
         this._touch.attach(canvas, global);

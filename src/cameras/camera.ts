@@ -1,7 +1,7 @@
 import { math, Vec3, Quat } from 'playcanvas';
 
 import { vecToAngles } from '../core/math';
-import type { InputFrame } from '../input/sources/input-frame';
+import type { InputFrame } from '../input/input-frame';
 
 type CameraFrame = InputFrame<{
     move: [number, number, number];

@@ -3,8 +3,9 @@
  * `extras/input/input.js` so the input layer carries no PlayCanvas dependency.
  *
  * An `InputDelta` accumulates per-frame deltas and zeroes itself on `read()`.
- * An `InputFrame` is a named bundle of deltas. An `InputSource` is an
- * `InputFrame` that owns DOM listeners on an attached element.
+ * An `InputFrame` is a named bundle of deltas — used both as the camera
+ * move/rotate frame and as the base each input reader extends to accumulate its
+ * own raw DOM deltas.
  */
 
 type DeltaShape = Record<string, number[]>;
@@ -63,6 +64,7 @@ class InputDelta {
 
 /**
  * A named bundle of input deltas. `read()` flushes (and zeroes) every delta.
+ * Input readers extend this to accumulate their raw per-frame deltas.
  */
 class InputFrame<T extends DeltaShape = DeltaShape> {
     deltas: Record<keyof T, InputDelta>;
@@ -84,29 +86,4 @@ class InputFrame<T extends DeltaShape = DeltaShape> {
     }
 }
 
-/**
- * Base class for input sources: an `InputFrame` that binds DOM listeners to an
- * attached element. Subclasses bind/unbind their own listeners in
- * `attach()`/`detach()` and must call `super`.
- */
-class InputSource<T extends DeltaShape = DeltaShape> extends InputFrame<T> {
-    protected _element: HTMLElement | null = null;
-
-    attach(element: HTMLElement): void {
-        if (this._element) {
-            this.detach();
-        }
-        this._element = element;
-    }
-
-    detach(): void {
-        if (!this._element) {
-            return;
-        }
-        this._element = null;
-        // flush any pending deltas so they don't leak across re-attach
-        this.read();
-    }
-}
-
-export { InputDelta, InputFrame, InputSource };
+export { InputDelta, InputFrame };
