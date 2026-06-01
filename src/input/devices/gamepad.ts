@@ -1,20 +1,24 @@
-import { Vec3 } from 'playcanvas';
-
-
 import type { Global } from '../../types';
-import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
+import type { InputDevice, UpdateContext } from '../shared';
 import { GamepadSource } from '../sources/gamepad';
 
-const tmpV = new Vec3();
-const stickMove = new Vec3();
-const stickRotate = new Vec3();
-
+/**
+ * Gamepad reader. Polls the gamepad source, fires the (fly-mode) navigateCancel
+ * intent, and exposes the stick signals + tuning constants for the control
+ * schemes to map.
+ */
 class GamepadDevice implements InputDevice {
     moveSpeed: number = 4;
 
     orbitSpeed: number = 18;
 
     gamepadRotateSensitivity: number = 1.0;
+
+    /** This-frame left stick [x, y]. */
+    leftStick: [number, number] = [0, 0];
+
+    /** This-frame right stick [x, y]. */
+    rightStick: [number, number] = [0, 0];
 
     private _source = new GamepadSource();
 
@@ -26,28 +30,21 @@ class GamepadDevice implements InputDevice {
     }
 
     detach(): void {
+        this._source.detach();
         this._global = null;
     }
 
-    update(ctx: UpdateContext, frame: CameraInputFrame): void {
-        const { dt, cameraComponent, isFly, isFirstPerson } = ctx;
+    update(ctx: UpdateContext): void {
         const { leftStick, rightStick } = this._source.read();
-        const orbitFactor = isFirstPerson ? cameraComponent.fov / 120 : 1;
-        const { deltas } = frame;
 
-        if (isFly && (leftStick[0] !== 0 || leftStick[1] !== 0 || rightStick[0] !== 0 || rightStick[1] !== 0)) {
+        this.leftStick[0] = leftStick[0];
+        this.leftStick[1] = leftStick[1];
+        this.rightStick[0] = rightStick[0];
+        this.rightStick[1] = rightStick[1];
+
+        if (ctx.isFly && (leftStick[0] !== 0 || leftStick[1] !== 0 || rightStick[0] !== 0 || rightStick[1] !== 0)) {
             this._global?.events.fire('navigateCancel');
         }
-
-        const v = tmpV.set(0, 0, 0);
-        stickMove.set(leftStick[0], 0, -leftStick[1]);
-        v.add(stickMove.mulScalar(this.moveSpeed * dt));
-        deltas.move.append([v.x, v.y, v.z]);
-
-        v.set(0, 0, 0);
-        stickRotate.set(rightStick[0], rightStick[1], 0);
-        v.add(stickRotate.mulScalar(this.orbitSpeed * orbitFactor * this.gamepadRotateSensitivity * dt));
-        deltas.rotate.append([v.x, v.y, v.z]);
     }
 }
 

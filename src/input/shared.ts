@@ -92,11 +92,16 @@ type UpdateContext = {
     touchCount: number;
 };
 
-/** Common shape every input device implements. */
+/**
+ * Common shape every input device (layer-1 reader / intent-emitter) implements.
+ * Devices read their source, maintain held-state, fire discrete intents, and
+ * expose normalized signals; the control schemes (layer 2) consume those
+ * signals and write the move/rotate frame.
+ */
 interface InputDevice {
     attach(canvas: HTMLCanvasElement, global: Global): void;
     detach(): void;
-    update(ctx: UpdateContext, frame: CameraInputFrame): void;
+    update(ctx: UpdateContext): void;
 }
 
 export {

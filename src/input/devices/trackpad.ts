@@ -1,14 +1,13 @@
-import { Vec3 } from 'playcanvas';
-
 import type { Global } from '../../types';
-import {
-    DISPLACEMENT_SCALE,
-    screenToWorld
-} from '../shared';
-import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
+import type { InputDevice, UpdateContext } from '../shared';
 
-const tmpV = new Vec3();
-
+/**
+ * Trackpad reader. Owns its own wheel/modifier listeners, classifies the
+ * gesture (synthetic-Ctrl pinch / physical-Ctrl rotate / Shift pan), claims and
+ * accumulates the raw deltas, and fires the interrupt / (fly) navigateCancel
+ * intents at event time. `update()` snapshots the accumulated gesture for the
+ * control schemes to map; the schemes write the move/rotate frame.
+ */
 class TrackpadDevice implements InputDevice {
     orbitSpeed: number = 18;
 
@@ -19,6 +18,15 @@ class TrackpadDevice implements InputDevice {
     trackpadPanSensitivity: number = 1.0;
 
     trackpadZoomSensitivity: number = 2.0;
+
+    /** This-frame accumulated ctrl-rotate gesture [dx, dy]. */
+    orbit: [number, number] = [0, 0];
+
+    /** This-frame accumulated shift-pan gesture [dx, dy]. */
+    pan: [number, number] = [0, 0];
+
+    /** This-frame accumulated synthetic-Ctrl pinch-zoom gesture. */
+    zoom = 0;
 
     private _global: Global | null = null;
 
@@ -149,44 +157,13 @@ class TrackpadDevice implements InputDevice {
         this._zoom = 0;
     }
 
-    update(ctx: UpdateContext, frame: CameraInputFrame): void {
-        const { isOrbit, isFirstPerson, distance, cameraComponent } = ctx;
-        const orbitFactor = isFirstPerson ? cameraComponent.fov / 120 : 1;
-        const { deltas } = frame;
-
-        if (isOrbit) {
-            // Ctrl + scroll → orbit rotate
-            const v = tmpV.set(this._orbit[0], this._orbit[1], 0);
-            v.mulScalar(this.orbitSpeed * this.trackpadOrbitSensitivity * DISPLACEMENT_SCALE);
-            deltas.rotate.append([v.x, v.y, 0]);
-
-            // shift + scroll → pan in world space (matches desktop pan path); reuse tmpV after rotate append
-            screenToWorld(cameraComponent, this._pan[0], this._pan[1], distance, tmpV);
-            tmpV.mulScalar(this.trackpadPanSensitivity);
-            deltas.move.append([tmpV.x, tmpV.y, 0]);
-
-            // synthetic-Ctrl pinch → zoom along z; positive deltaY (scroll-down / pinch-in) → zoom out → +z for orbit
-            const zoomZ = this._zoom * this.wheelSpeed * this.trackpadZoomSensitivity * DISPLACEMENT_SCALE;
-            deltas.move.append([0, 0, zoomZ]);
-        } else if (isFirstPerson) {
-            // Ctrl + scroll → look around in fly/walk
-            const v = tmpV.set(this._orbit[0], this._orbit[1], 0);
-            v.mulScalar(this.orbitSpeed * orbitFactor * this.trackpadOrbitSensitivity * DISPLACEMENT_SCALE);
-            deltas.rotate.append([v.x, v.y, 0]);
-
-            // shift + scroll → strafe (X) + vertical (Y) via the same
-            // screen-space pan pipeline as orbit mode; the fly/walk
-            // controllers translate this into sideways/vertical motion
-            screenToWorld(cameraComponent, this._pan[0], this._pan[1], distance, tmpV);
-            tmpV.mulScalar(this.trackpadPanSensitivity);
-            deltas.move.append([tmpV.x, tmpV.y, 0]);
-
-            // synthetic-Ctrl pinch → forward/back along z (same sign as the
-            // bare-wheel path in KeyboardMouseDevice, so pinch and scroll
-            // produce identical motion in fly/walk modes)
-            const moveZ = -this._zoom * this.wheelSpeed * this.trackpadZoomSensitivity * DISPLACEMENT_SCALE;
-            deltas.move.append([0, 0, moveZ]);
-        }
+    update(_ctx: UpdateContext): void {
+        // snapshot the accumulated gesture for the scheme, then clear
+        this.orbit[0] = this._orbit[0];
+        this.orbit[1] = this._orbit[1];
+        this.pan[0] = this._pan[0];
+        this.pan[1] = this._pan[1];
+        this.zoom = this._zoom;
 
         this._orbit[0] = this._orbit[1] = 0;
         this._pan[0] = this._pan[1] = 0;

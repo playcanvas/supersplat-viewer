@@ -1,25 +1,22 @@
 import { Vec3 } from 'playcanvas';
 
-
 import { damp } from '../../core/math';
 import type { Global } from '../../types';
-import {
-    DISPLACEMENT_SCALE,
-    flipZForOrbit,
-    screenToWorld
-} from '../shared';
-import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
+import type { InputDevice, UpdateContext } from '../shared';
 import { KeyboardMouseSource } from '../sources/keyboard-mouse';
 
 const tmpV1 = new Vec3();
-const tmpV2 = new Vec3();
 const keyMove = new Vec3();
 const flyKeyVelocity = new Vec3();
-const panMove = new Vec3();
-const mouseRotate = new Vec3();
-const wheelMove = new Vec3();
 
+/**
+ * Keyboard + mouse reader. Reads the raw source, maintains the held-state
+ * shared across camera modes, fires the (mode-aware) discrete intents, and
+ * exposes normalized signals + tuning constants for the control schemes to map.
+ * The schemes write the move/rotate frame — not this class.
+ */
 class KeyboardMouseDevice implements InputDevice {
+    // tuning constants (read by the schemes)
     moveSpeed: number = 4;
 
     orbitSpeed: number = 18;
@@ -32,30 +29,42 @@ class KeyboardMouseDevice implements InputDevice {
 
     flyMoveDecelerationDamping: number = 0.993;
 
+    /** Held WASD/QE/arrow direction (running sum of key deltas). */
+    axis = new Vec3();
+
+    shift = 0;
+
+    ctrl = 0;
+
+    jump = 0;
+
+    /** Held button state per index: [LMB, MMB, RMB]. */
+    buttons: [number, number, number] = [0, 0, 0];
+
+    /** This-frame mouse delta [dx, dy]. */
+    mouse: [number, number] = [0, 0];
+
+    /** This-frame wheel delta. */
+    wheel = 0;
+
+    /** Pan-active flag (RMB held / released this frame / 2+ touches). */
+    pan = 0;
+
+    /** Smoothed fly-mode WASD velocity (zeroed outside fly mode). */
+    flyVelocity = new Vec3();
+
     private _source: KeyboardMouseSource = new KeyboardMouseSource();
 
     private _global: Global | null = null;
 
-    /** Running WASD/QE/arrow direction (sum of key states). */
-    private _axis = new Vec3();
-
-    /** Running button-held state per index: [LMB, MMB, RMB]. */
-    private _buttons: [number, number, number] = [0, 0, 0];
-
-    private _shift = 0;
-
-    private _ctrl = 0;
-
-    private _jump = 0;
-
-    private _flyKeyVelocity = new Vec3();
+    /** This-frame button edge per index: 1 pressed, -1 released, 0 unchanged. */
+    private _buttonEdge: [number, number, number] = [0, 0, 0];
 
     /**
-     * Get the underlying source so other code (PointerLockManager) can
-     * toggle its private pointer-lock flag, which gates how it consumes
-     * mouse-delta events.
+     * The underlying source so PointerLockManager can toggle pointer-lock
+     * mouse-delta sourcing via its public setter.
      *
-     * @returns The PlayCanvas KeyboardMouseSource backing this device.
+     * @returns The KeyboardMouseSource backing this device.
      */
     get source(): KeyboardMouseSource {
         return this._source;
@@ -67,37 +76,43 @@ class KeyboardMouseDevice implements InputDevice {
     }
 
     detach(): void {
-        // KeyboardMouseSource does not expose a detach; nothing to undo for
-        // its DOM listeners here.
+        this._source.detach();
     }
 
-    update(ctx: UpdateContext, frame: CameraInputFrame): void {
+    update(ctx: UpdateContext): void {
         const { keyCode } = KeyboardMouseSource;
         const { key, button, mouse, wheel } = this._source.read();
         const { events } = this._global!;
 
         // accumulate running input state
-        this._axis.add(tmpV1.set(
+        this.axis.add(tmpV1.set(
             (key[keyCode.D] - key[keyCode.A]) + (key[keyCode.RIGHT] - key[keyCode.LEFT]),
             (key[keyCode.E] - key[keyCode.Q]),
             (key[keyCode.W] - key[keyCode.S]) + (key[keyCode.UP] - key[keyCode.DOWN])
         ));
-        this._jump += key[keyCode.SPACE];
-        this._shift += key[keyCode.SHIFT];
-        this._ctrl += key[keyCode.CTRL];
-        const n = Math.min(button.length, this._buttons.length);
+        this.jump += key[keyCode.SPACE];
+        this.shift += key[keyCode.SHIFT];
+        this.ctrl += key[keyCode.CTRL];
+        const n = Math.min(button.length, this.buttons.length);
         for (let i = 0; i < n; i++) {
-            this._buttons[i] += button[i];
+            this.buttons[i] += button[i];
+            this._buttonEdge[i] = button[i];
         }
 
-        const { isFly, isWalk, isFirstPerson, gamingControls, dt, distance, cameraComponent, mode, touchCount } = ctx;
-        const pan = this._buttons[2] || +(button[2] === -1) || +(touchCount > 1);
+        const { isFly, isWalk, isFirstPerson, gamingControls, dt, touchCount } = ctx;
+        const pan = this.buttons[2] || +(this._buttonEdge[2] === -1) || +(touchCount > 1);
+        this.pan = pan;
+
+        // expose this-frame mouse / wheel deltas
+        this.mouse[0] = mouse[0];
+        this.mouse[1] = mouse[1];
+        this.wheel = wheel[0];
 
         // auto-move cancellation and requestFirstPerson events (driven by keyboard axes)
-        if (isWalk && (this._axis.x !== 0 || this._axis.z !== 0)) {
+        if (isWalk && (this.axis.x !== 0 || this.axis.z !== 0)) {
             events.fire('navigateCancel');
         }
-        if (isFly && (this._axis.x !== 0 || this._axis.y !== 0 || this._axis.z !== 0)) {
+        if (isFly && (this.axis.x !== 0 || this.axis.y !== 0 || this.axis.z !== 0)) {
             events.fire('navigateCancel');
         }
         if (isFly && wheel[0] !== 0) {
@@ -106,57 +121,29 @@ class KeyboardMouseDevice implements InputDevice {
         if (isFly && (gamingControls || pan) && (mouse[0] !== 0 || mouse[1] !== 0)) {
             events.fire('navigateCancel');
         }
-        if (!isFirstPerson && this._axis.length() > 0) {
+        if (!isFirstPerson && this.axis.length() > 0) {
             events.fire('inputEvent', 'requestFirstPerson');
         }
 
-        const orbitFactor = isFirstPerson ? cameraComponent.fov / 120 : 1;
-
-        const { deltas } = frame;
-
-        // move (WASD + mouse-drag pan + wheel)
-        const v = tmpV1.set(0, 0, 0);
-        keyMove.copy(this._axis);
-        if (isWalk) {
-            // In walk mode normalize only horizontal axes so jump doesn't
-            // reduce horizontal speed.
-            keyMove.y = 0;
-        }
-        keyMove.normalize();
-        const shiftMul = isWalk ? 2 : 4;
-        const ctrlMul = isWalk ? 0.5 : 0.25;
-        const speed = this.moveSpeed * (this._shift ? shiftMul : this._ctrl ? ctrlMul : 1);
-        keyMove.mulScalar(speed);
+        // Fly-mode WASD velocity (smoothed, accel/decel damping). Computed here
+        // (every frame, mode-aware) so it resets each non-fly frame and starts
+        // from rest when fly is re-entered; the fly scheme applies it.
         if (isFly) {
+            keyMove.copy(this.axis);
+            keyMove.normalize();
+            const speed = this.moveSpeed * (this.shift ? 4 : this.ctrl ? 0.25 : 1);
+            keyMove.mulScalar(speed);
             flyKeyVelocity.copy(keyMove);
-            const damping = flyKeyVelocity.lengthSq() > this._flyKeyVelocity.lengthSq() ?
+            const damping = flyKeyVelocity.lengthSq() > this.flyVelocity.lengthSq() ?
                 this.flyMoveAccelerationDamping :
                 this.flyMoveDecelerationDamping;
-            this._flyKeyVelocity.lerp(this._flyKeyVelocity, flyKeyVelocity, damp(damping, dt));
-            if (flyKeyVelocity.lengthSq() === 0 && this._flyKeyVelocity.lengthSq() < 1e-4) {
-                this._flyKeyVelocity.set(0, 0, 0);
+            this.flyVelocity.lerp(this.flyVelocity, flyKeyVelocity, damp(damping, dt));
+            if (flyKeyVelocity.lengthSq() === 0 && this.flyVelocity.lengthSq() < 1e-4) {
+                this.flyVelocity.set(0, 0, 0);
             }
-            keyMove.copy(this._flyKeyVelocity);
         } else {
-            this._flyKeyVelocity.set(0, 0, 0);
+            this.flyVelocity.set(0, 0, 0);
         }
-        v.add(tmpV2.copy(keyMove).mulScalar((isFirstPerson ? 1 : 0) * dt));
-        if (isWalk) {
-            // Pass jump signal as raw Y; WalkController uses move[1] > 0 as
-            // a boolean trigger.
-            v.y = this._jump > 0 ? 1 : 0;
-        }
-        screenToWorld(cameraComponent, mouse[0], mouse[1], distance, panMove);
-        v.add(panMove.mulScalar(pan));
-        wheelMove.set(0, 0, -wheel[0]);
-        v.add(wheelMove.mulScalar(this.wheelSpeed * DISPLACEMENT_SCALE));
-        deltas.move.append([v.x, v.y, flipZForOrbit(mode, v.z)]);
-
-        // rotate (mouse-drag, masked when in pan mode)
-        v.set(0, 0, 0);
-        mouseRotate.set(mouse[0], mouse[1], 0);
-        v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * orbitFactor * this.mouseRotateSensitivity * DISPLACEMENT_SCALE));
-        deltas.rotate.append([v.x, v.y, v.z]);
     }
 }
 

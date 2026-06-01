@@ -59,6 +59,11 @@ class InputDelta {
         this._value.fill(0);
         return value;
     }
+
+    // Return a copy of the current values WITHOUT resetting (non-draining).
+    peek(): number[] {
+        return this._value.slice();
+    }
 }
 
 /**
@@ -79,6 +84,15 @@ class InputFrame<T extends DeltaShape = DeltaShape> {
         const frame = {} as Record<keyof T, number[]>;
         for (const name in this.deltas) {
             frame[name] = this.deltas[name].read();
+        }
+        return frame;
+    }
+
+    // Snapshot every delta WITHOUT resetting (non-draining; for debug capture).
+    peek(): Record<keyof T, number[]> {
+        const frame = {} as Record<keyof T, number[]>;
+        for (const name in this.deltas) {
+            frame[name] = this.deltas[name].peek();
         }
         return frame;
     }
