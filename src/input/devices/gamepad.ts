@@ -1,6 +1,5 @@
-import type { Global } from '../../types';
 import { InputFrame } from '../input-frame';
-import type { InputDevice, UpdateContext } from '../shared';
+import type { InputDevice } from '../shared';
 
 const BUTTON_CODES = {
     A: 0,
@@ -28,24 +27,12 @@ type GamepadDeltas = {
 };
 
 /**
- * Gamepad reader: a self-contained input device that polls
- * `navigator.getGamepads()` on `read()` (engine-free port of the PlayCanvas
- * `GamepadSource`; no DOM listeners), fires the (fly-mode) navigateCancel
- * intent, and exposes the stick signals + tuning constants for the control
- * schemes to map.
- *
- * Raw `read()` output (standard-mapping pads with 2 sticks + 12 buttons only):
- * - `buttons` length 12, per-frame delta: +1 pressed, -1 released, 0 unchanged
- * - `leftStick` / `rightStick` [x, y], raw axis values in [-1, 1]
+ * Gamepad reader (layer 1): pure, mode-agnostic. Polls `navigator.getGamepads()`
+ * (engine-free port of the PlayCanvas `GamepadSource`; no DOM listeners) and
+ * exposes the stick signals. No mode logic, no intents — the schemes own those.
  */
-class GamepadDevice extends InputFrame<GamepadDeltas> implements InputDevice {
+class GamepadDevice implements InputDevice {
     static buttonCode = BUTTON_CODES;
-
-    moveSpeed: number = 4;
-
-    orbitSpeed: number = 18;
-
-    gamepadRotateSensitivity: number = 1.0;
 
     /** This-frame left stick [x, y]. */
     leftStick: [number, number] = [0, 0];
@@ -53,28 +40,24 @@ class GamepadDevice extends InputFrame<GamepadDeltas> implements InputDevice {
     /** This-frame right stick [x, y]. */
     rightStick: [number, number] = [0, 0];
 
-    private _global: Global | null = null;
+    /** Raw-delta buffer (composition, not inheritance). */
+    private _raw = new InputFrame<GamepadDeltas>({
+        buttons: new Array(BUTTON_COUNT).fill(0),
+        leftStick: [0, 0],
+        rightStick: [0, 0]
+    });
 
     private _buttonPrev = new Array(BUTTON_COUNT).fill(0);
 
-    constructor() {
-        super({
-            buttons: new Array(BUTTON_COUNT).fill(0),
-            leftStick: [0, 0],
-            rightStick: [0, 0]
-        });
-    }
-
-    attach(_canvas: HTMLCanvasElement, global: Global): void {
-        this._global = global;
-        // Polls navigator.getGamepads() in read() — no DOM attach needed.
+    attach(_canvas: HTMLCanvasElement): void {
+        // Polls navigator.getGamepads() in update() — no DOM attach needed.
     }
 
     detach(): void {
-        this._global = null;
+        // No DOM listeners to remove.
     }
 
-    read(): GamepadDeltas {
+    private _read(): GamepadDeltas {
         const gamepads = navigator.getGamepads();
         for (let i = 0; i < gamepads.length; i++) {
             const gp = gamepads[i];
@@ -97,26 +80,22 @@ class GamepadDevice extends InputFrame<GamepadDeltas> implements InputDevice {
                 buttonScratch[j] = state - this._buttonPrev[j];
                 this._buttonPrev[j] = state;
             }
-            this.deltas.buttons.append(buttonScratch);
+            this._raw.deltas.buttons.append(buttonScratch);
 
-            this.deltas.leftStick.append([gp.axes[0], gp.axes[1]]);
-            this.deltas.rightStick.append([gp.axes[2], gp.axes[3]]);
+            this._raw.deltas.leftStick.append([gp.axes[0], gp.axes[1]]);
+            this._raw.deltas.rightStick.append([gp.axes[2], gp.axes[3]]);
         }
 
-        return super.read();
+        return this._raw.read();
     }
 
-    update(ctx: UpdateContext): void {
-        const { leftStick, rightStick } = this.read();
+    update(): void {
+        const { leftStick, rightStick } = this._read();
 
         this.leftStick[0] = leftStick[0];
         this.leftStick[1] = leftStick[1];
         this.rightStick[0] = rightStick[0];
         this.rightStick[1] = rightStick[1];
-
-        if (ctx.isFly && (leftStick[0] !== 0 || leftStick[1] !== 0 || rightStick[0] !== 0 || rightStick[1] !== 0)) {
-            this._global?.events.fire('navigateCancel');
-        }
     }
 }
 

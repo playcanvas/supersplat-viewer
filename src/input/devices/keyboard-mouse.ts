@@ -1,10 +1,8 @@
 import { Vec3 } from 'playcanvas';
 
-import { damp } from '../../core/math';
-import type { Global } from '../../types';
 import { InputFrame } from '../input-frame';
 import { movementState } from '../movement-state';
-import type { InputDevice, UpdateContext } from '../shared';
+import type { InputDevice } from '../shared';
 
 const PASSIVE = { passive: false, capture: false };
 
@@ -59,8 +57,6 @@ const KEY_COUNT = Object.keys(KEY_CODES).length;
 const keyScratch = new Array(KEY_COUNT).fill(0);
 
 const tmpV1 = new Vec3();
-const keyMove = new Vec3();
-const flyKeyVelocity = new Vec3();
 
 type KeyboardMouseDeltas = {
     key: number[];
@@ -70,41 +66,18 @@ type KeyboardMouseDeltas = {
 };
 
 /**
- * Keyboard + mouse reader: a self-contained input device that binds its own DOM
- * listeners and accumulates raw deltas (engine-free port of the PlayCanvas
- * `KeyboardMouseSource`), maintains the held-state shared across camera modes,
- * fires the (mode-aware) discrete intents, and exposes normalized signals +
- * tuning constants for the control schemes to map. The schemes write the
- * move/rotate frame — not this class.
+ * Keyboard + mouse reader (layer 1): pure, mode-agnostic. Binds its own DOM
+ * listeners, accumulates raw deltas (engine-free port of the PlayCanvas
+ * `KeyboardMouseSource`) into a private buffer, integrates the held-state shared
+ * across modes, and exposes normalized signals. No camera-mode logic, no tuning
+ * constants, no intents — the control schemes own those.
  *
- * Two viewer-specific behaviours are baked into the raw reading:
- * - macOS Meta-key fix: macOS swallows `keyup` for any key released while Cmd
- *   is held, so we clear all key state on a Meta event and ignore key events
- *   that arrive with `metaKey` set.
- * - a public `pointerLock` setter so the pointer-lock manager can toggle how
- *   mouse deltas are sourced.
- *
- * Raw `read()` output (consumed internally by `update`):
- * - `key`   length 43, per-frame delta (`keyNow - keyPrev`): +1 pressed, -1 released, 0 unchanged
- * - `button` length 3 [L,M,R], level/edge: 1 pressed, -1 released-this-frame, 0 up
- * - `mouse`  [dx, dy], accumulated screen-space delta (native movementX/Y under pointer lock)
- * - `wheel`  [dY], accumulated raw wheel deltaY
+ * macOS Meta-key fix is baked into the raw reading (macOS swallows `keyup` for
+ * keys released while Cmd is held); a public `pointerLock` setter lets the
+ * pointer-lock manager switch mouse-delta sourcing.
  */
-class KeyboardMouseDevice extends InputFrame<KeyboardMouseDeltas> implements InputDevice {
+class KeyboardMouseDevice implements InputDevice {
     static keyCode = KEY_CODES;
-
-    // tuning constants (read by the schemes)
-    moveSpeed: number = 4;
-
-    orbitSpeed: number = 18;
-
-    wheelSpeed: number = 0.06;
-
-    mouseRotateSensitivity: number = 0.5;
-
-    flyMoveAccelerationDamping: number = 0.992;
-
-    flyMoveDecelerationDamping: number = 0.993;
 
     /** Held WASD/QE/arrow direction (running sum of key deltas). */
     axis = new Vec3();
@@ -118,21 +91,24 @@ class KeyboardMouseDevice extends InputFrame<KeyboardMouseDeltas> implements Inp
     /** Held button state per index: [LMB, MMB, RMB]. */
     buttons: [number, number, number] = [0, 0, 0];
 
+    /** This-frame button edge per index: 1 pressed, -1 released, 0 unchanged. */
+    buttonEdge: [number, number, number] = [0, 0, 0];
+
     /** This-frame mouse delta [dx, dy]. */
     mouse: [number, number] = [0, 0];
 
     /** This-frame wheel delta. */
     wheel = 0;
 
-    /** Pan-active flag (RMB held / released this frame / 2+ touches). */
-    pan = 0;
-
-    /** Smoothed fly-mode WASD velocity (zeroed outside fly mode). */
-    flyVelocity = new Vec3();
+    /** Raw-delta buffer (composition, not inheritance). */
+    private _raw = new InputFrame<KeyboardMouseDeltas>({
+        key: new Array(KEY_COUNT).fill(0),
+        button: [0, 0, 0],
+        mouse: [0, 0],
+        wheel: [0]
+    });
 
     private _element: HTMLElement | null = null;
-
-    private _global: Global | null = null;
 
     private _movement = movementState();
 
@@ -148,17 +124,7 @@ class KeyboardMouseDevice extends InputFrame<KeyboardMouseDeltas> implements Inp
 
     private _button = [0, 0, 0];
 
-    /** This-frame button edge per index: 1 pressed, -1 released, 0 unchanged. */
-    private _buttonEdge: [number, number, number] = [0, 0, 0];
-
     constructor() {
-        super({
-            key: new Array(KEY_COUNT).fill(0),
-            button: [0, 0, 0],
-            mouse: [0, 0],
-            wheel: [0]
-        });
-
         const { keyCode } = KeyboardMouseDevice;
 
         for (let i = 0; i < 26; i++) {
@@ -189,7 +155,7 @@ class KeyboardMouseDevice extends InputFrame<KeyboardMouseDeltas> implements Inp
 
     private _onWheel = (event: WheelEvent) => {
         event.preventDefault();
-        this.deltas.wheel.append([event.deltaY]);
+        this._raw.deltas.wheel.append([event.deltaY]);
     };
 
     private _onPointerDown = (event: PointerEvent) => {
@@ -208,7 +174,7 @@ class KeyboardMouseDevice extends InputFrame<KeyboardMouseDeltas> implements Inp
 
         this._clearButtons();
         this._button[event.button] = 1;
-        this.deltas.button.append(this._button);
+        this._raw.deltas.button.append(this._button);
 
         if (this._pointerId !== -1) {
             return;
@@ -236,7 +202,7 @@ class KeyboardMouseDevice extends InputFrame<KeyboardMouseDeltas> implements Inp
             return;
         }
 
-        this.deltas.mouse.append([movementX, movementY]);
+        this._raw.deltas.mouse.append([movementX, movementY]);
     };
 
     private _onPointerUp = (event: PointerEvent) => {
@@ -250,7 +216,7 @@ class KeyboardMouseDevice extends InputFrame<KeyboardMouseDeltas> implements Inp
         }
 
         this._clearButtons();
-        this.deltas.button.append(this._button);
+        this._raw.deltas.button.append(this._button);
 
         if (this._pointerId !== event.pointerId) {
             return;
@@ -305,8 +271,17 @@ class KeyboardMouseDevice extends InputFrame<KeyboardMouseDeltas> implements Inp
         this._keyNow[index] = value;
     }
 
-    attach(canvas: HTMLCanvasElement, global: Global): void {
-        this._global = global;
+    // Compute per-frame key deltas, then flush the raw buffer.
+    private _read(): KeyboardMouseDeltas {
+        for (let i = 0; i < KEY_COUNT; i++) {
+            keyScratch[i] = this._keyNow[i] - this._keyPrev[i];
+            this._keyPrev[i] = this._keyNow[i];
+        }
+        this._raw.deltas.key.append(keyScratch);
+        return this._raw.read();
+    }
+
+    attach(canvas: HTMLCanvasElement): void {
         this._element = canvas;
 
         canvas.addEventListener('wheel', this._onWheel, PASSIVE);
@@ -340,26 +315,13 @@ class KeyboardMouseDevice extends InputFrame<KeyboardMouseDeltas> implements Inp
 
         this._keyNow.fill(0);
         this._keyPrev.fill(0);
-        this.read();
-        this._global = null;
+        this._read();
     }
 
-    read(): KeyboardMouseDeltas {
-        for (let i = 0; i < KEY_COUNT; i++) {
-            keyScratch[i] = this._keyNow[i] - this._keyPrev[i];
-            this._keyPrev[i] = this._keyNow[i];
-        }
-        this.deltas.key.append(keyScratch);
-
-        return super.read();
-    }
-
-    update(ctx: UpdateContext): void {
+    update(): void {
         const { keyCode } = KeyboardMouseDevice;
-        const { key, button, mouse, wheel } = this.read();
-        const { events } = this._global!;
+        const { key, button, mouse, wheel } = this._read();
 
-        // accumulate running input state
         this.axis.add(tmpV1.set(
             (key[keyCode.D] - key[keyCode.A]) + (key[keyCode.RIGHT] - key[keyCode.LEFT]),
             (key[keyCode.E] - key[keyCode.Q]),
@@ -368,57 +330,16 @@ class KeyboardMouseDevice extends InputFrame<KeyboardMouseDeltas> implements Inp
         this.jump += key[keyCode.SPACE];
         this.shift += key[keyCode.SHIFT];
         this.ctrl += key[keyCode.CTRL];
+
         const n = Math.min(button.length, this.buttons.length);
         for (let i = 0; i < n; i++) {
             this.buttons[i] += button[i];
-            this._buttonEdge[i] = button[i];
+            this.buttonEdge[i] = button[i];
         }
 
-        const { isFly, isWalk, isFirstPerson, gamingControls, dt, touchCount } = ctx;
-        const pan = this.buttons[2] || +(this._buttonEdge[2] === -1) || +(touchCount > 1);
-        this.pan = pan;
-
-        // expose this-frame mouse / wheel deltas
         this.mouse[0] = mouse[0];
         this.mouse[1] = mouse[1];
         this.wheel = wheel[0];
-
-        // auto-move cancellation and requestFirstPerson events (driven by keyboard axes)
-        if (isWalk && (this.axis.x !== 0 || this.axis.z !== 0)) {
-            events.fire('navigateCancel');
-        }
-        if (isFly && (this.axis.x !== 0 || this.axis.y !== 0 || this.axis.z !== 0)) {
-            events.fire('navigateCancel');
-        }
-        if (isFly && wheel[0] !== 0) {
-            events.fire('navigateCancel');
-        }
-        if (isFly && (gamingControls || pan) && (mouse[0] !== 0 || mouse[1] !== 0)) {
-            events.fire('navigateCancel');
-        }
-        if (!isFirstPerson && this.axis.length() > 0) {
-            events.fire('inputEvent', 'requestFirstPerson');
-        }
-
-        // Fly-mode WASD velocity (smoothed, accel/decel damping). Computed here
-        // (every frame, mode-aware) so it resets each non-fly frame and starts
-        // from rest when fly is re-entered; the fly scheme applies it.
-        if (isFly) {
-            keyMove.copy(this.axis);
-            keyMove.normalize();
-            const speed = this.moveSpeed * (this.shift ? 4 : this.ctrl ? 0.25 : 1);
-            keyMove.mulScalar(speed);
-            flyKeyVelocity.copy(keyMove);
-            const damping = flyKeyVelocity.lengthSq() > this.flyVelocity.lengthSq() ?
-                this.flyMoveAccelerationDamping :
-                this.flyMoveDecelerationDamping;
-            this.flyVelocity.lerp(this.flyVelocity, flyKeyVelocity, damp(damping, dt));
-            if (flyKeyVelocity.lengthSq() === 0 && this.flyVelocity.lengthSq() < 1e-4) {
-                this.flyVelocity.set(0, 0, 0);
-            }
-        } else {
-            this.flyVelocity.set(0, 0, 0);
-        }
     }
 }
 

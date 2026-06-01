@@ -18,7 +18,13 @@ interface Devices {
  * camera mode (orbit / fly / walk); `anim` has no scheme.
  */
 interface ControlScheme {
+    /** Reset per-mode mapping state when this scheme becomes the active mode. */
+    enter?(): void;
     map(devices: Devices, ctx: UpdateContext, frame: CameraInputFrame): void;
 }
 
+// Pan-active flag: RMB held / released this frame / 2+ touches.
+const panActive = (kb: KeyboardMouseDevice, touchCount: number): number => kb.buttons[2] || +(kb.buttonEdge[2] === -1) || +(touchCount > 1);
+
+export { panActive };
 export type { Devices, ControlScheme };

@@ -52,6 +52,9 @@ class InputController {
     /** Per-mode control schemes (layer 2); `anim` has none. */
     private _schemes: Partial<Record<CameraMode, ControlScheme>>;
 
+    /** Previous active camera mode, to fire scheme.enter() on a change. */
+    private _prevMode: CameraMode | null = null;
+
     set collision(value: Collision | null) {
         this._navInteraction.collision = value;
     }
@@ -79,13 +82,19 @@ class InputController {
         const { app, events } = global;
         const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
 
-        // Trackpad MUST attach before KeyboardMouseDevice so its wheel
-        // handler runs first; otherwise stopImmediatePropagation can't
-        // block the keyboard-mouse device from also accumulating the wheel delta.
-        this._trackpad.attach(canvas, global);
-        this._keyboardMouse.attach(canvas, global);
-        this._touch.attach(canvas, global);
-        this._gamepad.attach(canvas, global);
+        // Trackpad MUST attach before the keyboard-mouse reader so its wheel
+        // handler runs first; otherwise stopImmediatePropagation can't block
+        // that reader from also accumulating the wheel delta.
+        this._trackpad.attach(canvas);
+        this._keyboardMouse.attach(canvas);
+        this._touch.attach(canvas);
+        this._gamepad.attach(canvas);
+
+        // forward the virtual-joystick value into the touch reader, keeping the
+        // reader itself free of the app event bus
+        events.on('joystickInput', (value: { x: number; y: number }) => {
+            this._touch.setJoystick(value.x, value.y);
+        });
 
         this._navInteraction.attach(canvas, global);
         this._pointerLock.attach(canvas, global, this._keyboardMouse);
@@ -105,42 +114,57 @@ class InputController {
     }
 
     update(dt: number, distance: number) {
-        const { state } = this._global;
+        const { state, events } = this._global;
         const cameraComponent = this._global.camera.camera!;
 
-        const isOrbit = state.cameraMode === 'orbit';
-        const isFly = state.cameraMode === 'fly';
-        const isWalk = state.cameraMode === 'walk';
+        // mode captured pre-intent: requestFirstPerson (below) may switch the
+        // mode synchronously, but ctx carries the pre-switch mode while the
+        // scheme is selected from the post-switch mode (matches prior behaviour).
+        const mode = state.cameraMode;
+        const isOrbit = mode === 'orbit';
+        const isFly = mode === 'fly';
+        const isWalk = mode === 'walk';
         const isFirstPerson = isFly || isWalk;
 
+        // layer 1: read the pure, mode-agnostic device readers.
+        this._touch.update();
+        this._keyboardMouse.update();
+        this._trackpad.update();
+        this._gamepad.update();
+
+        // cross-mode intents the per-mode schemes can't own: requestFirstPerson
+        // fires in orbit AND anim; interrupt re-fires for a claimed trackpad
+        // gesture (the reader stopImmediatePropagation'd the canvas-level one).
+        if (!isFirstPerson && this._keyboardMouse.axis.length() > 0) {
+            events.fire('inputEvent', 'requestFirstPerson');
+        }
+        if (this._trackpad.claimed) {
+            events.fire('inputEvent', 'interrupt');
+        }
+
+        // reset the newly-active scheme's per-mode state on a mode change
+        const activeMode = state.cameraMode;
+        if (activeMode !== this._prevMode) {
+            this._schemes[activeMode]?.enter?.();
+            this._prevMode = activeMode;
+        }
+
+        // layer 2: map the active scheme into the frame (anim has no scheme —
+        // the frame is left empty and the anim controller drains it).
         const ctx: UpdateContext = {
             dt,
             distance,
             cameraComponent,
-            mode: state.cameraMode,
+            mode,
             isOrbit,
             isFly,
             isWalk,
             isFirstPerson,
             gamingControls: state.gamingControls,
-            // Touch must update first so the count is current; the running
-            // count is also used by the keyboard-mouse pan flag.
-            touchCount: this._touch.touchCount
+            touchCount: this._touch.touchCount,
+            events
         };
-
-        // layer 1: read devices + held-state + discrete intents. Order: touch
-        // first (so touchCount in ctx reflects this frame's count delta), then
-        // everyone else.
-        this._touch.update(ctx);
-        ctx.touchCount = this._touch.touchCount;
-        this._keyboardMouse.update(ctx);
-        this._trackpad.update(ctx);
-        this._gamepad.update(ctx);
-
-        // layer 2: map the active mode's control scheme into the frame.
-        // `anim` has no scheme — the frame is left empty (the anim controller
-        // drains it).
-        this._schemes[state.cameraMode]?.map(this._devices, ctx, this.frame);
+        this._schemes[activeMode]?.map(this._devices, ctx, this.frame);
     }
 }
 

@@ -1,8 +1,7 @@
-import type { Global } from '../../types';
 import { InputFrame } from '../input-frame';
 import { movementState } from '../movement-state';
 import { TAP_EPSILON } from '../shared';
-import type { InputDevice, UpdateContext } from '../shared';
+import type { InputDevice } from '../shared';
 
 type MultiTouchDeltas = {
     touch: number[];
@@ -11,41 +10,39 @@ type MultiTouchDeltas = {
 };
 
 /**
- * Touch reader: a self-contained input device that binds its own multi-touch
- * listeners and accumulates raw deltas (engine-free port of the PlayCanvas
- * `MultiTouchSource`), maintains the running touch count + tap-detection state,
- * fires the (mode-aware) tap intents, and exposes normalized signals + tuning
- * constants for the control schemes to map.
+ * Touch reader (layer 1): pure, mode-agnostic. Binds its own multi-touch
+ * listeners, accumulates raw deltas (engine-free port of the PlayCanvas
+ * `MultiTouchSource`) into a private buffer, tracks the running touch count, and
+ * runs mode-agnostic tap detection — exposing `tapped`/`dragExceeded` as facts.
+ * The schemes decide what a tap *means* per mode. No mode logic, no intents.
  *
- * Raw `read()` output (consumed internally by `update`):
- * - `touch` [dx, dy]: two-finger pan = midpoint delta; single-finger = movement delta
- * - `count` [±1]: per-event change in active touch count
- * - `pinch` [d]: change in two-finger distance (`oldDist - newDist`, so pinch-in is positive)
+ * The virtual-joystick value is pushed in by the coordinator (`setJoystick`) so
+ * the reader needs no app event bus.
  */
-class TouchDevice extends InputFrame<MultiTouchDeltas> implements InputDevice {
-    orbitSpeed: number = 18;
-
-    moveSpeed: number = 4;
-
-    pinchSpeed: number = 0.4;
-
-    touchRotateSensitivity: number = 1.5;
-
+class TouchDevice implements InputDevice {
     /** This-frame touch delta [dx, dy] (single-finger move or two-finger pan). */
     touch: [number, number] = [0, 0];
 
     /** This-frame pinch distance delta. */
     pinch = 0;
 
-    /** UI joystick value [x, y], -1..1. */
+    /** UI joystick value [x, y], -1..1 (set by the coordinator). */
     joystick: [number, number] = [0, 0];
 
-    /** True for one frame after a tap is detected during gaming controls (walk jump). */
-    tapJump = false;
+    /** A clean single tap completed this frame (delta < epsilon, max 1 touch). */
+    tapped = false;
+
+    /** A touch gesture's movement crossed the tap threshold this frame. */
+    dragExceeded = false;
+
+    /** Raw-delta buffer (composition, not inheritance). */
+    private _raw = new InputFrame<MultiTouchDeltas>({
+        touch: [0, 0],
+        count: [0],
+        pinch: [0]
+    });
 
     private _element: HTMLElement | null = null;
-
-    private _global: Global | null = null;
 
     private _movement = movementState();
 
@@ -67,21 +64,14 @@ class TouchDevice extends InputFrame<MultiTouchDeltas> implements InputDevice {
 
     private _tapDelta = 0;
 
-    private _onJoystickInput = (value: { x: number; y: number }) => {
-        this.joystick[0] = value.x;
-        this.joystick[1] = value.y;
-    };
-
-    constructor() {
-        super({
-            touch: [0, 0],
-            count: [0],
-            pinch: [0]
-        });
-    }
-
     get touchCount(): number {
         return this._touchCount;
+    }
+
+    // Coordinator forwards the virtual-joystick value here.
+    setJoystick(x: number, y: number) {
+        this.joystick[0] = x;
+        this.joystick[1] = y;
     }
 
     private _onPointerDown = (event: PointerEvent) => {
@@ -94,7 +84,7 @@ class TouchDevice extends InputFrame<MultiTouchDeltas> implements InputDevice {
 
         this._pointerEvents.set(event.pointerId, event);
 
-        this.deltas.count.append([1]);
+        this._raw.deltas.count.append([1]);
         if (this._pointerEvents.size > 1) {
             const [mx, my] = this._midPoint();
             this._posX = mx;
@@ -120,18 +110,18 @@ class TouchDevice extends InputFrame<MultiTouchDeltas> implements InputDevice {
         if (this._pointerEvents.size > 1) {
             // pan: midpoint delta
             const [mx, my] = this._midPoint();
-            this.deltas.touch.append([mx - this._posX, my - this._posY]);
+            this._raw.deltas.touch.append([mx - this._posX, my - this._posY]);
             this._posX = mx;
             this._posY = my;
 
             // pinch: distance delta
             const pinchDist = this._pinch();
             if (this._pinchDist > 0) {
-                this.deltas.pinch.append([this._pinchDist - pinchDist]);
+                this._raw.deltas.pinch.append([this._pinchDist - pinchDist]);
             }
             this._pinchDist = pinchDist;
         } else {
-            this.deltas.touch.append([movementX, movementY]);
+            this._raw.deltas.touch.append([movementX, movementY]);
         }
     };
 
@@ -145,7 +135,7 @@ class TouchDevice extends InputFrame<MultiTouchDeltas> implements InputDevice {
 
         this._pointerEvents.delete(event.pointerId);
 
-        this.deltas.count.append([-1]);
+        this._raw.deltas.count.append([-1]);
         if (this._pointerEvents.size < 2) {
             this._pinchDist = -1;
         }
@@ -178,15 +168,13 @@ class TouchDevice extends InputFrame<MultiTouchDeltas> implements InputDevice {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    attach(canvas: HTMLCanvasElement, global: Global): void {
-        this._global = global;
+    attach(canvas: HTMLCanvasElement): void {
         this._element = canvas;
         canvas.addEventListener('pointerdown', this._onPointerDown);
         canvas.addEventListener('pointermove', this._onPointerMove);
         canvas.addEventListener('pointerup', this._onPointerUp);
         canvas.addEventListener('pointercancel', this._onPointerUp);
         canvas.addEventListener('contextmenu', this._onContextMenu);
-        global.events.on('joystickInput', this._onJoystickInput);
     }
 
     detach(): void {
@@ -199,74 +187,43 @@ class TouchDevice extends InputFrame<MultiTouchDeltas> implements InputDevice {
             this._element = null;
         }
         this._pointerEvents.clear();
-        this.read();
-        if (this._global) {
-            this._global.events.off('joystickInput', this._onJoystickInput);
-            this._global = null;
-        }
+        this._raw.read();
     }
 
-    update(ctx: UpdateContext): void {
-        const { touch, pinch, count } = this.read();
-        const { isFly, isWalk, isOrbit, gamingControls } = ctx;
+    update(): void {
+        const { touch, pinch, count } = this._raw.read();
 
-        // running touch count
         this._touchCount += count[0];
 
-        // expose this-frame deltas
         this.touch[0] = touch[0];
         this.touch[1] = touch[1];
         this.pinch = pinch[0];
-        this.tapJump = false;
+        this.tapped = false;
+        this.dragExceeded = false;
 
-        if (isFly && gamingControls && (this.joystick[0] !== 0 || this.joystick[1] !== 0)) {
-            this._global!.events.fire('navigateCancel');
+        // mode-agnostic tap detection — exposes facts, fires nothing
+        const prevTaps = this._tapTouches;
+        this._tapTouches = Math.max(0, this._tapTouches + count[0]);
+
+        if (prevTaps === 0 && this._tapTouches > 0) {
+            this._tapDelta = 0;
+        }
+        if (this._tapTouches > 0) {
+            this._tapMaxTouches = Math.max(this._tapMaxTouches, this._tapTouches);
         }
 
-        // tap detection for click/tap target and focus modes
-        if (isWalk || isFly || isOrbit) {
-            const prevTaps = this._tapTouches;
-            this._tapTouches = Math.max(0, this._tapTouches + count[0]);
+        if (this._tapTouches > 0) {
+            const prevDelta = this._tapDelta;
+            this._tapDelta += Math.abs(touch[0]) + Math.abs(touch[1]) + Math.abs(pinch[0]);
+            if (prevDelta < TAP_EPSILON && this._tapDelta >= TAP_EPSILON) {
+                this.dragExceeded = true;
+            }
+        }
 
-            if (prevTaps === 0 && this._tapTouches > 0) {
-                this._tapDelta = 0;
+        if (prevTaps > 0 && this._tapTouches === 0) {
+            if (this._tapDelta < TAP_EPSILON && this._tapMaxTouches === 1) {
+                this.tapped = true;
             }
-            if (this._tapTouches > 0) {
-                this._tapMaxTouches = Math.max(this._tapMaxTouches, this._tapTouches);
-            }
-
-            if (this._tapTouches > 0) {
-                const prevDelta = this._tapDelta;
-                this._tapDelta += Math.abs(touch[0]) + Math.abs(touch[1]) + Math.abs(pinch[0]);
-                if (prevDelta < TAP_EPSILON && this._tapDelta >= TAP_EPSILON) {
-                    if ((isWalk && !gamingControls) || isFly) {
-                        this._global!.events.fire('navigateCancel');
-                    }
-                }
-            }
-
-            if (prevTaps > 0 && this._tapTouches === 0) {
-                if (this._tapDelta < TAP_EPSILON && this._tapMaxTouches === 1) {
-                    if (isWalk && !gamingControls) {
-                        // Walk-interaction listens for this and fires navigateTo
-                        // after picking.
-                        this._global!.events.fire('mobileTap');
-                    } else if (isWalk) {
-                        this.tapJump = true;
-                    } else if (isFly && !gamingControls) {
-                        // Walk-interaction listens for this and fires navigateTo
-                        // after picking.
-                        this._global!.events.fire('mobileTap');
-                    } else if (isOrbit) {
-                        // Walk-interaction listens for this and sets orbit focus
-                        // after picking.
-                        this._global!.events.fire('mobileTap');
-                    }
-                }
-                this._tapMaxTouches = 0;
-            }
-        } else {
-            this._tapTouches = 0;
             this._tapMaxTouches = 0;
         }
     }

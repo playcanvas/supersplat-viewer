@@ -1,9 +1,8 @@
 import { math, PROJECTION_PERSPECTIVE, Vec3 } from 'playcanvas';
-import type { CameraComponent } from 'playcanvas';
+import type { CameraComponent, EventHandler } from 'playcanvas';
 
-import type { CameraMode, Global } from '../types';
+import type { CameraMode } from '../types';
 import type { InputFrame } from './input-frame';
-
 
 type CameraMove = [number, number, number];
 type CameraRotate = [number, number, number];
@@ -88,20 +87,22 @@ type UpdateContext = {
     isWalk: boolean;
     isFirstPerson: boolean;
     gamingControls: boolean;
-    /** Number of touches currently active (read by mouse pan flag). */
+    /** Number of touches currently active (read by the schemes' pan flag). */
     touchCount: number;
+    /** App event bus the schemes fire discrete intents on. */
+    events: EventHandler;
 };
 
 /**
- * Common shape every input device (layer-1 reader / intent-emitter) implements.
- * Devices read their source, maintain held-state, fire discrete intents, and
- * expose normalized signals; the control schemes (layer 2) consume those
- * signals and write the move/rotate frame.
+ * Common shape every input reader (layer 1) implements: pure, mode-agnostic
+ * device reading. Readers bind their own DOM listeners, accumulate raw input,
+ * and expose normalized signals + gesture facts; they hold no camera-mode logic
+ * and fire no intents (the control schemes do that, in layer 2).
  */
 interface InputDevice {
-    attach(canvas: HTMLCanvasElement, global: Global): void;
+    attach(canvas: HTMLCanvasElement): void;
     detach(): void;
-    update(ctx: UpdateContext): void;
+    update(): void;
 }
 
 export {

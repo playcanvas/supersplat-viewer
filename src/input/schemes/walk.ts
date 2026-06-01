@@ -1,6 +1,8 @@
 import { Vec3 } from 'playcanvas';
 
+import { panActive } from './control-scheme';
 import type { ControlScheme, Devices } from './control-scheme';
+import { TUNING } from './tuning';
 import { DISPLACEMENT_SCALE, flipZForOrbit, screenToWorld } from '../shared';
 import type { CameraInputFrame, UpdateContext } from '../shared';
 
@@ -10,34 +12,43 @@ const km = new Vec3();
 
 /**
  * Walk control scheme: ground-constrained first-person. WASD (horizontal only)
- * + jump, mouse / trackpad / touch look, wheel + pinch dolly, joystick and
- * tap-to-jump in gaming controls.
+ * + jump, mouse / trackpad / touch look, wheel + pinch dolly; joystick and
+ * tap-to-jump in gaming controls, tap-to-walk otherwise.
  */
 class WalkScheme implements ControlScheme {
     map(devices: Devices, ctx: UpdateContext, frame: CameraInputFrame): void {
         const { keyboardMouse: kb, touch, trackpad, gamepad } = devices;
-        const { dt, distance, cameraComponent, mode, gamingControls } = ctx;
+        const { dt, distance, cameraComponent, mode, gamingControls, events } = ctx;
         const { deltas } = frame;
         const orbitFactor = cameraComponent.fov / 120;
         const double = touch.touchCount > 1 ? 1 : 0;
+        const pan = panActive(kb, ctx.touchCount);
         const directFirstPerson = gamingControls ? 0 : 1;
         const dragInvert = gamingControls ? 1 : -1;
+
+        // intents: cancel auto-nav on manual movement; tap walks (non-gaming)
+        if (kb.axis.x !== 0 || kb.axis.z !== 0 || (!gamingControls && touch.dragExceeded)) {
+            events.fire('navigateCancel');
+        }
+        if (touch.tapped && !gamingControls) {
+            events.fire('mobileTap');
+        }
 
         // keyboard + mouse: horizontal WASD + jump + pan + wheel; mouse-drag look
         v.set(0, 0, 0);
         km.copy(kb.axis);
         km.y = 0;
         km.normalize();
-        km.mulScalar(kb.moveSpeed * (kb.shift ? 2 : kb.ctrl ? 0.5 : 1));
+        km.mulScalar(TUNING.moveSpeed * (kb.shift ? 2 : kb.ctrl ? 0.5 : 1));
         v.add(t.copy(km).mulScalar(dt));
         v.y = kb.jump > 0 ? 1 : 0;
         screenToWorld(cameraComponent, kb.mouse[0], kb.mouse[1], distance, t);
-        v.add(t.mulScalar(kb.pan));
-        v.z += -kb.wheel * kb.wheelSpeed * DISPLACEMENT_SCALE;
+        v.add(t.mulScalar(pan));
+        v.z += -kb.wheel * TUNING.wheelSpeed * DISPLACEMENT_SCALE;
         deltas.move.append([v.x, v.y, flipZForOrbit(mode, v.z)]);
 
         t.set(kb.mouse[0], kb.mouse[1], 0)
-        .mulScalar((1 - kb.pan) * kb.orbitSpeed * orbitFactor * kb.mouseRotateSensitivity * DISPLACEMENT_SCALE);
+        .mulScalar((1 - pan) * TUNING.rotateSpeed * orbitFactor * TUNING.mouseRotateSensitivity * DISPLACEMENT_SCALE);
         deltas.rotate.append([t.x, t.y, 0]);
 
         // touch: two-finger ground strafe (non-gaming), joystick (gaming),
@@ -47,33 +58,33 @@ class WalkScheme implements ControlScheme {
         t.y = 0;
         v.add(t.mulScalar(directFirstPerson * double));
         if (gamingControls) {
-            v.add(t.set(touch.joystick[0], 0, -touch.joystick[1]).mulScalar(touch.moveSpeed * dt));
+            v.add(t.set(touch.joystick[0], 0, -touch.joystick[1]).mulScalar(TUNING.moveSpeed * dt));
         }
-        v.z += -directFirstPerson * touch.pinch * double * touch.pinchSpeed * DISPLACEMENT_SCALE;
-        if (touch.tapJump) {
+        v.z += -directFirstPerson * touch.pinch * double * TUNING.pinchSpeed * DISPLACEMENT_SCALE;
+        if (touch.tapped && gamingControls) {
             v.y = 1;
         }
         deltas.move.append([v.x, v.y, v.z]);
 
         t.set(touch.touch[0] * dragInvert, touch.touch[1] * dragInvert, 0)
-        .mulScalar((1 - double) * touch.orbitSpeed * orbitFactor * touch.touchRotateSensitivity * DISPLACEMENT_SCALE);
+        .mulScalar((1 - double) * TUNING.rotateSpeed * orbitFactor * TUNING.touchRotateSensitivity * DISPLACEMENT_SCALE);
         deltas.rotate.append([t.x, t.y, 0]);
 
         // trackpad: ctrl-rotate look, shift-pan strafe, synthetic-Ctrl pinch dolly
         t.set(trackpad.orbit[0], trackpad.orbit[1], 0)
-        .mulScalar(trackpad.orbitSpeed * orbitFactor * trackpad.trackpadOrbitSensitivity * DISPLACEMENT_SCALE);
+        .mulScalar(TUNING.rotateSpeed * orbitFactor * TUNING.trackpadOrbitSensitivity * DISPLACEMENT_SCALE);
         deltas.rotate.append([t.x, t.y, 0]);
 
         screenToWorld(cameraComponent, trackpad.pan[0], trackpad.pan[1], distance, t);
-        t.mulScalar(trackpad.trackpadPanSensitivity);
+        t.mulScalar(TUNING.trackpadPanSensitivity);
         deltas.move.append([t.x, t.y, 0]);
-        deltas.move.append([0, 0, -trackpad.zoom * trackpad.wheelSpeed * trackpad.trackpadZoomSensitivity * DISPLACEMENT_SCALE]);
+        deltas.move.append([0, 0, -trackpad.zoom * TUNING.wheelSpeed * TUNING.trackpadZoomSensitivity * DISPLACEMENT_SCALE]);
 
         // gamepad: left stick move, right stick look
-        v.set(gamepad.leftStick[0], 0, -gamepad.leftStick[1]).mulScalar(gamepad.moveSpeed * dt);
+        v.set(gamepad.leftStick[0], 0, -gamepad.leftStick[1]).mulScalar(TUNING.moveSpeed * dt);
         deltas.move.append([v.x, v.y, v.z]);
         t.set(gamepad.rightStick[0], gamepad.rightStick[1], 0)
-        .mulScalar(gamepad.orbitSpeed * orbitFactor * gamepad.gamepadRotateSensitivity * dt);
+        .mulScalar(TUNING.rotateSpeed * orbitFactor * TUNING.gamepadRotateSensitivity * dt);
         deltas.rotate.append([t.x, t.y, t.z]);
     }
 }
