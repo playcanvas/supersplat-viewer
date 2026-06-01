@@ -34,7 +34,6 @@ import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
 import { DebugPanel } from './debug';
-import { installInputCapture, type InputCapture } from './debug/input-capture';
 import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
 import { NavCursor } from './nav-cursor';
@@ -155,9 +154,6 @@ class Viewer {
     picker: Picker;
 
     annotations: Annotations;
-
-    // TEMPORARY: Step 2 input-mapping parity harness (enabled via ?inputcapture)
-    _inputCapture: InputCapture | null = null;
 
     forceRenderNextFrame = false;
 
@@ -301,11 +297,6 @@ class Viewer {
                 return;
             }
 
-            // input-capture harness drives input updates manually; cede the loop
-            if (this._inputCapture?.active) {
-                return;
-            }
-
             if (this.inputController && this.cameraManager) {
                 // update inputs
                 this.inputController.update(deltaTime, this.cameraManager.camera.distance);
@@ -363,11 +354,6 @@ class Viewer {
             this.picker = new Picker(app, camera);
             this.inputController = new InputController(global, this.picker);
             this.inputController.collision = collision ?? null;
-
-            // TEMPORARY: input-mapping parity harness (Step 2 verification)
-            if (new URLSearchParams(location.search).has('inputcapture')) {
-                this._inputCapture = installInputCapture(global, this.inputController);
-            }
 
             // hasCollision = collision data exists (drives fly-mode collision
             // detection and the voxel/mesh debug overlay availability).
