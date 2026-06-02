@@ -89,9 +89,25 @@ type UpdateContext = {
     gamingControls: boolean;
     /** Number of touches currently active (read by the schemes' pan flag). */
     touchCount: number;
-    /** App event bus the schemes fire discrete intents on. */
+    /** Module-owned intent bus the schemes fire discrete intents on. */
     events: EventHandler;
 };
+
+/**
+ * What the host application provides to `InputController` — the only coupling
+ * the input core has to the surrounding app. The viewer supplies a `global`-backed
+ * adapter; another app implements these four members to drop the input core in.
+ */
+interface InputHost {
+    /** The canvas the DOM event source binds its listeners to. */
+    readonly canvas: HTMLCanvasElement;
+    /** Active camera mode — selects the control scheme + the requestFirstPerson decision. */
+    readonly cameraMode: CameraMode;
+    /** Whether desktop gaming controls are enabled (a mapping flag). */
+    readonly gamingControls: boolean;
+    /** The active camera component — schemes use it for screenToWorld pan + fov. */
+    readonly cameraComponent: CameraComponent;
+}
 
 /**
  * Common shape every input reader (layer 1) implements: pure, mode-agnostic
@@ -112,5 +128,6 @@ export {
     flipZForOrbit,
     CameraInputFrame,
     UpdateContext,
+    InputHost,
     InputDevice
 };

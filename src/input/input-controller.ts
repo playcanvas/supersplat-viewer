@@ -1,26 +1,24 @@
-import type { Collision } from '../collision';
-import type { Picker } from '../navigation/picker';
-import type { CameraMode, Global } from '../types';
+import { EventHandler } from 'playcanvas';
+
+import type { CameraMode } from '../types';
 import { GamepadDevice } from './devices/gamepad';
 import { KeyboardMouseDevice } from './devices/keyboard-mouse';
 import { TouchDevice } from './devices/touch';
 import { TrackpadDevice } from './devices/trackpad';
 import { DomEventSource } from './dom-event-source';
 import { InputFrame } from './input-frame';
-import { ModeShortcuts } from './interactions/mode-shortcuts';
-import { NavInteraction } from './interactions/nav-interaction';
-import { PointerLockManager } from './interactions/pointer-lock';
 import type { ControlScheme, Devices } from './schemes/control-scheme';
 import { FlyScheme } from './schemes/fly';
 import { OrbitScheme } from './schemes/orbit';
 import { WalkScheme } from './schemes/walk';
-import type { UpdateContext } from './shared';
+import type { InputHost, UpdateContext } from './shared';
 
 /**
- * Coordinator that wires together input devices (keyboard-mouse, touch,
- * trackpad, gamepad) and input-driven interaction helpers (mode shortcuts, nav
- * interaction, pointer lock), and exposes the resulting per-frame `InputFrame`
- * for the camera manager to consume.
+ * Coordinator that wires together the input devices (keyboard-mouse, touch,
+ * trackpad, gamepad) and per-mode control schemes, and exposes the resulting
+ * per-frame `InputFrame` for the camera manager to consume. App-level input
+ * interactions (mode shortcuts, nav interaction, pointer lock) are owned by the
+ * host and attached to `domSource` separately.
  */
 class InputController {
     frame = new InputFrame({
@@ -28,7 +26,7 @@ class InputController {
         rotate: [0, 0, 0]
     });
 
-    private _global: Global;
+    private _host: InputHost;
 
     private _trackpad = new TrackpadDevice();
 
@@ -40,11 +38,13 @@ class InputController {
 
     private _domSource = new DomEventSource();
 
-    private _navInteraction: NavInteraction;
-
-    private _pointerLock = new PointerLockManager();
-
-    private _modeShortcuts = new ModeShortcuts();
+    /**
+     * Module-owned intent bus. Input-originated intents fire here
+     * (`interrupt`/`interact`/`requestFirstPerson` + the schemes'
+     * `mobileTap`/`navigateCancel`); the host subscribes and bridges to its own
+     * event bus, and forwards inbound signals like `joystickInput` onto it.
+     */
+    private _events = new EventHandler();
 
     /** Layer-1 device readers, passed to the active control scheme. */
     private _devices: Devices;
@@ -55,22 +55,25 @@ class InputController {
     /** Previous active camera mode, to fire scheme.enter() on a change. */
     private _prevMode: CameraMode | null = null;
 
-    // The central DOM event source (so viewer-level consumers can subscribe).
+    // The central DOM event source (so the host can attach its own interactions).
     get domSource(): DomEventSource {
         return this._domSource;
     }
 
-    set collision(value: Collision | null) {
-        this._navInteraction.collision = value;
+    // The keyboard-mouse reader (so the host's pointer-lock manager can switch
+    // its mouse-delta sourcing between native pointer-lock and screen tracking).
+    get keyboardMouse(): KeyboardMouseDevice {
+        return this._keyboardMouse;
     }
 
-    get collision(): Collision | null {
-        return this._navInteraction.collision;
+    // Module-owned intent bus — the host subscribes to input-originated intents
+    // here, and may forward inbound signals (e.g. `joystickInput`) onto it.
+    get events(): EventHandler {
+        return this._events;
     }
 
-    constructor(global: Global, picker: Picker) {
-        this._global = global;
-        this._navInteraction = new NavInteraction(picker);
+    constructor(host: InputHost) {
+        this._host = host;
 
         this._devices = {
             keyboardMouse: this._keyboardMouse,
@@ -84,8 +87,7 @@ class InputController {
             walk: new WalkScheme()
         };
 
-        const { app, events } = global;
-        const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
+        const canvas = host.canvas;
 
         const src = this._domSource;
 
@@ -97,10 +99,10 @@ class InputController {
         // claims it below. (keydown interrupt is on window — keys now count as
         // activity; the canvas isn't focusable so its keydown never fired.)
         const interrupt = (event: Event) => {
-            events.fire('inputEvent', 'interrupt', event);
+            this._events.fire('inputEvent', 'interrupt', event);
         };
         const interact = (event: Event) => {
-            events.fire('inputEvent', 'interact', event);
+            this._events.fire('inputEvent', 'interact', event);
         };
         src.wheel.on(interrupt);
         src.pointerdown.on(interrupt);
@@ -115,20 +117,15 @@ class InputController {
         this._keyboardMouse.register(src);
         this._touch.register(src);
 
-        // forward the virtual-joystick value into the touch reader
-        events.on('joystickInput', (value: { x: number; y: number }) => {
+        // forward the virtual-joystick value into the touch reader (the host
+        // bridges its `joystickInput` onto this bus)
+        this._events.on('joystickInput', (value: { x: number; y: number }) => {
             this._touch.setJoystick(value.x, value.y);
         });
-
-        // interaction helpers route their canvas events through the source
-        this._navInteraction.attach(canvas, global, src);
-        this._pointerLock.attach(canvas, global, this._keyboardMouse, src);
-        this._modeShortcuts.attach(global, this._pointerLock, src);
     }
 
     update(dt: number, distance: number) {
-        const { state, events } = this._global;
-        const cameraComponent = this._global.camera.camera!;
+        const cameraComponent = this._host.cameraComponent;
 
         // layer 1: read the pure, mode-agnostic device readers.
         this._touch.update();
@@ -140,15 +137,15 @@ class InputController {
         // can't own — it fires in orbit AND anim (neither has a first-person
         // scheme) and switches the mode synchronously via the DOM source. The
         // decision uses the pre-switch mode.
-        const preMode = state.cameraMode;
+        const preMode = this._host.cameraMode;
         if (preMode !== 'fly' && preMode !== 'walk' && this._keyboardMouse.axis.length() > 0) {
-            events.fire('inputEvent', 'requestFirstPerson');
+            this._events.fire('inputEvent', 'requestFirstPerson');
         }
 
         // Read the mode AFTER requestFirstPerson so the context matches the
         // scheme we actually run (e.g. an orbit→fly switch above) — otherwise a
         // stale orbit context flips forward/back for the first fly frame.
-        const mode = state.cameraMode;
+        const mode = this._host.cameraMode;
         const isOrbit = mode === 'orbit';
         const isFly = mode === 'fly';
         const isWalk = mode === 'walk';
@@ -171,9 +168,9 @@ class InputController {
             isFly,
             isWalk,
             isFirstPerson,
-            gamingControls: state.gamingControls,
+            gamingControls: this._host.gamingControls,
             touchCount: this._touch.touchCount,
-            events
+            events: this._events
         };
         this._schemes[mode]?.map(this._devices, ctx, this.frame);
     }

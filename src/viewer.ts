@@ -37,6 +37,10 @@ import { VoxelDebugOverlay } from './collision/voxel-debug-overlay';
 import { nearlyEquals } from './core/math';
 import { DebugPanel } from './debug';
 import { InputController } from './input/input-controller';
+import { ModeShortcuts } from './input/interactions/mode-shortcuts';
+import { NavInteraction } from './input/interactions/nav-interaction';
+import { PointerLockManager } from './input/interactions/pointer-lock';
+import type { InputHost } from './input/shared';
 import { InputModeTracker } from './input-mode-tracker';
 import { NavCursor } from './navigation/nav-cursor';
 import { Picker } from './navigation/picker';
@@ -155,6 +159,12 @@ class Viewer {
     cameraManager: CameraManager;
 
     picker: Picker;
+
+    navInteraction: NavInteraction;
+
+    pointerLock: PointerLockManager;
+
+    modeShortcuts: ModeShortcuts;
 
     annotations: Annotations;
 
@@ -361,8 +371,41 @@ class Viewer {
             this.inputModeTracker = new InputModeTracker();
             this.inputModeTracker.attach(global);
 
-            this.inputController = new InputController(global, this.picker);
-            this.inputController.collision = collision ?? null;
+            // host-context adapter — the only `global` the input core sees
+            const inputCanvas = app.graphicsDevice.canvas as HTMLCanvasElement;
+            const inputHost: InputHost = {
+                canvas: inputCanvas,
+                get cameraMode() {
+                    return state.cameraMode;
+                },
+                get gamingControls() {
+                    return state.gamingControls;
+                },
+                get cameraComponent() {
+                    return camera.camera!;
+                }
+            };
+            this.inputController = new InputController(inputHost);
+
+            // app-level input interactions (navigation/picking, mode hotkeys,
+            // pointer lock) — attached to the input controller's DOM event source
+            const inputSource = this.inputController.domSource;
+            this.navInteraction = new NavInteraction(this.picker);
+            this.navInteraction.collision = collision ?? null;
+            this.navInteraction.attach(inputCanvas, global, inputSource);
+            this.pointerLock = new PointerLockManager();
+            this.pointerLock.attach(inputCanvas, global, this.inputController.keyboardMouse, inputSource);
+            this.modeShortcuts = new ModeShortcuts();
+            this.modeShortcuts.attach(global, this.pointerLock, inputSource);
+
+            // bridge the input controller's module-owned intent bus onto the app
+            // event bus (and forward the UI joystick inbound), so the camera
+            // manager / ui / xr / nav-cursor keep listening on `global.events`
+            const inputEvents = this.inputController.events;
+            for (const name of ['inputEvent', 'mobileTap', 'navigateCancel']) {
+                inputEvents.on(name, (a: unknown, b: unknown) => events.fire(name, a, b));
+            }
+            events.on('joystickInput', (value: { x: number; y: number }) => inputEvents.fire('joystickInput', value));
 
             // hasCollision = collision data exists (drives fly-mode collision
             // detection and the voxel/mesh debug overlay availability).
