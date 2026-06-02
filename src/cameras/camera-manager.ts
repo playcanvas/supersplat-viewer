@@ -194,7 +194,7 @@ class CameraManager {
         };
 
         // handle input events
-        events.on('inputEvent', (eventName) => {
+        events.on('inputEvent', (eventName, event) => {
             switch (eventName) {
                 case 'frame':
                     events.fire('orbitTarget:clear');
@@ -253,7 +253,12 @@ class CameraManager {
                     }
                     break;
                 case 'interrupt':
-                    if (state.cameraMode === 'anim') {
+                    // Keyboard activity counts as UI activity (reveal controls,
+                    // etc.) but must not exit anim here: playback keys like Space
+                    // are handled by ModeShortcuts, and exiting anim on the
+                    // keydown would pre-empt them. Pointer/wheel interrupts still
+                    // exit anim so a manual camera grab takes over.
+                    if (state.cameraMode === 'anim' && !(event instanceof KeyboardEvent)) {
                         state.cameraMode = fromMode;
                     }
                     break;

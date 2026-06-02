@@ -130,15 +130,6 @@ class InputController {
         const { state, events } = this._global;
         const cameraComponent = this._global.camera.camera!;
 
-        // mode captured pre-intent: requestFirstPerson (below) may switch the
-        // mode synchronously, but ctx carries the pre-switch mode while the
-        // scheme is selected from the post-switch mode (matches prior behaviour).
-        const mode = state.cameraMode;
-        const isOrbit = mode === 'orbit';
-        const isFly = mode === 'fly';
-        const isWalk = mode === 'walk';
-        const isFirstPerson = isFly || isWalk;
-
         // layer 1: read the pure, mode-agnostic device readers.
         this._touch.update();
         this._keyboardMouse.update();
@@ -147,16 +138,26 @@ class InputController {
 
         // requestFirstPerson is the one cross-mode intent the per-mode schemes
         // can't own — it fires in orbit AND anim (neither has a first-person
-        // scheme). interrupt/interact now fire synchronously via the DOM source.
-        if (!isFirstPerson && this._keyboardMouse.axis.length() > 0) {
+        // scheme) and switches the mode synchronously via the DOM source. The
+        // decision uses the pre-switch mode.
+        const preMode = state.cameraMode;
+        if (preMode !== 'fly' && preMode !== 'walk' && this._keyboardMouse.axis.length() > 0) {
             events.fire('inputEvent', 'requestFirstPerson');
         }
 
+        // Read the mode AFTER requestFirstPerson so the context matches the
+        // scheme we actually run (e.g. an orbit→fly switch above) — otherwise a
+        // stale orbit context flips forward/back for the first fly frame.
+        const mode = state.cameraMode;
+        const isOrbit = mode === 'orbit';
+        const isFly = mode === 'fly';
+        const isWalk = mode === 'walk';
+        const isFirstPerson = isFly || isWalk;
+
         // reset the newly-active scheme's per-mode state on a mode change
-        const activeMode = state.cameraMode;
-        if (activeMode !== this._prevMode) {
-            this._schemes[activeMode]?.enter?.();
-            this._prevMode = activeMode;
+        if (mode !== this._prevMode) {
+            this._schemes[mode]?.enter?.();
+            this._prevMode = mode;
         }
 
         // layer 2: map the active scheme into the frame (anim has no scheme —
@@ -174,7 +175,7 @@ class InputController {
             touchCount: this._touch.touchCount,
             events
         };
-        this._schemes[activeMode]?.map(this._devices, ctx, this.frame);
+        this._schemes[mode]?.map(this._devices, ctx, this.frame);
     }
 }
 

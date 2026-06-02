@@ -180,7 +180,7 @@ class FlySource implements TargetSource {
         this._pitchRate = pitchStep / dt;
 
         // FlyController applies: _angles += [-rotateY, -rotateX, 0]
-        frame.deltas.rotate.append([-yawStep, -pitchStep, 0]);
+        frame.accumulate('rotate', [-yawStep, -pitchStep, 0]);
 
         postTurnAngles.set(cameraAngles.x + pitchStep, cameraAngles.y + yawStep, 0);
         setCameraForward(postTurnAngles, forward);
@@ -200,7 +200,7 @@ class FlySource implements TargetSource {
         const arrivalMove = activeRemainingDist * (1 - Math.exp(-ARRIVAL_RATE * dt));
         const moveDist = Math.min(this._speed * dt, arrivalMove);
         if (moveDist > 0) {
-            frame.deltas.move.append([0, 0, moveDist]);
+            frame.accumulate('move', [0, 0, moveDist]);
         }
 
         // Only treat low progress as blocked once the camera is substantially

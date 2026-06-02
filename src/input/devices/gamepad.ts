@@ -74,10 +74,10 @@ class GamepadDevice implements InputDevice {
                 buttonScratch[j] = state - this._buttonPrev[j];
                 this._buttonPrev[j] = state;
             }
-            this._raw.deltas.buttons.append(buttonScratch);
+            this._raw.accumulate('buttons', buttonScratch);
 
-            this._raw.deltas.leftStick.append([gp.axes[0], gp.axes[1]]);
-            this._raw.deltas.rightStick.append([gp.axes[2], gp.axes[3]]);
+            this._raw.accumulate('leftStick', [gp.axes[0], gp.axes[1]]);
+            this._raw.accumulate('rightStick', [gp.axes[2], gp.axes[3]]);
         }
 
         return this._raw.read();

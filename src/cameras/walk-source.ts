@@ -128,11 +128,11 @@ class WalkSource implements TargetSource {
         this._yawRate = dt > 0 ? yawStep / dt : this._yawRate;
 
         // WalkController applies: _angles.y += -rotate[0]
-        frame.deltas.rotate.append([-yawStep, 0, 0]);
+        frame.accumulate('rotate', [-yawStep, 0, 0]);
 
         // scale forward speed by alignment: turn in place first, then accelerate
         const alignment = Math.max(0, Math.cos(yawDiff * Math.PI / 180));
-        frame.deltas.move.append([0, 0, this.walkSpeed * this._speedMul * dt * alignment]);
+        frame.accumulate('move', [0, 0, this.walkSpeed * this._speedMul * dt * alignment]);
     }
 }
 

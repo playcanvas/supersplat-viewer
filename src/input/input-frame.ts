@@ -1,64 +1,46 @@
 /**
- * Engine-free input plumbing. Ported from the PlayCanvas engine's
- * `extras/input/input.js` so the input layer carries no PlayCanvas dependency.
+ * Engine-free input plumbing. Originally ported from the PlayCanvas engine's
+ * `extras/input/input.js` (which split `InputDelta` / `InputFrame`); collapsed
+ * here to a single `InputFrame`, since each per-channel delta was only ever a
+ * fixed-length `number[]` you appended to.
  *
- * An `InputDelta` accumulates per-frame deltas and zeroes itself on `read()`.
- * An `InputFrame` is a named bundle of deltas — used both as the camera
+ * An `InputFrame` is a named bundle of fixed-length numeric deltas. `accumulate`
+ * sums raw offsets into a named channel (element-wise); `read` returns a copy of
+ * every channel's current value and zeroes it. Used both as the camera
  * move/rotate frame and as the private buffer each input reader composes to
  * accumulate its own raw DOM deltas.
  */
 
 type DeltaShape = Record<string, number[]>;
 
-/**
- * A fixed-length numeric delta that accumulates offsets and resets to zero
- * when read.
- */
-class InputDelta {
-    private _value: number[];
-
-    constructor(arg: number | number[]) {
-        this._value = Array.isArray(arg) ? arg.slice() : new Array(arg).fill(0);
-    }
-
-    // Accumulate raw offsets into this delta.
-    append(offsets: number[]): this {
-        for (let i = 0; i < this._value.length; i++) {
-            this._value[i] += offsets[i] || 0;
-        }
-        return this;
-    }
-
-    // Return a copy of the current values and reset them to zero.
-    read(): number[] {
-        const value = this._value.slice();
-        this._value.fill(0);
-        return value;
-    }
-}
-
-/**
- * A named bundle of input deltas. `read()` flushes (and zeroes) every delta.
- * Readers compose a private one to accumulate their raw per-frame deltas.
- */
 class InputFrame<T extends DeltaShape = DeltaShape> {
-    deltas: Record<keyof T, InputDelta>;
+    private _values: Record<keyof T, number[]>;
 
     constructor(data: T) {
-        this.deltas = {} as Record<keyof T, InputDelta>;
+        this._values = {} as Record<keyof T, number[]>;
         for (const name in data) {
-            this.deltas[name] = new InputDelta(data[name]);
+            this._values[name] = data[name].slice();
         }
     }
 
-    // Flush every delta to its current value and reset to zero.
+    // Accumulate raw offsets into the named delta (element-wise, fixed length).
+    accumulate(name: keyof T, offsets: number[]): void {
+        const value = this._values[name];
+        for (let i = 0; i < value.length; i++) {
+            value[i] += offsets[i] || 0;
+        }
+    }
+
+    // Return a copy of every delta's current value and reset each to zero.
     read(): Record<keyof T, number[]> {
         const frame = {} as Record<keyof T, number[]>;
-        for (const name in this.deltas) {
-            frame[name] = this.deltas[name].read();
+        for (const name in this._values) {
+            const value = this._values[name];
+            frame[name] = value.slice();
+            value.fill(0);
         }
         return frame;
     }
 }
 
-export { InputDelta, InputFrame };
+export { InputFrame };

@@ -85,7 +85,7 @@ class TouchDevice implements InputDevice {
 
         this._pointerEvents.set(event.pointerId, event);
 
-        this._raw.deltas.count.append([1]);
+        this._raw.accumulate('count', [1]);
         if (this._pointerEvents.size > 1) {
             const [mx, my] = this._midPoint();
             this._posX = mx;
@@ -111,18 +111,18 @@ class TouchDevice implements InputDevice {
         if (this._pointerEvents.size > 1) {
             // pan: midpoint delta
             const [mx, my] = this._midPoint();
-            this._raw.deltas.touch.append([mx - this._posX, my - this._posY]);
+            this._raw.accumulate('touch', [mx - this._posX, my - this._posY]);
             this._posX = mx;
             this._posY = my;
 
             // pinch: distance delta
             const pinchDist = this._pinch();
             if (this._pinchDist > 0) {
-                this._raw.deltas.pinch.append([this._pinchDist - pinchDist]);
+                this._raw.accumulate('pinch', [this._pinchDist - pinchDist]);
             }
             this._pinchDist = pinchDist;
         } else {
-            this._raw.deltas.touch.append([movementX, movementY]);
+            this._raw.accumulate('touch', [movementX, movementY]);
         }
     };
 
@@ -136,7 +136,7 @@ class TouchDevice implements InputDevice {
 
         this._pointerEvents.delete(event.pointerId);
 
-        this._raw.deltas.count.append([-1]);
+        this._raw.accumulate('count', [-1]);
         if (this._pointerEvents.size < 2) {
             this._pinchDist = -1;
         }

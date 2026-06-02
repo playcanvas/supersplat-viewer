@@ -154,7 +154,7 @@ class KeyboardMouseDevice implements InputDevice {
 
     onWheel = (event: WheelEvent): void => {
         event.preventDefault();
-        this._raw.deltas.wheel.append([event.deltaY]);
+        this._raw.accumulate('wheel', [event.deltaY]);
     };
 
     onPointerDown = (event: PointerEvent): void => {
@@ -173,7 +173,7 @@ class KeyboardMouseDevice implements InputDevice {
 
         this._clearButtons();
         this._button[event.button] = 1;
-        this._raw.deltas.button.append(this._button);
+        this._raw.accumulate('button', this._button);
 
         if (this._pointerId !== -1) {
             return;
@@ -201,7 +201,7 @@ class KeyboardMouseDevice implements InputDevice {
             return;
         }
 
-        this._raw.deltas.mouse.append([movementX, movementY]);
+        this._raw.accumulate('mouse', [movementX, movementY]);
     };
 
     onPointerUp = (event: PointerEvent): void => {
@@ -215,7 +215,7 @@ class KeyboardMouseDevice implements InputDevice {
         }
 
         this._clearButtons();
-        this._raw.deltas.button.append(this._button);
+        this._raw.accumulate('button', this._button);
 
         if (this._pointerId !== event.pointerId) {
             return;
@@ -276,7 +276,7 @@ class KeyboardMouseDevice implements InputDevice {
             keyScratch[i] = this._keyNow[i] - this._keyPrev[i];
             this._keyPrev[i] = this._keyNow[i];
         }
-        this._raw.deltas.key.append(keyScratch);
+        this._raw.accumulate('key', keyScratch);
         return this._raw.read();
     }
 
