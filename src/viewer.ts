@@ -444,7 +444,9 @@ class Viewer {
                     gsplat.lodRangeMin = 0;
                     gsplat.lodRangeMax = 1000;
                     gsplat.colorUpdateAngle = state.performanceMode ? 4 : 2;
-                    gsplat.minContribution = state.performanceMode ? 1 : 2;
+                    gsplat.minContribution = state.performanceMode ? 1 : 0.5;
+                    gsplat.alphaClip = 1/255;
+                    gsplat.antiAlias = config.aa;
                 };
 
                 if (config.fullload) {
