@@ -287,9 +287,9 @@ class NavInteraction {
         this._global = global;
         const { events } = global;
 
-        source.on('canvas', 'pointerdown', this._onPointerDown);
-        source.on('canvas', 'pointermove', this._onPointerMove);
-        source.on('canvas', 'pointerup', this._onPointerUp);
+        source.pointerdown.on(this._onPointerDown);
+        source.pointermove.on(this._onPointerMove);
+        source.pointerup.on(this._onPointerUp);
 
         // double-click/tap fallback -> fly target or orbit focus (skipped in walk mode)
         events.on('inputEvent', this._onInputEvent);

@@ -90,69 +90,47 @@ class InputController {
         const { app, events } = global;
         const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
 
+        const src = this._domSource;
+
         // central DOM event source — binds the canvas/window listeners up front
-        this._domSource.attach(canvas);
+        src.attach(canvas);
 
-        // readers hold the canvas (for pointer capture / lock checks) but do not
-        // self-register; the source dispatches DOM events to their handlers.
-        this._trackpad.attach(canvas);
-        this._keyboardMouse.attach(canvas);
-        this._touch.attach(canvas);
-        this._gamepad.attach(canvas);
-
-        // interrupt / interact: raw-input "activity" signals (consumed by the UI)
+        // interrupt / interact: raw-input "activity" signals (consumed by the UI).
+        // Registered FIRST so interrupt fires for every wheel even when trackpad
+        // claims it below. (keydown interrupt is on window — keys now count as
+        // activity; the canvas isn't focusable so its keydown never fired.)
         const interrupt = (event: Event) => {
             events.fire('inputEvent', 'interrupt', event);
         };
         const interact = (event: Event) => {
             events.fire('inputEvent', 'interact', event);
         };
+        src.wheel.on(interrupt);
+        src.pointerdown.on(interrupt);
+        src.contextmenu.on(interrupt);
+        src.keydown.on(interrupt);
+        src.pointermove.on(interact);
 
-        // Wire DOM events to handlers in EXPLICIT order. The wheel order is the
-        // load-bearing one: interrupt fires for every wheel, then trackpad claims
-        // (returns true) to skip the keyboard-mouse reader so the delta isn't
-        // double-counted — replacing the old attach-order + stopImmediatePropagation.
-        const src = this._domSource;
-        src.on('canvas', 'wheel', interrupt);
-        src.on('canvas', 'wheel', this._trackpad.onWheel);
-        src.on('canvas', 'wheel', this._keyboardMouse.onWheel);
-
-        src.on('canvas', 'pointerdown', interrupt);
-        src.on('canvas', 'pointerdown', this._keyboardMouse.onPointerDown);
-        src.on('canvas', 'pointerdown', this._touch.onPointerDown);
-
-        src.on('canvas', 'pointermove', interact);
-        src.on('canvas', 'pointermove', this._keyboardMouse.onPointerMove);
-        src.on('canvas', 'pointermove', this._touch.onPointerMove);
-
-        src.on('canvas', 'pointerup', this._keyboardMouse.onPointerUp);
-        src.on('canvas', 'pointerup', this._touch.onPointerUp);
-        src.on('canvas', 'pointercancel', this._keyboardMouse.onPointerUp);
-        src.on('canvas', 'pointercancel', this._touch.onPointerUp);
-        src.on('canvas', 'pointerleave', this._keyboardMouse.onPointerUp);
-        src.on('canvas', 'lostpointercapture', this._keyboardMouse.onPointerUp);
-
-        src.on('canvas', 'contextmenu', interrupt);
-        src.on('canvas', 'contextmenu', this._keyboardMouse.onContextMenu);
-        src.on('canvas', 'contextmenu', this._touch.onContextMenu);
-
-        src.on('canvas', 'keydown', interrupt);
-
-        src.on('window', 'keydown', this._keyboardMouse.onKeyDown);
-        src.on('window', 'keydown', this._trackpad.onKeyDown);
-        src.on('window', 'keyup', this._keyboardMouse.onKeyUp);
-        src.on('window', 'keyup', this._trackpad.onKeyUp);
-        src.on('window', 'blur', this._trackpad.onBlur);
+        // readers self-register their handlers, IN ORDER — trackpad before the
+        // keyboard-mouse reader so trackpad's wheel claim (return true) skips it,
+        // avoiding a double-count. (gamepad polls — nothing to register.)
+        this._trackpad.register(src);
+        this._keyboardMouse.register(src);
+        this._touch.register(src);
 
         // forward the virtual-joystick value into the touch reader
         events.on('joystickInput', (value: { x: number; y: number }) => {
             this._touch.setJoystick(value.x, value.y);
         });
 
-        this._navInteraction.attach(canvas, global, this._domSource);
-        this._pointerLock.attach(canvas, global, this._keyboardMouse, this._domSource);
-        this._modeShortcuts.attach(global, this._pointerLock, this._domSource);
-        this._inputModeTracker.attach(global, this._domSource);
+        // input/camera app helpers route their canvas events through the source
+        this._navInteraction.attach(canvas, global, src);
+        this._pointerLock.attach(canvas, global, this._keyboardMouse, src);
+        this._modeShortcuts.attach(global, this._pointerLock, src);
+
+        // input-mode-tracker is an app concern (device-type flag, not camera
+        // control) — it owns its own window pointer listeners, outside the source.
+        this._inputModeTracker.attach(global);
     }
 
     update(dt: number, distance: number) {

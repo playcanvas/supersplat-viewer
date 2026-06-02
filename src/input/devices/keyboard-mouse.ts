@@ -1,5 +1,6 @@
 import { Vec3 } from 'playcanvas';
 
+import type { DomEventSource } from '../dom-event-source';
 import { InputFrame } from '../input-frame';
 import { movementState } from '../movement-state';
 import type { InputDevice } from '../shared';
@@ -64,11 +65,11 @@ type KeyboardMouseDeltas = {
 };
 
 /**
- * Keyboard + mouse reader (layer 1): pure, mode-agnostic. Does NOT register its
- * own DOM listeners — the central `DomEventSource` owns registration and calls
- * the public `on*` handlers (the coordinator wires them in explicit order). The
- * handlers accumulate raw deltas into a private buffer; `update()` integrates
- * the held-state shared across modes and refreshes the exposed signals.
+ * Keyboard + mouse reader (layer 1): pure, mode-agnostic. The central
+ * `DomEventSource` owns the real DOM listeners; `register(source)` subscribes
+ * this reader's `on*` handlers to the source's typed events. The handlers
+ * accumulate raw deltas into a private buffer; `update()` integrates the
+ * held-state shared across modes and refreshes the exposed signals.
  *
  * macOS Meta-key fix is baked into the raw reading (macOS swallows `keyup` for
  * keys released while Cmd is held); a public `pointerLock` setter lets the
@@ -151,14 +152,12 @@ class KeyboardMouseDevice implements InputDevice {
         return this._pointerLock;
     }
 
-    onWheel = (e: Event): void => {
-        const event = e as WheelEvent;
+    onWheel = (event: WheelEvent): void => {
         event.preventDefault();
         this._raw.deltas.wheel.append([event.deltaY]);
     };
 
-    onPointerDown = (e: Event): void => {
-        const event = e as PointerEvent;
+    onPointerDown = (event: PointerEvent): void => {
         this._movement.down(event);
 
         if (event.pointerType !== 'mouse') {
@@ -182,8 +181,7 @@ class KeyboardMouseDevice implements InputDevice {
         this._pointerId = event.pointerId;
     };
 
-    onPointerMove = (e: Event): void => {
-        const event = e as PointerEvent;
+    onPointerMove = (event: PointerEvent): void => {
         // Native movementX/Y under pointer lock, otherwise our screen-delta tracker.
         const [movementX, movementY] = this._pointerLock && document.pointerLockElement === this._element ?
             [event.movementX, event.movementY] :
@@ -206,8 +204,7 @@ class KeyboardMouseDevice implements InputDevice {
         this._raw.deltas.mouse.append([movementX, movementY]);
     };
 
-    onPointerUp = (e: Event): void => {
-        const event = e as PointerEvent;
+    onPointerUp = (event: PointerEvent): void => {
         this._movement.up(event);
 
         if (event.pointerType !== 'mouse') {
@@ -226,12 +223,11 @@ class KeyboardMouseDevice implements InputDevice {
         this._pointerId = -1;
     };
 
-    onContextMenu = (e: Event): void => {
-        e.preventDefault();
+    onContextMenu = (event: MouseEvent): void => {
+        event.preventDefault();
     };
 
-    onKeyDown = (e: Event): void => {
-        const event = e as KeyboardEvent;
+    onKeyDown = (event: KeyboardEvent): void => {
         // macOS Meta-key fix: clear all keys when Meta is involved, and ignore
         // keys arriving while Cmd is held (their keyup is swallowed by the OS).
         if (event.key === 'Meta') {
@@ -248,8 +244,7 @@ class KeyboardMouseDevice implements InputDevice {
         this._setKey(event.code, 1);
     };
 
-    onKeyUp = (e: Event): void => {
-        const event = e as KeyboardEvent;
+    onKeyUp = (event: KeyboardEvent): void => {
         if (event.key === 'Meta') {
             this._keyNow.fill(0);
             return;
@@ -285,15 +280,18 @@ class KeyboardMouseDevice implements InputDevice {
         return this._raw.read();
     }
 
-    attach(canvas: HTMLCanvasElement): void {
-        this._element = canvas;
-    }
-
-    detach(): void {
-        this._element = null;
-        this._keyNow.fill(0);
-        this._keyPrev.fill(0);
-        this._read();
+    register(source: DomEventSource): void {
+        this._element = source.canvas;
+        source.wheel.on(this.onWheel);
+        source.pointerdown.on(this.onPointerDown);
+        source.pointermove.on(this.onPointerMove);
+        source.pointerup.on(this.onPointerUp);
+        source.pointercancel.on(this.onPointerUp);
+        source.pointerleave.on(this.onPointerUp);
+        source.lostpointercapture.on(this.onPointerUp);
+        source.contextmenu.on(this.onContextMenu);
+        source.keydown.on(this.onKeyDown);
+        source.keyup.on(this.onKeyUp);
     }
 
     update(): void {

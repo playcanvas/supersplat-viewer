@@ -133,7 +133,7 @@ class PointerLockManager {
         events.on('gamingControls:changed', this._onGamingControlsChanged);
         events.on('inputMode:changed', this._onInputModeChanged);
 
-        source.on('canvas', 'pointerdown', this._onPointerDown);
+        source.pointerdown.on(this._onPointerDown);
         // pointer-lock lifecycle is document-level, not input dispatch — keep direct
         document.addEventListener('pointerlockchange', this._onPointerLockChange);
         document.addEventListener('pointerlockerror', this._onPointerLockError);

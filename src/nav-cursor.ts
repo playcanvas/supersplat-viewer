@@ -328,8 +328,8 @@ class NavCursor {
             this.hoverRing.hide();
         };
 
-        source.on('canvas', 'pointermove', this.onPointerMove);
-        source.on('canvas', 'pointerleave', this.onPointerLeave);
+        source.pointermove.on(this.onPointerMove);
+        source.pointerleave.on(this.onPointerLeave);
 
         const updateActive = () => {
             // Hover ring only in walk mode with mouse navigation. Gaming

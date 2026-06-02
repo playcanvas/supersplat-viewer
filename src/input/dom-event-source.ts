@@ -1,84 +1,97 @@
-type DomTarget = 'canvas' | 'window';
-
-type DomEventHandler = (event: Event) => boolean | void;
-
 type DomListener = (event: Event) => void;
 
-// The fixed set of DOM events the input subsystem dispatches. Bound up front on
-// attach() — registration is an explicit step, never a side effect of on().
-const CANVAS_EVENTS = [
-    'wheel', 'pointerdown', 'pointermove', 'pointerup',
-    'pointercancel', 'pointerleave', 'lostpointercapture', 'contextmenu', 'keydown'
-];
-const WINDOW_EVENTS = ['keydown', 'keyup', 'blur', 'pointerdown', 'pointermove'];
-
 /**
- * Central DOM event source for the input subsystem. Registers exactly one real
- * listener per (target, event) on `attach(canvas)`, and dispatches each event to
- * its subscribers in **subscription order**. A handler returning `true` claims
- * the event — later handlers for that event are skipped (the explicit
- * replacement for `stopImmediatePropagation` + attach-order). `on()` only
- * registers handlers; it never touches the DOM.
+ * One DOM event's ordered, claimable handler list. `on(handler)` appends a
+ * handler; `dispatch` runs them in subscription order and stops at the first
+ * that returns `true` — the explicit **claim** (e.g. trackpad claims the wheel
+ * so the keyboard-mouse reader doesn't also see it). Generic over the concrete
+ * event type, so handlers are strongly typed at the call site.
  */
-class DomEventSource {
-    /** The attached canvas — readers use it for pointer-capture / pointer-lock checks. */
-    canvas: HTMLCanvasElement | null = null;
+class DomEvent<E extends Event> {
+    private _handlers: Array<(event: E) => boolean | void> = [];
 
-    private _handlers = new Map<string, DomEventHandler[]>();
-
-    private _bound = new Map<string, DomListener>();
-
-    attach(canvas: HTMLCanvasElement): void {
-        this.canvas = canvas;
-        for (const event of CANVAS_EVENTS) {
-            this._bind('canvas', canvas, event);
-        }
-        for (const event of WINDOW_EVENTS) {
-            this._bind('window', window, event);
-        }
+    // Append a handler. Handlers run in subscription order; returning `true`
+    // claims the event and skips the handlers registered after it.
+    on(handler: (event: E) => boolean | void): void {
+        this._handlers.push(handler);
     }
 
-    detach(): void {
-        for (const [key, fn] of this._bound) {
-            const event = key.slice(key.indexOf(':') + 1);
-            const target = key.startsWith('canvas') ? this.canvas : window;
-            target?.removeEventListener(event, fn);
-        }
-        this._bound.clear();
-        this._handlers.clear();
-        this.canvas = null;
-    }
-
-    on<E extends Event = Event>(target: DomTarget, event: string, handler: (event: E) => boolean | void): void {
-        const key = `${target}:${event}`;
-        const h = handler as DomEventHandler;
-        const list = this._handlers.get(key);
-        if (list) {
-            list.push(h);
-        } else {
-            this._handlers.set(key, [h]);
-        }
-    }
-
-    private _bind(target: DomTarget, el: EventTarget, event: string): void {
-        const key = `${target}:${event}`;
-        const fn = (e: Event) => this._dispatch(key, e);
-        el.addEventListener(event, fn, event === 'wheel' ? { passive: false } : undefined);
-        this._bound.set(key, fn);
-    }
-
-    private _dispatch(key: string, event: Event): void {
-        const list = this._handlers.get(key);
-        if (!list) {
-            return;
-        }
-        for (let i = 0; i < list.length; i++) {
-            if (list[i](event) === true) {
+    // Internal — invoked by DomEventSource with the real DOM event.
+    dispatch(event: E): void {
+        const handlers = this._handlers;
+        for (let i = 0; i < handlers.length; i++) {
+            if (handlers[i](event) === true) {
                 break;
             }
         }
     }
 }
 
-export { DomEventSource };
-export type { DomEventHandler };
+/**
+ * Central DOM event source for the input subsystem. Constructed and
+ * `attach(canvas)`'d explicitly by `InputController`, which binds one real
+ * listener per event up front. Each managed event is exposed as a **typed**
+ * `DomEvent<E>` member — subscribe with `source.wheel.on(handler)` etc., where
+ * `handler`'s argument is the concrete event type. Keys + blur live on `window`,
+ * everything else on the canvas; that split is fixed here so consumers never
+ * think about targets.
+ */
+class DomEventSource {
+    /** The attached canvas — readers use it for pointer-capture / pointer-lock checks. */
+    canvas: HTMLCanvasElement | null = null;
+
+    readonly wheel = new DomEvent<WheelEvent>();
+
+    readonly pointerdown = new DomEvent<PointerEvent>();
+
+    readonly pointermove = new DomEvent<PointerEvent>();
+
+    readonly pointerup = new DomEvent<PointerEvent>();
+
+    readonly pointercancel = new DomEvent<PointerEvent>();
+
+    readonly pointerleave = new DomEvent<PointerEvent>();
+
+    readonly lostpointercapture = new DomEvent<PointerEvent>();
+
+    readonly contextmenu = new DomEvent<MouseEvent>();
+
+    readonly keydown = new DomEvent<KeyboardEvent>();
+
+    readonly keyup = new DomEvent<KeyboardEvent>();
+
+    readonly blur = new DomEvent<FocusEvent>();
+
+    private _bound: Array<{ target: EventTarget; type: string; fn: DomListener }> = [];
+
+    attach(canvas: HTMLCanvasElement): void {
+        this.canvas = canvas;
+        this._bind(canvas, 'wheel', this.wheel);
+        this._bind(canvas, 'pointerdown', this.pointerdown);
+        this._bind(canvas, 'pointermove', this.pointermove);
+        this._bind(canvas, 'pointerup', this.pointerup);
+        this._bind(canvas, 'pointercancel', this.pointercancel);
+        this._bind(canvas, 'pointerleave', this.pointerleave);
+        this._bind(canvas, 'lostpointercapture', this.lostpointercapture);
+        this._bind(canvas, 'contextmenu', this.contextmenu);
+        this._bind(window, 'keydown', this.keydown);
+        this._bind(window, 'keyup', this.keyup);
+        this._bind(window, 'blur', this.blur);
+    }
+
+    detach(): void {
+        for (const { target, type, fn } of this._bound) {
+            target.removeEventListener(type, fn);
+        }
+        this._bound = [];
+        this.canvas = null;
+    }
+
+    private _bind<E extends Event>(target: EventTarget, type: string, event: DomEvent<E>): void {
+        const fn = (e: Event) => event.dispatch(e as E);
+        target.addEventListener(type, fn, type === 'wheel' ? { passive: false } : undefined);
+        this._bound.push({ target, type, fn });
+    }
+}
+
+export { DomEvent, DomEventSource };

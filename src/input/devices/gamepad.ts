@@ -49,13 +49,7 @@ class GamepadDevice implements InputDevice {
 
     private _buttonPrev = new Array(BUTTON_COUNT).fill(0);
 
-    attach(_canvas: HTMLCanvasElement): void {
-        // Polls navigator.getGamepads() in update() — no DOM attach needed.
-    }
-
-    detach(): void {
-        // No DOM listeners to remove.
-    }
+    // Polls navigator.getGamepads() in update() — no DOM listeners, no register.
 
     private _read(): GamepadDeltas {
         const gamepads = navigator.getGamepads();

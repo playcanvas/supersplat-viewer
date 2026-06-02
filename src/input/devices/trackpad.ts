@@ -1,13 +1,15 @@
+import type { DomEventSource } from '../dom-event-source';
 import type { InputDevice } from '../shared';
 
 /**
- * Trackpad reader (layer 1): pure, mode-agnostic. Does NOT register its own DOM
- * listeners — the central `DomEventSource` calls the public `on*` handlers. It
- * classifies the wheel gesture (synthetic-Ctrl pinch / physical-Ctrl rotate /
- * Shift pan); on a match it `preventDefault`s, accumulates the raw deltas, sets
- * `claimed`, and **returns `true` to claim the event** (the source then skips
- * the keyboard-mouse reader's wheel handler — explicit, ordered, no
- * `stopImmediatePropagation`). Fires no intents and reads no camera state.
+ * Trackpad reader (layer 1): pure, mode-agnostic. The central `DomEventSource`
+ * owns the real DOM listeners; `register(source)` subscribes the public `on*`
+ * handlers to the source's typed events. It classifies the wheel gesture
+ * (synthetic-Ctrl pinch / physical-Ctrl rotate / Shift pan); on a match it
+ * `preventDefault`s, accumulates the raw deltas, sets `claimed`, and **returns
+ * `true` to claim the event** (the source then skips the keyboard-mouse
+ * reader's wheel handler — explicit, ordered, no `stopImmediatePropagation`).
+ * Fires no intents and reads no camera state.
  */
 class TrackpadDevice implements InputDevice {
     /** This-frame ctrl-rotate gesture [dx, dy]. */
@@ -39,14 +41,14 @@ class TrackpadDevice implements InputDevice {
     // momentum tails. Modifier-key state we can trust 100%.
     private _ctrlDown = false;
 
-    onKeyDown = (e: Event): void => {
-        if ((e as KeyboardEvent).key === 'Control') {
+    onKeyDown = (event: KeyboardEvent): void => {
+        if (event.key === 'Control') {
             this._ctrlDown = true;
         }
     };
 
-    onKeyUp = (e: Event): void => {
-        if ((e as KeyboardEvent).key === 'Control') {
+    onKeyUp = (event: KeyboardEvent): void => {
+        if (event.key === 'Control') {
             this._ctrlDown = false;
         }
     };
@@ -57,9 +59,7 @@ class TrackpadDevice implements InputDevice {
         this._ctrlDown = false;
     };
 
-    onWheel = (e: Event): boolean | void => {
-        const event = e as WheelEvent;
-
+    onWheel = (event: WheelEvent): boolean | void => {
         // Synthetic Ctrl (macOS pinch-to-zoom, Magic Mouse pinch): ctrlKey
         // is true on the event but the user isn't physically holding Ctrl.
         // Routes to trackpad-tuned zoom.
@@ -97,16 +97,11 @@ class TrackpadDevice implements InputDevice {
         return true;
     };
 
-    attach(_canvas: HTMLCanvasElement): void {
-        // No self-registration — the DomEventSource owns the listeners.
-    }
-
-    detach(): void {
-        this._ctrlDown = false;
-        this._orbit[0] = this._orbit[1] = 0;
-        this._pan[0] = this._pan[1] = 0;
-        this._zoom = 0;
-        this._claimed = false;
+    register(source: DomEventSource): void {
+        source.wheel.on(this.onWheel);
+        source.keydown.on(this.onKeyDown);
+        source.keyup.on(this.onKeyUp);
+        source.blur.on(this.onBlur);
     }
 
     update(): void {

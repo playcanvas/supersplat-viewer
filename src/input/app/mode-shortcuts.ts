@@ -94,7 +94,7 @@ class ModeShortcuts {
     attach(global: Global, pointerLock: PointerLockManager, source: DomEventSource): void {
         this._global = global;
         this._pointerLock = pointerLock;
-        source.on('window', 'keydown', this._onKeyDown);
+        source.keydown.on(this._onKeyDown);
     }
 
     detach(): void {

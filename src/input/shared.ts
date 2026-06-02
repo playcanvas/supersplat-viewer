@@ -95,13 +95,13 @@ type UpdateContext = {
 
 /**
  * Common shape every input reader (layer 1) implements: pure, mode-agnostic
- * device reading. Readers bind their own DOM listeners, accumulate raw input,
- * and expose normalized signals + gesture facts; they hold no camera-mode logic
- * and fire no intents (the control schemes do that, in layer 2).
+ * device reading. Readers don't register DOM listeners — the `DomEventSource`
+ * does and calls their handlers (keyboard/touch/trackpad expose a `register`
+ * method; gamepad polls). `update()` integrates this-frame deltas + held-state
+ * and refreshes the exposed signals. Readers hold no camera-mode logic and fire
+ * no intents (the control schemes do that, in layer 2).
  */
 interface InputDevice {
-    attach(canvas: HTMLCanvasElement): void;
-    detach(): void;
     update(): void;
 }
 

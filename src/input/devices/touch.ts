@@ -1,3 +1,4 @@
+import type { DomEventSource } from '../dom-event-source';
 import { InputFrame } from '../input-frame';
 import { movementState } from '../movement-state';
 import { TAP_EPSILON } from '../shared';
@@ -10,11 +11,12 @@ type MultiTouchDeltas = {
 };
 
 /**
- * Touch reader (layer 1): pure, mode-agnostic. Does NOT register its own DOM
- * listeners — the central `DomEventSource` calls the public `on*` handlers. The
- * handlers accumulate raw deltas into a private buffer; `update()` tracks the
- * running touch count and runs mode-agnostic tap detection, exposing
- * `tapped`/`dragExceeded` as facts (the schemes decide what a tap means).
+ * Touch reader (layer 1): pure, mode-agnostic. The central `DomEventSource`
+ * owns the real DOM listeners; `register(source)` subscribes the public `on*`
+ * handlers to the source's typed events. The handlers accumulate raw deltas
+ * into a private buffer; `update()` tracks the running touch count and runs
+ * mode-agnostic tap detection, exposing `tapped`/`dragExceeded` as facts (the
+ * schemes decide what a tap means).
  *
  * The virtual-joystick value is pushed in by the coordinator (`setJoystick`).
  */
@@ -73,8 +75,7 @@ class TouchDevice implements InputDevice {
         this.joystick[1] = y;
     }
 
-    onPointerDown = (e: Event): void => {
-        const event = e as PointerEvent;
+    onPointerDown = (event: PointerEvent): void => {
         this._movement.down(event);
 
         if (event.pointerType !== 'touch') {
@@ -93,8 +94,7 @@ class TouchDevice implements InputDevice {
         }
     };
 
-    onPointerMove = (e: Event): void => {
-        const event = e as PointerEvent;
+    onPointerMove = (event: PointerEvent): void => {
         const [movementX, movementY] = this._movement.move(event);
 
         if (event.pointerType !== 'touch') {
@@ -126,8 +126,7 @@ class TouchDevice implements InputDevice {
         }
     };
 
-    onPointerUp = (e: Event): void => {
-        const event = e as PointerEvent;
+    onPointerUp = (event: PointerEvent): void => {
         this._movement.up(event);
 
         if (event.pointerType !== 'touch') {
@@ -146,8 +145,8 @@ class TouchDevice implements InputDevice {
         this._posY = 0;
     };
 
-    onContextMenu = (e: Event): void => {
-        e.preventDefault();
+    onContextMenu = (event: MouseEvent): void => {
+        event.preventDefault();
     };
 
     private _midPoint(): [number, number] {
@@ -170,14 +169,13 @@ class TouchDevice implements InputDevice {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    attach(canvas: HTMLCanvasElement): void {
-        this._element = canvas;
-    }
-
-    detach(): void {
-        this._element = null;
-        this._pointerEvents.clear();
-        this._raw.read();
+    register(source: DomEventSource): void {
+        this._element = source.canvas;
+        source.pointerdown.on(this.onPointerDown);
+        source.pointermove.on(this.onPointerMove);
+        source.pointerup.on(this.onPointerUp);
+        source.pointercancel.on(this.onPointerUp);
+        source.contextmenu.on(this.onContextMenu);
     }
 
     update(): void {
