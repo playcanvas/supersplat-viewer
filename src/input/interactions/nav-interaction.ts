@@ -1,7 +1,7 @@
 import { Vec3 } from 'playcanvas';
 
 import type { Collision } from '../../collision';
-import type { Picker } from '../../picker';
+import type { Picker } from '../../navigation/picker';
 import type { Global } from '../../types';
 import type { DomEventSource } from '../dom-event-source';
 import { TAP_EPSILON } from '../shared';

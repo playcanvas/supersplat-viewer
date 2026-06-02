@@ -6,9 +6,9 @@ import {
     Vec3
 } from 'playcanvas';
 
-import type { Collision } from './collision';
-import type { DomEventSource } from './input/dom-event-source';
-import type { State } from './types';
+import type { Collision } from '../collision';
+import type { DomEventSource } from '../input/dom-event-source';
+import type { State } from '../types';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const NUM_SAMPLES = 12;

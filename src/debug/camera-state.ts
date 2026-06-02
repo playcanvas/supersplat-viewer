@@ -1,4 +1,4 @@
-import type { CameraManager } from '../camera-manager';
+import type { CameraManager } from '../cameras/camera-manager';
 import type { State } from '../types';
 
 type CameraStateSnapshot = {

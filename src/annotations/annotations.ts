@@ -1,8 +1,8 @@
 import { Entity } from 'playcanvas';
 
 import { Annotation } from './annotation';
-import type { Annotation as AnnotationSettings } from './settings';
-import type { Global } from './types';
+import type { Annotation as AnnotationSettings } from '../settings';
+import type { Global } from '../types';
 
 class Annotations {
     annotations: AnnotationSettings[];

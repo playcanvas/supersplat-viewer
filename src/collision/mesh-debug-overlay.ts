@@ -16,7 +16,7 @@ import {
     StandardMaterial
 } from 'playcanvas';
 
-import type { MeshCollision, TriangleSoA } from './collision';
+import type { MeshCollision, TriangleSoA } from './mesh-collision';
 
 // Single-layer overlay rendered after the gaussians, three passes on a fresh
 // depth buffer:

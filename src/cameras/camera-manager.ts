@@ -3,20 +3,20 @@ import {
     Vec3
 } from 'playcanvas';
 
-import { createFigure8Track } from './animation/create-figure8-track';
-import { createRotateTrack } from './animation/create-rotate-track';
-import { AnimController } from './cameras/anim-controller';
-import { Camera, type CameraFrame, type CameraController } from './cameras/camera';
-import { FlyController } from './cameras/fly-controller';
-import { FlySource } from './cameras/fly-source';
-import { OrbitController } from './cameras/orbit-controller';
-import type { TargetSource } from './cameras/target-navigation';
-import { WalkController } from './cameras/walk-controller';
-import { WalkSource } from './cameras/walk-source';
-import type { Collision } from './collision';
-import { easeOut } from './core/math';
-import { Annotation } from './settings';
-import { CameraMode, Global } from './types';
+import { createFigure8Track } from '../animation/create-figure8-track';
+import { createRotateTrack } from '../animation/create-rotate-track';
+import type { Collision } from '../collision';
+import { easeOut } from '../core/math';
+import { Annotation } from '../settings';
+import { CameraMode, Global } from '../types';
+import { AnimController } from './anim-controller';
+import { Camera, type CameraFrame, type CameraController } from './camera';
+import { FlyController } from './fly-controller';
+import { FlySource } from './fly-source';
+import { OrbitController } from './orbit-controller';
+import type { TargetSource } from './target-navigation';
+import { WalkController } from './walk-controller';
+import { WalkSource } from './walk-source';
 
 const tmpCamera = new Camera();
 const tmpv = new Vec3();

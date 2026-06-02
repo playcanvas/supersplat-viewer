@@ -1,27 +1,26 @@
-import type { Collision } from './collision';
-import { InputModeTracker } from './input/app/input-mode-tracker';
-import { ModeShortcuts } from './input/app/mode-shortcuts';
-import { NavInteraction } from './input/app/nav-interaction';
-import { PointerLockManager } from './input/app/pointer-lock';
-import { GamepadDevice } from './input/devices/gamepad';
-import { KeyboardMouseDevice } from './input/devices/keyboard-mouse';
-import { TouchDevice } from './input/devices/touch';
-import { TrackpadDevice } from './input/devices/trackpad';
-import { DomEventSource } from './input/dom-event-source';
-import { InputFrame } from './input/input-frame';
-import type { ControlScheme, Devices } from './input/schemes/control-scheme';
-import { FlyScheme } from './input/schemes/fly';
-import { OrbitScheme } from './input/schemes/orbit';
-import { WalkScheme } from './input/schemes/walk';
-import type { UpdateContext } from './input/shared';
-import type { Picker } from './picker';
-import type { CameraMode, Global } from './types';
+import type { Collision } from '../collision';
+import type { Picker } from '../navigation/picker';
+import type { CameraMode, Global } from '../types';
+import { GamepadDevice } from './devices/gamepad';
+import { KeyboardMouseDevice } from './devices/keyboard-mouse';
+import { TouchDevice } from './devices/touch';
+import { TrackpadDevice } from './devices/trackpad';
+import { DomEventSource } from './dom-event-source';
+import { InputFrame } from './input-frame';
+import { ModeShortcuts } from './interactions/mode-shortcuts';
+import { NavInteraction } from './interactions/nav-interaction';
+import { PointerLockManager } from './interactions/pointer-lock';
+import type { ControlScheme, Devices } from './schemes/control-scheme';
+import { FlyScheme } from './schemes/fly';
+import { OrbitScheme } from './schemes/orbit';
+import { WalkScheme } from './schemes/walk';
+import type { UpdateContext } from './shared';
 
 /**
  * Coordinator that wires together input devices (keyboard-mouse, touch,
- * trackpad, gamepad) and app-level UX helpers (mode shortcuts, nav
- * interaction, pointer lock, input-mode tracker), and exposes the
- * resulting per-frame `InputFrame` for the camera manager to consume.
+ * trackpad, gamepad) and input-driven interaction helpers (mode shortcuts, nav
+ * interaction, pointer lock), and exposes the resulting per-frame `InputFrame`
+ * for the camera manager to consume.
  */
 class InputController {
     frame = new InputFrame({
@@ -46,8 +45,6 @@ class InputController {
     private _pointerLock = new PointerLockManager();
 
     private _modeShortcuts = new ModeShortcuts();
-
-    private _inputModeTracker = new InputModeTracker();
 
     /** Layer-1 device readers, passed to the active control scheme. */
     private _devices: Devices;
@@ -123,14 +120,10 @@ class InputController {
             this._touch.setJoystick(value.x, value.y);
         });
 
-        // input/camera app helpers route their canvas events through the source
+        // interaction helpers route their canvas events through the source
         this._navInteraction.attach(canvas, global, src);
         this._pointerLock.attach(canvas, global, this._keyboardMouse, src);
         this._modeShortcuts.attach(global, this._pointerLock, src);
-
-        // input-mode-tracker is an app concern (device-type flag, not camera
-        // control) — it owns its own window pointer listeners, outside the source.
-        this._inputModeTracker.attach(global);
     }
 
     update(dt: number, distance: number) {

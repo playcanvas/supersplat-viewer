@@ -27,20 +27,21 @@ import {
     platform
 } from 'playcanvas';
 
-import { Annotations } from './annotations';
-import { CameraManager, isWalkAllowed } from './camera-manager';
+import { Annotations } from './annotations/annotations';
 import { Camera } from './cameras/camera';
+import { CameraManager, isWalkAllowed } from './cameras/camera-manager';
 import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
+import { MeshDebugOverlay } from './collision/mesh-debug-overlay';
+import { VoxelDebugOverlay } from './collision/voxel-debug-overlay';
 import { nearlyEquals } from './core/math';
 import { DebugPanel } from './debug';
-import { InputController } from './input-controller';
-import { MeshDebugOverlay } from './mesh-debug-overlay';
-import { NavCursor } from './nav-cursor';
-import { Picker } from './picker';
+import { InputController } from './input/input-controller';
+import { InputModeTracker } from './input-mode-tracker';
+import { NavCursor } from './navigation/nav-cursor';
+import { Picker } from './navigation/picker';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { Config, Global } from './types';
-import { VoxelDebugOverlay } from './voxel-debug-overlay';
 
 // String.replace wrapper that warns when the source substring is missing, so
 // shader chunk patches against the engine fail loudly instead of silently
@@ -148,6 +149,8 @@ class Viewer {
     cameraFrame: CameraFrame;
 
     inputController: InputController;
+
+    inputModeTracker: InputModeTracker;
 
     cameraManager: CameraManager;
 
@@ -352,6 +355,12 @@ class Viewer {
             }
 
             this.picker = new Picker(app, camera);
+
+            // app-level session concern (device-type flag for UI affordances),
+            // independent of the input/camera pipeline
+            this.inputModeTracker = new InputModeTracker();
+            this.inputModeTracker.attach(global);
+
             this.inputController = new InputController(global, this.picker);
             this.inputController.collision = collision ?? null;
 

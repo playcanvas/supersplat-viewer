@@ -1,6 +1,6 @@
 import { Vec3 } from 'playcanvas';
 
-import type { CameraManager } from '../camera-manager';
+import type { CameraManager } from '../cameras/camera-manager';
 import type { Global } from '../types';
 import { captureCameraState, restoreCameraState, type CameraStateSnapshot } from './camera-state';
 
