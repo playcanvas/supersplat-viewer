@@ -1,6 +1,6 @@
 {
   "name": "@playcanvas/supersplat-viewer",
-  "version": "1.26.1",
+  "version": "1.26.2",
   "author": "PlayCanvas <support@playcanvas.com>",
   "homepage": "https://github.com/playcanvas/supersplat-viewer#readme",
   "description": "Viewer for https://superspl.at",
@@ -51,7 +51,7 @@
     "concurrently": "9.2.1",
     "eslint": "9.39.4",
     "globals": "17.6.0",
-    "playcanvas": "2.19.1",
+    "playcanvas": "2.19.2",
     "postcss": "8.5.15",
     "publint": "0.3.21",
     "rollup": "4.61.0",
