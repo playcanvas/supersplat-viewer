@@ -63,7 +63,7 @@ class Camera {
     }
 }
 
-interface CameraController {
+type CameraController = {
     onEnter(camera: Camera): void;
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera): void;
     onExit(camera: Camera): void;

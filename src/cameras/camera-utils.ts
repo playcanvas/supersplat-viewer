@@ -1,7 +1,8 @@
 import { math, Quat, Vec3 } from 'playcanvas';
 
-import type { CameraFrame } from './camera';
 import { damp, mod } from '../core/math';
+
+import type { CameraFrame } from './camera';
 
 /**
  * Shared damping factor for controller smoothing (rotate / move / zoom) so

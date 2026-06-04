@@ -1,11 +1,12 @@
 import { Vec3 } from 'playcanvas';
 
 import type { Collision } from '../collision';
+import { findSphereSpawn } from '../collision/find-spawn';
+
 import type { CameraFrame, Camera, CameraController } from './camera';
 import { DEFAULT_CONTROLLER_DAMPING, applyFrameRotation, dampAngles, setBasisOffset, setCameraBasis } from './camera-utils';
 import { SpawnState } from './spawn-state';
 import { SphereMover } from './sphere-mover';
-import { findSphereSpawn } from '../collision/find-spawn';
 
 /** Radius of the camera collision sphere (meters) */
 const CAMERA_RADIUS = 0.2;

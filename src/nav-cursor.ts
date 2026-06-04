@@ -1,10 +1,11 @@
 import {
-    type AppBase,
-    type Entity,
-    type EventHandler,
+    
+    
+    
     PROJECTION_ORTHOGRAPHIC,
     Vec3
 } from 'playcanvas';
+import type {AppBase, Entity, EventHandler} from 'playcanvas';
 
 import type { Collision } from './collision';
 import type { State } from './types';

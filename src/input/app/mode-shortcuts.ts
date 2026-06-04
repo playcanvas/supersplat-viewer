@@ -1,5 +1,6 @@
-import type { PointerLockManager } from './pointer-lock';
 import type { Global } from '../../types';
+
+import type { PointerLockManager } from './pointer-lock';
 
 const isCaptureMode = (mode: string) => mode === 'walk' || mode === 'fly';
 

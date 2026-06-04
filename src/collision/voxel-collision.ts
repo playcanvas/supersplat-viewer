@@ -4,7 +4,7 @@ import type { Collision, PushOut, RayHit } from './collision';
 /**
  * Metadata for a voxel octree file (matches the .voxel.json format from splat-transform).
  */
-interface VoxelMetadata {
+type VoxelMetadata = {
     version: string;
     gridBounds: { min: number[]; max: number[] };
     gaussianBounds: { min: number[]; max: number[] };

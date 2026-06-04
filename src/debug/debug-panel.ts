@@ -2,7 +2,9 @@ import { Vec3 } from 'playcanvas';
 
 import type { CameraManager } from '../camera-manager';
 import type { Global } from '../types';
-import { captureCameraState, restoreCameraState, type CameraStateSnapshot } from './camera-state';
+
+import { captureCameraState, restoreCameraState  } from './camera-state';
+import type {CameraStateSnapshot} from './camera-state';
 
 // Developer / debug panel. Hidden by default; surfaced via `?debug` URL
 // param or Ctrl+Shift+D keyboard shortcut. DOM and styles are injected

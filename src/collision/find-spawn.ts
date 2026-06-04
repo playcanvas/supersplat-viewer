@@ -7,7 +7,7 @@ const SEARCH_RADIUS_SQ = SEARCH_RADIUS * SEARCH_RADIUS;
 /** Ray budget when probing for ground/ceiling under or above a candidate column. */
 const RAY_MAX_DIST = 1000;
 
-interface SpawnOut {
+type SpawnOut = {
     x: number;
     y: number;
     z: number;

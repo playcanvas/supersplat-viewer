@@ -10,7 +10,7 @@ import type { Collision, PushOut, RayHit } from './collision';
 
 // ---- BVH node layout ----
 
-interface BVHNode {
+type BVHNode = {
     minX: number; minY: number; minZ: number;
     maxX: number; maxY: number; maxZ: number;
     left: BVHNode | null;
@@ -21,7 +21,7 @@ interface BVHNode {
 
 // ---- Triangle data (SoA for cache-friendly access) ----
 
-interface TriangleData {
+type TriangleData = {
     // vertex positions (3 per triangle)
     v0x: Float32Array; v0y: Float32Array; v0z: Float32Array;
     v1x: Float32Array; v1y: Float32Array; v1z: Float32Array;
@@ -38,7 +38,7 @@ interface TriangleData {
 // callers can technically still mutate the underlying typed arrays. By
 // convention the buffers are owned by the collision and must not be written
 // to — they back live BVH / collision queries.
-interface TriangleSoA {
+type TriangleSoA = {
     readonly v0x: Float32Array; readonly v0y: Float32Array; readonly v0z: Float32Array;
     readonly v1x: Float32Array; readonly v1y: Float32Array; readonly v1z: Float32Array;
     readonly v2x: Float32Array; readonly v2y: Float32Array; readonly v2z: Float32Array;

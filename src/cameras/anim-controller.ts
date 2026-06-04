@@ -1,8 +1,8 @@
-import type { Camera, CameraFrame } from './camera';
-import { CameraController } from './camera';
-import { drainInputFrame } from './camera-utils';
 import { AnimState } from '../animation/anim-state';
-import { AnimTrack } from '../settings';
+import type { AnimTrack } from '../settings';
+
+import type { Camera, CameraFrame, CameraController  } from './camera';
+import { drainInputFrame } from './camera-utils';
 
 class AnimController implements CameraController {
     animState: AnimState;

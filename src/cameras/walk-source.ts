@@ -3,11 +3,12 @@ import { Vec3 } from 'playcanvas';
 import type { Camera, CameraFrame } from './camera';
 import {
     ProgressTracker,
-    type TargetSource,
+    
     clampTurnStep,
     getYawDiffToTarget,
     smoothTurnRate
 } from './target-navigation';
+import type {TargetSource} from './target-navigation';
 
 /** XZ distance below which the walker considers itself arrived */
 const ARRIVAL_DIST = 0.5;

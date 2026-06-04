@@ -1,27 +1,19 @@
-import playcanvasConfig from '@playcanvas/eslint-config';
-import tsPlugin from '@typescript-eslint/eslint-plugin';
-import tsParser from '@typescript-eslint/parser';
+import typescriptConfig from '@playcanvas/eslint-config/typescript';
 import globals from 'globals';
 
 export default [
-    ...playcanvasConfig,
+    ...typescriptConfig,
     {
         files: ['**/*.ts'],
         languageOptions: {
-            parser: tsParser,
             globals: {
                 ...globals.browser
             }
         },
-        plugins: {
-            '@typescript-eslint': tsPlugin
-        },
         rules: {
-            'import/default': 'off',
-            'import/extensions': 'off',
-            'import/no-unresolved': 'off',
-            'jsdoc/require-param-type': 'off',
-            'jsdoc/require-returns-type': 'off',
+            'import-x/default': 'off',
+            'import-x/extensions': 'off',
+            'import-x/no-unresolved': 'off',
             'no-duplicate-imports': 'off'
         }
     },
@@ -33,7 +25,7 @@ export default [
             }
         },
         rules: {
-            'import/no-unresolved': 'off'
+            'import-x/no-unresolved': 'off'
         }
     }
 ];

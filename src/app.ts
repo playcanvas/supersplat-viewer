@@ -10,14 +10,15 @@ import {
     TextureHandler,
     GSplatHandler,
     BinaryHandler,
-    XrManager,
-    type GraphicsDevice,
-    type Keyboard,
-    type Mouse,
-    type TouchDevice
+    XrManager
+    
+    
+    
+    
 } from 'playcanvas';
+import type {GraphicsDevice, Keyboard, Mouse, TouchDevice} from 'playcanvas';
 
-interface AppConstructorOptions {
+type AppConstructorOptions = {
     graphicsDevice: GraphicsDevice;
     mouse: Mouse;
     touch: TouchDevice;

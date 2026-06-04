@@ -1,5 +1,5 @@
 import {
-    type AppBase,
+    
     BLEND_NORMAL,
     Color,
     CULLFACE_BACK,
@@ -15,6 +15,7 @@ import {
     SORTMODE_MANUAL,
     StandardMaterial
 } from 'playcanvas';
+import type {AppBase} from 'playcanvas';
 
 import type { MeshCollision, TriangleSoA } from './collision';
 

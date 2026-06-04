@@ -1,5 +1,5 @@
 import {
-    type AppBase,
+    
     CULLFACE_NONE,
     FILTER_LINEAR,
     PIXELFORMAT_RGBA8,
@@ -13,13 +13,14 @@ import {
     Script,
     StandardMaterial,
     Texture,
-    type Quat,
+    
     Vec3,
     BLENDEQUATION_ADD,
     BLENDMODE_ONE,
     BLENDMODE_ONE_MINUS_SRC_ALPHA,
     BLENDMODE_SRC_ALPHA
 } from 'playcanvas';
+import type {AppBase, Quat} from 'playcanvas';
 
 // clamp the vertices of the hotspot so it is never clipped by the near or far plane
 const depthClampGlsl = `

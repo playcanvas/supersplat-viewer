@@ -1,8 +1,8 @@
-import {
+import type {
     Vec3
 } from 'playcanvas';
 
-import { AnimTrack } from '../settings';
+import type { AnimTrack } from '../settings';
 
 /**
  * Creates a figure-8 (lemniscate / infinity sign) camera animation track.
@@ -18,7 +18,7 @@ import { AnimTrack } from '../settings';
  * @param duration - The duration of the animation in seconds.
  * @returns The animation track object containing position and target keyframes.
  */
-const createFigure8Track = (position: Vec3, target: Vec3, fov: number, size: number = 1, keys: number = 24, duration: number = 20): AnimTrack => {
+const createFigure8Track = (position: Vec3, target: Vec3, fov: number, size = 1, keys = 24, duration = 20): AnimTrack => {
     const times = new Array(keys).fill(0).map((_, i) => i / keys * duration);
     const positions: number[] = [];
     const targets: number[] = [];

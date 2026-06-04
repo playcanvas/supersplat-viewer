@@ -13,7 +13,7 @@ class Tooltip {
         style.display = 'none';
 
         const targets = new Map<HTMLElement, any>();
-        let timer: number = 0;
+        let timer = 0;
 
         this.register = (target: HTMLElement, textString: string, direction: Direction = 'bottom') => {
 
