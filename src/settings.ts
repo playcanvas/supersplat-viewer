@@ -1,5 +1,7 @@
-import { ExperienceSettings as V1, AnimTrack as AnimTrackV1, validateV1 } from './schemas/v1';
-import { ExperienceSettings as V2, AnimTrack as AnimTrackV2, validateV2 } from './schemas/v2';
+import type { ExperienceSettings as V1, AnimTrack as AnimTrackV1} from './schemas/v1';
+import { validateV1 } from './schemas/v1';
+import type { ExperienceSettings as V2, AnimTrack as AnimTrackV2} from './schemas/v2';
+import { validateV2 } from './schemas/v2';
 import { assertObject } from './schemas/validate-utils';
 
 const migrateV1 = (settings: V1): V1 => {

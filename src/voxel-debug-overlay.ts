@@ -1,6 +1,6 @@
 import {
-    type AppBase,
-    type Entity,
+    
+    
     BindGroupFormat,
     BindStorageBufferFormat,
     BindStorageTextureFormat,
@@ -25,6 +25,7 @@ import {
     UNIFORMTYPE_MAT4,
     UNIFORMTYPE_UINT
 } from 'playcanvas';
+import type {AppBase, Entity} from 'playcanvas';
 
 import type { VoxelCollision } from './collision';
 

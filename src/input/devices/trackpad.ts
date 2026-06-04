@@ -10,15 +10,15 @@ import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
 const tmpV = new Vec3();
 
 class TrackpadDevice implements InputDevice {
-    orbitSpeed: number = 18;
+    orbitSpeed = 18;
 
-    wheelSpeed: number = 0.06;
+    wheelSpeed = 0.06;
 
-    trackpadOrbitSensitivity: number = 0.75;
+    trackpadOrbitSensitivity = 0.75;
 
-    trackpadPanSensitivity: number = 1.0;
+    trackpadPanSensitivity = 1.0;
 
-    trackpadZoomSensitivity: number = 2.0;
+    trackpadZoomSensitivity = 2.0;
 
     private _global: Global | null = null;
 
@@ -26,7 +26,7 @@ class TrackpadDevice implements InputDevice {
 
     private _pan: [number, number] = [0, 0];
 
-    private _zoom: number = 0;
+    private _zoom = 0;
 
     // Tracks physical Ctrl key state so we can distinguish macOS-synthesized
     // pinch events (wheel + ctrlKey, no physical Ctrl) from a user holding

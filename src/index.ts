@@ -8,12 +8,15 @@ import {
     Mouse,
     platform,
     TouchDevice,
-    type Texture,
-    type TextureHandler,
-    type AppBase,
+    
+    
+    
     revision as engineRevision,
     version as engineVersion
 } from 'playcanvas';
+import type {Texture, TextureHandler, AppBase} from 'playcanvas';
+
+import { version as appVersion } from '../package.json';
 
 import { App } from './app';
 import { MeshCollision, loadVoxelCollision } from './collision';
@@ -25,7 +28,6 @@ import type { Config, Global } from './types';
 import { initPoster, initUI } from './ui';
 import { Viewer } from './viewer';
 import { initXr } from './xr';
-import { version as appVersion } from '../package.json';
 
 const loadGsplat = async (app: AppBase, config: Config, progressCallback: (progress: number) => void) => {
     const { contents, contentUrl } = config;

@@ -4,7 +4,7 @@ import type { Camera, CameraFrame } from './camera';
 import { setCameraForward } from './camera-utils';
 import {
     ProgressTracker,
-    type TargetSource,
+    
     approach,
     clampTurnStep,
     getPitchToDirection,
@@ -12,6 +12,7 @@ import {
     smoothTurnRate,
     smoothstep
 } from './target-navigation';
+import type {TargetSource} from './target-navigation';
 
 const DEG_TO_RAD = Math.PI / 180;
 

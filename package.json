@@ -41,12 +41,10 @@
     "README.md"
   ],
   "devDependencies": {
-    "@playcanvas/eslint-config": "2.1.0",
+    "@playcanvas/eslint-config": "3.0.0-beta.6",
     "@rollup/plugin-json": "6.1.0",
     "@rollup/plugin-node-resolve": "16.0.3",
     "@rollup/plugin-typescript": "12.3.0",
-    "@typescript-eslint/eslint-plugin": "8.60.1",
-    "@typescript-eslint/parser": "8.60.1",
     "autoprefixer": "10.5.0",
     "concurrently": "9.2.1",
     "eslint": "9.39.4",

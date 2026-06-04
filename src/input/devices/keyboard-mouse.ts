@@ -40,17 +40,17 @@ const patchKeyboardMeta = (desktopInput: any) => {
 };
 
 class KeyboardMouseDevice implements InputDevice {
-    moveSpeed: number = 4;
+    moveSpeed = 4;
 
-    orbitSpeed: number = 18;
+    orbitSpeed = 18;
 
-    wheelSpeed: number = 0.06;
+    wheelSpeed = 0.06;
 
-    mouseRotateSensitivity: number = 0.5;
+    mouseRotateSensitivity = 0.5;
 
-    flyMoveAccelerationDamping: number = 0.992;
+    flyMoveAccelerationDamping = 0.992;
 
-    flyMoveDecelerationDamping: number = 0.993;
+    flyMoveDecelerationDamping = 0.993;
 
     private _source: KeyboardMouseSource = new KeyboardMouseSource();
 

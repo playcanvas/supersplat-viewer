@@ -1,12 +1,14 @@
 import {
-    type BoundingBox,
+    
     Vec3
 } from 'playcanvas';
+import type {BoundingBox} from 'playcanvas';
 
 import { createFigure8Track } from './animation/create-figure8-track';
 import { createRotateTrack } from './animation/create-rotate-track';
 import { AnimController } from './cameras/anim-controller';
-import { Camera, type CameraFrame, type CameraController } from './cameras/camera';
+import { Camera   } from './cameras/camera';
+import type {CameraFrame, CameraController} from './cameras/camera';
 import { FlyController } from './cameras/fly-controller';
 import { FlySource } from './cameras/fly-source';
 import { OrbitController } from './cameras/orbit-controller';
@@ -15,8 +17,8 @@ import { WalkController } from './cameras/walk-controller';
 import { WalkSource } from './cameras/walk-source';
 import type { Collision } from './collision';
 import { easeOut } from './core/math';
-import { Annotation } from './settings';
-import { CameraMode, Global } from './types';
+import type { Annotation } from './settings';
+import type { CameraMode, Global } from './types';
 
 const tmpCamera = new Camera();
 const tmpv = new Vec3();
