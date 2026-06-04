@@ -1,16 +1,17 @@
 import { Vec3 } from 'playcanvas';
+import type { EventHandler } from 'playcanvas';
 
-import type { Collision } from '../../collision';
-import type { Picker } from '../../navigation/picker';
-import type { Global } from '../../types';
-import type { DomEventSource } from '../dom-event-source';
-import { TAP_EPSILON } from '../shared';
+import type { NavHost } from './nav-host';
+import type { Picker } from './picker';
+import { probeCollision, probeSurface } from './scene-probe';
+import type { PickTarget } from './scene-probe';
+import type { Collision } from '../collision';
+import type { DomEventSource } from '../input/dom-event-source';
+import { TAP_EPSILON } from '../input/shared';
 
-const tmpV = new Vec3();
-
-const canTargetFly = (global: Global) => (
-    global.state.cameraMode === 'fly' &&
-    !(global.state.inputMode === 'desktop' && global.state.gamingControls)
+const canTargetFly = (host: NavHost) => (
+    host.cameraMode === 'fly' &&
+    !(host.inputMode === 'desktop' && host.gamingControls)
 );
 
 // Mirror gaming-controls speed modifiers: shift = run/boost, ctrl = crawl/slow.
@@ -27,24 +28,23 @@ const computeClickSpeedMul = (event: MouseEvent | undefined, mode: string): numb
     return 1;
 };
 
-type PickTarget = {
-    position: Vec3;
-    normal: Vec3;
-};
-
 /**
- * Click-to-walk / click-to-fly / click-to-focus (desktop), tap equivalents
- * on mobile, and double-click-to-pick fallback. Uses collision first and
- * rendered-scene picking when collision is unavailable.
+ * Navigation interaction — the input→intent half of the target-control modality:
+ * click-to-walk / click-to-fly / click-to-focus (desktop), tap equivalents on
+ * mobile, and the double-click mode-swap. Resolves a screen point to a world
+ * target via the shared scene-probe (collision first, splat-depth fallback) and
+ * fires the discrete navigation intents (`navigateTo` / `orbitTarget:set` /
+ * `pick` / `navigateCancel`) the camera manager animates to. Decoupled from
+ * `global` — reads/writes the app via the injected `NavHost` + intent `events`.
  */
 class NavInteraction {
     collision: Collision | null = null;
 
     private _picker: Picker;
 
-    private _global: Global | null = null;
+    private _host: NavHost | null = null;
 
-    private _canvas: HTMLCanvasElement | null = null;
+    private _events: EventHandler | null = null;
 
     private _lastPointerOffsetX = 0;
 
@@ -65,14 +65,13 @@ class NavInteraction {
     }
 
     private _updateCursor = () => {
-        const global = this._global;
-        const canvas = this._canvas;
-        if (!global || !canvas) return;
-        const { state } = global;
-        const canClickTarget = state.inputMode === 'desktop' && (
-            (state.cameraMode === 'walk' && !state.gamingControls) ||
-            canTargetFly(global) ||
-            state.cameraMode === 'orbit'
+        const host = this._host;
+        if (!host) return;
+        const { canvas } = host;
+        const canClickTarget = host.inputMode === 'desktop' && (
+            (host.cameraMode === 'walk' && !host.gamingControls) ||
+            canTargetFly(host) ||
+            host.cameraMode === 'orbit'
         );
         if (canClickTarget) {
             canvas.style.cursor = this._mouseClickTracking ? 'default' : 'pointer';
@@ -86,80 +85,36 @@ class NavInteraction {
         this._updateCursor();
     };
 
-    private _pickCollision(offsetX: number, offsetY: number): PickTarget | null {
-        if (!this.collision || !this._global) return null;
-
-        const camera = this._global.camera;
-        const cameraPos = camera.getPosition();
-
-        camera.camera!.screenToWorld(offsetX, offsetY, 1.0, tmpV);
-        tmpV.sub(cameraPos).normalize();
-
-        const hit = this.collision.queryRay(
-            cameraPos.x, cameraPos.y, cameraPos.z,
-            tmpV.x, tmpV.y, tmpV.z,
-            camera.camera!.farClip
-        );
-
-        if (!hit) return null;
-
-        const sn = this.collision.querySurfaceNormal(hit.x, hit.y, hit.z, tmpV.x, tmpV.y, tmpV.z);
-        return {
-            position: new Vec3(hit.x, hit.y, hit.z),
-            normal: new Vec3(sn.nx, sn.ny, sn.nz)
-        };
-    }
-
-    private async _pickSceneTarget(offsetX: number, offsetY: number): Promise<PickTarget | null> {
-        const global = this._global;
-        const canvas = this._canvas;
-        if (!global || !canvas) return null;
-
-        const collisionTarget = this._pickCollision(offsetX, offsetY);
-        if (collisionTarget) {
-            return collisionTarget;
-        }
-
-        const result = await this._picker.pickSurface(
-            offsetX / canvas.clientWidth,
-            offsetY / canvas.clientHeight
-        );
-        if (result) {
-            return result;
-        }
-
-        return null;
-    }
-
     private async _flyToPickedPosition(offsetX: number, offsetY: number, event?: MouseEvent) {
-        const global = this._global;
-        if (!global || !canTargetFly(global)) return;
+        const host = this._host;
+        const events = this._events;
+        if (!host || !events || !canTargetFly(host)) return;
 
         const request = ++this._targetPickRequest;
-        const target = await this._pickSceneTarget(offsetX, offsetY);
-        if (target && request === this._targetPickRequest && this._global && canTargetFly(this._global)) {
-            const speedMul = computeClickSpeedMul(event, this._global.state.cameraMode);
-            this._global.events.fire('navigateTo', target.position, target.normal, speedMul);
+        const target = await probeSurface(host.camera, this.collision, this._picker, host.canvas, offsetX, offsetY);
+        if (target && request === this._targetPickRequest && this._host && canTargetFly(this._host)) {
+            const speedMul = computeClickSpeedMul(event, this._host.cameraMode);
+            events.fire('navigateTo', target.position, target.normal, speedMul);
         }
     }
 
     private async _focusPickedPosition(offsetX: number, offsetY: number) {
-        const global = this._global;
-        if (!global || global.state.cameraMode !== 'orbit') return;
+        const host = this._host;
+        const events = this._events;
+        if (!host || !events || host.cameraMode !== 'orbit') return;
 
         const request = ++this._targetPickRequest;
-        const target = await this._pickSceneTarget(offsetX, offsetY);
-        if (target && request === this._targetPickRequest && this._global?.state.cameraMode === 'orbit') {
-            const { events } = this._global;
+        const target = await probeSurface(host.camera, this.collision, this._picker, host.canvas, offsetX, offsetY);
+        if (target && request === this._targetPickRequest && this._host?.cameraMode === 'orbit') {
             events.fire('orbitTarget:set', target.position, target.normal);
             events.fire('pick', target.position);
         }
     }
 
     private _onPointerDown = (event: PointerEvent) => {
-        const global = this._global;
-        if (!global) return;
-        const { events } = global;
+        const host = this._host;
+        const events = this._events;
+        if (!host || !events) return;
 
         // record offsets for click/tap target picking
         this._lastPointerOffsetX = event.offsetX;
@@ -190,15 +145,15 @@ class NavInteraction {
     };
 
     private _onPointerMove = (event: PointerEvent) => {
-        const global = this._global;
-        if (!global) return;
-        const { state, events } = global;
+        const host = this._host;
+        const events = this._events;
+        if (!host || !events) return;
 
         if (this._mouseClickTracking && event.pointerType !== 'touch') {
             const prev = this._mouseClickDelta;
             this._mouseClickDelta += Math.abs(event.movementX) + Math.abs(event.movementY);
             if (prev < TAP_EPSILON && this._mouseClickDelta >= TAP_EPSILON) {
-                if ((state.cameraMode === 'walk' && !state.gamingControls) || canTargetFly(global)) {
+                if ((host.cameraMode === 'walk' && !host.gamingControls) || canTargetFly(host)) {
                     events.fire('navigateCancel');
                 }
             }
@@ -206,9 +161,9 @@ class NavInteraction {
     };
 
     private _onPointerUp = (event: PointerEvent) => {
-        const global = this._global;
-        if (!global) return;
-        const { state, events } = global;
+        const host = this._host;
+        const events = this._events;
+        if (!host || !events) return;
 
         if (this._mouseClickTracking && event.pointerType !== 'touch' && event.button === 0) {
             this._mouseClickTracking = false;
@@ -218,15 +173,15 @@ class NavInteraction {
                 return;
             }
             if (this._mouseClickDelta < TAP_EPSILON) {
-                if (state.cameraMode === 'walk' && !state.gamingControls) {
-                    const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
-                    if (result) {
-                        const speedMul = computeClickSpeedMul(event, state.cameraMode);
-                        events.fire('navigateTo', result.position, result.normal, speedMul);
+                if (host.cameraMode === 'walk' && !host.gamingControls) {
+                    const target: PickTarget = { position: new Vec3(), normal: new Vec3() };
+                    if (this.collision && probeCollision(host.camera, this.collision, this._lastPointerOffsetX, this._lastPointerOffsetY, target)) {
+                        const speedMul = computeClickSpeedMul(event, host.cameraMode);
+                        events.fire('navigateTo', target.position, target.normal, speedMul);
                     }
-                } else if (state.cameraMode === 'fly') {
+                } else if (host.cameraMode === 'fly') {
                     this._flyToPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY, event);
-                } else if (state.cameraMode === 'orbit') {
+                } else if (host.cameraMode === 'orbit') {
                     this._focusPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY);
                 }
             }
@@ -234,27 +189,29 @@ class NavInteraction {
     };
 
     private _onInputEvent = async (eventName: string, event: Event) => {
-        const global = this._global;
-        const canvas = this._canvas;
-        if (!global || !canvas) return;
+        const host = this._host;
+        const events = this._events;
+        if (!host || !events) return;
         if (eventName !== 'dblclick') return;
         if (!(event instanceof MouseEvent)) return;
-        const { events, state } = global;
         // dblclick swaps the active mode and uses the picked target:
         //   fly          → orbit, focus orbit at point
         //   orbit / walk → fly, navigate fly toward point
         const request = ++this._targetPickRequest;
-        const target = await this._pickSceneTarget(event.offsetX, event.offsetY);
+        const target = await probeSurface(host.camera, this.collision, this._picker, host.canvas, event.offsetX, event.offsetY);
         if (!target || request !== this._targetPickRequest) return;
 
-        const currentMode = this._global?.state.cameraMode;
+        const currentMode = this._host?.cameraMode;
         if (currentMode === 'fly') {
             // 'pick' switches mode to orbit, which cancels the active fly nav
             // and would clobber any pre-set orbit target — set it after.
             events.fire('pick', target.position);
             events.fire('orbitTarget:set', target.position, target.normal);
         } else if (currentMode === 'orbit' || currentMode === 'walk') {
-            state.cameraMode = 'fly';
+            // request the switch to fly via the same intent the input core uses —
+            // CameraManager sets cameraMode='fly' synchronously, mirroring the
+            // fly→orbit branch's `pick` — then navigate in the now-fly mode.
+            events.fire('inputEvent', 'requestFirstPerson');
             // Modifiers apply against the destination mode (fly), not the source.
             const speedMul = computeClickSpeedMul(event, 'fly');
             events.fire('navigateTo', target.position, target.normal, speedMul);
@@ -262,30 +219,29 @@ class NavInteraction {
     };
 
     private _onMobileTap = () => {
-        const global = this._global;
-        if (!global) return;
-        const { state, events } = global;
+        const host = this._host;
+        const events = this._events;
+        if (!host || !events) return;
         if (this._suppressClick) {
             this._suppressClick = false;
             return;
         }
 
-        if (state.cameraMode === 'walk' && !state.gamingControls) {
-            const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
-            if (result) {
-                events.fire('navigateTo', result.position, result.normal);
+        if (host.cameraMode === 'walk' && !host.gamingControls) {
+            const target: PickTarget = { position: new Vec3(), normal: new Vec3() };
+            if (this.collision && probeCollision(host.camera, this.collision, this._lastPointerOffsetX, this._lastPointerOffsetY, target)) {
+                events.fire('navigateTo', target.position, target.normal);
             }
-        } else if (state.cameraMode === 'fly') {
+        } else if (host.cameraMode === 'fly') {
             this._flyToPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY);
-        } else if (state.cameraMode === 'orbit') {
+        } else if (host.cameraMode === 'orbit') {
             this._focusPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY);
         }
     };
 
-    attach(canvas: HTMLCanvasElement, global: Global, source: DomEventSource): void {
-        this._canvas = canvas;
-        this._global = global;
-        const { events } = global;
+    attach(host: NavHost, events: EventHandler, source: DomEventSource): void {
+        this._host = host;
+        this._events = events;
 
         source.pointerdown.on(this._onPointerDown);
         source.pointermove.on(this._onPointerMove);
@@ -306,16 +262,16 @@ class NavInteraction {
     detach(): void {
         // pointer listeners are owned by the DomEventSource; only the
         // app-event subscriptions are ours to remove.
-        if (this._global) {
-            const { events } = this._global;
+        const events = this._events;
+        if (events) {
             events.off('inputEvent', this._onInputEvent);
             events.off('mobileTap', this._onMobileTap);
             events.off('cameraMode:changed', this._onCameraModeChanged);
             events.off('inputMode:changed', this._updateCursor);
             events.off('gamingControls:changed', this._updateCursor);
         }
-        this._canvas = null;
-        this._global = null;
+        this._host = null;
+        this._events = null;
     }
 }
 

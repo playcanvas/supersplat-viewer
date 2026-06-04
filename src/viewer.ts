@@ -38,11 +38,12 @@ import { nearlyEquals } from './core/math';
 import { DebugPanel } from './debug';
 import { InputController } from './input/input-controller';
 import { ModeShortcuts } from './input/interactions/mode-shortcuts';
-import { NavInteraction } from './input/interactions/nav-interaction';
 import { PointerLockManager } from './input/interactions/pointer-lock';
 import type { InputHost } from './input/shared';
 import { InputModeTracker } from './input-mode-tracker';
 import { NavCursor } from './navigation/nav-cursor';
+import type { NavHost } from './navigation/nav-host';
+import { NavInteraction } from './navigation/nav-interaction';
 import { Picker } from './navigation/picker';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { Config, Global } from './types';
@@ -390,9 +391,29 @@ class Viewer {
             // app-level input interactions (navigation/picking, mode hotkeys,
             // pointer lock) — attached to the input controller's DOM event source
             const inputSource = this.inputController.domSource;
+
+            // navigation modality (target-control: click/tap-to-go + hover/target
+            // cursor) — decoupled from `global` via a NavHost adapter, parallel
+            // to InputHost; the intent `events` bus is shared with the camera manager
+            const navHost: NavHost = {
+                camera,
+                canvas: inputCanvas,
+                get cameraMode() {
+                    return state.cameraMode;
+                },
+                get inputMode() {
+                    return state.inputMode;
+                },
+                get gamingControls() {
+                    return state.gamingControls;
+                },
+                get walkAllowed() {
+                    return state.walkAllowed;
+                }
+            };
             this.navInteraction = new NavInteraction(this.picker);
             this.navInteraction.collision = collision ?? null;
-            this.navInteraction.attach(inputCanvas, global, inputSource);
+            this.navInteraction.attach(navHost, events, inputSource);
             this.pointerLock = new PointerLockManager();
             this.pointerLock.attach(inputCanvas, global, this.inputController.keyboardMouse, inputSource);
             this.modeShortcuts = new ModeShortcuts();
@@ -439,7 +460,7 @@ class Viewer {
             applyCamera(this.cameraManager.camera);
 
             if (!config.noui) {
-                this.navCursor = new NavCursor(app, camera, collision ?? null, events, state, this.inputController.domSource);
+                this.navCursor = new NavCursor(app, navHost, collision ?? null, events, this.inputController.domSource);
             }
 
             this.debugPanel = new DebugPanel(global, this.cameraManager);
