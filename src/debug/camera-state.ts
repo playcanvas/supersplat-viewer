@@ -1,5 +1,5 @@
-import type { CameraManager } from '../cameras/camera-manager';
 import type { State } from '../types';
+import type { CameraManager } from '../viewer/camera-manager';
 
 type CameraStateSnapshot = {
     position: [number, number, number];

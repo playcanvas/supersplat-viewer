@@ -1,4 +1,4 @@
-import type { Global } from './types';
+import type { Global } from '../types';
 
 /**
  * Watches global pointer events and updates `state.inputMode` to reflect

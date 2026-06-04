@@ -1,6 +1,6 @@
 import { EventHandler } from 'playcanvas';
 
-import type { CameraMode } from '../types';
+import type { CameraMode } from '../core/modes';
 import { GamepadDevice } from './devices/gamepad';
 import { KeyboardMouseDevice } from './devices/keyboard-mouse';
 import { TouchDevice } from './devices/touch';

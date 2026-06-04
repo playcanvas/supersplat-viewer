@@ -2,7 +2,7 @@ import type { Camera, CameraFrame } from './camera';
 import { CameraController } from './camera';
 import { drainInputFrame } from './camera-utils';
 import { AnimState } from '../animation/anim-state';
-import { AnimTrack } from '../settings';
+import type { AnimTrack } from '../animation/anim-track';
 
 class AnimController implements CameraController {
     animState: AnimState;

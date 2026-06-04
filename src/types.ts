@@ -1,10 +1,7 @@
 import type { Entity, EventHandler, AppBase } from 'playcanvas';
 
+import type { CameraMode, InputMode } from './core/modes';
 import type { ExperienceSettings } from './settings';
-
-type CameraMode = 'orbit' | 'anim' | 'fly' | 'walk';
-
-type InputMode = 'desktop' | 'touch';
 
 // configuration options are immutable at runtime
 type Config = {

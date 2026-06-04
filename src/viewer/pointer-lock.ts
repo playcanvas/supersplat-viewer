@@ -1,6 +1,6 @@
-import type { Global } from '../../types';
-import type { KeyboardMouseDevice } from '../devices/keyboard-mouse';
-import type { DomEventSource } from '../dom-event-source';
+import type { KeyboardMouseDevice } from '../input/devices/keyboard-mouse';
+import type { DomEventSource } from '../input/dom-event-source';
+import type { Global } from '../types';
 
 const isCaptureMode = (mode: string) => mode === 'walk' || mode === 'fly';
 const hasUserActivation = () => (

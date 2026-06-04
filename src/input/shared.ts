@@ -1,8 +1,8 @@
 import { math, PROJECTION_PERSPECTIVE, Vec3 } from 'playcanvas';
 import type { CameraComponent, EventHandler } from 'playcanvas';
 
-import type { CameraMode } from '../types';
 import type { InputFrame } from './input-frame';
+import type { CameraMode } from '../core/modes';
 
 type CameraMove = [number, number, number];
 type CameraRotate = [number, number, number];

@@ -2,7 +2,7 @@ import {
     Vec3
 } from 'playcanvas';
 
-import { AnimTrack } from '../settings';
+import type { AnimTrack } from './anim-track';
 
 /**
  * Creates a figure-8 (lemniscate / infinity sign) camera animation track.

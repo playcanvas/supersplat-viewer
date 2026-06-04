@@ -22,8 +22,8 @@ import { observe } from './core/observe';
 import { initLocalization } from './localization';
 import { importSettings } from './settings';
 import type { Config, Global } from './types';
-import { initPoster, initUI } from './ui';
-import { Viewer } from './viewer';
+import { initPoster, initUI } from './viewer/ui';
+import { Viewer } from './viewer/viewer';
 import { initXr } from './xr';
 import { version as appVersion } from '../package.json';
 

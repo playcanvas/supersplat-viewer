@@ -1,6 +1,6 @@
 import type { PointerLockManager } from './pointer-lock';
-import type { Global } from '../../types';
-import type { DomEventSource } from '../dom-event-source';
+import type { DomEventSource } from '../input/dom-event-source';
+import type { Global } from '../types';
 
 const isCaptureMode = (mode: string) => mode === 'walk' || mode === 'fly';
 

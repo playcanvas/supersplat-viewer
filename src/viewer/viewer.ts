@@ -27,26 +27,26 @@ import {
     platform
 } from 'playcanvas';
 
-import { Annotations } from './annotations/annotations';
-import { Camera } from './cameras/camera';
-import { CameraManager, isWalkAllowed } from './cameras/camera-manager';
-import type { Collision } from './collision';
-import { MeshCollision, VoxelCollision } from './collision';
-import { MeshDebugOverlay } from './collision/mesh-debug-overlay';
-import { VoxelDebugOverlay } from './collision/voxel-debug-overlay';
-import { nearlyEquals } from './core/math';
-import { DebugPanel } from './debug';
-import { InputController } from './input/input-controller';
-import { ModeShortcuts } from './input/interactions/mode-shortcuts';
-import { PointerLockManager } from './input/interactions/pointer-lock';
-import type { InputHost } from './input/shared';
+import { CameraManager, isWalkAllowed } from './camera-manager';
 import { InputModeTracker } from './input-mode-tracker';
-import { NavCursor } from './navigation/nav-cursor';
-import type { NavHost } from './navigation/nav-host';
-import { NavInteraction } from './navigation/nav-interaction';
-import { Picker } from './navigation/picker';
-import type { ExperienceSettings, PostEffectSettings } from './settings';
-import type { Config, Global } from './types';
+import { ModeShortcuts } from './mode-shortcuts';
+import { Annotations } from '../annotations/annotations';
+import { Camera } from '../cameras/camera';
+import type { Collision } from '../collision';
+import { MeshCollision, VoxelCollision } from '../collision';
+import { PointerLockManager } from './pointer-lock';
+import { MeshDebugOverlay } from '../collision/debug/mesh-debug-overlay';
+import { VoxelDebugOverlay } from '../collision/debug/voxel-debug-overlay';
+import { nearlyEquals } from '../core/math';
+import { DebugPanel } from '../debug';
+import { InputController } from '../input/input-controller';
+import type { InputHost } from '../input/shared';
+import { NavCursor } from '../navigation/nav-cursor';
+import type { NavHost } from '../navigation/nav-host';
+import { NavInteraction } from '../navigation/nav-interaction';
+import { Picker } from '../navigation/picker';
+import type { ExperienceSettings, PostEffectSettings } from '../settings';
+import type { Config, Global } from '../types';
 
 // String.replace wrapper that warns when the source substring is missing, so
 // shader chunk patches against the engine fail loudly instead of silently

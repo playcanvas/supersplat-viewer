@@ -1,6 +1,6 @@
 import type { Entity } from 'playcanvas';
 
-import type { CameraMode, InputMode } from '../types';
+import type { CameraMode, InputMode } from '../core/modes';
 
 /**
  * What the host application provides to the navigation modality — the only

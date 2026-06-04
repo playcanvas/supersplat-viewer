@@ -1,10 +1,10 @@
 import { EventHandler } from 'playcanvas';
 
-import { version as appVersion } from '../package.json';
-import { localize } from './localization';
-import type { Annotation } from './settings';
-import { Tooltip } from './tooltip';
-import { Global } from './types';
+import { version as appVersion } from '../../package.json';
+import { localize } from '../localization';
+import type { Annotation } from '../settings';
+import { Tooltip } from '../tooltip';
+import { Global } from '../types';
 
 // Initialize the touch joystick for fly mode camera control
 const initJoystick = (
