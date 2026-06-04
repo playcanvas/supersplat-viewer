@@ -1,11 +1,12 @@
 import { math, Vec3 } from 'playcanvas';
 
 import type { Collision, PushOut } from '../collision';
+import { findCylinderSpawn } from '../collision/find-spawn';
+import { damp } from '../core/math';
+
 import type { CameraFrame, Camera, CameraController } from './camera';
 import { DEFAULT_CONTROLLER_DAMPING, applyFrameRotation, dampAngles, setBasisOffset, setYawBasis } from './camera-utils';
 import { SpawnState } from './spawn-state';
-import { findCylinderSpawn } from '../collision/find-spawn';
-import { damp } from '../core/math';
 
 const FIXED_DT = 1 / 60;
 const MAX_SUBSTEPS = 10;

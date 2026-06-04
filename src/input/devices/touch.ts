@@ -16,13 +16,13 @@ const orbitRotate = new Vec3();
 const flyRotate = new Vec3();
 
 class TouchDevice implements InputDevice {
-    orbitSpeed: number = 18;
+    orbitSpeed = 18;
 
-    moveSpeed: number = 4;
+    moveSpeed = 4;
 
-    pinchSpeed: number = 0.4;
+    pinchSpeed = 0.4;
 
-    touchRotateSensitivity: number = 1.5;
+    touchRotateSensitivity = 1.5;
 
     private _source = new MultiTouchSource();
 

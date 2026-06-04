@@ -1,7 +1,7 @@
 /**
  * Push-out vector returned by querySphere / queryCapsule.
  */
-interface PushOut {
+type PushOut = {
     x: number;
     y: number;
     z: number;
@@ -10,7 +10,7 @@ interface PushOut {
 /**
  * Hit result returned by queryRay.
  */
-interface RayHit {
+type RayHit = {
     x: number;
     y: number;
     z: number;
@@ -20,7 +20,7 @@ interface RayHit {
  * Abstract collision interface operating in PlayCanvas world space (Y-up, right-handed).
  * Implementations convert to/from their internal coordinate systems internally.
  */
-interface Collision {
+type Collision = {
     queryRay(
         ox: number, oy: number, oz: number,
         dx: number, dy: number, dz: number,

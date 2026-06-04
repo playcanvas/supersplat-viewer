@@ -6,11 +6,11 @@
  */
 
 import {
-    type AppBase,
-    type Entity,
-    type GSplatComponent,
-    type Layer,
-    type MeshInstance,
+    
+    
+    
+    
+    
     ADDRESS_CLAMP_TO_EDGE,
     BLENDEQUATION_ADD,
     BLENDMODE_ZERO,
@@ -29,6 +29,7 @@ import {
     Vec4,
     BlendState
 } from 'playcanvas';
+import type {AppBase, Entity, GSplatComponent, Layer, MeshInstance} from 'playcanvas';
 
 // Override global picking to pack alpha-weighted splat depth instead of meshInstance id.
 const pickDepthGlsl = /* glsl */ `

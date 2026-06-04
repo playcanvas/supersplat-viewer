@@ -1,7 +1,8 @@
 import { Vec3 } from 'playcanvas';
 
 import { CubicSpline } from '../core/spline';
-import { AnimTrack } from '../settings';
+import type { AnimTrack } from '../settings';
+
 import { AnimCursor } from './anim-cursor';
 
 // manage the state of a camera animation track

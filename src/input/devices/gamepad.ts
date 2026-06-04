@@ -8,11 +8,11 @@ const stickMove = new Vec3();
 const stickRotate = new Vec3();
 
 class GamepadDevice implements InputDevice {
-    moveSpeed: number = 4;
+    moveSpeed = 4;
 
-    orbitSpeed: number = 18;
+    orbitSpeed = 18;
 
-    gamepadRotateSensitivity: number = 1.0;
+    gamepadRotateSensitivity = 1.0;
 
     private _source = new GamepadSource();
 

@@ -1,4 +1,5 @@
-import { math, Vec3 } from 'playcanvas';
+import type { Vec3 } from 'playcanvas';
+import { math } from 'playcanvas';
 
 import type { Camera, CameraFrame } from './camera';
 
@@ -7,7 +8,7 @@ import type { Camera, CameraFrame } from './camera';
  * world-space target. Implementations append to the shared CameraFrame each
  * tick and signal completion via the onComplete callback.
  */
-interface TargetSource {
+type TargetSource = {
     isActive: boolean;
     onComplete: (() => void) | null;
     navigateTo(target: Vec3, speedMul?: number): void;

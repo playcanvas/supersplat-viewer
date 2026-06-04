@@ -1,14 +1,15 @@
 import {
     Color,
-    Entity,
     Quat,
-    Vec3,
-    type CameraComponent
+    Vec3
+    
 } from 'playcanvas';
+import type {
+    Entity,CameraComponent} from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
 
-import { Global } from './types';
+import type { Global } from './types';
 
 // On entering/exiting AR, we need to set the camera clear color to transparent black
 const initXr = (global: Global) => {

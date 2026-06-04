@@ -1,4 +1,5 @@
-import {
+import type {
+    GSplatComponent,
     BoundingBox,
     CameraFrame,
     type CameraComponent,
@@ -23,13 +24,12 @@ import {
     GSPLAT_DEBUG_NONE,
     GSPLAT_RENDERER_RASTER_CPU_SORT,
     GSPLAT_RENDERER_RASTER_GPU_SORT,
-    GSplatComponent,
     platform
 } from 'playcanvas';
 
 import { Annotations } from './annotations';
 import { CameraManager, isWalkAllowed } from './camera-manager';
-import { Camera } from './cameras/camera';
+import type { Camera } from './cameras/camera';
 import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
@@ -231,7 +231,7 @@ class Viewer {
                 watermark: 5
             });
 
-            // eslint-disable-next-line no-new
+             
             new MiniStats(app, options);
         }
 

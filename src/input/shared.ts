@@ -91,7 +91,7 @@ type UpdateContext = {
 };
 
 /** Common shape every input device implements. */
-interface InputDevice {
+type InputDevice = {
     attach(canvas: HTMLCanvasElement, global: Global): void;
     detach(): void;
     update(ctx: UpdateContext, frame: CameraInputFrame): void;
