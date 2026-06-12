@@ -52,6 +52,18 @@ By default the viewer uses WebGPU when available (falling back automatically whe
 | `fullload` | Load all streaming LOD data before the first frame |
 | `heatmap` | Render the heatmap debug overlay (WebGPU only) |
 
+## Embedding
+
+When the viewer runs inside an iframe, it posts a message to the embedding window each time the user picks a point on the scene (single click sets the orbit focus, double click picks a navigation target):
+
+```ts
+window.addEventListener('message', (e) => {
+    if (e.data?.type === 'pick') {
+        const { position, normal } = e.data; // [x, y, z] world-space arrays
+    }
+});
+```
+
 ## NPM Package
 
 The web app source files are available as strings for templating when you import the package from npm:
