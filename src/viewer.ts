@@ -336,6 +336,18 @@ class Viewer {
             window.animationDuration = state.animationDuration;
         });
 
+        // forward scene picks (click sets focus, dblclick navigates) to the
+        // embedding page
+        if (window.parent !== window) {
+            events.on('pick', (position: Vec3, normal: Vec3) => {
+                window.parent.postMessage({
+                    type: 'pick',
+                    position: [position.x, position.y, position.z],
+                    normal: [normal.x, normal.y, normal.z]
+                }, '*');
+            });
+        }
+
         // wait for the model to load
         Promise.all([gsplatLoad, skyboxLoad, collisionLoad]).then((results) => {
             const gsplatComponent = results[0].gsplat as GSplatComponent;
