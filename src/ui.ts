@@ -142,7 +142,7 @@ const initJoystick = (
 const initAnnotationNav = (
     dom: Record<string, HTMLElement>,
     events: EventHandler,
-    state: { loaded: boolean; inputMode: string; controlsHidden: boolean },
+    state: { loaded: boolean; inputMode: string; controlsHidden: boolean; annotationsVisible: boolean },
     annotations: Annotation[]
 ) => {
     // Only show navigator when there are at least 2 annotations
@@ -156,6 +156,10 @@ const initAnnotationNav = (
 
     const updateMode = () => {
         if (!state.loaded) return;
+        if (!state.annotationsVisible) {
+            dom.annotationNav.classList.add('hidden');
+            return;
+        }
         dom.annotationNav.classList.remove('desktop', 'touch', 'hidden');
         dom.annotationNav.classList.add(state.inputMode);
     };
@@ -199,6 +203,10 @@ const initAnnotationNav = (
     });
     events.on('inputMode:changed', updateMode);
     events.on('controlsHidden:changed', updateFade);
+    events.on('annotationsVisible:changed', () => {
+        updateMode();
+        updateFade();
+    });
 
     // Initial state
     updateDisplay();
@@ -235,6 +243,7 @@ const initUI = (global: Global) => {
         'buttonContainer',
         'play', 'pause',
         'settings', 'settingsPanel',
+        'annotationsRow', 'annotationsOption', 'annotationsCheck',
         'orbitCamera', 'flyCamera', 'fpsCamera',
         'performanceModeRow', 'performanceModeCheck', 'performanceModeOption',
         'gamingControlsDivider', 'gamingControlsRow', 'gamingControlsCheck', 'gamingControlsOption',
@@ -388,6 +397,20 @@ const initUI = (global: Global) => {
     events.on('gamingControls:changed', updateGamingControls);
     events.on('inputMode:changed', updateGamingControls);
     updateGamingControls();
+
+    // Annotation visibility toggle
+    const updateAnnotationsVisibility = () => {
+        dom.annotationsRow.classList.toggle('hidden', global.settings.annotations.length === 0);
+        dom.annotationsCheck.classList.toggle('active', state.annotationsVisible);
+        global.app.renderNextFrame = true;
+    };
+
+    dom.annotationsRow.addEventListener('click', () => {
+        state.annotationsVisible = !state.annotationsVisible;
+    });
+
+    events.on('annotationsVisible:changed', updateAnnotationsVisibility);
+    updateAnnotationsVisibility();
 
     // AR/VR
     const arChanged = () => dom.arMode.classList[state.hasAR ? 'remove' : 'add']('hidden');

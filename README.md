@@ -35,6 +35,7 @@ The app supports a number of URL parameters (these are subject to change):
 | --------- | ----------- |
 | `noui` | Hide the UI overlay |
 | `noanim` | Start with animation paused |
+| `noannotations` | Start with annotations hidden |
 | `ministats` | Show runtime CPU/GPU performance graphs |
 
 ### Renderer

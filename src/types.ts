@@ -16,6 +16,7 @@ type Config = {
 
     noui: boolean;
     noanim: boolean;
+    noannotations: boolean;                     // hide annotations on initial load
     nofx: boolean;                              // disable post effects
     hpr?: boolean;                              // override highPrecisionRendering (undefined = use settings)
     ministats: boolean;
@@ -47,6 +48,7 @@ type State = {
     collisionOverlayEnabled: boolean;
     isFullscreen: boolean;
     controlsHidden: boolean;
+    annotationsVisible: boolean;
     gamingControls: boolean;
 };
 
