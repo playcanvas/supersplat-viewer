@@ -12,6 +12,8 @@ interface Window {
 
     scrubTo?: (time: number) => Promise<void>;
 
+    captureFrame?: (options?: { time?: number; width?: number; height?: number; supersample?: number }) => Promise<{ width: number; height: number; data: string }>;
+
     animationDuration?: number;
 
     getCameraState?: () => {
