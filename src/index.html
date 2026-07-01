@@ -34,6 +34,7 @@
                 contents: fetch(contentUrl),
                 noui: url.searchParams.has('noui'),
                 noanim: url.searchParams.has('noanim'),
+                noannotations: url.searchParams.has('noannotations'),
                 nofx: url.searchParams.has('nofx'),
                 hpr: url.searchParams.has('hpr') ? ['', '1', 'true', 'enable'].includes(url.searchParams.get('hpr')) : undefined,
                 ministats: url.searchParams.has('ministats'),
@@ -202,6 +203,10 @@
                 <div id="gamingControlsRow" class="settingsRow">
                     <div id="gamingControlsOption" data-i18n="settings.gaming-controls">Gaming Controls</div>
                     <div id="gamingControlsCheck" class="toggleSwitch"><div class="toggleTrack"><div class="toggleThumb"></div></div></div>
+                </div>
+                <div id="annotationsRow" class="settingsRow">
+                    <div id="annotationsOption" data-i18n="settings.display-annotations">Display Annotations</div>
+                    <div id="annotationsCheck" class="toggleSwitch active"><div class="toggleTrack"><div class="toggleThumb"></div></div></div>
                 </div>
                 <div class="divider"></div>
                 <div class="settingsRow">

@@ -237,6 +237,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
         collisionOverlayEnabled: false,
         isFullscreen: false,
         controlsHidden: false,
+        annotationsVisible: !config.noannotations,
         gamingControls: localStorage.getItem('gamingControls') === 'true'
     });
 
