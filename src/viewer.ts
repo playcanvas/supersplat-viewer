@@ -336,22 +336,30 @@ class Viewer {
             // first use — no ?capture flag and no preserveDrawingBuffer needed, and it
             // works on both WebGL and WebGPU.
             let capture: Capture | null = null;
+            let captureQueue: Promise<unknown> = Promise.resolve();
             window.captureFrame = ({ time, width = 480, height = width, supersample } = {}) => {
-                if (!capture) {
-                    capture = new Capture(app, camera.camera, () => this.cameraFrame ?? null);
-                }
-                return capture.grab({
-                    time,
-                    width,
-                    height,
-                    supersample,
-                    scrub: (t) => {
-                        if (state.hasAnimation) {
-                            state.animationPaused = true;
-                            events.fire('scrubAnim', t);
-                        }
+                const run = () => {
+                    if (!capture) {
+                        capture = new Capture(app, camera.camera, () => this.cameraFrame ?? null);
                     }
-                });
+                    return capture.grab({
+                        time,
+                        width,
+                        height,
+                        supersample,
+                        scrub: (t) => {
+                            if (state.hasAnimation) {
+                                state.animationPaused = true;
+                                events.fire('scrubAnim', t);
+                            }
+                        }
+                    });
+                };
+                // serialize calls: they share the viewer camera, so concurrent captures
+                // would interleave the redirect/restore and could leave it mis-targeted
+                const result = captureQueue.then(run, run);
+                captureQueue = result.then(() => {}, () => {});
+                return result;
             };
         });
 

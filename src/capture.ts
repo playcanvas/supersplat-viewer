@@ -40,16 +40,16 @@ void main(void) {
         uv.y = 1.0 - uv.y;
     }
     vec2 base = floor(uv * outSize) * uRatio;
-    vec3 sum = vec3(0.0);
+    vec4 sum = vec4(0.0);
     for (int y = 0; y < 8; y++) {
         if (y >= r) break;
         for (int x = 0; x < 8; x++) {
             if (x >= r) break;
             vec2 texel = base + vec2(float(x) + 0.5, float(y) + 0.5);
-            sum += texture2D(source, texel / uSrcSize).rgb;
+            sum += texture2D(source, texel / uSrcSize);
         }
     }
-    gl_FragColor = vec4(sum / (uRatio * uRatio), 1.0);
+    gl_FragColor = sum / (uRatio * uRatio);
 }
 `;
 
@@ -73,16 +73,16 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         uv.y = 1.0 - uv.y;
     }
     let base: vec2f = floor(uv * outSize) * uniform.uRatio;
-    var sum: vec3f = vec3f(0.0);
+    var sum: vec4f = vec4f(0.0);
     for (var y: i32 = 0; y < 8; y = y + 1) {
         if (y >= r) { break; }
         for (var x: i32 = 0; x < 8; x = x + 1) {
             if (x >= r) { break; }
             let texel: vec2f = base + vec2f(f32(x) + 0.5, f32(y) + 0.5);
-            sum = sum + textureSample(source, sourceSampler, texel / uniform.uSrcSize).rgb;
+            sum = sum + textureSample(source, sourceSampler, texel / uniform.uSrcSize);
         }
     }
-    output.color = vec4f(sum / (uniform.uRatio * uniform.uRatio), 1.0);
+    output.color = sum / (uniform.uRatio * uniform.uRatio);
     return output;
 }
 `;
@@ -183,8 +183,12 @@ class Capture {
         // clamp to the box shaders' 8x8 sample cap: a larger ratio would sum at most 64
         // texels yet still divide by ss*ss, producing an under-exposed (too dark) frame.
         const ss = Math.min(8, Math.max(1, Math.round(supersample)));
-        const srcW = width * ss;
-        const srcH = height * ss;
+        // normalize the output size to positive integers so texture/RT creation and
+        // readback don't fail confusingly on 0/negative/non-integer input
+        const outW = Math.max(1, Math.round(width));
+        const outH = Math.max(1, Math.round(height));
+        const srcW = outW * ss;
+        const srcH = outH * ss;
 
         // render the scene (incl. post effects) into our own supersampled target
         const srcRT = this.ensure('srcRT', srcW, srcH, true);
@@ -214,7 +218,7 @@ class Capture {
             });
 
             // box-downsample the supersampled render to the output size
-            const dstRT = this.ensure('dstRT', width, height, false);
+            const dstRT = this.ensure('dstRT', outW, outH, false);
             const { scope } = device;
             scope.resolve('source').setValue(srcRT.colorBuffer);
             scope.resolve('uSrcSize').setValue([srcW, srcH]);
@@ -223,14 +227,14 @@ class Capture {
             device.setBlendState(BlendState.NOBLEND);
             drawQuadWithShader(device, dstRT, this.shader);
 
-            const pixels = await dstRT.colorBuffer.read(0, 0, width, height, { renderTarget: dstRT, immediate: true });
+            const pixels = await dstRT.colorBuffer.read(0, 0, outW, outH, { renderTarget: dstRT, immediate: true });
             const u8 = pixels instanceof Uint8Array ? pixels : new Uint8Array(pixels.buffer);
             let binary = '';
             const chunk = 0x8000;
             for (let i = 0; i < u8.length; i += chunk) {
                 binary += String.fromCharCode.apply(null, u8.subarray(i, i + chunk) as unknown as number[]);
             }
-            return { width, height, data: btoa(binary) };
+            return { width: outW, height: outH, data: btoa(binary) };
         } finally {
             camera.aspectRatioMode = saved.aspectRatioMode;
             camera.aspectRatio = saved.aspectRatio;
