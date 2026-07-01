@@ -162,59 +162,82 @@ class Capture {
         return rt;
     }
 
+    // Point the camera at `renderTarget` and re-target CameraFrame's compose pass. Post
+    // effects bind their output inside setupRenderPasses, which only re-runs on a reset,
+    // so a plain renderTarget change doesn't take effect — force a reset via layersDirty,
+    // otherwise the composited frame keeps going to the old target (reads back black).
+    private setCameraTarget(renderTarget: RenderTarget | null) {
+        this.camera.renderTarget = renderTarget;
+        const cameraFrame = this.getCameraFrame();
+        if (cameraFrame) {
+            const rpc = (cameraFrame as { renderPassCamera?: { layersDirty: boolean } }).renderPassCamera;
+            if (rpc) {
+                rpc.layersDirty = true;
+            }
+            cameraFrame.update();
+        }
+    }
+
     async grab({ time, width, height, supersample = 2, scrub }: GrabOptions): Promise<CaptureResult> {
         const device = this.device;
-        const ss = Math.max(1, Math.round(supersample));
+        // clamp to the box shaders' 8x8 sample cap: a larger ratio would sum at most 64
+        // texels yet still divide by ss*ss, producing an under-exposed (too dark) frame.
+        const ss = Math.min(8, Math.max(1, Math.round(supersample)));
         const srcW = width * ss;
         const srcH = height * ss;
 
         // render the scene (incl. post effects) into our own supersampled target
         const srcRT = this.ensure('srcRT', srcW, srcH, true);
-        if (this.camera.renderTarget !== srcRT) {
-            this.camera.renderTarget = srcRT;
-            this.camera.aspectRatioMode = ASPECT_AUTO; // aspect follows the target dims
-            this.camera.horizontalFov = srcW >= srcH;
-            // CameraFrame (post effects) binds its compose pass to the camera's render
-            // target inside setupRenderPasses, which update() only re-runs on a reset.
-            // A target change alone doesn't trigger that, so force it via layersDirty —
-            // otherwise the composited frame keeps going to the old target (backbuffer)
-            // and our RT reads back black.
-            const cameraFrame = this.getCameraFrame();
-            if (cameraFrame) {
-                const rpc = (cameraFrame as { renderPassCamera?: { layersDirty: boolean } }).renderPassCamera;
-                if (rpc) {
-                    rpc.layersDirty = true;
-                }
-                cameraFrame.update();
+
+        // Redirect the camera into our offscreen target for the capture, then restore it.
+        // window.captureFrame is a global API, so leaving the camera pointed at our target
+        // would freeze on-screen rendering after the first call.
+        const camera = this.camera;
+        const saved = {
+            renderTarget: camera.renderTarget,
+            aspectRatioMode: camera.aspectRatioMode,
+            aspectRatio: camera.aspectRatio,
+            horizontalFov: camera.horizontalFov
+        };
+
+        try {
+            camera.aspectRatioMode = ASPECT_AUTO; // aspect follows the target dims
+            camera.horizontalFov = srcW >= srcH;
+            this.setCameraTarget(srcRT);
+
+            if (time !== undefined && scrub) {
+                scrub(time);
             }
-        }
+            this.app.renderNextFrame = true;
+            await new Promise<void>((resolve) => {
+                this.app.once('frameend', () => resolve());
+            });
 
-        if (time !== undefined && scrub) {
-            scrub(time);
-        }
-        this.app.renderNextFrame = true;
-        await new Promise<void>((resolve) => {
-            this.app.once('frameend', () => resolve());
-        });
+            // box-downsample the supersampled render to the output size
+            const dstRT = this.ensure('dstRT', width, height, false);
+            const { scope } = device;
+            scope.resolve('source').setValue(srcRT.colorBuffer);
+            scope.resolve('uSrcSize').setValue([srcW, srcH]);
+            scope.resolve('uRatio').setValue(ss);
+            scope.resolve('uFlipY').setValue(srcRT.flipY ? 0 : 1);
+            device.setBlendState(BlendState.NOBLEND);
+            drawQuadWithShader(device, dstRT, this.shader);
 
-        // box-downsample the supersampled render to the output size
-        const dstRT = this.ensure('dstRT', width, height, false);
-        const { scope } = device;
-        scope.resolve('source').setValue(srcRT.colorBuffer);
-        scope.resolve('uSrcSize').setValue([srcW, srcH]);
-        scope.resolve('uRatio').setValue(ss);
-        scope.resolve('uFlipY').setValue(srcRT.flipY ? 0 : 1);
-        device.setBlendState(BlendState.NOBLEND);
-        drawQuadWithShader(device, dstRT, this.shader);
-
-        const pixels = await dstRT.colorBuffer.read(0, 0, width, height, { renderTarget: dstRT, immediate: true });
-        const u8 = pixels instanceof Uint8Array ? pixels : new Uint8Array(pixels.buffer);
-        let binary = '';
-        const chunk = 0x8000;
-        for (let i = 0; i < u8.length; i += chunk) {
-            binary += String.fromCharCode.apply(null, u8.subarray(i, i + chunk) as unknown as number[]);
+            const pixels = await dstRT.colorBuffer.read(0, 0, width, height, { renderTarget: dstRT, immediate: true });
+            const u8 = pixels instanceof Uint8Array ? pixels : new Uint8Array(pixels.buffer);
+            let binary = '';
+            const chunk = 0x8000;
+            for (let i = 0; i < u8.length; i += chunk) {
+                binary += String.fromCharCode.apply(null, u8.subarray(i, i + chunk) as unknown as number[]);
+            }
+            return { width, height, data: btoa(binary) };
+        } finally {
+            camera.aspectRatioMode = saved.aspectRatioMode;
+            camera.aspectRatio = saved.aspectRatio;
+            camera.horizontalFov = saved.horizontalFov;
+            this.setCameraTarget(saved.renderTarget);
+            this.app.renderNextFrame = true;
         }
-        return { width, height, data: btoa(binary) };
     }
 }
 
