@@ -146,7 +146,7 @@ class Capture {
             addressV: ADDRESS_CLAMP_TO_EDGE
         });
         const rt = new RenderTarget({ name, colorBuffer, depth });
-        (rt as { isColorBufferSrgb: () => boolean }).isColorBufferSrgb = () => srgb;
+        (rt as { isColorBufferSrgb: (index: number) => boolean }).isColorBufferSrgb = () => srgb;
         return rt;
     }
 
@@ -229,12 +229,12 @@ class Capture {
 
             const pixels = await dstRT.colorBuffer.read(0, 0, outW, outH, { renderTarget: dstRT, immediate: true });
             const u8 = pixels instanceof Uint8Array ? pixels : new Uint8Array(pixels.buffer);
-            let binary = '';
+            const chunks: string[] = [];
             const chunk = 0x8000;
             for (let i = 0; i < u8.length; i += chunk) {
-                binary += String.fromCharCode.apply(null, u8.subarray(i, i + chunk) as unknown as number[]);
+                chunks.push(String.fromCharCode.apply(null, u8.subarray(i, i + chunk) as unknown as number[]));
             }
-            return { width: outW, height: outH, data: btoa(binary) };
+            return { width: outW, height: outH, data: btoa(chunks.join('')) };
         } finally {
             camera.aspectRatioMode = saved.aspectRatioMode;
             camera.aspectRatio = saved.aspectRatio;
