@@ -1,8 +1,10 @@
 import {
     Color,
+    DEVICETYPE_WEBGL2,
     Entity,
     Quat,
     Vec3,
+    XrManager,
     type CameraComponent
 } from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
@@ -14,21 +16,31 @@ import { Global } from './types';
 const initXr = (global: Global) => {
     const { app, events, state, camera, renderer } = global;
 
-    state.hasAR = app.xr.isAvailable('immersive-ar');
-    state.hasVR = app.xr.isAvailable('immersive-vr');
+    // Engine availability is backend-aware (2.20+): under WebGPU a session is only
+    // reported available when it can start on the current device (browser exposes
+    // XRGPUBinding, e.g. Safari on Apple Vision Pro). A session the WebGPU device
+    // can't host may still run after reloading into WebGL, so keep the buttons
+    // visible then — the UI offers that reload when the session can't start directly.
+    let webglAR = false;
+    let webglVR = false;
 
-    // initialize ar/vr
-    app.xr.on('available:immersive-ar', (available) => {
-        state.hasAR = available;
-    });
-    app.xr.on('available:immersive-vr', (available) => {
-        state.hasVR = available;
-    });
+    const updateAvailable = () => {
+        state.hasAR = app.xr.isAvailable('immersive-ar') || webglAR;
+        state.hasVR = app.xr.isAvailable('immersive-vr') || webglVR;
+    };
 
-    // XR sessions require a WebGL device; under WebGPU we only expose availability so
-    // the UI can offer to reload the viewer in WebGL mode.
-    if (renderer !== 'webgl') {
-        return;
+    updateAvailable();
+    app.xr.on('available', updateAvailable);
+
+    if (renderer === 'webgpu') {
+        Promise.all([
+            XrManager.isDeviceSupported(DEVICETYPE_WEBGL2, 'immersive-ar'),
+            XrManager.isDeviceSupported(DEVICETYPE_WEBGL2, 'immersive-vr')
+        ]).then(([ar, vr]) => {
+            webglAR = ar;
+            webglVR = vr;
+            updateAvailable();
+        });
     }
 
     const parent = camera.parent as Entity;

@@ -393,10 +393,11 @@ const initUI = (global: Global) => {
     const arChanged = () => dom.arMode.classList[state.hasAR ? 'remove' : 'add']('hidden');
     const vrChanged = () => dom.vrMode.classList[state.hasVR ? 'remove' : 'add']('hidden');
 
-    // XR sessions require a WebGL device. Under WebGPU, prompt the user to reload
-    // the viewer with the WebGL renderer before starting AR/VR. Use replace() so
-    // the renderer-switch reload doesn't add a back-button entry — important
-    // because the viewer often runs inside an iframe (e.g. superspl.at /scene).
+    // When a session can't start on the current (WebGPU) device but would work on
+    // WebGL, prompt the user to reload the viewer with the WebGL renderer before
+    // starting AR/VR. Use replace() so the renderer-switch reload doesn't add a
+    // back-button entry — important because the viewer often runs inside an
+    // iframe (e.g. superspl.at /scene).
     const reloadWithWebgl = () => {
         const reloadUrl = new URL(location.href);
         reloadUrl.searchParams.set('webgl', '');
@@ -411,10 +412,13 @@ const initUI = (global: Global) => {
     dom.xrModal.addEventListener('pointerdown', hideXrModal);
 
     const handleXrClick = (type: 'AR' | 'VR') => {
-        if (global.renderer !== 'webgl') {
-            showXrModal();
-        } else {
+        // Availability is backend-aware: when the session can start on the current
+        // device (WebGPU included), start it directly. Otherwise the button is only
+        // visible because the session would work on WebGL, so offer the reload.
+        if (global.app.xr.isAvailable(type === 'AR' ? 'immersive-ar' : 'immersive-vr')) {
             events.fire(type === 'AR' ? 'startAR' : 'startVR');
+        } else {
+            showXrModal();
         }
     };
 
