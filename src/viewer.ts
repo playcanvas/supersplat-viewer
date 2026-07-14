@@ -30,6 +30,7 @@ import {
 import { Annotations } from './annotations';
 import { CameraManager, isWalkAllowed } from './camera-manager';
 import { Camera } from './cameras/camera';
+import { Capture } from './capture';
 import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
@@ -328,6 +329,38 @@ class Viewer {
             };
 
             window.animationDuration = state.animationDuration;
+
+            // Capture hook for the thumbnail pipeline. Renders the scene (with post
+            // effects) into an offscreen supersampled target, GPU box-downsamples it to
+            // the requested size and returns just that small buffer. Lazily created on
+            // first use — no ?capture flag and no preserveDrawingBuffer needed, and it
+            // works on both WebGL and WebGPU.
+            let capture: Capture | null = null;
+            let captureQueue: Promise<unknown> = Promise.resolve();
+            window.captureFrame = ({ time, width = 480, height = width, supersample } = {}) => {
+                const run = () => {
+                    if (!capture) {
+                        capture = new Capture(app, camera.camera, () => this.cameraFrame ?? null);
+                    }
+                    return capture.grab({
+                        time,
+                        width,
+                        height,
+                        supersample,
+                        scrub: (t) => {
+                            if (state.hasAnimation) {
+                                state.animationPaused = true;
+                                events.fire('scrubAnim', t);
+                            }
+                        }
+                    });
+                };
+                // serialize calls: they share the viewer camera, so concurrent captures
+                // would interleave the redirect/restore and could leave it mis-targeted
+                const result = captureQueue.then(run, run);
+                captureQueue = result.then(() => {}, () => {});
+                return result;
+            };
         });
 
         // wait for the model to load
