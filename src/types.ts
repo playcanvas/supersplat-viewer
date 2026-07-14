@@ -16,7 +16,6 @@ type Config = {
 
     noui: boolean;
     noanim: boolean;
-    noannotations: boolean;                     // hide annotations on initial load
     nofx: boolean;                              // disable post effects
     hpr?: boolean;                              // override highPrecisionRendering (undefined = use settings)
     ministats: boolean;
@@ -27,6 +26,7 @@ type Config = {
     renderer: 'webgl' | 'webgpu';               // requested renderer; the actual one (after engine fallback) is exposed as Global.renderer
     heatmap: boolean;                           // render heatmap debug overlay (WebGPU only)
     debug: boolean;                             // auto-open the developer debug panel; can also be toggled with Ctrl+Shift+D
+    lang?: string;                              // override the UI language (default: detect from browser)
 };
 
 // observable state that can change at runtime
@@ -48,7 +48,7 @@ type State = {
     collisionOverlayEnabled: boolean;
     isFullscreen: boolean;
     controlsHidden: boolean;
-    annotationsVisible: boolean;
+    showAnnotations: boolean;
     gamingControls: boolean;
 };
 

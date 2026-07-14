@@ -26,7 +26,7 @@ class Annotations {
                 (state.cameraMode === 'walk' || state.cameraMode === 'fly') &&
                 state.gamingControls
             );
-            const hidden = !state.annotationsVisible || state.controlsHidden || firstPersonGamingControls;
+            const hidden = !state.showAnnotations || state.controlsHidden || firstPersonGamingControls;
             parentDom.style.display = hidden ? 'none' : 'block';
             Annotation.opacity = hidden ? 0.0 : 1.0;
 
@@ -39,7 +39,7 @@ class Annotations {
         };
 
         global.events.on('controlsHidden:changed', updateVisibility);
-        global.events.on('annotationsVisible:changed', updateVisibility);
+        global.events.on('showAnnotations:changed', updateVisibility);
         global.events.on('cameraMode:changed', updateVisibility);
         global.events.on('gamingControls:changed', updateVisibility);
         updateVisibility();

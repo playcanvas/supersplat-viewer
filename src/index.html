@@ -34,7 +34,6 @@
                 contents: fetch(contentUrl),
                 noui: url.searchParams.has('noui'),
                 noanim: url.searchParams.has('noanim'),
-                noannotations: url.searchParams.has('noannotations'),
                 nofx: url.searchParams.has('nofx'),
                 hpr: url.searchParams.has('hpr') ? ['', '1', 'true', 'enable'].includes(url.searchParams.get('hpr')) : undefined,
                 ministats: url.searchParams.has('ministats'),
@@ -45,6 +44,7 @@
                 heatmap: url.searchParams.has('heatmap'),
                 fullload: url.searchParams.has('fullload'),
                 debug: url.searchParams.has('debug'),
+                lang: url.searchParams.get('lang'),
             };
 
             window.sse = {
@@ -205,7 +205,7 @@
                     <div id="gamingControlsCheck" class="toggleSwitch"><div class="toggleTrack"><div class="toggleThumb"></div></div></div>
                 </div>
                 <div id="annotationsRow" class="settingsRow">
-                    <div id="annotationsOption" data-i18n="settings.display-annotations">Display Annotations</div>
+                    <div id="annotationsOption" data-i18n="settings.show-annotations">Show Annotations</div>
                     <div id="annotationsCheck" class="toggleSwitch active"><div class="toggleTrack"><div class="toggleThumb"></div></div></div>
                 </div>
                 <div class="divider"></div>
