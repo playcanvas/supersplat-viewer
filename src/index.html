@@ -44,6 +44,7 @@
                 heatmap: url.searchParams.has('heatmap'),
                 fullload: url.searchParams.has('fullload'),
                 debug: url.searchParams.has('debug'),
+                lang: url.searchParams.get('lang'),
             };
 
             window.sse = {
@@ -202,6 +203,10 @@
                 <div id="gamingControlsRow" class="settingsRow">
                     <div id="gamingControlsOption" data-i18n="settings.gaming-controls">Gaming Controls</div>
                     <div id="gamingControlsCheck" class="toggleSwitch"><div class="toggleTrack"><div class="toggleThumb"></div></div></div>
+                </div>
+                <div id="annotationsRow" class="settingsRow">
+                    <div id="annotationsOption" data-i18n="settings.show-annotations">Show Annotations</div>
+                    <div id="annotationsCheck" class="toggleSwitch active"><div class="toggleTrack"><div class="toggleThumb"></div></div></div>
                 </div>
                 <div class="divider"></div>
                 <div class="settingsRow">

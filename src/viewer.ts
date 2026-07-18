@@ -30,6 +30,7 @@ import {
 import { Annotations } from './annotations';
 import { CameraManager, isWalkAllowed } from './camera-manager';
 import { Camera } from './cameras/camera';
+import { Capture } from './capture';
 import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
@@ -155,8 +156,6 @@ class Viewer {
 
     annotations: Annotations;
 
-    forceRenderNextFrame = false;
-
     voxelOverlay: VoxelDebugOverlay | null = null;
 
     meshOverlay: MeshDebugOverlay | null = null;
@@ -200,8 +199,13 @@ class Viewer {
             }
         };
 
-        // disable auto render, we'll render only when camera changes
-        app.autoRender = false;
+        // Render every frame while the scene loads, then switch to on-demand rendering once the
+        // first complete frame is ready (autoRender is disabled in the frame:ready handler below).
+        // Loading progress and the ready transition are both reported via frame:ready, which only
+        // fires when a frame is rendered — so we must render continuously through loading. After
+        // that, rendering is driven on demand by frame:request and camera-change detection. This
+        // mirrors the engine's simple-on-demand gsplat example.
+        app.autoRender = true;
 
         // configure the camera
         this.configureCamera(settings);
@@ -252,15 +256,6 @@ class Viewer {
                 }
             }
 
-            // suppress rendering till we're ready
-            if (!state.readyToRender) {
-                app.renderNextFrame = false;
-            }
-
-            if (this.forceRenderNextFrame) {
-                app.renderNextFrame = true;
-            }
-
             if (app.renderNextFrame) {
                 prevWorld.copy(world);
                 prevProj.copy(proj);
@@ -287,7 +282,7 @@ class Viewer {
             const near = Math.max(dist - boundRadius, far / (1024 * 16));
 
             cameraEntity.camera.farClip = far;
-            cameraEntity.camera.nearClip = near;
+            cameraEntity.camera.nearClip = Math.min(1.0, near);
         };
 
         // handle application update
@@ -334,6 +329,38 @@ class Viewer {
             };
 
             window.animationDuration = state.animationDuration;
+
+            // Capture hook for the thumbnail pipeline. Renders the scene (with post
+            // effects) into an offscreen supersampled target, GPU box-downsamples it to
+            // the requested size and returns just that small buffer. Lazily created on
+            // first use — no ?capture flag and no preserveDrawingBuffer needed, and it
+            // works on both WebGL and WebGPU.
+            let capture: Capture | null = null;
+            let captureQueue: Promise<unknown> = Promise.resolve();
+            window.captureFrame = ({ time, width = 480, height = width, supersample } = {}) => {
+                const run = () => {
+                    if (!capture) {
+                        capture = new Capture(app, camera.camera, () => this.cameraFrame ?? null);
+                    }
+                    return capture.grab({
+                        time,
+                        width,
+                        height,
+                        supersample,
+                        scrub: (t) => {
+                            if (state.hasAnimation) {
+                                state.animationPaused = true;
+                                events.fire('scrubAnim', t);
+                            }
+                        }
+                    });
+                };
+                // serialize calls: they share the viewer camera, so concurrent captures
+                // would interleave the redirect/restore and could leave it mis-targeted
+                const result = captureQueue.then(run, run);
+                captureQueue = result.then(() => {}, () => {});
+                return result;
+            };
         });
 
         // wait for the model to load
@@ -416,8 +443,8 @@ class Viewer {
                 };
 
                 gsplat.splatBudget = budget() * 1000000;
-                gsplat.lodRangeMin = 0;
-                gsplat.lodRangeMax = 1000;
+                gsplatComponent.lodRangeMin = 0;
+                gsplatComponent.lodRangeMax = 1000;
                 gsplat.colorUpdateAngle = state.performanceMode ? 4 : 2;
                 gsplat.minContribution = 1;
                 gsplat.alphaClip = 1 / 255;
@@ -432,7 +459,7 @@ class Viewer {
                 const resource = results[0].gsplat.resource as GSplatOctreeResourceLike | null;
                 const lodLevels = resource?.octree?.lodLevels;
                 if (lodLevels) {
-                    gsplat.lodRangeMax = gsplat.lodRangeMin = lodLevels - 1;
+                    gsplatComponent.lodRangeMax = gsplatComponent.lodRangeMin = lodLevels - 1;
                 }
             }
 
@@ -445,35 +472,22 @@ class Viewer {
 
             const eventHandler = app.systems.gsplat;
 
-            // idle timer: force continuous rendering until 4s of inactivity
-            let idleTime = 0;
-            this.forceRenderNextFrame = true;
-
-            app.on('update', (dt: number) => {
-                idleTime += dt;
-                this.forceRenderNextFrame = idleTime < 4;
-            });
-
-            events.on('inputEvent', (type: string) => {
-                if (type !== 'interact') {
-                    idleTime = 0;
-                }
-            });
-
-            eventHandler.on('frame:ready', (_camera: CameraComponent, _layer: Layer, ready: boolean, loading: number) => {
-                if (loading > 0 || !ready) {
-                    idleTime = 0;
-                }
+            // Once on demand (autoRender is disabled at ready, below), render when gsplat streaming
+            // produces new data a render would show (new LOD/world-state, pending sort). This also
+            // keeps work-buffer texture lifetime coupled to the submit under app.autoRender = false.
+            eventHandler.on('frame:request', () => {
+                app.renderNextFrame = true;
             });
 
             let current = 0;
             let watermark = 1;
             const readyHandler = (camera: CameraComponent, layer: Layer, ready: boolean, loading: number) => {
                 if (ready && loading === 0) {
-                    // scene is done loading
+                    // scene is done with initial/reveal loading
                     eventHandler.off('frame:ready', readyHandler);
 
-                    state.readyToRender = true;
+                    // switch to on-demand rendering (frame:request + camera-change detection)
+                    app.autoRender = false;
 
                     // handle quality mode changes
                     events.on('performanceMode:changed', applyPerfSettings);

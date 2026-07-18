@@ -36,6 +36,7 @@ The app supports a number of URL parameters (these are subject to change):
 | `noui` | Hide the UI overlay |
 | `noanim` | Start with animation paused |
 | `ministats` | Show runtime CPU/GPU performance graphs |
+| `lang` | Override the UI language (`de`, `en`, `es`, `fr`, `ja`, `ko`, `pt-BR`, `ru`, `zh-CN`; default: detect from browser) |
 
 ### Renderer
 
@@ -51,6 +52,7 @@ By default the viewer uses WebGPU when available (falling back automatically whe
 | `colorize` | Render with LOD colorization |
 | `fullload` | Load all streaming LOD data before the first frame |
 | `heatmap` | Use heatmap mode for the voxel collision debug overlay. Requires WebGPU and voxel collision data; press `V` or use the collision toolbar button to show the overlay. |
+| `debug` | Open the developer debug panel on load (`Ctrl+Shift+D` to toggle) |
 
 ## NPM Package
 
@@ -109,6 +111,16 @@ To initialize a local development environment for SuperSplat Viewer, ensure you 
    ```
 
 4. Open your browser at http://localhost:3000.
+
+### Debug engine build
+
+By default the viewer links against the release build of the PlayCanvas engine. Set `ENGINE=debug` to link against the engine's debug build instead, which includes runtime assertions and unminified, readable source for easier debugging:
+
+```sh
+ENGINE=debug npm run develop
+```
+
+This also works with `npm run build` and `npm run watch`.
 
 ## Settings Schema
 
