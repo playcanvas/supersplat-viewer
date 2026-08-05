@@ -9,12 +9,6 @@ export default [
             globals: {
                 ...globals.browser
             }
-        },
-        rules: {
-            'import-x/default': 'off',
-            'import-x/extensions': 'off',
-            'import-x/no-unresolved': 'off',
-            'no-duplicate-imports': 'off'
         }
     },
     {
@@ -23,9 +17,18 @@ export default [
             globals: {
                 ...globals.node
             }
-        },
+        }
+    },
+    {
+        // preserve existing module initialization order
+        files: [
+            'src/cameras/anim-controller.ts',
+            'src/cameras/fly-controller.ts',
+            'src/cameras/walk-controller.ts',
+            'src/index.ts'
+        ],
         rules: {
-            'import-x/no-unresolved': 'off'
+            'import-x/order': 'off'
         }
     }
 ];

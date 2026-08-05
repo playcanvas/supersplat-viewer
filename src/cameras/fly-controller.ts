@@ -1,12 +1,17 @@
 import { Vec3 } from 'playcanvas';
 
 import type { Collision } from '../collision';
-import { findSphereSpawn } from '../collision/find-spawn';
-
 import type { CameraFrame, Camera, CameraController } from './camera';
-import { DEFAULT_CONTROLLER_DAMPING, applyFrameRotation, dampAngles, setBasisOffset, setCameraBasis } from './camera-utils';
+import {
+    DEFAULT_CONTROLLER_DAMPING,
+    applyFrameRotation,
+    dampAngles,
+    setBasisOffset,
+    setCameraBasis
+} from './camera-utils';
 import { SpawnState } from './spawn-state';
 import { SphereMover } from './sphere-mover';
+import { findSphereSpawn } from '../collision/find-spawn';
 
 /** Radius of the camera collision sphere (meters) */
 const CAMERA_RADIUS = 0.2;
@@ -46,9 +51,17 @@ class FlyController implements CameraController {
 
     onEnter(camera: Camera): void {
         this.goto(camera);
-        if (this.collision &&
-            findSphereSpawn(this.collision, this._position.x, this._position.y, this._position.z,
-                CAMERA_RADIUS, spawnProbe)) {
+        if (
+            this.collision &&
+            findSphereSpawn(
+                this.collision,
+                this._position.x,
+                this._position.y,
+                this._position.z,
+                CAMERA_RADIUS,
+                spawnProbe
+            )
+        ) {
             this._position.copy(spawnProbe);
             this._mover.reset(this._position);
         }
@@ -69,8 +82,8 @@ class FlyController implements CameraController {
         camera.fov = this.fov;
     }
 
-    onExit(_camera: Camera): void {
-
+    onExit(_camera: Camera) {
+        // no cleanup needed
     }
 
     goto(camera: Camera) {

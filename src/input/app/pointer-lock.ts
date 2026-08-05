@@ -2,9 +2,8 @@ import type { Global } from '../../types';
 import type { KeyboardMouseDevice } from '../devices/keyboard-mouse';
 
 const isCaptureMode = (mode: string) => mode === 'walk' || mode === 'fly';
-const hasUserActivation = () => (
-    (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive === true
-);
+const hasUserActivation = () =>
+    (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive === true;
 
 /**
  * Manages the browser's pointer-lock API for first-person gaming controls
@@ -45,7 +44,7 @@ class PointerLockManager {
         // etc). Revert state so we don't end up stuck in walk mode without
         // mouse capture.
         if (this._keyboardMouse) {
-            (this._keyboardMouse.source as any)._pointerLock = false;
+            (this._keyboardMouse.source as unknown as { _pointerLock: boolean })._pointerLock = false;
         }
         const global = this._global;
         if (!global) return;
@@ -101,7 +100,7 @@ class PointerLockManager {
 
     private _activate(): void {
         if (this._keyboardMouse) {
-            (this._keyboardMouse.source as any)._pointerLock = true;
+            (this._keyboardMouse.source as unknown as { _pointerLock: boolean })._pointerLock = true;
         }
         if (document.pointerLockElement !== this._canvas) {
             this._canvas?.requestPointerLock();
@@ -110,7 +109,7 @@ class PointerLockManager {
 
     private _deactivate(): void {
         if (this._keyboardMouse) {
-            (this._keyboardMouse.source as any)._pointerLock = false;
+            (this._keyboardMouse.source as unknown as { _pointerLock: boolean })._pointerLock = false;
         }
         if (document.pointerLockElement === this._canvas) {
             document.exitPointerLock();

@@ -1,8 +1,4 @@
-import {
-    Asset,
-    INDEXFORMAT_UINT32,
-    SEMANTIC_POSITION
-} from 'playcanvas';
+import { Asset, INDEXFORMAT_UINT32, SEMANTIC_POSITION } from 'playcanvas';
 import type { AppBase } from 'playcanvas';
 
 import { DEFAULT_VOXEL_RESOLUTION, PENETRATION_EPSILON, resolveIterative } from './collision';
@@ -11,27 +7,39 @@ import type { Collision, PushOut, RayHit } from './collision';
 // ---- BVH node layout ----
 
 type BVHNode = {
-    minX: number; minY: number; minZ: number;
-    maxX: number; maxY: number; maxZ: number;
+    minX: number;
+    minY: number;
+    minZ: number;
+    maxX: number;
+    maxY: number;
+    maxZ: number;
     left: BVHNode | null;
     right: BVHNode | null;
     triStart: number;
     triCount: number;
-}
+};
 
 // ---- Triangle data (SoA for cache-friendly access) ----
 
 type TriangleData = {
     // vertex positions (3 per triangle)
-    v0x: Float32Array; v0y: Float32Array; v0z: Float32Array;
-    v1x: Float32Array; v1y: Float32Array; v1z: Float32Array;
-    v2x: Float32Array; v2y: Float32Array; v2z: Float32Array;
+    v0x: Float32Array;
+    v0y: Float32Array;
+    v0z: Float32Array;
+    v1x: Float32Array;
+    v1y: Float32Array;
+    v1z: Float32Array;
+    v2x: Float32Array;
+    v2y: Float32Array;
+    v2z: Float32Array;
     // precomputed face normals
-    nx: Float32Array; ny: Float32Array; nz: Float32Array;
+    nx: Float32Array;
+    ny: Float32Array;
+    nz: Float32Array;
     // triangle indices (for reordering during BVH build)
     indices: Uint32Array;
     count: number;
-}
+};
 
 // Public view of the triangle SoA exposed by MeshCollision for debug
 // overlays. The `readonly` qualifiers only prevent reassigning the *fields*;
@@ -39,19 +47,28 @@ type TriangleData = {
 // convention the buffers are owned by the collision and must not be written
 // to — they back live BVH / collision queries.
 type TriangleSoA = {
-    readonly v0x: Float32Array; readonly v0y: Float32Array; readonly v0z: Float32Array;
-    readonly v1x: Float32Array; readonly v1y: Float32Array; readonly v1z: Float32Array;
-    readonly v2x: Float32Array; readonly v2y: Float32Array; readonly v2z: Float32Array;
-    readonly nx: Float32Array; readonly ny: Float32Array; readonly nz: Float32Array;
+    readonly v0x: Float32Array;
+    readonly v0y: Float32Array;
+    readonly v0z: Float32Array;
+    readonly v1x: Float32Array;
+    readonly v1y: Float32Array;
+    readonly v1z: Float32Array;
+    readonly v2x: Float32Array;
+    readonly v2y: Float32Array;
+    readonly v2z: Float32Array;
+    readonly nx: Float32Array;
+    readonly ny: Float32Array;
+    readonly nz: Float32Array;
     readonly count: number;
-}
+};
 
 // ---- BVH construction ----
 
 const MAX_LEAF_TRIS = 4;
 
 function computeTriangleBounds(
-    tris: TriangleData, idx: number,
+    tris: TriangleData,
+    idx: number,
     out: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }
 ) {
     const i = tris.indices[idx];
@@ -64,7 +81,14 @@ function computeTriangleBounds(
 }
 
 function buildBVH(tris: TriangleData, start: number, count: number): BVHNode {
-    const bounds = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
+    const bounds = {
+        minX: Infinity,
+        minY: Infinity,
+        minZ: Infinity,
+        maxX: -Infinity,
+        maxY: -Infinity,
+        maxZ: -Infinity
+    };
     const tb = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
 
     for (let i = start; i < start + count; i++) {
@@ -91,19 +115,25 @@ function buildBVH(tris: TriangleData, start: number, count: number): BVHNode {
     const dx = bounds.maxX - bounds.minX;
     const dy = bounds.maxY - bounds.minY;
     const dz = bounds.maxZ - bounds.minZ;
-    const axis = dx >= dy && dx >= dz ? 0 : (dy >= dz ? 1 : 2);
-    const mid = axis === 0 ? (bounds.minX + bounds.maxX) * 0.5 :
-        axis === 1 ? (bounds.minY + bounds.maxY) * 0.5 :
-            (bounds.minZ + bounds.maxZ) * 0.5;
+    const axis = dx >= dy && dx >= dz ? 0 : dy >= dz ? 1 : 2;
+    const mid =
+        axis === 0
+            ? (bounds.minX + bounds.maxX) * 0.5
+            : axis === 1
+              ? (bounds.minY + bounds.maxY) * 0.5
+              : (bounds.minZ + bounds.maxZ) * 0.5;
 
     // Partition indices[start..start+count) around the midpoint
     let left = start;
     let right = start + count - 1;
     while (left <= right) {
         const i = tris.indices[left];
-        const cx = axis === 0 ? (tris.v0x[i] + tris.v1x[i] + tris.v2x[i]) / 3 :
-            axis === 1 ? (tris.v0y[i] + tris.v1y[i] + tris.v2y[i]) / 3 :
-                (tris.v0z[i] + tris.v1z[i] + tris.v2z[i]) / 3;
+        const cx =
+            axis === 0
+                ? (tris.v0x[i] + tris.v1x[i] + tris.v2x[i]) / 3
+                : axis === 1
+                  ? (tris.v0y[i] + tris.v1y[i] + tris.v2y[i]) / 3
+                  : (tris.v0z[i] + tris.v1z[i] + tris.v2z[i]) / 3;
         if (cx < mid) {
             left++;
         } else {
@@ -130,10 +160,18 @@ function buildBVH(tris: TriangleData, start: number, count: number): BVHNode {
 // ---- Ray-AABB intersection ----
 
 function rayAABB(
-    ox: number, oy: number, oz: number,
-    idx: number, idy: number, idz: number,
-    minX: number, minY: number, minZ: number,
-    maxX: number, maxY: number, maxZ: number,
+    ox: number,
+    oy: number,
+    oz: number,
+    idx: number,
+    idy: number,
+    idz: number,
+    minX: number,
+    minY: number,
+    minZ: number,
+    maxX: number,
+    maxY: number,
+    maxZ: number,
     maxDist: number
 ): number {
     const t1x = (minX - ox) * idx;
@@ -153,14 +191,28 @@ function rayAABB(
 // ---- Moller-Trumbore ray-triangle ----
 
 function rayTriangle(
-    ox: number, oy: number, oz: number,
-    dx: number, dy: number, dz: number,
-    ax: number, ay: number, az: number,
-    bx: number, by: number, bz: number,
-    cx: number, cy: number, cz: number
+    ox: number,
+    oy: number,
+    oz: number,
+    dx: number,
+    dy: number,
+    dz: number,
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number,
+    cx: number,
+    cy: number,
+    cz: number
 ): number {
-    const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
-    const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+    const e1x = bx - ax,
+        e1y = by - ay,
+        e1z = bz - az;
+    const e2x = cx - ax,
+        e2y = cy - ay,
+        e2z = cz - az;
 
     const px = dy * e2z - dz * e2y;
     const py = dz * e2x - dx * e2z;
@@ -170,7 +222,9 @@ function rayTriangle(
     if (Math.abs(det) < 1e-10) return -1;
 
     const invDet = 1.0 / det;
-    const tx = ox - ax, ty = oy - ay, tz = oz - az;
+    const tx = ox - ax,
+        ty = oy - ay,
+        tz = oz - az;
     const u = (tx * px + ty * py + tz * pz) * invDet;
     if (u < 0 || u > 1) return -1;
 
@@ -187,66 +241,111 @@ function rayTriangle(
 // ---- Sphere-AABB overlap test ----
 
 function sphereAABBOverlap(
-    cx: number, cy: number, cz: number, radius: number,
-    minX: number, minY: number, minZ: number,
-    maxX: number, maxY: number, maxZ: number
+    cx: number,
+    cy: number,
+    cz: number,
+    radius: number,
+    minX: number,
+    minY: number,
+    minZ: number,
+    maxX: number,
+    maxY: number,
+    maxZ: number
 ): boolean {
     const nx = Math.max(minX, Math.min(cx, maxX));
     const ny = Math.max(minY, Math.min(cy, maxY));
     const nz = Math.max(minZ, Math.min(cz, maxZ));
-    const dx = cx - nx, dy = cy - ny, dz = cz - nz;
+    const dx = cx - nx,
+        dy = cy - ny,
+        dz = cz - nz;
     return dx * dx + dy * dy + dz * dz <= radius * radius;
 }
 
 // ---- Closest point on triangle to a point ----
 
 function closestPointOnTriangle(
-    px: number, py: number, pz: number,
-    ax: number, ay: number, az: number,
-    bx: number, by: number, bz: number,
-    cx: number, cy: number, cz: number,
+    px: number,
+    py: number,
+    pz: number,
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number,
+    cx: number,
+    cy: number,
+    cz: number,
     out: { x: number; y: number; z: number }
 ) {
-    const abx = bx - ax, aby = by - ay, abz = bz - az;
-    const acx = cx - ax, acy = cy - ay, acz = cz - az;
-    const apx = px - ax, apy = py - ay, apz = pz - az;
+    const abx = bx - ax,
+        aby = by - ay,
+        abz = bz - az;
+    const acx = cx - ax,
+        acy = cy - ay,
+        acz = cz - az;
+    const apx = px - ax,
+        apy = py - ay,
+        apz = pz - az;
 
     const d1 = abx * apx + aby * apy + abz * apz;
     const d2 = acx * apx + acy * apy + acz * apz;
     if (d1 <= 0 && d2 <= 0) {
-        out.x = ax; out.y = ay; out.z = az; return;
+        out.x = ax;
+        out.y = ay;
+        out.z = az;
+        return;
     }
 
-    const bpx = px - bx, bpy = py - by, bpz = pz - bz;
+    const bpx = px - bx,
+        bpy = py - by,
+        bpz = pz - bz;
     const d3 = abx * bpx + aby * bpy + abz * bpz;
     const d4 = acx * bpx + acy * bpy + acz * bpz;
     if (d3 >= 0 && d4 <= d3) {
-        out.x = bx; out.y = by; out.z = bz; return;
+        out.x = bx;
+        out.y = by;
+        out.z = bz;
+        return;
     }
 
     const vc = d1 * d4 - d3 * d2;
     if (vc <= 0 && d1 >= 0 && d3 <= 0) {
         const v = d1 / (d1 - d3);
-        out.x = ax + abx * v; out.y = ay + aby * v; out.z = az + abz * v; return;
+        out.x = ax + abx * v;
+        out.y = ay + aby * v;
+        out.z = az + abz * v;
+        return;
     }
 
-    const cpx = px - cx, cpy = py - cy, cpz = pz - cz;
+    const cpx = px - cx,
+        cpy = py - cy,
+        cpz = pz - cz;
     const d5 = abx * cpx + aby * cpy + abz * cpz;
     const d6 = acx * cpx + acy * cpy + acz * cpz;
     if (d6 >= 0 && d5 <= d6) {
-        out.x = cx; out.y = cy; out.z = cz; return;
+        out.x = cx;
+        out.y = cy;
+        out.z = cz;
+        return;
     }
 
     const vb = d5 * d2 - d1 * d6;
     if (vb <= 0 && d2 >= 0 && d6 <= 0) {
         const w = d2 / (d2 - d6);
-        out.x = ax + acx * w; out.y = ay + acy * w; out.z = az + acz * w; return;
+        out.x = ax + acx * w;
+        out.y = ay + acy * w;
+        out.z = az + acz * w;
+        return;
     }
 
     const va = d3 * d6 - d5 * d4;
-    if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
-        const w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
-        out.x = bx + (cx - bx) * w; out.y = by + (cy - by) * w; out.z = bz + (cz - bz) * w; return;
+    if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) {
+        const w = (d4 - d3) / (d4 - d3 + (d5 - d6));
+        out.x = bx + (cx - bx) * w;
+        out.y = by + (cy - by) * w;
+        out.z = bz + (cz - bz) * w;
+        return;
     }
 
     const denom = 1.0 / (va + vb + vc);
@@ -260,18 +359,30 @@ function closestPointOnTriangle(
 // ---- Closest point on a line segment to a point ----
 
 function closestPointOnSegment(
-    px: number, py: number, pz: number,
-    ax: number, ay: number, az: number,
-    bx: number, by: number, bz: number,
+    px: number,
+    py: number,
+    pz: number,
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number,
     out: { x: number; y: number; z: number }
 ) {
-    const abx = bx - ax, aby = by - ay, abz = bz - az;
+    const abx = bx - ax,
+        aby = by - ay,
+        abz = bz - az;
     const lenSq = abx * abx + aby * aby + abz * abz;
     if (lenSq < 1e-20) {
-        out.x = ax; out.y = ay; out.z = az;
+        out.x = ax;
+        out.y = ay;
+        out.z = az;
         return;
     }
-    const apx = px - ax, apy = py - ay, apz = pz - az;
+    const apx = px - ax,
+        apy = py - ay,
+        apz = pz - az;
     let t = (apx * abx + apy * aby + apz * abz) / lenSq;
     t = Math.max(0, Math.min(1, t));
     out.x = ax + abx * t;
@@ -291,11 +402,21 @@ const _tmpTriPt = { x: 0, y: 0, z: 0 };
 // refinement pass. Sufficient for vertical capsule collision (walk/fly mode)
 // where the segment is always Y-aligned and triangles are near-axis-aligned.
 function closestSegmentTriangle(
-    s0x: number, s0y: number, s0z: number,
-    s1x: number, s1y: number, s1z: number,
-    ax: number, ay: number, az: number,
-    bx: number, by: number, bz: number,
-    cx: number, cy: number, cz: number,
+    s0x: number,
+    s0y: number,
+    s0z: number,
+    s1x: number,
+    s1y: number,
+    s1z: number,
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number,
+    cx: number,
+    cy: number,
+    cz: number,
     outSeg: { x: number; y: number; z: number },
     outTri: { x: number; y: number; z: number }
 ): number {
@@ -309,12 +430,18 @@ function closestSegmentTriangle(
         const sz = s0z + (s1z - s0z) * t;
 
         closestPointOnTriangle(sx, sy, sz, ax, ay, az, bx, by, bz, cx, cy, cz, _tmpTriPt);
-        const dx = sx - _tmpTriPt.x, dy = sy - _tmpTriPt.y, dz = sz - _tmpTriPt.z;
+        const dx = sx - _tmpTriPt.x,
+            dy = sy - _tmpTriPt.y,
+            dz = sz - _tmpTriPt.z;
         const distSq = dx * dx + dy * dy + dz * dz;
         if (distSq < bestDistSq) {
             bestDistSq = distSq;
-            _segPt.x = sx; _segPt.y = sy; _segPt.z = sz;
-            _triPt.x = _tmpTriPt.x; _triPt.y = _tmpTriPt.y; _triPt.z = _tmpTriPt.z;
+            _segPt.x = sx;
+            _segPt.y = sy;
+            _segPt.z = sz;
+            _triPt.x = _tmpTriPt.x;
+            _triPt.y = _tmpTriPt.y;
+            _triPt.z = _tmpTriPt.z;
         }
     }
 
@@ -327,12 +454,20 @@ function closestSegmentTriangle(
     const distSq = dx * dx + dy * dy + dz * dz;
     if (distSq < bestDistSq) {
         bestDistSq = distSq;
-        _segPt.x = _tmpSegPt.x; _segPt.y = _tmpSegPt.y; _segPt.z = _tmpSegPt.z;
-        _triPt.x = _tmpTriPt.x; _triPt.y = _tmpTriPt.y; _triPt.z = _tmpTriPt.z;
+        _segPt.x = _tmpSegPt.x;
+        _segPt.y = _tmpSegPt.y;
+        _segPt.z = _tmpSegPt.z;
+        _triPt.x = _tmpTriPt.x;
+        _triPt.y = _tmpTriPt.y;
+        _triPt.z = _tmpTriPt.z;
     }
 
-    outSeg.x = _segPt.x; outSeg.y = _segPt.y; outSeg.z = _segPt.z;
-    outTri.x = _triPt.x; outTri.y = _triPt.y; outTri.z = _triPt.z;
+    outSeg.x = _segPt.x;
+    outSeg.y = _segPt.y;
+    outSeg.z = _segPt.z;
+    outTri.x = _triPt.x;
+    outTri.y = _triPt.y;
+    outTri.z = _triPt.z;
     return bestDistSq;
 }
 
@@ -392,9 +527,15 @@ class MeshCollision implements Collision {
             const i1 = indices[i * 3 + 1] * 3;
             const i2 = indices[i * 3 + 2] * 3;
 
-            tris.v0x[i] = positions[i0]; tris.v0y[i] = positions[i0 + 1]; tris.v0z[i] = positions[i0 + 2];
-            tris.v1x[i] = positions[i1]; tris.v1y[i] = positions[i1 + 1]; tris.v1z[i] = positions[i1 + 2];
-            tris.v2x[i] = positions[i2]; tris.v2y[i] = positions[i2 + 1]; tris.v2z[i] = positions[i2 + 2];
+            tris.v0x[i] = positions[i0];
+            tris.v0y[i] = positions[i0 + 1];
+            tris.v0z[i] = positions[i0 + 2];
+            tris.v1x[i] = positions[i1];
+            tris.v1y[i] = positions[i1 + 1];
+            tris.v1z[i] = positions[i1 + 2];
+            tris.v2x[i] = positions[i2];
+            tris.v2y[i] = positions[i2 + 1];
+            tris.v2z[i] = positions[i2 + 2];
 
             // face normal
             const e1x = tris.v1x[i] - tris.v0x[i];
@@ -409,9 +550,13 @@ class MeshCollision implements Collision {
             const len = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz);
             if (len > 1e-10) {
                 const invLen = 1.0 / len;
-                fnx *= invLen; fny *= invLen; fnz *= invLen;
+                fnx *= invLen;
+                fny *= invLen;
+                fnz *= invLen;
             }
-            tris.nx[i] = fnx; tris.ny[i] = fny; tris.nz[i] = fnz;
+            tris.nx[i] = fnx;
+            tris.ny[i] = fny;
+            tris.nz[i] = fnz;
 
             tris.indices[i] = i;
         }
@@ -434,19 +579,17 @@ class MeshCollision implements Collision {
 
     // ---- Collision interface ----
 
-    queryRay(
-        ox: number, oy: number, oz: number,
-        dx: number, dy: number, dz: number,
-        maxDist: number
-    ): RayHit | null {
+    queryRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): RayHit | null {
         const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (len < 1e-10) return null;
         const invLen = 1.0 / len;
-        dx *= invLen; dy *= invLen; dz *= invLen;
+        dx *= invLen;
+        dy *= invLen;
+        dz *= invLen;
 
-        const idx = 1.0 / (Math.abs(dx) > 1e-12 ? dx : (dx >= 0 ? 1e-12 : -1e-12));
-        const idy = 1.0 / (Math.abs(dy) > 1e-12 ? dy : (dy >= 0 ? 1e-12 : -1e-12));
-        const idz = 1.0 / (Math.abs(dz) > 1e-12 ? dz : (dz >= 0 ? 1e-12 : -1e-12));
+        const idx = 1.0 / (Math.abs(dx) > 1e-12 ? dx : dx >= 0 ? 1e-12 : -1e-12);
+        const idy = 1.0 / (Math.abs(dy) > 1e-12 ? dy : dy >= 0 ? 1e-12 : -1e-12);
+        const idz = 1.0 / (Math.abs(dz) > 1e-12 ? dz : dz >= 0 ? 1e-12 : -1e-12);
 
         const hit = this._queryRayBVH(ox, oy, oz, dx, dy, dz, idx, idy, idz, maxDist);
         if (!hit) return null;
@@ -458,28 +601,27 @@ class MeshCollision implements Collision {
         };
     }
 
-    querySphere(
-        cx: number, cy: number, cz: number,
-        radius: number,
-        out: PushOut
-    ): boolean {
+    querySphere(cx: number, cy: number, cz: number, radius: number, out: PushOut): boolean {
         return resolveIterative(
-            cx, cy, cz,
+            cx,
+            cy,
+            cz,
             (rx, ry, rz, push) => this._deepestSpherePenetration(rx, ry, rz, radius, push),
-            this._constraintNormals, this._push, out
+            this._constraintNormals,
+            this._push,
+            out
         );
     }
 
-    queryCapsule(
-        cx: number, cy: number, cz: number,
-        halfHeight: number,
-        radius: number,
-        out: PushOut
-    ): boolean {
+    queryCapsule(cx: number, cy: number, cz: number, halfHeight: number, radius: number, out: PushOut): boolean {
         return resolveIterative(
-            cx, cy, cz,
+            cx,
+            cy,
+            cz,
             (rx, ry, rz, push) => this._deepestCapsulePenetration(rx, ry, rz, halfHeight, radius, push),
-            this._constraintNormals, this._push, out
+            this._constraintNormals,
+            this._push,
+            out
         );
     }
 
@@ -491,8 +633,12 @@ class MeshCollision implements Collision {
     }
 
     querySurfaceNormal(
-        x: number, y: number, z: number,
-        rdx: number, rdy: number, rdz: number
+        x: number,
+        y: number,
+        z: number,
+        rdx: number,
+        rdy: number,
+        rdz: number
     ): { nx: number; ny: number; nz: number } {
         const len = Math.sqrt(rdx * rdx + rdy * rdy + rdz * rdz);
         if (len < 1e-10) {
@@ -507,9 +653,9 @@ class MeshCollision implements Collision {
         const dy = rdy * invLen;
         const dz = rdz * invLen;
 
-        const idx = 1.0 / (Math.abs(dx) > 1e-12 ? dx : (dx >= 0 ? 1e-12 : -1e-12));
-        const idy = 1.0 / (Math.abs(dy) > 1e-12 ? dy : (dy >= 0 ? 1e-12 : -1e-12));
-        const idz = 1.0 / (Math.abs(dz) > 1e-12 ? dz : (dz >= 0 ? 1e-12 : -1e-12));
+        const idx = 1.0 / (Math.abs(dx) > 1e-12 ? dx : dx >= 0 ? 1e-12 : -1e-12);
+        const idy = 1.0 / (Math.abs(dy) > 1e-12 ? dy : dy >= 0 ? 1e-12 : -1e-12);
+        const idz = 1.0 / (Math.abs(dz) > 1e-12 ? dz : dz >= 0 ? 1e-12 : -1e-12);
 
         const hit = this._queryRayBVH(x, y, z, dx, dy, dz, idx, idy, idz, 1.0);
 
@@ -537,15 +683,35 @@ class MeshCollision implements Collision {
     // ---- BVH ray traversal (iterative, returns both t and triangle index) ----
 
     private _queryRayBVH(
-        ox: number, oy: number, oz: number,
-        dx: number, dy: number, dz: number,
-        idx: number, idy: number, idz: number,
+        ox: number,
+        oy: number,
+        oz: number,
+        dx: number,
+        dy: number,
+        dz: number,
+        idx: number,
+        idy: number,
+        idz: number,
         maxDist: number
     ): typeof this._rayResult | null {
         const root = this._root;
-        if (rayAABB(ox, oy, oz, idx, idy, idz,
-            root.minX, root.minY, root.minZ,
-            root.maxX, root.maxY, root.maxZ, maxDist) < 0) {
+        if (
+            rayAABB(
+                ox,
+                oy,
+                oz,
+                idx,
+                idy,
+                idz,
+                root.minX,
+                root.minY,
+                root.minZ,
+                root.maxX,
+                root.maxY,
+                root.maxZ,
+                maxDist
+            ) < 0
+        ) {
             return null;
         }
 
@@ -564,10 +730,21 @@ class MeshCollision implements Collision {
                 for (let j = node.triStart; j < node.triStart + node.triCount; j++) {
                     const i = tris.indices[j];
                     const ht = rayTriangle(
-                        ox, oy, oz, dx, dy, dz,
-                        tris.v0x[i], tris.v0y[i], tris.v0z[i],
-                        tris.v1x[i], tris.v1y[i], tris.v1z[i],
-                        tris.v2x[i], tris.v2y[i], tris.v2z[i]
+                        ox,
+                        oy,
+                        oz,
+                        dx,
+                        dy,
+                        dz,
+                        tris.v0x[i],
+                        tris.v0y[i],
+                        tris.v0z[i],
+                        tris.v1x[i],
+                        tris.v1y[i],
+                        tris.v1z[i],
+                        tris.v2x[i],
+                        tris.v2y[i],
+                        tris.v2z[i]
                     );
                     if (ht >= 0 && ht <= maxDist && ht < bestT) {
                         bestT = ht;
@@ -577,12 +754,36 @@ class MeshCollision implements Collision {
                 continue;
             }
 
-            const tLeft = rayAABB(ox, oy, oz, idx, idy, idz,
-                node.left.minX, node.left.minY, node.left.minZ,
-                node.left.maxX, node.left.maxY, node.left.maxZ, bestT);
-            const tRight = rayAABB(ox, oy, oz, idx, idy, idz,
-                node.right!.minX, node.right!.minY, node.right!.minZ,
-                node.right!.maxX, node.right!.maxY, node.right!.maxZ, bestT);
+            const tLeft = rayAABB(
+                ox,
+                oy,
+                oz,
+                idx,
+                idy,
+                idz,
+                node.left.minX,
+                node.left.minY,
+                node.left.minZ,
+                node.left.maxX,
+                node.left.maxY,
+                node.left.maxZ,
+                bestT
+            );
+            const tRight = rayAABB(
+                ox,
+                oy,
+                oz,
+                idx,
+                idy,
+                idz,
+                node.right!.minX,
+                node.right!.minY,
+                node.right!.minZ,
+                node.right!.maxX,
+                node.right!.maxY,
+                node.right!.maxZ,
+                bestT
+            );
 
             // Push farther child first so nearer child is popped first
             if (tLeft >= 0 && tRight >= 0) {
@@ -610,22 +811,28 @@ class MeshCollision implements Collision {
 
     // ---- Sphere deepest penetration (single triangle) ----
 
-    private _deepestSpherePenetration(
-        cx: number, cy: number, cz: number,
-        radius: number,
-        out: PushOut
-    ): boolean {
+    private _deepestSpherePenetration(cx: number, cy: number, cz: number, radius: number, out: PushOut): boolean {
         let bestPen = PENETRATION_EPSILON;
-        let bestPx = 0, bestPy = 0, bestPz = 0;
+        let bestPx = 0,
+            bestPy = 0,
+            bestPz = 0;
         let found = false;
 
         this._sphereBVH(this._root, cx, cy, cz, radius, (triIdx: number) => {
             const tris = this._tris;
             closestPointOnTriangle(
-                cx, cy, cz,
-                tris.v0x[triIdx], tris.v0y[triIdx], tris.v0z[triIdx],
-                tris.v1x[triIdx], tris.v1y[triIdx], tris.v1z[triIdx],
-                tris.v2x[triIdx], tris.v2y[triIdx], tris.v2z[triIdx],
+                cx,
+                cy,
+                cz,
+                tris.v0x[triIdx],
+                tris.v0y[triIdx],
+                tris.v0z[triIdx],
+                tris.v1x[triIdx],
+                tris.v1y[triIdx],
+                tris.v1z[triIdx],
+                tris.v2x[triIdx],
+                tris.v2y[triIdx],
+                tris.v2z[triIdx],
                 _closest
             );
 
@@ -666,17 +873,25 @@ class MeshCollision implements Collision {
     // ---- Capsule deepest penetration (single triangle) ----
 
     private _deepestCapsulePenetration(
-        cx: number, cy: number, cz: number,
+        cx: number,
+        cy: number,
+        cz: number,
         halfHeight: number,
         radius: number,
         out: PushOut
     ): boolean {
         let bestPen = PENETRATION_EPSILON;
-        let bestPx = 0, bestPy = 0, bestPz = 0;
+        let bestPx = 0,
+            bestPy = 0,
+            bestPz = 0;
         let found = false;
 
-        const s0x = cx, s0y = cy - halfHeight, s0z = cz;
-        const s1x = cx, s1y = cy + halfHeight, s1z = cz;
+        const s0x = cx,
+            s0y = cy - halfHeight,
+            s0z = cz;
+        const s1x = cx,
+            s1y = cy + halfHeight,
+            s1z = cz;
 
         const capsuleRadius = radius;
         const capsuleCenterY = cy;
@@ -685,11 +900,23 @@ class MeshCollision implements Collision {
         this._capsuleBVH(this._root, cx, capsuleCenterY, cz, capsuleHalfExtentY, capsuleRadius, (triIdx: number) => {
             const tris = this._tris;
             closestSegmentTriangle(
-                s0x, s0y, s0z, s1x, s1y, s1z,
-                tris.v0x[triIdx], tris.v0y[triIdx], tris.v0z[triIdx],
-                tris.v1x[triIdx], tris.v1y[triIdx], tris.v1z[triIdx],
-                tris.v2x[triIdx], tris.v2y[triIdx], tris.v2z[triIdx],
-                _segClosest, _triClosest
+                s0x,
+                s0y,
+                s0z,
+                s1x,
+                s1y,
+                s1z,
+                tris.v0x[triIdx],
+                tris.v0y[triIdx],
+                tris.v0z[triIdx],
+                tris.v1x[triIdx],
+                tris.v1y[triIdx],
+                tris.v1z[triIdx],
+                tris.v2x[triIdx],
+                tris.v2y[triIdx],
+                tris.v2z[triIdx],
+                _segClosest,
+                _triClosest
             );
 
             const dx = _segClosest.x - _triClosest.x;
@@ -730,7 +957,9 @@ class MeshCollision implements Collision {
 
     private _sphereBVH(
         root: BVHNode,
-        cx: number, cy: number, cz: number,
+        cx: number,
+        cy: number,
+        cz: number,
         radius: number,
         callback: (triIdx: number) => void
     ) {
@@ -741,9 +970,9 @@ class MeshCollision implements Collision {
         while (top > 0) {
             const node = stack[--top]!;
 
-            if (!sphereAABBOverlap(cx, cy, cz, radius,
-                node.minX, node.minY, node.minZ,
-                node.maxX, node.maxY, node.maxZ)) {
+            if (
+                !sphereAABBOverlap(cx, cy, cz, radius, node.minX, node.minY, node.minZ, node.maxX, node.maxY, node.maxZ)
+            ) {
                 continue;
             }
 
@@ -764,7 +993,9 @@ class MeshCollision implements Collision {
 
     private _capsuleBVH(
         root: BVHNode,
-        cx: number, cy: number, cz: number,
+        cx: number,
+        cy: number,
+        cz: number,
         halfExtentY: number,
         radius: number,
         callback: (triIdx: number) => void
@@ -783,9 +1014,14 @@ class MeshCollision implements Collision {
         while (top > 0) {
             const node = stack[--top]!;
 
-            if (capMaxX < node.minX || capMinX > node.maxX ||
-                capMaxY < node.minY || capMinY > node.maxY ||
-                capMaxZ < node.minZ || capMinZ > node.maxZ) {
+            if (
+                capMaxX < node.minX ||
+                capMinX > node.maxX ||
+                capMaxY < node.minY ||
+                capMinY > node.maxY ||
+                capMaxZ < node.minZ ||
+                capMinZ > node.maxZ
+            ) {
                 continue;
             }
 
@@ -823,6 +1059,7 @@ class MeshCollision implements Collision {
             };
 
             asset.on('load', () => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve engine resource shape
                 const renders = (asset.resource as any).renders as any[];
                 if (!renders || renders.length === 0) {
                     cleanup();
@@ -844,6 +1081,7 @@ class MeshCollision implements Collision {
                         if (!vb || !ib) continue;
 
                         const format = vb.format;
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve engine vertex format shape
                         let posElement: any = null;
                         for (let e = 0; e < format.elements.length; e++) {
                             if (format.elements[e].name === SEMANTIC_POSITION) {
@@ -863,9 +1101,10 @@ class MeshCollision implements Collision {
                             allPositions.push(data[base], data[base + 1], data[base + 2]);
                         }
 
-                        const indexData = ib.format === INDEXFORMAT_UINT32 ?
-                            new Uint32Array(ib.storage) :
-                            new Uint16Array(ib.storage);
+                        const indexData =
+                            ib.format === INDEXFORMAT_UINT32
+                                ? new Uint32Array(ib.storage)
+                                : new Uint16Array(ib.storage);
 
                         for (const prim of mesh.primitive) {
                             for (let i = 0; i < prim.count; i++) {
@@ -883,10 +1122,7 @@ class MeshCollision implements Collision {
                     return;
                 }
 
-                const collision = new MeshCollision(
-                    new Float32Array(allPositions),
-                    new Uint32Array(allIndices)
-                );
+                const collision = new MeshCollision(new Float32Array(allPositions), new Uint32Array(allIndices));
 
                 cleanup();
                 resolve(collision);

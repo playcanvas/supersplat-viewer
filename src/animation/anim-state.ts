@@ -58,7 +58,7 @@ class AnimState {
             points.push(fov[i]);
         }
 
-        const extra = (duration === times[times.length - 1] / frameRate) ? 1 : 0;
+        const extra = duration === times[times.length - 1] / frameRate ? 1 : 0;
 
         const spline = CubicSpline.fromPointsLooping((duration + extra) * frameRate, times, points, smoothness);
 

@@ -10,86 +10,87 @@ import {
 } from './validate-utils';
 
 type AnimTrack = {
-    name: string,
-    duration: number,
-    frameRate: number,
-    loopMode: 'none' | 'repeat' | 'pingpong',
-    interpolation: 'step' | 'spline',
-    smoothness: number,
+    name: string;
+    duration: number;
+    frameRate: number;
+    loopMode: 'none' | 'repeat' | 'pingpong';
+    interpolation: 'step' | 'spline';
+    smoothness: number;
     keyframes: {
-        times: number[],
+        times: number[];
         values: {
-            position: number[],
-            target: number[],
-            fov: number[],
-        }
-    }
+            position: number[];
+            target: number[];
+            fov: number[];
+        };
+    };
 };
 
 type CameraPose = {
-    position: [number, number, number],
-    target: [number, number, number],
-    fov: number
+    position: [number, number, number];
+    target: [number, number, number];
+    fov: number;
 };
 
 type Camera = {
-    initial: CameraPose,
+    initial: CameraPose;
 };
 
 type Annotation = {
-    position: [number, number, number],
-    title: string,
-    text: string,
-    extras?: any,
+    position: [number, number, number];
+    title: string;
+    text: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve public api
+    extras?: any;
     camera: Camera;
 };
 
 type PostEffectSettings = {
     sharpness: {
-        enabled: boolean,
-        amount: number,
-    },
+        enabled: boolean;
+        amount: number;
+    };
     bloom: {
-        enabled: boolean,
-        intensity: number,
-        blurLevel: number,
-    },
+        enabled: boolean;
+        intensity: number;
+        blurLevel: number;
+    };
     grading: {
-        enabled: boolean,
-        brightness: number,
-        contrast: number,
-        saturation: number,
-        tint: [number, number, number],
-    },
+        enabled: boolean;
+        brightness: number;
+        contrast: number;
+        saturation: number;
+        tint: [number, number, number];
+    };
     vignette: {
-        enabled: boolean,
-        intensity: number,
-        inner: number,
-        outer: number,
-        curvature: number,
-    },
+        enabled: boolean;
+        intensity: number;
+        inner: number;
+        outer: number;
+        curvature: number;
+    };
     fringing: {
-        enabled: boolean,
-        intensity: number
-    }
+        enabled: boolean;
+        intensity: number;
+    };
 };
 
 type ExperienceSettings = {
-    version: 2,
-    tonemapping: 'none' | 'linear' | 'filmic' | 'hejl' | 'aces' | 'aces2' | 'neutral',
-    highPrecisionRendering: boolean,
-    soundUrl?: string,
+    version: 2;
+    tonemapping: 'none' | 'linear' | 'filmic' | 'hejl' | 'aces' | 'aces2' | 'neutral';
+    highPrecisionRendering: boolean;
+    soundUrl?: string;
     background: {
-        color: [number, number, number],
-        skyboxUrl?: string
-    },
-    postEffectSettings: PostEffectSettings,
+        color: [number, number, number];
+        skyboxUrl?: string;
+    };
+    postEffectSettings: PostEffectSettings;
 
-    animTracks: AnimTrack[],
-    cameras: Camera[],
-    annotations: Annotation[],
+    animTracks: AnimTrack[];
+    cameras: Camera[];
+    annotations: Annotation[];
 
-    startMode: 'default' | 'animTrack' | 'annotation'
+    startMode: 'default' | 'animTrack' | 'annotation';
 };
 
 const TONEMAPPING = ['none', 'linear', 'filmic', 'hejl', 'aces', 'aces2', 'neutral'] as const;

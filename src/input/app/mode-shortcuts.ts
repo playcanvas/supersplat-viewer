@@ -4,12 +4,8 @@ import type { PointerLockManager } from './pointer-lock';
 
 const isCaptureMode = (mode: string) => mode === 'walk' || mode === 'fly';
 
-const isWasdKey = (event: KeyboardEvent) => (
-    event.code === 'KeyW' ||
-    event.code === 'KeyA' ||
-    event.code === 'KeyS' ||
-    event.code === 'KeyD'
-);
+const isWasdKey = (event: KeyboardEvent) =>
+    event.code === 'KeyW' || event.code === 'KeyA' || event.code === 'KeyS' || event.code === 'KeyD';
 
 /**
  * Keyboard shortcuts that switch camera mode and toggle UI affordances.

@@ -23,9 +23,15 @@ class AnimCursor {
 
         if (this.cursor >= this.duration) {
             switch (this.loopMode) {
-                case 'none': this.cursor = this.duration; break;
-                case 'repeat': this.cursor %= this.duration; break;
-                case 'pingpong': this.cursor %= (this.duration * 2); break;
+                case 'none':
+                    this.cursor = this.duration;
+                    break;
+                case 'repeat':
+                    this.cursor %= this.duration;
+                    break;
+                case 'pingpong':
+                    this.cursor %= this.duration * 2;
+                    break;
             }
         }
     }

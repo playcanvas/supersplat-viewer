@@ -27,10 +27,7 @@ const dictionaries: Record<string, Dictionary> = {
 let current: Dictionary = en;
 
 const detectLocale = (lang?: string): string => {
-    const candidates = [
-        lang,
-        ...(navigator.languages ?? [navigator.language])
-    ];
+    const candidates = [lang, ...(navigator.languages ?? [navigator.language])];
     const keys = Object.keys(dictionaries);
     for (const c of candidates) {
         if (!c) continue;
@@ -39,9 +36,10 @@ const detectLocale = (lang?: string): string => {
         // 1. exact tag match (case-insensitive: "DE" → "de", "pt-br" → "pt-BR")
         // 2. base-language match ("fr-CA" → "fr")
         // 3. any region variant sharing the base ("pt" → "pt-BR", "zh" → "zh-CN")
-        const match = keys.find(k => k.toLowerCase() === lc) ??
-            keys.find(k => k.toLowerCase() === base) ??
-            keys.find(k => k.toLowerCase().split('-')[0] === base);
+        const match =
+            keys.find((k) => k.toLowerCase() === lc) ??
+            keys.find((k) => k.toLowerCase() === base) ??
+            keys.find((k) => k.toLowerCase().split('-')[0] === base);
         if (match) return match;
     }
     return 'en';

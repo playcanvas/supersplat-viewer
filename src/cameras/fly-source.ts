@@ -4,7 +4,6 @@ import type { Camera, CameraFrame } from './camera';
 import { setCameraForward } from './camera-utils';
 import {
     ProgressTracker,
-    
     approach,
     clampTurnStep,
     getPitchToDirection,
@@ -12,7 +11,7 @@ import {
     smoothTurnRate,
     smoothstep
 } from './target-navigation';
-import type {TargetSource} from './target-navigation';
+import type { TargetSource } from './target-navigation';
 
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -206,7 +205,15 @@ class FlySource implements TargetSource {
 
         // Only treat low progress as blocked once the camera is substantially
         // facing the target; otherwise a large turn-in-place would cancel early.
-        if (this._progress.update(dist, dt, BLOCKED_SPEED, BLOCKED_DURATION, alignment > 0.5 && this._speed > BLOCKED_SPEED)) {
+        if (
+            this._progress.update(
+                dist,
+                dt,
+                BLOCKED_SPEED,
+                BLOCKED_DURATION,
+                alignment > 0.5 && this._speed > BLOCKED_SPEED
+            )
+        ) {
             this.cancel();
         }
     }

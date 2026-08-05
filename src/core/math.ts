@@ -15,7 +15,7 @@ const damp = (damping: number, dt: number) => 1 - Math.pow(damping, dt * 1000);
  * @param x - Input value in the range [0, 1].
  * @returns - Output value in the range [0, 1].
  */
-const easeOut = (x: number) => (1 - (2 ** (-10 * x))) / (1 - (2 ** -10));
+const easeOut = (x: number) => (1 - 2 ** (-10 * x)) / (1 - 2 ** -10);
 
 /**
  * Modulus function that handles negative values correctly.

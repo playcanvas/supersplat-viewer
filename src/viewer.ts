@@ -1,11 +1,7 @@
-import type {
-    GSplatComponent,
+import {
     BoundingBox,
     CameraFrame,
-    type CameraComponent,
     Color,
-    type Entity,
-    type Layer,
     RenderTarget,
     Mat4,
     MiniStats,
@@ -26,11 +22,12 @@ import type {
     GSPLAT_RENDERER_RASTER_GPU_SORT,
     platform
 } from 'playcanvas';
+import type { CameraComponent, Entity, GSplatComponent, Layer } from 'playcanvas';
 
 import { Annotations } from './annotations';
 import { CameraManager, isWalkAllowed } from './camera-manager';
-import { Capture } from './capture';
 import type { Camera } from './cameras/camera';
+import { Capture } from './capture';
 import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
@@ -48,7 +45,9 @@ import { VoxelDebugOverlay } from './voxel-debug-overlay';
 // producing the original chunk.
 const patchChunk = (source: string, search: string, replacement: string, name: string): string => {
     if (!source.includes(search)) {
-        console.warn(`patchChunk: substring not found in '${name}', shader chunk patch may be out of sync with the engine.`);
+        console.warn(
+            `patchChunk: substring not found in '${name}', shader chunk patch may be out of sync with the engine.`
+        );
     }
     return source.replace(search, replacement);
 };
@@ -66,8 +65,8 @@ fn prepareOutputFromGamma(gammaColor: vec3f, depth: f32) -> vec3f {
 `;
 
 const rendererTable: Record<Config['renderer'], number> = {
-    'webgl': GSPLAT_RENDERER_RASTER_CPU_SORT,
-    'webgpu': GSPLAT_RENDERER_RASTER_GPU_SORT
+    webgl: GSPLAT_RENDERER_RASTER_CPU_SORT,
+    webgpu: GSPLAT_RENDERER_RASTER_GPU_SORT
 };
 
 type GSplatOctreeResourceLike = {
@@ -131,11 +130,13 @@ const applyPostEffectSettings = (cameraFrame: CameraFrame, settings: PostEffectS
 };
 
 const anyPostEffectEnabled = (settings: PostEffectSettings): boolean => {
-    return (settings.sharpness.enabled && settings.sharpness.amount > 0) ||
+    return (
+        (settings.sharpness.enabled && settings.sharpness.amount > 0) ||
         (settings.bloom.enabled && settings.bloom.intensity > 0) ||
-        (settings.grading.enabled) ||
+        settings.grading.enabled ||
         (settings.vignette.enabled && settings.vignette.intensity > 0) ||
-        (settings.fringing.enabled && settings.fringing.intensity > 0);
+        (settings.fringing.enabled && settings.fringing.intensity > 0)
+    );
 };
 
 const vec = new Vec3();
@@ -166,16 +167,21 @@ class Viewer {
 
     origChunks: {
         glsl: {
-            gsplatOutputVS: string,
-            skyboxPS: string
-        },
+            gsplatOutputVS: string;
+            skyboxPS: string;
+        };
         wgsl: {
-            gsplatOutputVS: string,
-            skyboxPS: string
-        }
+            gsplatOutputVS: string;
+            skyboxPS: string;
+        };
     };
 
-    constructor(global: Global, gsplatLoad: Promise<Entity>, skyboxLoad: Promise<void> | undefined, collisionLoad: Promise<Collision> | undefined) {
+    constructor(
+        global: Global,
+        gsplatLoad: Promise<Entity>,
+        skyboxLoad: Promise<void> | undefined,
+        collisionLoad: Promise<Collision> | undefined
+    ) {
         this.global = global;
 
         const { app, settings, config, events, state, camera, renderer } = global;
@@ -186,7 +192,10 @@ class Viewer {
         glsl.set('skyboxPS', patchChunk(glsl.get('skyboxPS'), 'mapRoughnessUv(uv, mipLevel)', 'uv', 'glsl skyboxPS'));
 
         const wgsl = ShaderChunks.get(graphicsDevice, 'wgsl');
-        wgsl.set('skyboxPS', patchChunk(wgsl.get('skyboxPS'), 'mapRoughnessUv(uv, uniform.mipLevel)', 'uv', 'wgsl skyboxPS'));
+        wgsl.set(
+            'skyboxPS',
+            patchChunk(wgsl.get('skyboxPS'), 'mapRoughnessUv(uv, uniform.mipLevel)', 'uv', 'wgsl skyboxPS')
+        );
 
         this.origChunks = {
             glsl: {
@@ -216,26 +225,30 @@ class Viewer {
 
         // construct debug ministats
         if (config.ministats) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve engine options shape
             const options = MiniStats.getDefaultOptions() as any;
             options.cpu.enabled = false;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve engine stats shape
             options.stats = options.stats.filter((s: any) => s.name !== 'DrawCalls');
-            options.stats.push({
-                name: 'VRAM',
-                stats: ['vram.tex'],
-                decimalPlaces: 1,
-                multiplier: 1 / (1024 * 1024),
-                unitsName: 'MB',
-                watermark: 1024
-            }, {
-                name: 'Splats',
-                stats: ['frame.gsplats'],
-                decimalPlaces: 3,
-                multiplier: 1 / 1000000,
-                unitsName: 'M',
-                watermark: 5
-            });
+            options.stats.push(
+                {
+                    name: 'VRAM',
+                    stats: ['vram.tex'],
+                    decimalPlaces: 1,
+                    multiplier: 1 / (1024 * 1024),
+                    unitsName: 'MB',
+                    watermark: 1024
+                },
+                {
+                    name: 'Splats',
+                    stats: ['frame.gsplats'],
+                    decimalPlaces: 3,
+                    multiplier: 1 / 1000000,
+                    unitsName: 'M',
+                    watermark: 5
+                }
+            );
 
-             
             new MiniStats(app, options);
         }
 
@@ -249,9 +262,11 @@ class Viewer {
             const proj = camera.camera.projectionMatrix;
 
             if (!app.renderNextFrame) {
-                if (config.ministats ||
+                if (
+                    config.ministats ||
                     !nearlyEquals(world.data, prevWorld.data) ||
-                    !nearlyEquals(proj.data, prevProj.data)) {
+                    !nearlyEquals(proj.data, prevProj.data)
+                ) {
                     app.renderNextFrame = true;
                 }
             }
@@ -302,7 +317,6 @@ class Viewer {
                 // apply to the camera entity
                 applyCamera(this.cameraManager.camera);
             }
-
         });
 
         // Render voxel debug overlay
@@ -358,7 +372,14 @@ class Viewer {
                 // serialize calls: they share the viewer camera, so concurrent captures
                 // would interleave the redirect/restore and could leave it mis-targeted
                 const result = captureQueue.then(run, run);
-                captureQueue = result.then(() => {}, () => {});
+                captureQueue = result.then(
+                    () => {
+                        // intentionally ignored
+                    },
+                    () => {
+                        // intentionally ignored
+                    }
+                );
                 return result;
             };
         });
@@ -510,7 +531,7 @@ class Viewer {
                 if (loading !== current) {
                     watermark = Math.max(watermark, loading);
                     current = watermark - loading;
-                    state.progress = Math.trunc(current / watermark * 100);
+                    state.progress = Math.trunc((current / watermark) * 100);
                 }
             };
 
@@ -528,8 +549,7 @@ class Viewer {
         // hpr override takes precedence over settings.highPrecisionRendering
         const highPrecisionRendering = config.hpr ?? settings.highPrecisionRendering;
 
-        const postFxRequested = !config.nofx &&
-            (anyPostEffectEnabled(postEffectSettings) || highPrecisionRendering);
+        const postFxRequested = !config.nofx && (anyPostEffectEnabled(postEffectSettings) || highPrecisionRendering);
 
         const enableCameraFrame = !app.xr.active && postFxRequested;
 
@@ -542,7 +562,9 @@ class Viewer {
             const { cameraFrame } = this;
             cameraFrame.enabled = true;
             cameraFrame.rendering.toneMapping = tonemapTable[settings.tonemapping];
-            cameraFrame.rendering.renderFormats = highPrecisionRendering ? [PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F] : [];
+            cameraFrame.rendering.renderFormats = highPrecisionRendering
+                ? [PIXELFORMAT_RGBA16F, PIXELFORMAT_RGBA32F]
+                : [];
             applyPostEffectSettings(cameraFrame, postEffectSettings);
             cameraFrame.update();
 
@@ -552,7 +574,8 @@ class Viewer {
 
             // force skybox shader to write gamma-space colors (inline pow replaces the
             // gammaCorrectOutput call which is a no-op under CameraFrame's GAMMA_NONE)
-            ShaderChunks.get(app.graphicsDevice, 'glsl').set('skyboxPS',
+            ShaderChunks.get(app.graphicsDevice, 'glsl').set(
+                'skyboxPS',
                 patchChunk(
                     this.origChunks.glsl.skyboxPS,
                     'gammaCorrectOutput(toneMap(processEnvironment(linear)))',
@@ -560,7 +583,8 @@ class Viewer {
                     'glsl skyboxPS gamma override'
                 )
             );
-            ShaderChunks.get(app.graphicsDevice, 'wgsl').set('skyboxPS',
+            ShaderChunks.get(app.graphicsDevice, 'wgsl').set(
+                'skyboxPS',
                 patchChunk(
                     this.origChunks.wgsl.skyboxPS,
                     'gammaCorrectOutput(toneMap(processEnvironment(linear)))',

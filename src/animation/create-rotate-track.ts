@@ -1,6 +1,4 @@
-import type {
-    Vec3
-} from 'playcanvas';
+import type { Vec3 } from 'playcanvas';
 
 import type { AnimTrack } from '../settings';
 
@@ -15,7 +13,7 @@ import type { AnimTrack } from '../settings';
  * @returns - The animation track object containing position and target keyframes.
  */
 const createRotateTrack = (position: Vec3, target: Vec3, fov: number, keys = 12, duration = 20): AnimTrack => {
-    const times = new Array(keys).fill(0).map((_, i) => i / keys * duration);
+    const times = new Array(keys).fill(0).map((_, i) => (i / keys) * duration);
     const positions: number[] = [];
     const targets: number[] = [];
     const fovs = new Array(keys).fill(fov);
@@ -35,7 +33,7 @@ const createRotateTrack = (position: Vec3, target: Vec3, fov: number, keys = 12,
     const startAngle = Math.atan2(dx, dz);
 
     for (let i = 0; i < keys; ++i) {
-        const angle = startAngle - i / keys * Math.PI * 2;
+        const angle = startAngle - (i / keys) * Math.PI * 2;
 
         positions.push(target.x + radius * Math.sin(angle));
         positions.push(target.y + dy);

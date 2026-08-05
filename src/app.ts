@@ -11,19 +11,15 @@ import {
     GSplatHandler,
     BinaryHandler,
     XrManager
-    
-    
-    
-    
 } from 'playcanvas';
-import type {GraphicsDevice, Keyboard, Mouse, TouchDevice} from 'playcanvas';
+import type { GraphicsDevice, Keyboard, Mouse, TouchDevice } from 'playcanvas';
 
 type AppConstructorOptions = {
     graphicsDevice: GraphicsDevice;
     mouse: Mouse;
     touch: TouchDevice;
     keyboard: Keyboard;
-}
+};
 
 class App extends AppBase {
     constructor(canvas: HTMLCanvasElement, options: AppConstructorOptions) {
@@ -41,12 +37,7 @@ class App extends AppBase {
             ScriptComponentSystem
         ];
 
-        appOptions.resourceHandlers = [
-            ContainerHandler,
-            TextureHandler,
-            GSplatHandler,
-            BinaryHandler
-        ];
+        appOptions.resourceHandlers = [ContainerHandler, TextureHandler, GSplatHandler, BinaryHandler];
 
         appOptions.mouse = options.mouse;
         appOptions.touch = options.touch;

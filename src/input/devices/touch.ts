@@ -1,11 +1,7 @@
 import { MultiTouchSource, Vec3 } from 'playcanvas';
 
 import type { Global } from '../../types';
-import {
-    DISPLACEMENT_SCALE,
-    TAP_EPSILON,
-    screenToWorld
-} from '../shared';
+import { DISPLACEMENT_SCALE, TAP_EPSILON, screenToWorld } from '../shared';
 import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
 
 const tmpV = new Vec3();
@@ -129,7 +125,7 @@ class TouchDevice implements InputDevice {
         const fly = isFirstPerson ? 1 : 0;
         const double = this._touchCount > 1 ? 1 : 0;
         const orbitFactor = isFirstPerson ? cameraComponent.fov / 120 : 1;
-        const dragInvert = (isFirstPerson && !gamingControls) ? -1 : 1;
+        const dragInvert = isFirstPerson && !gamingControls ? -1 : 1;
         // First-person modes (fly and walk) opt into the direct two-finger
         // model only outside gaming controls (gaming uses the joystick).
         const directFirstPerson = fly * (gamingControls ? 0 : 1);
@@ -170,10 +166,18 @@ class TouchDevice implements InputDevice {
         v.set(0, 0, 0);
         // single-touch orbit rotate (masked when there are 2+ touches)
         orbitRotate.set(touch[0], touch[1], 0);
-        v.add(orbitRotate.mulScalar(orbit * (1 - double) * this.orbitSpeed * this.touchRotateSensitivity * DISPLACEMENT_SCALE));
+        v.add(
+            orbitRotate.mulScalar(
+                orbit * (1 - double) * this.orbitSpeed * this.touchRotateSensitivity * DISPLACEMENT_SCALE
+            )
+        );
         // single-touch fly look (inverted in non-gaming first-person)
         flyRotate.set(touch[0] * dragInvert, touch[1] * dragInvert, 0);
-        v.add(flyRotate.mulScalar(fly * (1 - double) * this.orbitSpeed * orbitFactor * this.touchRotateSensitivity * DISPLACEMENT_SCALE));
+        v.add(
+            flyRotate.mulScalar(
+                fly * (1 - double) * this.orbitSpeed * orbitFactor * this.touchRotateSensitivity * DISPLACEMENT_SCALE
+            )
+        );
         deltas.rotate.append([v.x, v.y, v.z]);
     }
 }

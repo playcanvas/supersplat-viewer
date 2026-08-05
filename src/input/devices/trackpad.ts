@@ -1,10 +1,7 @@
 import { Vec3 } from 'playcanvas';
 
 import type { Global } from '../../types';
-import {
-    DISPLACEMENT_SCALE,
-    screenToWorld
-} from '../shared';
+import { DISPLACEMENT_SCALE, screenToWorld } from '../shared';
 import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
 
 const tmpV = new Vec3();

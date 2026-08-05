@@ -1,11 +1,12 @@
-import type {EventHandler} from 'playcanvas';
+import type { EventHandler } from 'playcanvas';
 
 // creates an observer proxy object to wrap some target object. fires events when properties change.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve observable state shape
 const observe = (events: EventHandler, target: any) => {
     const members = new Set(Object.keys(target));
 
     return new Proxy(target, {
-        set(target, property, value, receiver) {
+        set(target, property, value, _receiver) {
             // prevent setting symbol properties
             if (typeof property === 'symbol') {
                 console.error('Cannot set symbol property on target');

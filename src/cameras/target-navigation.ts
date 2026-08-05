@@ -14,11 +14,11 @@ type TargetSource = {
     navigateTo(target: Vec3, speedMul?: number): void;
     cancel(): void;
     update(dt: number, camera: Camera, frame: CameraFrame): void;
-}
+};
 
 const RAD_TO_DEG = 180 / Math.PI;
 
-const shortestAngle = (angle: number) => ((angle % 360) + 540) % 360 - 180;
+const shortestAngle = (angle: number) => (((angle % 360) + 540) % 360) - 180;
 
 const smoothstep = (edge0: number, edge1: number, value: number) => {
     const t = math.clamp((value - edge0) / (edge1 - edge0), 0, 1);
@@ -33,13 +33,7 @@ const approach = (value: number, target: number, maxDelta: number) => {
     return Math.max(target, value - maxDelta);
 };
 
-const smoothTurnRate = (
-    currentRate: number,
-    angleDiff: number,
-    maxTurnRate: number,
-    turnGain: number,
-    dt: number
-) => {
+const smoothTurnRate = (currentRate: number, angleDiff: number, maxTurnRate: number, turnGain: number, dt: number) => {
     if (dt <= 0) {
         return currentRate;
     }
@@ -55,9 +49,7 @@ const clampTurnStep = (rate: number, remaining: number, dt: number) => {
         return 0;
     }
 
-    return Math.sign(step) === Math.sign(remaining) && Math.abs(step) > Math.abs(remaining) ?
-        remaining :
-        step;
+    return Math.sign(step) === Math.sign(remaining) && Math.abs(step) > Math.abs(remaining) ? remaining : step;
 };
 
 const getYawToTarget = (dx: number, dz: number) => Math.atan2(-dx, -dz) * RAD_TO_DEG;
