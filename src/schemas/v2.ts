@@ -40,8 +40,7 @@ type Annotation = {
     position: [number, number, number];
     title: string;
     text: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve public api
-    extras?: any;
+    extras?: unknown;
     camera: Camera;
 };
 

@@ -1,8 +1,7 @@
 import type { EventHandler } from 'playcanvas';
 
 // creates an observer proxy object to wrap some target object. fires events when properties change.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve observable state shape
-const observe = (events: EventHandler, target: any) => {
+const observe = <T extends object>(events: EventHandler, target: T) => {
     const members = new Set(Object.keys(target));
 
     return new Proxy(target, {
@@ -20,9 +19,9 @@ const observe = (events: EventHandler, target: any) => {
             }
 
             // set and fire event if value changed
-            if (target[property] !== value) {
-                const prev = target[property];
-                target[property] = value;
+            if ((target as unknown as Record<string, unknown>)[property] !== value) {
+                const prev = (target as unknown as Record<string, unknown>)[property];
+                (target as unknown as Record<string, unknown>)[property] = value;
                 events.fire(`${property}:changed`, value, prev);
             }
 

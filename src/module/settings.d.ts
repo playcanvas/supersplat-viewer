@@ -29,8 +29,7 @@ export type Annotation = {
     position: [number, number, number];
     title: string;
     text: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve public api
-    extras?: any;
+    extras?: unknown;
     camera: Camera;
 };
 
@@ -80,6 +79,5 @@ export type ExperienceSettings = {
     startMode: 'default' | 'animTrack' | 'annotation';
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve public api
-export function importSettings(settings: any): ExperienceSettings;
+export function importSettings(settings: unknown): ExperienceSettings;
 export function validateSettings(settings: unknown): void;

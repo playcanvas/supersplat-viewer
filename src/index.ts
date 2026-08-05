@@ -19,7 +19,7 @@ import type { Collision } from './collision';
 import { observe } from './core/observe';
 import { initLocalization } from './localization';
 import { importSettings } from './settings';
-import type { Config, Global } from './types';
+import type { Config, Global, State } from './types';
 import { initPoster, initUI } from './ui';
 import { Viewer } from './viewer';
 import { initXr } from './xr';
@@ -221,7 +221,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
     }
     const storedPerformanceMode = localStorage.getItem('performanceMode');
 
-    const state = observe(events, {
+    const state = observe<State>(events, {
         loaded: false,
         performanceMode: storedPerformanceMode !== null ? storedPerformanceMode === 'true' : platform.mobile,
         progress: 0,

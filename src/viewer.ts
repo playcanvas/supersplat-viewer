@@ -225,11 +225,9 @@ class Viewer {
 
         // construct debug ministats
         if (config.ministats) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve engine options shape
-            const options = MiniStats.getDefaultOptions() as any;
+            const options = MiniStats.getDefaultOptions() as NonNullable<ConstructorParameters<typeof MiniStats>[1]>;
             options.cpu.enabled = false;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve engine stats shape
-            options.stats = options.stats.filter((s: any) => s.name !== 'DrawCalls');
+            options.stats = options.stats.filter((s) => s.name !== 'DrawCalls');
             options.stats.push(
                 {
                     name: 'VRAM',
@@ -238,7 +236,7 @@ class Viewer {
                     multiplier: 1 / (1024 * 1024),
                     unitsName: 'MB',
                     watermark: 1024
-                },
+                } as (typeof options.stats)[number],
                 {
                     name: 'Splats',
                     stats: ['frame.gsplats'],
@@ -246,7 +244,7 @@ class Viewer {
                     multiplier: 1 / 1000000,
                     unitsName: 'M',
                     watermark: 5
-                }
+                } as (typeof options.stats)[number]
             );
 
             new MiniStats(app, options);

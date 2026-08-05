@@ -1,5 +1,5 @@
 import { Asset, INDEXFORMAT_UINT32, SEMANTIC_POSITION } from 'playcanvas';
-import type { AppBase } from 'playcanvas';
+import type { AppBase, Mesh } from 'playcanvas';
 
 import { DEFAULT_VOXEL_RESOLUTION, PENETRATION_EPSILON, resolveIterative } from './collision';
 import type { Collision, PushOut, RayHit } from './collision';
@@ -1059,8 +1059,7 @@ class MeshCollision implements Collision {
             };
 
             asset.on('load', () => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve engine resource shape
-                const renders = (asset.resource as any).renders as any[];
+                const renders = (asset.resource as { renders?: { resource: { meshes: Mesh[] } }[] }).renders;
                 if (!renders || renders.length === 0) {
                     cleanup();
                     reject(new Error('GLB contains no mesh data'));
@@ -1081,8 +1080,7 @@ class MeshCollision implements Collision {
                         if (!vb || !ib) continue;
 
                         const format = vb.format;
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve engine vertex format shape
-                        let posElement: any = null;
+                        let posElement: (typeof format.elements)[number] | null = null;
                         for (let e = 0; e < format.elements.length; e++) {
                             if (format.elements[e].name === SEMANTIC_POSITION) {
                                 posElement = format.elements[e];

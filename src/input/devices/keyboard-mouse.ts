@@ -13,10 +13,15 @@ const panMove = new Vec3();
 const mouseRotate = new Vec3();
 const wheelMove = new Vec3();
 
+type KeyboardInternals = {
+    _keyNow: number[];
+    _onKeyDown: (event: KeyboardEvent) => void;
+    _onKeyUp: (event: KeyboardEvent) => void;
+};
+
 // Patch keydown / keyup so meta-key combinations don't leave keys stuck on
 // macOS (the OS swallows keyup for any key released while Cmd is held).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve engine input shape
-const patchKeyboardMeta = (desktopInput: any) => {
+const patchKeyboardMeta = (desktopInput: KeyboardInternals) => {
     const origOnKeyDown = desktopInput._onKeyDown;
     desktopInput._onKeyDown = (event: KeyboardEvent) => {
         if (event.key === 'Meta') {
@@ -80,7 +85,7 @@ class KeyboardMouseDevice implements InputDevice {
 
     attach(canvas: HTMLCanvasElement, global: Global): void {
         this._global = global;
-        patchKeyboardMeta(this._source);
+        patchKeyboardMeta(this._source as unknown as KeyboardInternals);
         this._source.attach(canvas);
     }
 

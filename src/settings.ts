@@ -109,11 +109,10 @@ const migrateV2 = (v1: V1): V2 => {
 };
 
 // migrate a JSON object to the latest settings schema (assumes valid input)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- preserve public api
-const importSettings = (settings: any): V2 => {
+const importSettings = (settings: unknown): V2 => {
     let result: V2;
 
-    const version = settings.version;
+    const version = (settings as { version?: unknown }).version;
     if (version === undefined) {
         // v1 -> v2
         result = migrateV2(migrateV1(settings as V1));
