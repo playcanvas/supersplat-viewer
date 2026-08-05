@@ -6,11 +6,6 @@
  */
 
 import {
-    type AppBase,
-    type Entity,
-    type GSplatComponent,
-    type Layer,
-    type MeshInstance,
     ADDRESS_CLAMP_TO_EDGE,
     BLENDEQUATION_ADD,
     BLENDMODE_ZERO,
@@ -29,6 +24,7 @@ import {
     Vec4,
     BlendState
 } from 'playcanvas';
+import type { AppBase, Entity, GSplatComponent, Layer, MeshInstance } from 'playcanvas';
 
 // Override global picking to pack alpha-weighted splat depth instead of meshInstance id.
 const pickDepthGlsl = /* glsl */ `
@@ -159,11 +155,7 @@ const safeChunkReplace = (s: string, find: string | RegExp, repl: string) => {
 
 const patchGsplatPickGlsl = (chunk: string) => {
     return safeChunkReplace(
-        safeChunkReplace(
-            chunk,
-            /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/,
-            pickPassChunkInjected
-        ),
+        safeChunkReplace(chunk, /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/, pickPassChunkInjected),
         'pcFragColor0 = encodePickOutput(vPickId);',
         'pcFragColor0 = getPickOutput();'
     );
@@ -171,11 +163,7 @@ const patchGsplatPickGlsl = (chunk: string) => {
 
 const patchGsplatPickWgsl = (chunk: string) => {
     return safeChunkReplace(
-        safeChunkReplace(
-            chunk,
-            /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/,
-            pickPassChunkInjected
-        ),
+        safeChunkReplace(chunk, /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/, pickPassChunkInjected),
         'output.color = encodePickOutput(vPickId);',
         'output.color = getPickOutput();'
     );
@@ -249,8 +237,8 @@ const uint32 = new Uint32Array(float32.buffer);
 // Convert 16-bit half-float to 32-bit float using bit manipulation.
 const half2Float = (h: number): number => {
     const sign = (h & 0x8000) << 16;
-    const exponent = (h & 0x7C00) >> 10;
-    const mantissa = h & 0x03FF;
+    const exponent = (h & 0x7c00) >> 10;
+    const mantissa = h & 0x03ff;
 
     if (exponent === 0) {
         if (mantissa === 0) {
@@ -262,10 +250,10 @@ const half2Float = (h: number): number => {
                 e++;
                 m <<= 1;
             } while ((m & 0x0400) === 0);
-            uint32[0] = sign | ((127 - 15 - e) << 23) | ((m & 0x03FF) << 13);
+            uint32[0] = sign | ((127 - 15 - e) << 23) | ((m & 0x03ff) << 13);
         }
     } else if (exponent === 31) {
-        uint32[0] = sign | 0x7F800000 | (mantissa << 13);
+        uint32[0] = sign | 0x7f800000 | (mantissa << 13);
     } else {
         uint32[0] = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13);
     }
@@ -347,18 +335,27 @@ const captureCameraSnapshot = (camera: Entity, out: PickCameraSnapshot) => {
     out.projection = cam.projection;
 };
 
-const getWorldPoint = (camera: PickCameraSnapshot, x: number, y: number, width: number, height: number, normalizedDepth: number, out?: Vec3) => {
+const getWorldPoint = (
+    camera: PickCameraSnapshot,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    normalizedDepth: number,
+    out?: Vec3
+) => {
     if (!Number.isFinite(normalizedDepth) || normalizedDepth < 0 || normalizedDepth > 1) {
         return null;
     }
 
     const { farClip: far, nearClip: near } = camera;
-    const ndcDepth = camera.projection === PROJECTION_ORTHOGRAPHIC ?
-        normalizedDepth :
-        far * normalizedDepth / (normalizedDepth * (far - near) + near);
+    const ndcDepth =
+        camera.projection === PROJECTION_ORTHOGRAPHIC
+            ? normalizedDepth
+            : (far * normalizedDepth) / (normalizedDepth * (far - near) + near);
 
     viewProjMat.mul2(camera.projectionMatrix, camera.viewMatrix).invert();
-    vec4.set(x / width * 2 - 1, (1 - y / height) * 2 - 1, ndcDepth * 2 - 1, 1);
+    vec4.set((x / width) * 2 - 1, (1 - y / height) * 2 - 1, ndcDepth * 2 - 1, 1);
     viewProjMat.transformVec4(vec4, vec4);
     if (!Number.isFinite(vec4.w) || Math.abs(vec4.w) < 1e-8) {
         return null;
@@ -385,25 +382,34 @@ const setCameraFacingNormal = (cameraPosition: Vec3, position: Vec3, normal: Vec
 };
 
 type PlaneFit = {
-    cx: number; cy: number; cz: number;
-    vx: number; vy: number; vz: number;
+    cx: number;
+    cy: number;
+    cz: number;
+    vx: number;
+    vy: number;
+    vz: number;
 };
 
 // Project a world-space radius around `pos` to its on-screen pixel radius for
 // the given camera. Uses the projection matrix's [1][1] entry (= 1/tan(fov/2)
 // for perspective, = 1/orthoHeight for orthographic) so we don't need fov or
 // orthoHeight on the snapshot.
-const worldRadiusToPixelRadius = (cam: PickCameraSnapshot, pos: Vec3, canvasHeight: number, worldRadius: number): number => {
+const worldRadiusToPixelRadius = (
+    cam: PickCameraSnapshot,
+    pos: Vec3,
+    canvasHeight: number,
+    worldRadius: number
+): number => {
     const projY = cam.projectionMatrix.data[5];
     if (cam.projection === PROJECTION_ORTHOGRAPHIC) {
-        return worldRadius * projY * canvasHeight / 2;
+        return (worldRadius * projY * canvasHeight) / 2;
     }
     const dx = pos.x - cam.position.x;
     const dy = pos.y - cam.position.y;
     const dz = pos.z - cam.position.z;
     const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
     if (distance < 1e-6) return Infinity;
-    return worldRadius * projY * canvasHeight / (2 * distance);
+    return (worldRadius * projY * canvasHeight) / (2 * distance);
 };
 
 // Single least-squares plane fit through a cluster of 3D points. The normal
@@ -414,37 +420,58 @@ const fitPlaneOnce = (points: Vec3[]): PlaneFit | null => {
     const n = points.length;
     if (n < 3) return null;
 
-    let cx = 0, cy = 0, cz = 0;
+    let cx = 0,
+        cy = 0,
+        cz = 0;
     for (let i = 0; i < n; i++) {
-        cx += points[i].x; cy += points[i].y; cz += points[i].z;
+        cx += points[i].x;
+        cy += points[i].y;
+        cz += points[i].z;
     }
-    cx /= n; cy /= n; cz /= n;
+    cx /= n;
+    cy /= n;
+    cz /= n;
 
-    let cxx = 0, cxy = 0, cxz = 0, cyy = 0, cyz = 0, czz = 0;
+    let cxx = 0,
+        cxy = 0,
+        cxz = 0,
+        cyy = 0,
+        cyz = 0,
+        czz = 0;
     for (let i = 0; i < n; i++) {
         const dx = points[i].x - cx;
         const dy = points[i].y - cy;
         const dz = points[i].z - cz;
-        cxx += dx * dx; cxy += dx * dy; cxz += dx * dz;
-        cyy += dy * dy; cyz += dy * dz; czz += dz * dz;
+        cxx += dx * dx;
+        cxy += dx * dy;
+        cxz += dx * dz;
+        cyy += dy * dy;
+        cyz += dy * dz;
+        czz += dz * dz;
     }
 
     const q = (cxx + cyy + czz) / 3;
-    const a = cxx - q, b = cyy - q, c = czz - q;
+    const a = cxx - q,
+        b = cyy - q,
+        c = czz - q;
     const p2 = a * a + b * b + c * c + 2 * (cxy * cxy + cxz * cxz + cyz * cyz);
     if (p2 < NORMAL_DEGENERATE_EPSILON) return null;
     const p = Math.sqrt(p2 / 6);
     const inv = 1 / p;
-    const Bxx = a * inv, Bxy = cxy * inv, Bxz = cxz * inv;
-    const Byy = b * inv, Byz = cyz * inv, Bzz = c * inv;
-    const detB = Bxx * (Byy * Bzz - Byz * Byz) -
-                 Bxy * (Bxy * Bzz - Byz * Bxz) +
-                 Bxz * (Bxy * Byz - Byy * Bxz);
+    const Bxx = a * inv,
+        Bxy = cxy * inv,
+        Bxz = cxz * inv;
+    const Byy = b * inv,
+        Byz = cyz * inv,
+        Bzz = c * inv;
+    const detB = Bxx * (Byy * Bzz - Byz * Byz) - Bxy * (Bxy * Bzz - Byz * Bxz) + Bxz * (Bxy * Byz - Byy * Bxz);
     const r = Math.max(-1, Math.min(1, detB / 2));
     const phi = Math.acos(r) / 3;
-    const lambdaMin = q + 2 * p * Math.cos(phi + 2 * Math.PI / 3);
+    const lambdaMin = q + 2 * p * Math.cos(phi + (2 * Math.PI) / 3);
 
-    const Mxx = cxx - lambdaMin, Myy = cyy - lambdaMin, Mzz = czz - lambdaMin;
+    const Mxx = cxx - lambdaMin,
+        Myy = cyy - lambdaMin,
+        Mzz = czz - lambdaMin;
     const v1x = cxy * cyz - cxz * Myy;
     const v1y = cxz * cxy - Mxx * cyz;
     const v1z = Mxx * Myy - cxy * cxy;
@@ -459,11 +486,20 @@ const fitPlaneOnce = (points: Vec3[]): PlaneFit | null => {
     const l3 = v3x * v3x + v3y * v3y + v3z * v3z;
     let vx: number, vy: number, vz: number, lSq: number;
     if (l1 >= l2 && l1 >= l3) {
-        vx = v1x; vy = v1y; vz = v1z; lSq = l1;
+        vx = v1x;
+        vy = v1y;
+        vz = v1z;
+        lSq = l1;
     } else if (l2 >= l3) {
-        vx = v2x; vy = v2y; vz = v2z; lSq = l2;
+        vx = v2x;
+        vy = v2y;
+        vz = v2z;
+        lSq = l2;
     } else {
-        vx = v3x; vy = v3y; vz = v3z; lSq = l3;
+        vx = v3x;
+        vy = v3y;
+        vz = v3z;
+        lSq = l3;
     }
     if (lSq < NORMAL_EPSILON) return null;
     const invLen = 1 / Math.sqrt(lSq);
@@ -506,7 +542,9 @@ const fitPlaneNormal = (points: Vec3[], toCamera: Vec3, outNormal: Vec3): boolea
 
     let { vx, vy, vz } = result;
     if (vx * toCamera.x + vy * toCamera.y + vz * toCamera.z < 0) {
-        vx = -vx; vy = -vy; vz = -vz;
+        vx = -vx;
+        vy = -vy;
+        vz = -vz;
     }
     outNormal.set(vx, vy, vz);
     return true;
@@ -554,8 +592,12 @@ class Picker {
             // RGB: additive depth accumulation. Alpha: multiplicative transmittance.
             accumPass.blendState = new BlendState(
                 true,
-                BLENDEQUATION_ADD, BLENDMODE_ONE, BLENDMODE_ONE_MINUS_SRC_ALPHA,
-                BLENDEQUATION_ADD, BLENDMODE_ZERO, BLENDMODE_ONE_MINUS_SRC_ALPHA
+                BLENDEQUATION_ADD,
+                BLENDMODE_ONE,
+                BLENDMODE_ONE_MINUS_SRC_ALPHA,
+                BLENDEQUATION_ADD,
+                BLENDMODE_ZERO,
+                BLENDMODE_ONE_MINUS_SRC_ALPHA
             );
         };
 
@@ -581,14 +623,16 @@ class Picker {
 
         const cameraMatches = (width: number, height: number) => {
             const cam = camera.camera;
-            return cacheValid &&
+            return (
+                cacheValid &&
                 cacheWidth === width &&
                 cacheHeight === height &&
                 cacheCamera.viewMatrix.equals(cam.viewMatrix) &&
                 cacheCamera.projectionMatrix.equals(cam.projectionMatrix) &&
                 cacheCamera.nearClip === cam.nearClip &&
                 cacheCamera.farClip === cam.farClip &&
-                cacheCamera.projection === cam.projection;
+                cacheCamera.projection === cam.projection
+            );
         };
 
         const getCacheCameraSnapshot = (): PickCameraSnapshot => {
@@ -613,10 +657,10 @@ class Picker {
         ) => {
             const texY = graphicsDevice.isWebGL2 ? accumTarget.height - blockY - blockHeight : blockY;
 
-            const pixels = await accumBuffer.read(blockX, texY, blockWidth, blockHeight, {
+            const pixels = (await accumBuffer.read(blockX, texY, blockWidth, blockHeight, {
                 renderTarget: accumTarget,
                 immediate: true
-            }) as Uint16Array;
+            })) as Uint16Array;
 
             return (x: number, y: number) => {
                 const localX = x - blockX;
@@ -640,11 +684,7 @@ class Picker {
             };
         };
 
-        const ensureRendered = (
-            width: number,
-            height: number,
-            worldLayer: Layer
-        ) => {
+        const ensureRendered = (width: number, height: number, worldLayer: Layer) => {
             if (cameraMatches(width, height)) {
                 return;
             }
@@ -732,7 +772,10 @@ class Picker {
         const serializePick = <T>(operation: () => Promise<T>): Promise<T> => {
             // The render targets are shared by all picks on this instance.
             const result = pickQueue.then(operation, operation);
-            pickQueue = result.then((): void => undefined, (): void => undefined);
+            pickQueue = result.then(
+                (): void => undefined,
+                (): void => undefined
+            );
             return result;
         };
 
@@ -780,10 +823,14 @@ class Picker {
             // Pixel radius corresponding to a fixed world radius at the
             // picked-point's depth. Clamped so distant picks still sample
             // enough pixels and very-close picks stay inside the block read.
-            const pixelRadius = Math.max(NORMAL_SAMPLE_MIN_PX,
-                Math.min(NORMAL_SAMPLE_MAX_PX,
-                    worldRadiusToPixelRadius(pickCamera, position, height, NORMAL_SAMPLE_WORLD_RADIUS)));
-            const ringPixelRadii = NORMAL_RING_FRACTIONS.map(f => Math.max(1, Math.round(f * pixelRadius)));
+            const pixelRadius = Math.max(
+                NORMAL_SAMPLE_MIN_PX,
+                Math.min(
+                    NORMAL_SAMPLE_MAX_PX,
+                    worldRadiusToPixelRadius(pickCamera, position, height, NORMAL_SAMPLE_WORLD_RADIUS)
+                )
+            );
+            const ringPixelRadii = NORMAL_RING_FRACTIONS.map((f) => Math.max(1, Math.round(f * pixelRadius)));
             const sampleRings = ringPixelRadii.map((radius) => {
                 return NORMAL_SAMPLE_DIRECTIONS.map(([dx, dy]) => {
                     return samplePixel(screenX + dx * radius, screenY + dy * radius);

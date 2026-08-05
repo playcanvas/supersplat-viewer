@@ -1,8 +1,7 @@
-import type { Camera, CameraFrame } from './camera';
-import { CameraController } from './camera';
+import type { Camera, CameraFrame, CameraController } from './camera';
 import { drainInputFrame } from './camera-utils';
 import { AnimState } from '../animation/anim-state';
-import { AnimTrack } from '../settings';
+import type { AnimTrack } from '../settings';
 
 class AnimController implements CameraController {
     animState: AnimState;
@@ -26,8 +25,8 @@ class AnimController implements CameraController {
         drainInputFrame(inputFrame);
     }
 
-    onExit(camera: Camera): void {
-
+    onExit(_camera: Camera) {
+        // no cleanup needed
     }
 }
 

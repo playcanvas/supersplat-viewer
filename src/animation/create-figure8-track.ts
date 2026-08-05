@@ -1,8 +1,6 @@
-import {
-    Vec3
-} from 'playcanvas';
+import type { Vec3 } from 'playcanvas';
 
-import { AnimTrack } from '../settings';
+import type { AnimTrack } from '../settings';
 
 /**
  * Creates a figure-8 (lemniscate / infinity sign) camera animation track.
@@ -18,8 +16,15 @@ import { AnimTrack } from '../settings';
  * @param duration - The duration of the animation in seconds.
  * @returns The animation track object containing position and target keyframes.
  */
-const createFigure8Track = (position: Vec3, target: Vec3, fov: number, size: number = 1, keys: number = 24, duration: number = 20): AnimTrack => {
-    const times = new Array(keys).fill(0).map((_, i) => i / keys * duration);
+const createFigure8Track = (
+    position: Vec3,
+    target: Vec3,
+    fov: number,
+    size = 1,
+    keys = 24,
+    duration = 20
+): AnimTrack => {
+    const times = new Array(keys).fill(0).map((_, i) => (i / keys) * duration);
     const positions: number[] = [];
     const targets: number[] = [];
     const fovs = new Array(keys).fill(fov);
@@ -47,11 +52,11 @@ const createFigure8Track = (position: Vec3, target: Vec3, fov: number, size: num
     }
 
     for (let i = 0; i < keys; ++i) {
-        const t = i / keys * Math.PI * 2;
+        const t = (i / keys) * Math.PI * 2;
 
         // lemniscate offsets: sin(t) for left-right, sin(2t)/2 for forward-back
         const offsetRight = amplitude * Math.sin(t);
-        const offsetFwd = amplitude * Math.sin(2 * t) / 2;
+        const offsetFwd = (amplitude * Math.sin(2 * t)) / 2;
 
         positions.push(position.x + rightX * offsetRight + fwdX * offsetFwd);
         positions.push(position.y);

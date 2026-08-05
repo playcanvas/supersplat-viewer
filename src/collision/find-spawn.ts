@@ -7,11 +7,11 @@ const SEARCH_RADIUS_SQ = SEARCH_RADIUS * SEARCH_RADIUS;
 /** Ray budget when probing for ground/ceiling under or above a candidate column. */
 const RAY_MAX_DIST = 1000;
 
-interface SpawnOut {
+type SpawnOut = {
     x: number;
     y: number;
     z: number;
-}
+};
 
 // Scratch values reused across calls — these helpers run only at spawn time
 // so the lack of re-entrancy is fine.
@@ -36,7 +36,9 @@ const scratchPush = { x: 0, y: 0, z: 0 };
  */
 const findSphereSpawn = (
     collision: Collision,
-    ox: number, oy: number, oz: number,
+    ox: number,
+    oy: number,
+    oz: number,
     radius: number,
     out: SpawnOut
 ): boolean => {
@@ -47,7 +49,7 @@ const findSphereSpawn = (
     let found = false;
 
     for (let r = 0; r <= maxCells; r++) {
-        const shellMinDistSq = (r * step) * (r * step);
+        const shellMinDistSq = r * step * (r * step);
         if (shellMinDistSq >= bestDistSq) break;
 
         for (let dy = -r; dy <= r; dy++) {
@@ -115,7 +117,9 @@ const findSphereSpawn = (
  */
 const findCylinderSpawn = (
     collision: Collision,
-    ox: number, oy: number, oz: number,
+    ox: number,
+    oy: number,
+    oz: number,
     halfHeight: number,
     radius: number,
     out: SpawnOut
@@ -132,7 +136,7 @@ const findCylinderSpawn = (
     let found = false;
 
     for (let r = 0; r <= maxCells; r++) {
-        const shellMinDistSq = (r * step) * (r * step);
+        const shellMinDistSq = r * step * (r * step);
         if (shellMinDistSq >= bestDistSq) break;
 
         for (let dy = -r; dy <= r; dy++) {

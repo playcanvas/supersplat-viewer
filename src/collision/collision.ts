@@ -1,47 +1,39 @@
 /**
  * Push-out vector returned by querySphere / queryCapsule.
  */
-interface PushOut {
+type PushOut = {
     x: number;
     y: number;
     z: number;
-}
+};
 
 /**
  * Hit result returned by queryRay.
  */
-interface RayHit {
+type RayHit = {
     x: number;
     y: number;
     z: number;
-}
+};
 
 /**
  * Abstract collision interface operating in PlayCanvas world space (Y-up, right-handed).
  * Implementations convert to/from their internal coordinate systems internally.
  */
-interface Collision {
-    queryRay(
-        ox: number, oy: number, oz: number,
-        dx: number, dy: number, dz: number,
-        maxDist: number
-    ): RayHit | null;
+type Collision = {
+    queryRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): RayHit | null;
 
-    querySphere(
-        cx: number, cy: number, cz: number,
-        radius: number,
-        out: PushOut
-    ): boolean;
+    querySphere(cx: number, cy: number, cz: number, radius: number, out: PushOut): boolean;
 
-    queryCapsule(
-        cx: number, cy: number, cz: number,
-        halfHeight: number, radius: number,
-        out: PushOut
-    ): boolean;
+    queryCapsule(cx: number, cy: number, cz: number, halfHeight: number, radius: number, out: PushOut): boolean;
 
     querySurfaceNormal(
-        x: number, y: number, z: number,
-        rdx: number, rdy: number, rdz: number
+        x: number,
+        y: number,
+        z: number,
+        rdx: number,
+        rdy: number,
+        rdz: number
     ): { nx: number; ny: number; nz: number };
 
     /**
@@ -60,7 +52,7 @@ interface Collision {
      * resolution.
      */
     readonly voxelResolution: number;
-}
+};
 
 /**
  * Fallback voxel cell size for mesh collision, which doesn't carry the carve
@@ -91,7 +83,9 @@ const MAX_RESOLVE_ITERATIONS = 4;
  * @returns True if a meaningful push-out was computed.
  */
 function resolveIterative(
-    cx: number, cy: number, cz: number,
+    cx: number,
+    cy: number,
+    cz: number,
     findPenetration: (cx: number, cy: number, cz: number, out: PushOut) => boolean,
     constraintNormals: { x: number; y: number; z: number }[],
     scratch: PushOut,

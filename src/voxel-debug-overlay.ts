@@ -1,6 +1,4 @@
 import {
-    type AppBase,
-    type Entity,
     BindGroupFormat,
     BindStorageBufferFormat,
     BindStorageTextureFormat,
@@ -25,6 +23,7 @@ import {
     UNIFORMTYPE_MAT4,
     UNIFORMTYPE_UINT
 } from 'playcanvas';
+import type { AppBase, Entity } from 'playcanvas';
 
 import type { VoxelCollision } from './collision';
 
@@ -597,8 +596,8 @@ class VoxelDebugOverlay {
             height,
             format: PIXELFORMAT_RGBA8,
             mipmaps: false,
-            addressU: 3,    // ADDRESS_CLAMP_TO_EDGE
-            addressV: 3,    // ADDRESS_CLAMP_TO_EDGE
+            addressU: 3, // ADDRESS_CLAMP_TO_EDGE
+            addressV: 3, // ADDRESS_CLAMP_TO_EDGE
             storage: true
         });
     }
@@ -634,10 +633,14 @@ class VoxelDebugOverlay {
         // to transform rays from PlayCanvas world space into the raw voxel space
         if (collision.flipXY) {
             const d = this.invVP.data;
-            d[0] = -d[0]; d[1] = -d[1];
-            d[4] = -d[4]; d[5] = -d[5];
-            d[8] = -d[8]; d[9] = -d[9];
-            d[12] = -d[12]; d[13] = -d[13];
+            d[0] = -d[0];
+            d[1] = -d[1];
+            d[4] = -d[4];
+            d[5] = -d[5];
+            d[8] = -d[8];
+            d[9] = -d[9];
+            d[12] = -d[12];
+            d[13] = -d[13];
         }
 
         // Set compute uniforms
@@ -657,7 +660,8 @@ class VoxelDebugOverlay {
         compute.setParameter('displayMode', this.mode === 'heatmap' ? 1 : 0);
 
         const camPos = camera.getPosition();
-        let wx = camPos.x, wy = camPos.y;
+        let wx = camPos.x,
+            wy = camPos.y;
         const wz = camPos.z;
         if (collision.flipXY) {
             wx = -wx;

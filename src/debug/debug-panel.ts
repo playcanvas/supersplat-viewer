@@ -2,7 +2,9 @@ import { Vec3 } from 'playcanvas';
 
 import type { CameraManager } from '../camera-manager';
 import type { Global } from '../types';
-import { captureCameraState, restoreCameraState, type CameraStateSnapshot } from './camera-state';
+
+import { captureCameraState, restoreCameraState } from './camera-state';
+import type { CameraStateSnapshot } from './camera-state';
 
 // Developer / debug panel. Hidden by default; surfaced via `?debug` URL
 // param or Ctrl+Shift+D keyboard shortcut. DOM and styles are injected
@@ -87,10 +89,13 @@ const fmt = (v: Vec3) => `${v.x.toFixed(3)}, ${v.y.toFixed(3)}, ${v.z.toFixed(3)
 
 // Accepts "1,2,3", "1, 2, 3", "1 2 3", with or without trailing whitespace.
 const parseVector = (text: string): [number, number, number] | null => {
-    const parts = text.trim().split(/[\s,]+/).filter(p => p.length > 0);
+    const parts = text
+        .trim()
+        .split(/[\s,]+/)
+        .filter((p) => p.length > 0);
     if (parts.length !== 3) return null;
     const nums = parts.map(Number);
-    if (nums.some(n => !Number.isFinite(n))) return null;
+    if (nums.some((n) => !Number.isFinite(n))) return null;
     return [nums[0], nums[1], nums[2]];
 };
 
@@ -147,7 +152,7 @@ class DebugPanel {
         this._root!.style.display = '';
         this._global.app.on('prerender', this._onPrerender);
         window.getCameraState = () => captureCameraState(this._cameraManager, this._global.state);
-        window.setCameraState = snapshot => restoreCameraState(this._cameraManager, this._global.state, snapshot);
+        window.setCameraState = (snapshot) => restoreCameraState(this._cameraManager, this._global.state, snapshot);
         this._render();
     }
 
@@ -331,20 +336,24 @@ class DebugPanel {
             // Quality 1.0 with image/webp produces lossless WebP in
             // Chromium / Firefox. Safari (which lacks WebP encode) falls
             // back to PNG automatically — blob.type tells us which.
-            canvas.toBlob((blob) => {
-                if (!blob) {
-                    console.warn('[debug-panel] screenshot toBlob returned null');
-                    return;
-                }
-                const ext = blob.type === 'image/webp' ? 'webp' : 'png';
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `supersplat-viewer.${ext}`;
-                a.click();
-                URL.revokeObjectURL(url);
-                this._flash(this._screenshotButton);
-            }, 'image/webp', 1.0);
+            canvas.toBlob(
+                (blob) => {
+                    if (!blob) {
+                        console.warn('[debug-panel] screenshot toBlob returned null');
+                        return;
+                    }
+                    const ext = blob.type === 'image/webp' ? 'webp' : 'png';
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `supersplat-viewer.${ext}`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    this._flash(this._screenshotButton);
+                },
+                'image/webp',
+                1.0
+            );
         });
     }
 

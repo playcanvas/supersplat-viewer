@@ -1,13 +1,8 @@
 import { Vec3 } from 'playcanvas';
 
 import type { Camera, CameraFrame } from './camera';
-import {
-    ProgressTracker,
-    type TargetSource,
-    clampTurnStep,
-    getYawDiffToTarget,
-    smoothTurnRate
-} from './target-navigation';
+import { ProgressTracker, clampTurnStep, getYawDiffToTarget, smoothTurnRate } from './target-navigation';
+import type { TargetSource } from './target-navigation';
 
 /** XZ distance below which the walker considers itself arrived */
 const ARRIVAL_DIST = 0.5;
@@ -131,7 +126,7 @@ class WalkSource implements TargetSource {
         frame.deltas.rotate.append([-yawStep, 0, 0]);
 
         // scale forward speed by alignment: turn in place first, then accelerate
-        const alignment = Math.max(0, Math.cos(yawDiff * Math.PI / 180));
+        const alignment = Math.max(0, Math.cos((yawDiff * Math.PI) / 180));
         frame.deltas.move.append([0, 0, this.walkSpeed * this._speedMul * dt * alignment]);
     }
 }

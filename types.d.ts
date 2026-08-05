@@ -34,12 +34,12 @@ interface Window {
 }
 
 declare module 'playcanvas/scripts/esm/xr-controllers.mjs' {
-    const XrControllers: any;
+    const XrControllers: typeof pc.Script;
     export { XrControllers };
 }
 
 declare module 'playcanvas/scripts/esm/xr-navigation.mjs' {
-    const XrNavigation: any;
+    const XrNavigation: typeof pc.Script;
     export { XrNavigation };
 }
 

@@ -2,13 +2,13 @@ import { mod } from '../core/math';
 
 // track an animation cursor with support for repeat and ping-pong loop modes
 class AnimCursor {
-    duration: number = 0;
+    duration = 0;
 
     loopMode: 'none' | 'repeat' | 'pingpong' = 'none';
 
-    timer: number = 0;
+    timer = 0;
 
-    cursor: number = 0;
+    cursor = 0;
 
     constructor(duration: number, loopMode: 'none' | 'repeat' | 'pingpong') {
         this.reset(duration, loopMode);
@@ -23,9 +23,15 @@ class AnimCursor {
 
         if (this.cursor >= this.duration) {
             switch (this.loopMode) {
-                case 'none': this.cursor = this.duration; break;
-                case 'repeat': this.cursor %= this.duration; break;
-                case 'pingpong': this.cursor %= (this.duration * 2); break;
+                case 'none':
+                    this.cursor = this.duration;
+                    break;
+                case 'repeat':
+                    this.cursor %= this.duration;
+                    break;
+                case 'pingpong':
+                    this.cursor %= this.duration * 2;
+                    break;
             }
         }
     }

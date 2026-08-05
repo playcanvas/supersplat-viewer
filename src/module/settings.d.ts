@@ -29,7 +29,7 @@ export type Annotation = {
     position: [number, number, number];
     title: string;
     text: string;
-    extras?: any;
+    extras?: unknown;
     camera: Camera;
 };
 
@@ -79,5 +79,5 @@ export type ExperienceSettings = {
     startMode: 'default' | 'animTrack' | 'annotation';
 };
 
-export function importSettings(settings: any): ExperienceSettings;
+export function importSettings(settings: unknown): ExperienceSettings;
 export function validateSettings(settings: unknown): void;

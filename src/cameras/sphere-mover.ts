@@ -160,8 +160,12 @@ class SphereMover {
             }
 
             const hit = this.collision!.queryRay(
-                sweepOrigin.x, sweepOrigin.y, sweepOrigin.z,
-                dir.x, dir.y, dir.z,
+                sweepOrigin.x,
+                sweepOrigin.y,
+                sweepOrigin.z,
+                dir.x,
+                dir.y,
+                dir.z,
                 distance + rayExtension + COLLISION_SKIN
             );
             if (!hit) {
@@ -178,10 +182,7 @@ class SphereMover {
                 continue;
             }
 
-            const surfaceNormal = this.collision!.querySurfaceNormal(
-                hit.x, hit.y, hit.z,
-                dir.x, dir.y, dir.z
-            );
+            const surfaceNormal = this.collision!.querySurfaceNormal(hit.x, hit.y, hit.z, dir.x, dir.y, dir.z);
 
             found = true;
             bestTravel = travel;

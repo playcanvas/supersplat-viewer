@@ -4,7 +4,7 @@ import type { Collision, PushOut, RayHit } from './collision';
 /**
  * Metadata for a voxel octree file (matches the .voxel.json format from splat-transform).
  */
-interface VoxelMetadata {
+type VoxelMetadata = {
     version: string;
     gridBounds: { min: number[]; max: number[] };
     gaussianBounds: { min: number[]; max: number[] };
@@ -15,14 +15,14 @@ interface VoxelMetadata {
     numMixedLeaves: number;
     nodeCount: number;
     leafDataCount: number;
-}
+};
 
 /**
  * Solid leaf node marker: childMask = 0xFF, baseOffset = 0.
  * Unambiguous because BFS layout guarantees children always come after their parent,
  * so baseOffset = 0 is never valid for an interior node.
  */
-const SOLID_LEAF_MARKER = 0xFF000000 >>> 0;
+const SOLID_LEAF_MARKER = 0xff000000 >>> 0;
 
 /** Half-extent of the flatness sampling patch (5x5 when R=2). */
 const FLAT_R = 2;
@@ -74,10 +74,18 @@ const SURFACE_CANDIDATES: number[][] = [
  */
 function scoreSurfaceCandidate(
     collision: VoxelCollision,
-    ix: number, iy: number, iz: number,
-    sx: number, sy: number, sz: number,
-    t1x: number, t1y: number, t1z: number,
-    t2x: number, t2y: number, t2z: number
+    ix: number,
+    iy: number,
+    iz: number,
+    sx: number,
+    sy: number,
+    sz: number,
+    t1x: number,
+    t1y: number,
+    t1z: number,
+    t2x: number,
+    t2y: number,
+    t2z: number
 ): number {
     let best = 0;
     for (let depth = 1; depth >= -1; depth--) {
@@ -87,8 +95,7 @@ function scoreSurfaceCandidate(
                 const px = ix + da * t1x + db * t2x - sx * depth;
                 const py = iy + da * t1y + db * t2y - sy * depth;
                 const pz = iz + da * t1z + db * t2z - sz * depth;
-                if (collision.isVoxelSolid(px, py, pz) &&
-                    !collision.isVoxelSolid(px + sx, py + sy, pz + sz)) {
+                if (collision.isVoxelSolid(px, py, pz) && !collision.isVoxelSolid(px + sx, py + sy, pz + sz)) {
                     s++;
                 }
             }
@@ -106,9 +113,9 @@ function scoreSurfaceCandidate(
  */
 function popcount(n: number): number {
     n >>>= 0;
-    n -= ((n >>> 1) & 0x55555555);
+    n -= (n >>> 1) & 0x55555555;
     n = (n & 0x33333333) + ((n >>> 2) & 0x33333333);
-    return (((n + (n >>> 4)) & 0x0F0F0F0F) * 0x01010101) >>> 24;
+    return (((n + (n >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
 }
 
 /**
@@ -160,11 +167,7 @@ class VoxelCollision implements Collision {
         { x: 0, y: 0, z: 0 }
     ];
 
-    constructor(
-        metadata: VoxelMetadata,
-        nodes: Uint32Array,
-        leafData: Uint32Array
-    ) {
+    constructor(metadata: VoxelMetadata, nodes: Uint32Array, leafData: Uint32Array) {
         this._gridMinX = metadata.gridBounds.min[0];
         this._gridMinY = metadata.gridBounds.min[1];
         this._gridMinZ = metadata.gridBounds.min[2];
@@ -283,6 +286,7 @@ class VoxelCollision implements Collision {
      *
      * @returns {boolean} True if coordinates need flipping.
      */
+    // eslint-disable-next-line @typescript-eslint/class-literal-property-style -- preserve prototype getter semantics
     get flipXY(): boolean {
         return false;
     }
@@ -300,16 +304,19 @@ class VoxelCollision implements Collision {
         // Outside the carved grid is "no data" — also not-free. Without this
         // check the lattice search would spend candidates on out-of-bounds
         // cells (and `isVoxelSolid` would mislead callers by returning false).
-        if (ix < 0 || iy < 0 || iz < 0 ||
-            ix >= this._numVoxelsX || iy >= this._numVoxelsY || iz >= this._numVoxelsZ) {
+        if (ix < 0 || iy < 0 || iz < 0 || ix >= this._numVoxelsX || iy >= this._numVoxelsY || iz >= this._numVoxelsZ) {
             return false;
         }
         return !this.isVoxelSolid(ix, iy, iz);
     }
 
     querySurfaceNormal(
-        x: number, y: number, z: number,
-        rdx: number, rdy: number, rdz: number
+        x: number,
+        y: number,
+        z: number,
+        rdx: number,
+        rdy: number,
+        rdz: number
     ): { nx: number; ny: number; nz: number } {
         const nudge = this._voxelResolution * 0.25;
         const ix = Math.floor((x + Math.sign(rdx) * nudge - this._gridMinX) / this._voxelResolution);
@@ -339,15 +346,23 @@ class VoxelCollision implements Collision {
 
             const score = scoreSurfaceCandidate(
                 this,
-                ix, iy, iz,
-                sx, sy, sz,
-                cand[3], cand[4], cand[5],
-                cand[6], cand[7], cand[8]
+                ix,
+                iy,
+                iz,
+                sx,
+                sy,
+                sz,
+                cand[3],
+                cand[4],
+                cand[5],
+                cand[6],
+                cand[7],
+                cand[8]
             );
 
             if (score > bestScore) {
                 bestScore = score;
-                const mag = (Math.abs(dx) + Math.abs(dy) + Math.abs(dz)) > 1 ? INV_SQRT2 : 1;
+                const mag = Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 1 ? INV_SQRT2 : 1;
                 bestNx = sx * mag;
                 bestNy = sy * mag;
                 bestNz = sz * mag;
@@ -360,11 +375,7 @@ class VoxelCollision implements Collision {
         return result;
     }
 
-    queryRay(
-        ox: number, oy: number, oz: number,
-        dx: number, dy: number, dz: number,
-        maxDist: number
-    ): RayHit | null {
+    queryRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): RayHit | null {
         if (this._nodes.length === 0) {
             return null;
         }
@@ -387,7 +398,9 @@ class VoxelCollision implements Collision {
             let t1 = (gMinX - ox) / dx;
             let t2 = (gMaxX - ox) / dx;
             if (t1 > t2) {
-                const tmp = t1; t1 = t2; t2 = tmp;
+                const tmp = t1;
+                t1 = t2;
+                t2 = tmp;
             }
             if (t1 > tNear) {
                 tNear = t1;
@@ -402,7 +415,9 @@ class VoxelCollision implements Collision {
             let t1 = (gMinY - oy) / dy;
             let t2 = (gMaxY - oy) / dy;
             if (t1 > t2) {
-                const tmp = t1; t1 = t2; t2 = tmp;
+                const tmp = t1;
+                t1 = t2;
+                t2 = tmp;
             }
             if (t1 > tNear) {
                 tNear = t1;
@@ -417,7 +432,9 @@ class VoxelCollision implements Collision {
             let t1 = (gMinZ - oz) / dz;
             let t2 = (gMaxZ - oz) / dz;
             if (t1 > t2) {
-                const tmp = t1; t1 = t2; t2 = tmp;
+                const tmp = t1;
+                t1 = t2;
+                t2 = tmp;
             }
             if (t1 > tNear) {
                 tNear = t1;
@@ -439,9 +456,9 @@ class VoxelCollision implements Collision {
         let iz = Math.max(0, Math.min(Math.floor((entryZ - gMinZ) / res), this._numVoxelsZ - 1));
 
         // DDA setup
-        const stepX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
-        const stepY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
-        const stepZ = dz > 0 ? 1 : (dz < 0 ? -1 : 0);
+        const stepX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+        const stepY = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+        const stepZ = dz > 0 ? 1 : dz < 0 ? -1 : 0;
 
         const invDx = Math.abs(dx) > EPS ? 1.0 / dx : 0;
         const invDy = Math.abs(dy) > EPS ? 1.0 / dy : 0;
@@ -488,9 +505,15 @@ class VoxelCollision implements Collision {
                 tMaxZ += tDeltaZ;
             }
 
-            if (ix < 0 || iy < 0 || iz < 0 ||
-                ix >= this._numVoxelsX || iy >= this._numVoxelsY || iz >= this._numVoxelsZ ||
-                currentT > maxDist) {
+            if (
+                ix < 0 ||
+                iy < 0 ||
+                iz < 0 ||
+                ix >= this._numVoxelsX ||
+                iy >= this._numVoxelsY ||
+                iz >= this._numVoxelsZ ||
+                currentT > maxDist
+            ) {
                 return null;
             }
         }
@@ -498,34 +521,33 @@ class VoxelCollision implements Collision {
         return null;
     }
 
-    querySphere(
-        cx: number, cy: number, cz: number,
-        radius: number,
-        out: PushOut
-    ): boolean {
+    querySphere(cx: number, cy: number, cz: number, radius: number, out: PushOut): boolean {
         if (this.nodes.length === 0) {
             return false;
         }
         return resolveIterative(
-            cx, cy, cz,
+            cx,
+            cy,
+            cz,
             (rx, ry, rz, push) => this.resolveDeepestPenetration(rx, ry, rz, radius, push),
-            this._constraintNormals, this._push, out
+            this._constraintNormals,
+            this._push,
+            out
         );
     }
 
-    queryCapsule(
-        cx: number, cy: number, cz: number,
-        halfHeight: number,
-        radius: number,
-        out: PushOut
-    ): boolean {
+    queryCapsule(cx: number, cy: number, cz: number, halfHeight: number, radius: number, out: PushOut): boolean {
         if (this.nodes.length === 0) {
             return false;
         }
         return resolveIterative(
-            cx, cy, cz,
+            cx,
+            cy,
+            cz,
             (rx, ry, rz, push) => this.resolveDeepestPenetrationCapsule(rx, ry, rz, halfHeight, radius, push),
-            this._constraintNormals, this._push, out
+            this._constraintNormals,
+            this._push,
+            out
         );
     }
 
@@ -539,11 +561,7 @@ class VoxelCollision implements Collision {
      * @param out - Receives the push-out vector on success.
      * @returns True if a penetrating voxel was found.
      */
-    private resolveDeepestPenetration(
-        cx: number, cy: number, cz: number,
-        radius: number,
-        out: PushOut
-    ): boolean {
+    private resolveDeepestPenetration(cx: number, cy: number, cz: number, radius: number, out: PushOut): boolean {
         const { voxelResolution, gridMinX, gridMinY, gridMinZ } = this;
         const radiusSq = radius * radius;
 
@@ -614,9 +632,9 @@ class VoxelCollision implements Collision {
                         const distNegZ = cz - vMinZ;
                         const distPosZ = vMaxZ - cz;
 
-                        const escapeX = distNegX < distPosX ? -(distNegX + radius) : (distPosX + radius);
-                        const escapeY = distNegY < distPosY ? -(distNegY + radius) : (distPosY + radius);
-                        const escapeZ = distNegZ < distPosZ ? -(distNegZ + radius) : (distPosZ + radius);
+                        const escapeX = distNegX < distPosX ? -(distNegX + radius) : distPosX + radius;
+                        const escapeY = distNegY < distPosY ? -(distNegY + radius) : distPosY + radius;
+                        const escapeZ = distNegZ < distPosZ ? -(distNegZ + radius) : distPosZ + radius;
 
                         const absX = Math.abs(escapeX);
                         const absY = Math.abs(escapeY);
@@ -672,7 +690,9 @@ class VoxelCollision implements Collision {
      * @returns True if a penetrating voxel was found.
      */
     private resolveDeepestPenetrationCapsule(
-        cx: number, cy: number, cz: number,
+        cx: number,
+        cy: number,
+        cz: number,
         halfHeight: number,
         radius: number,
         out: PushOut
@@ -765,9 +785,9 @@ class VoxelCollision implements Collision {
                         const distNegZ = cz - vMinZ;
                         const distPosZ = vMaxZ - cz;
 
-                        const escapeX = distNegX < distPosX ? -(distNegX + radius) : (distPosX + radius);
-                        const escapeY = distNegY < distPosY ? -(distNegY + radius) : (distPosY + radius);
-                        const escapeZ = distNegZ < distPosZ ? -(distNegZ + radius) : (distPosZ + radius);
+                        const escapeX = distNegX < distPosX ? -(distNegX + radius) : distPosX + radius;
+                        const escapeY = distNegY < distPosY ? -(distNegY + radius) : distPosY + radius;
+                        const escapeZ = distNegZ < distPosZ ? -(distNegZ + radius) : distPosZ + radius;
 
                         const absX = Math.abs(escapeX);
                         const absY = Math.abs(escapeY);
@@ -817,9 +837,15 @@ class VoxelCollision implements Collision {
      * @returns True if the voxel is solid.
      */
     isVoxelSolid(ix: number, iy: number, iz: number): boolean {
-        if (this.nodes.length === 0 ||
-            ix < 0 || iy < 0 || iz < 0 ||
-            ix >= this.numVoxelsX || iy >= this.numVoxelsY || iz >= this.numVoxelsZ) {
+        if (
+            this.nodes.length === 0 ||
+            ix < 0 ||
+            iy < 0 ||
+            iz < 0 ||
+            ix >= this.numVoxelsX ||
+            iy >= this.numVoxelsY ||
+            iz >= this.numVoxelsZ
+        ) {
             return false;
         }
 
@@ -841,7 +867,7 @@ class VoxelCollision implements Collision {
                 return true;
             }
 
-            const childMask = (node >>> 24) & 0xFF;
+            const childMask = (node >>> 24) & 0xff;
 
             // If childMask is 0, this is a mixed leaf node
             if (childMask === 0) {
@@ -860,7 +886,7 @@ class VoxelCollision implements Collision {
             }
 
             // Calculate child offset using popcount of lower bits
-            const baseOffset = node & 0x00FFFFFF;
+            const baseOffset = node & 0x00ffffff;
             const prefix = (1 << octant) - 1;
             const childOffset = popcount(childMask & prefix);
             nodeIndex = baseOffset + childOffset;
@@ -885,7 +911,7 @@ class VoxelCollision implements Collision {
      * @returns True if the voxel is solid.
      */
     private checkLeafByIndex(node: number, ix: number, iy: number, iz: number): boolean {
-        const leafDataIndex = node & 0x00FFFFFF;
+        const leafDataIndex = node & 0x00ffffff;
 
         // Compute voxel coordinates within the 4x4x4 block
         const vx = ix & 3;
@@ -910,13 +936,18 @@ class VoxelCollision implements Collision {
  * between PlayCanvas world space and the raw voxel data coordinate system.
  */
 class FlippedVoxelCollision extends VoxelCollision {
+    // eslint-disable-next-line @typescript-eslint/class-literal-property-style -- preserve prototype getter semantics
     get flipXY(): boolean {
         return true;
     }
 
     querySurfaceNormal(
-        x: number, y: number, z: number,
-        rdx: number, rdy: number, rdz: number
+        x: number,
+        y: number,
+        z: number,
+        rdx: number,
+        rdy: number,
+        rdz: number
     ): { nx: number; ny: number; nz: number } {
         const result = super.querySurfaceNormal(-x, -y, z, -rdx, -rdy, rdz);
         result.nx = -result.nx;
@@ -924,11 +955,7 @@ class FlippedVoxelCollision extends VoxelCollision {
         return result;
     }
 
-    queryRay(
-        ox: number, oy: number, oz: number,
-        dx: number, dy: number, dz: number,
-        maxDist: number
-    ): RayHit | null {
+    queryRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): RayHit | null {
         const hit = super.queryRay(-ox, -oy, oz, -dx, -dy, dz, maxDist);
         if (hit) {
             hit.x = -hit.x;
@@ -937,11 +964,7 @@ class FlippedVoxelCollision extends VoxelCollision {
         return hit;
     }
 
-    querySphere(
-        cx: number, cy: number, cz: number,
-        radius: number,
-        out: PushOut
-    ): boolean {
+    querySphere(cx: number, cy: number, cz: number, radius: number, out: PushOut): boolean {
         const result = super.querySphere(-cx, -cy, cz, radius, out);
         if (result) {
             out.x = -out.x;
@@ -950,12 +973,7 @@ class FlippedVoxelCollision extends VoxelCollision {
         return result;
     }
 
-    queryCapsule(
-        cx: number, cy: number, cz: number,
-        halfHeight: number,
-        radius: number,
-        out: PushOut
-    ): boolean {
+    queryCapsule(cx: number, cy: number, cz: number, halfHeight: number, radius: number, out: PushOut): boolean {
         const result = super.queryCapsule(-cx, -cy, cz, halfHeight, radius, out);
         if (result) {
             out.x = -out.x;

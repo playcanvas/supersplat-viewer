@@ -41,8 +41,8 @@ const buildCss = {
             runtime: sass,
             processor: (css) => {
                 return postcss([autoprefixer])
-                .process(css, { from: undefined })
-                .then(result => result.css);
+                    .process(css, { from: undefined })
+                    .then((result) => result.css);
             }
         }),
         {
@@ -67,12 +67,7 @@ const buildPublic = {
         format: 'esm',
         sourcemap: true
     },
-    plugins: [
-        resolve(debugEngine ? { exportConditions: ['development'] } : {}),
-        typescript(),
-        json(),
-        htmlPlugin()
-    ]
+    plugins: [resolve(debugEngine ? { exportConditions: ['development'] } : {}), typescript(), json(), htmlPlugin()]
 };
 
 const buildDist = {
@@ -104,14 +99,7 @@ const buildSettings = {
         format: 'esm',
         sourcemap: true
     },
-    plugins: [
-        typescript({ noEmit: true })
-    ]
+    plugins: [typescript({ noEmit: true })]
 };
 
-export default [
-    buildCss,
-    buildPublic,
-    buildDist,
-    buildSettings
-];
+export default [buildCss, buildPublic, buildDist, buildSettings];

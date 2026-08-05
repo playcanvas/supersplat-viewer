@@ -8,12 +8,10 @@ import {
     Mouse,
     platform,
     TouchDevice,
-    type Texture,
-    type TextureHandler,
-    type AppBase,
     revision as engineRevision,
     version as engineVersion
 } from 'playcanvas';
+import type { Texture, TextureHandler, AppBase } from 'playcanvas';
 
 import { App } from './app';
 import { MeshCollision, loadVoxelCollision } from './collision';
@@ -21,7 +19,7 @@ import type { Collision } from './collision';
 import { observe } from './core/observe';
 import { initLocalization } from './localization';
 import { importSettings } from './settings';
-import type { Config, Global } from './types';
+import type { Config, Global, State } from './types';
 import { initPoster, initUI } from './ui';
 import { Viewer } from './viewer';
 import { initXr } from './xr';
@@ -67,14 +65,19 @@ const loadGsplat = async (app: AppBase, config: Config, progressCallback: (progr
 
 const loadSkybox = (app: AppBase, url: string) => {
     return new Promise<Asset>((resolve, reject) => {
-        const asset = new Asset('skybox', 'texture', {
-            url
-        }, {
-            type: 'rgbp',
-            mipmaps: false,
-            addressu: 'repeat',
-            addressv: 'clamp'
-        });
+        const asset = new Asset(
+            'skybox',
+            'texture',
+            {
+                url
+            },
+            {
+                type: 'rgbp',
+                mipmaps: false,
+                addressu: 'repeat',
+                addressv: 'clamp'
+            }
+        );
 
         asset.on('load', () => {
             resolve(asset);
@@ -199,13 +202,12 @@ const initCanvas = (global: Global) => {
     app.on('framerender', apply);
 
     // Disable the engine's built-in canvas resize — we handle it via ResizeObserver
-    // @ts-ignore
-    app._allowResize = false;
+    (app as unknown as { _allowResize: boolean })._allowResize = false;
     set(canvas.clientWidth, canvas.clientHeight);
     apply();
 };
 
-const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config) => {
+const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Config) => {
     const { app, camera, renderer } = await createApp(canvas, config);
 
     // create events
@@ -219,7 +221,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
     }
     const storedPerformanceMode = localStorage.getItem('performanceMode');
 
-    const state = observe(events, {
+    const state = observe<State>(events, {
         loaded: false,
         performanceMode: storedPerformanceMode !== null ? storedPerformanceMode === 'true' : platform.mobile,
         progress: 0,
@@ -272,21 +274,20 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
     initUI(global);
 
     // Load model
-    const gsplatLoad = loadGsplat(
-        app,
-        config,
-        (progress: number) => {
-            state.progress = progress;
-        }
-    );
+    const gsplatLoad = loadGsplat(app, config, (progress: number) => {
+        state.progress = progress;
+    });
 
     // Load skybox (continue without if it fails — e.g. CORS, 404)
-    const skyboxLoad = config.skyboxUrl &&
-        loadSkybox(app, config.skyboxUrl).then((asset) => {
-            app.scene.envAtlas = asset.resource as Texture;
-        }).catch((err: Error) => {
-            console.warn('Failed to load skybox:', err);
-        });
+    const skyboxLoad =
+        config.skyboxUrl &&
+        loadSkybox(app, config.skyboxUrl)
+            .then((asset) => {
+                app.scene.envAtlas = asset.resource as Texture;
+            })
+            .catch((err: Error) => {
+                console.warn('Failed to load skybox:', err);
+            });
 
     // Load collision data (type determined by file extension)
     let collisionLoad: Promise<Collision> | undefined;
@@ -309,14 +310,18 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: any, config: Config
     if (global.settings.soundUrl) {
         const sound = new Audio(global.settings.soundUrl);
         sound.crossOrigin = 'anonymous';
-        document.body.addEventListener('click', () => {
-            if (sound) {
-                sound.play();
+        document.body.addEventListener(
+            'click',
+            () => {
+                if (sound) {
+                    sound.play();
+                }
+            },
+            {
+                capture: true,
+                once: true
             }
-        }, {
-            capture: true,
-            once: true
-        });
+        );
     }
 
     // Create the viewer

@@ -15,7 +15,13 @@ import type { AppBase, CameraComponent, GraphicsDevice, Shader } from 'playcanva
 type CaptureFrame = { update(): void };
 
 // scrub advances the (paused) animation to `time` before the capture render
-type GrabOptions = { time?: number; width: number; height: number; supersample?: number; scrub?: (time: number) => void };
+type GrabOptions = {
+    time?: number;
+    width: number;
+    height: number;
+    supersample?: number;
+    scrub?: (time: number) => void;
+};
 
 type CaptureResult = { width: number; height: number; data: string };
 
@@ -107,11 +113,7 @@ class Capture {
 
     private dstRT: RenderTarget | null = null;
 
-    constructor(
-        app: AppBase,
-        camera: CameraComponent,
-        getCameraFrame: () => CaptureFrame | null
-    ) {
+    constructor(app: AppBase, camera: CameraComponent, getCameraFrame: () => CaptureFrame | null) {
         this.app = app;
         this.device = app.graphicsDevice;
         this.camera = camera;

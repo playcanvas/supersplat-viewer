@@ -1,5 +1,4 @@
 import {
-    type AppBase,
     BLEND_NORMAL,
     Color,
     CULLFACE_BACK,
@@ -15,6 +14,7 @@ import {
     SORTMODE_MANUAL,
     StandardMaterial
 } from 'playcanvas';
+import type { AppBase } from 'playcanvas';
 
 import type { MeshCollision, TriangleSoA } from './collision';
 
@@ -42,8 +42,8 @@ import type { MeshCollision, TriangleSoA } from './collision';
 // encoding below makes that true regardless of the gamma path taken.
 const SURFACE_GRAY_X = 0.85;
 const SURFACE_GRAY_Y = 0.55;
-const SURFACE_GRAY_Z = 0.30;
-const SURFACE_ALPHA  = 0.30;
+const SURFACE_GRAY_Z = 0.3;
+const SURFACE_ALPHA = 0.3;
 
 // Build an unindexed mesh where every triangle has three unique vertices that
 // share the triangle's flat face color (tint by dominant axis of the face
@@ -88,7 +88,7 @@ const encodeFlatColors = (tris: TriangleSoA, cameraFrameEnabled: boolean, out?: 
         const oc = i * 12;
         for (let j = 0; j < 3; j++) {
             const k = oc + j * 4;
-            colors[k]     = gray;
+            colors[k] = gray;
             colors[k + 1] = gray;
             colors[k + 2] = gray;
             colors[k + 3] = alpha;
@@ -106,12 +106,18 @@ const buildFlatMesh = (tris: TriangleSoA, cameraFrameEnabled: boolean) => {
 
     for (let i = 0; i < numTris; i++) {
         const op = i * 9;
-        flatPositions[op]     = tris.v0x[i]; flatPositions[op + 1] = tris.v0y[i]; flatPositions[op + 2] = tris.v0z[i];
-        flatPositions[op + 3] = tris.v1x[i]; flatPositions[op + 4] = tris.v1y[i]; flatPositions[op + 5] = tris.v1z[i];
-        flatPositions[op + 6] = tris.v2x[i]; flatPositions[op + 7] = tris.v2y[i]; flatPositions[op + 8] = tris.v2z[i];
+        flatPositions[op] = tris.v0x[i];
+        flatPositions[op + 1] = tris.v0y[i];
+        flatPositions[op + 2] = tris.v0z[i];
+        flatPositions[op + 3] = tris.v1x[i];
+        flatPositions[op + 4] = tris.v1y[i];
+        flatPositions[op + 5] = tris.v1z[i];
+        flatPositions[op + 6] = tris.v2x[i];
+        flatPositions[op + 7] = tris.v2y[i];
+        flatPositions[op + 8] = tris.v2z[i];
 
         const oi = i * 3;
-        flatIndices[oi]     = oi;
+        flatIndices[oi] = oi;
         flatIndices[oi + 1] = oi + 1;
         flatIndices[oi + 2] = oi + 2;
     }
@@ -166,8 +172,7 @@ class MeshDebugOverlay {
         this.triangles = collision.triangles;
         const device = app.graphicsDevice;
 
-        const { flatPositions, flatColors, flatIndices } =
-            buildFlatMesh(this.triangles, cameraFrameEnabled);
+        const { flatPositions, flatColors, flatIndices } = buildFlatMesh(this.triangles, cameraFrameEnabled);
         this.flatColors = flatColors;
 
         const mesh = new Mesh(device);
@@ -315,7 +320,7 @@ class MeshDebugOverlay {
         for (const m of this.materials) m.destroy();
         this.materials.length = 0;
         this.app.scene.layers.remove(this.layer);
-        this.camera.camera.layers = this.camera.camera.layers.filter(id => id !== this.layer.id);
+        this.camera.camera.layers = this.camera.camera.layers.filter((id) => id !== this.layer.id);
     }
 }
 

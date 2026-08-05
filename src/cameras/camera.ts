@@ -56,18 +56,19 @@ class Camera {
     }
 
     calcFocusPoint(result: Vec3) {
-        rotation.setFromEulerAngles(this.angles)
-        .transformVector(Vec3.FORWARD, result)
-        .mulScalar(this.distance)
-        .add(this.position);
+        rotation
+            .setFromEulerAngles(this.angles)
+            .transformVector(Vec3.FORWARD, result)
+            .mulScalar(this.distance)
+            .add(this.position);
     }
 }
 
-interface CameraController {
+type CameraController = {
     onEnter(camera: Camera): void;
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera): void;
     onExit(camera: Camera): void;
-}
+};
 
 export type { CameraFrame, CameraController };
 

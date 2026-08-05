@@ -1,5 +1,4 @@
 import {
-    type AppBase,
     CULLFACE_NONE,
     FILTER_LINEAR,
     PIXELFORMAT_RGBA8,
@@ -13,13 +12,13 @@ import {
     Script,
     StandardMaterial,
     Texture,
-    type Quat,
     Vec3,
     BLENDEQUATION_ADD,
     BLENDMODE_ONE,
     BLENDMODE_ONE_MINUS_SRC_ALPHA,
     BLENDMODE_SRC_ALPHA
 } from 'playcanvas';
+import type { AppBase, Quat } from 'playcanvas';
 
 // clamp the vertices of the hotspot so it is never clipped by the near or far plane
 const depthClampGlsl = `
@@ -207,10 +206,7 @@ export class Annotation extends Script {
             return layer;
         };
 
-        Annotation.layers = [
-            createLayer('HotspotBase', false),
-            createLayer('HotspotOverlay', true)
-        ];
+        Annotation.layers = [createLayer('HotspotBase', false), createLayer('HotspotOverlay', true)];
 
         if (Annotation.camera === null) {
             Annotation.camera = app.root.findComponent('camera').entity;
@@ -218,13 +214,16 @@ export class Annotation extends Script {
 
         Annotation.camera.camera.layers = [
             ...Annotation.camera.camera.layers,
-            ...Annotation.layers.map(layer => layer.id)
+            ...Annotation.layers.map((layer) => layer.id)
         ];
 
-        Annotation.mesh = Mesh.fromGeometry(app.graphicsDevice, new PlaneGeometry({
-            widthSegments: 1,
-            lengthSegments: 1
-        }));
+        Annotation.mesh = Mesh.fromGeometry(
+            app.graphicsDevice,
+            new PlaneGeometry({
+                widthSegments: 1,
+                lengthSegments: 1
+            })
+        );
 
         // Initialize tooltip dom
         Annotation.tooltipDom = document.createElement('div');
@@ -266,7 +265,7 @@ export class Annotation extends Script {
         // Draw dark circle with light border
         const centerX = size / 2;
         const centerY = size / 2;
-        const radius = (size / 2) - 4; // Leave space for border
+        const radius = size / 2 - 4; // Leave space for border
 
         // Draw main circle
         ctx.beginPath();
@@ -340,8 +339,12 @@ export class Annotation extends Script {
         material.alphaTest = 0.01;
         material.blendState = new BlendState(
             true,
-            BLENDEQUATION_ADD, BLENDMODE_SRC_ALPHA, BLENDMODE_ONE_MINUS_SRC_ALPHA,
-            BLENDEQUATION_ADD, BLENDMODE_ONE, BLENDMODE_ONE
+            BLENDEQUATION_ADD,
+            BLENDMODE_SRC_ALPHA,
+            BLENDMODE_ONE_MINUS_SRC_ALPHA,
+            BLENDEQUATION_ADD,
+            BLENDMODE_ONE,
+            BLENDMODE_ONE
         );
 
         // Depth properties
@@ -353,10 +356,10 @@ export class Annotation extends Script {
         material.useLighting = false;
 
         material.shaderChunks.glsl.add({
-            'litUserMainEndVS': depthClampGlsl
+            litUserMainEndVS: depthClampGlsl
         });
         material.shaderChunks.wgsl.add({
-            'litUserMainEndVS': depthClampWgsl
+            litUserMainEndVS: depthClampWgsl
         });
 
         material.update();
@@ -446,7 +449,7 @@ export class Annotation extends Script {
                 this.hideTooltip();
             }
 
-            this.materials.forEach(mat => mat.destroy());
+            this.materials.forEach((mat) => mat.destroy());
             this.materials = [];
 
             this.texture.destroy();
@@ -640,7 +643,7 @@ export class Annotation extends Script {
 
         // Use view-space depth (not Euclidean distance) to match the projection matrix
         const projMatrix = Annotation.camera.camera.projectionMatrix;
-        const worldSize = (Annotation.hotspotSize / screenHeight) * (2 * viewDepth / projMatrix.data[5]);
+        const worldSize = (Annotation.hotspotSize / screenHeight) * ((2 * viewDepth) / projMatrix.data[5]);
 
         return worldSize;
     }

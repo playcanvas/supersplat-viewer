@@ -1,8 +1,4 @@
-import {
-    OrbitController as OrbitControllerPC,
-    Pose,
-    Vec2
-} from 'playcanvas';
+import { OrbitController as OrbitControllerPC, Pose, Vec2 } from 'playcanvas';
 
 import type { Camera, CameraFrame, CameraController } from './camera';
 import { DEFAULT_CONTROLLER_DAMPING } from './camera-utils';
@@ -36,8 +32,8 @@ class OrbitController implements CameraController {
         camera.fov = this.fov;
     }
 
-    onExit(_camera: Camera): void {
-
+    onExit(_camera: Camera) {
+        // no cleanup needed
     }
 
     goto(camera: Camera) {

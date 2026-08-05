@@ -1,10 +1,5 @@
-import {
-    type AppBase,
-    type Entity,
-    type EventHandler,
-    PROJECTION_ORTHOGRAPHIC,
-    Vec3
-} from 'playcanvas';
+import { PROJECTION_ORTHOGRAPHIC, Vec3 } from 'playcanvas';
+import type { AppBase, Entity, EventHandler } from 'playcanvas';
 
 import type { Collision } from './collision';
 import type { State } from './types';
@@ -41,11 +36,7 @@ const createNormalSnapDirections = () => {
 
         for (let yawStep = 0; yawStep < 8; yawStep++) {
             const yaw = yawStep * NORMAL_SNAP_ANGLE;
-            result.push(new Vec3(
-                Math.cos(yaw) * cp,
-                sy,
-                Math.sin(yaw) * cp
-            ));
+            result.push(new Vec3(Math.cos(yaw) * cp, sy, Math.sin(yaw) * cp));
         }
     }
 
@@ -94,15 +85,15 @@ const right = new Vec3(1, 0, 0);
 const worldRadiusForPixels = (camera: Entity, canvasHeight: number, pos: Vec3, pixelDiameter: number): number => {
     const cam = camera.camera;
     if (cam.projection === PROJECTION_ORTHOGRAPHIC) {
-        return pixelDiameter * cam.orthoHeight / canvasHeight;
+        return (pixelDiameter * cam.orthoHeight) / canvasHeight;
     }
     const camPos = camera.getPosition();
     const dx = pos.x - camPos.x;
     const dy = pos.y - camPos.y;
     const dz = pos.z - camPos.z;
     const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    const halfFovTan = Math.tan(cam.fov * Math.PI / 360);
-    return pixelDiameter * distance * halfFovTan / canvasHeight;
+    const halfFovTan = Math.tan((cam.fov * Math.PI) / 360);
+    return (pixelDiameter * distance * halfFovTan) / canvasHeight;
 };
 
 type CursorTarget = {
@@ -172,10 +163,15 @@ class CursorRing {
     }
 
     private projectCircle(
-        px: number, py: number, pz: number,
-        nx: number, ny: number, nz: number,
+        px: number,
+        py: number,
+        pz: number,
+        nx: number,
+        ny: number,
+        nz: number,
         radius: number,
-        outX: Float64Array, outY: Float64Array
+        outX: Float64Array,
+        outY: Float64Array
     ) {
         const normal = tmpV.set(nx, ny, nz);
         if (Math.abs(normal.y) < 0.99) {
@@ -232,15 +228,19 @@ class CursorRing {
             this.hasSmoothedNormal = true;
         }
 
-        const outerRadius = screenPixels !== null ?
-            worldRadiusForPixels(this.camera, this.canvas.clientHeight || 1, pos, screenPixels) :
-            BASE_OUTER_RADIUS;
+        const outerRadius =
+            screenPixels !== null
+                ? worldRadiusForPixels(this.camera, this.canvas.clientHeight || 1, pos, screenPixels)
+                : BASE_OUTER_RADIUS;
         const innerRadius = outerRadius * INNER_OUTER_RATIO;
 
         this.projectCircle(pos.x, pos.y, pos.z, nx, ny, nz, outerRadius, this.outerX, this.outerY);
         this.projectCircle(pos.x, pos.y, pos.z, nx, ny, nz, innerRadius, this.innerX, this.innerY);
 
-        this.path.setAttribute('d', `${buildBezierRing(this.outerX, this.outerY)} ${buildBezierRing(this.innerX, this.innerY)}`);
+        this.path.setAttribute(
+            'd',
+            `${buildBezierRing(this.outerX, this.outerY)} ${buildBezierRing(this.innerX, this.innerY)}`
+        );
         this.path.style.display = '';
         this.svg.style.display = '';
     }
@@ -292,13 +292,7 @@ class NavCursor {
         normal: new Vec3()
     };
 
-    constructor(
-        app: AppBase,
-        camera: Entity,
-        collision: Collision | null,
-        events: EventHandler,
-        state: State
-    ) {
+    constructor(app: AppBase, camera: Entity, collision: Collision | null, events: EventHandler, state: State) {
         this.camera = camera;
         this.collision = collision;
         this.canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
@@ -306,7 +300,8 @@ class NavCursor {
         this.app = app;
 
         this.svg = document.createElementNS(SVGNS, 'svg');
-        this.svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:1';
+        this.svg.style.cssText =
+            'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:1';
         this.canvas.parentElement!.appendChild(this.svg);
 
         this.hoverRing = new CursorRing(this.svg, this.canvas, camera, true);
@@ -360,8 +355,7 @@ class NavCursor {
         });
 
         events.on('navTarget:set', (pos: Vec3, normal: Vec3) => {
-            const mode = state.cameraMode === 'walk' || state.cameraMode === 'fly' ?
-                state.cameraMode : 'walk';
+            const mode = state.cameraMode === 'walk' || state.cameraMode === 'fly' ? state.cameraMode : 'walk';
             this.setTarget(pos, normal, mode);
         });
 
@@ -425,8 +419,12 @@ class NavCursor {
         tmpV.sub(cameraPos).normalize();
 
         const hit = collision.queryRay(
-            cameraPos.x, cameraPos.y, cameraPos.z,
-            tmpV.x, tmpV.y, tmpV.z,
+            cameraPos.x,
+            cameraPos.y,
+            cameraPos.z,
+            tmpV.x,
+            tmpV.y,
+            tmpV.z,
             camera.camera.farClip
         );
 

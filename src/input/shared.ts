@@ -33,13 +33,7 @@ const tmpHalfSize = new Vec3();
  * @param out - Optional output vector.
  * @returns The pan vector in world space.
  */
-const screenToWorld = (
-    camera: CameraComponent,
-    dx: number,
-    dy: number,
-    dz: number,
-    out: Vec3 = new Vec3()
-) => {
+const screenToWorld = (camera: CameraComponent, dx: number, dy: number, dz: number, out: Vec3 = new Vec3()) => {
     const { system, fov, aspectRatio, horizontalFov, projection, orthoHeight } = camera;
     const { width, height } = system.app.graphicsDevice.clientRect;
 
@@ -91,18 +85,10 @@ type UpdateContext = {
 };
 
 /** Common shape every input device implements. */
-interface InputDevice {
+type InputDevice = {
     attach(canvas: HTMLCanvasElement, global: Global): void;
     detach(): void;
     update(ctx: UpdateContext, frame: CameraInputFrame): void;
-}
-
-export {
-    DISPLACEMENT_SCALE,
-    TAP_EPSILON,
-    screenToWorld,
-    flipZForOrbit,
-    CameraInputFrame,
-    UpdateContext,
-    InputDevice
 };
+
+export { DISPLACEMENT_SCALE, TAP_EPSILON, screenToWorld, flipZForOrbit, CameraInputFrame, UpdateContext, InputDevice };

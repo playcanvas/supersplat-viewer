@@ -2,11 +2,7 @@ import { KeyboardMouseSource, Vec3 } from 'playcanvas';
 
 import { damp } from '../../core/math';
 import type { Global } from '../../types';
-import {
-    DISPLACEMENT_SCALE,
-    flipZForOrbit,
-    screenToWorld
-} from '../shared';
+import { DISPLACEMENT_SCALE, flipZForOrbit, screenToWorld } from '../shared';
 import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
 
 const tmpV1 = new Vec3();
@@ -17,9 +13,15 @@ const panMove = new Vec3();
 const mouseRotate = new Vec3();
 const wheelMove = new Vec3();
 
+type KeyboardInternals = {
+    _keyNow: number[];
+    _onKeyDown: (event: KeyboardEvent) => void;
+    _onKeyUp: (event: KeyboardEvent) => void;
+};
+
 // Patch keydown / keyup so meta-key combinations don't leave keys stuck on
 // macOS (the OS swallows keyup for any key released while Cmd is held).
-const patchKeyboardMeta = (desktopInput: any) => {
+const patchKeyboardMeta = (desktopInput: KeyboardInternals) => {
     const origOnKeyDown = desktopInput._onKeyDown;
     desktopInput._onKeyDown = (event: KeyboardEvent) => {
         if (event.key === 'Meta') {
@@ -40,17 +42,17 @@ const patchKeyboardMeta = (desktopInput: any) => {
 };
 
 class KeyboardMouseDevice implements InputDevice {
-    moveSpeed: number = 4;
+    moveSpeed = 4;
 
-    orbitSpeed: number = 18;
+    orbitSpeed = 18;
 
-    wheelSpeed: number = 0.06;
+    wheelSpeed = 0.06;
 
-    mouseRotateSensitivity: number = 0.5;
+    mouseRotateSensitivity = 0.5;
 
-    flyMoveAccelerationDamping: number = 0.992;
+    flyMoveAccelerationDamping = 0.992;
 
-    flyMoveDecelerationDamping: number = 0.993;
+    flyMoveDecelerationDamping = 0.993;
 
     private _source: KeyboardMouseSource = new KeyboardMouseSource();
 
@@ -83,7 +85,7 @@ class KeyboardMouseDevice implements InputDevice {
 
     attach(canvas: HTMLCanvasElement, global: Global): void {
         this._global = global;
-        patchKeyboardMeta(this._source);
+        patchKeyboardMeta(this._source as unknown as KeyboardInternals);
         this._source.attach(canvas);
     }
 
@@ -98,11 +100,13 @@ class KeyboardMouseDevice implements InputDevice {
         const { events } = this._global!;
 
         // accumulate running input state
-        this._axis.add(tmpV1.set(
-            (key[keyCode.D] - key[keyCode.A]) + (key[keyCode.RIGHT] - key[keyCode.LEFT]),
-            (key[keyCode.E] - key[keyCode.Q]),
-            (key[keyCode.W] - key[keyCode.S]) + (key[keyCode.UP] - key[keyCode.DOWN])
-        ));
+        this._axis.add(
+            tmpV1.set(
+                key[keyCode.D] - key[keyCode.A] + (key[keyCode.RIGHT] - key[keyCode.LEFT]),
+                key[keyCode.E] - key[keyCode.Q],
+                key[keyCode.W] - key[keyCode.S] + (key[keyCode.UP] - key[keyCode.DOWN])
+            )
+        );
         this._jump += key[keyCode.SPACE];
         this._shift += key[keyCode.SHIFT];
         this._ctrl += key[keyCode.CTRL];
@@ -150,9 +154,10 @@ class KeyboardMouseDevice implements InputDevice {
         keyMove.mulScalar(speed);
         if (isFly) {
             flyKeyVelocity.copy(keyMove);
-            const damping = flyKeyVelocity.lengthSq() > this._flyKeyVelocity.lengthSq() ?
-                this.flyMoveAccelerationDamping :
-                this.flyMoveDecelerationDamping;
+            const damping =
+                flyKeyVelocity.lengthSq() > this._flyKeyVelocity.lengthSq()
+                    ? this.flyMoveAccelerationDamping
+                    : this.flyMoveDecelerationDamping;
             this._flyKeyVelocity.lerp(this._flyKeyVelocity, flyKeyVelocity, damp(damping, dt));
             if (flyKeyVelocity.lengthSq() === 0 && this._flyKeyVelocity.lengthSq() < 1e-4) {
                 this._flyKeyVelocity.set(0, 0, 0);
@@ -176,7 +181,11 @@ class KeyboardMouseDevice implements InputDevice {
         // rotate (mouse-drag, masked when in pan mode)
         v.set(0, 0, 0);
         mouseRotate.set(mouse[0], mouse[1], 0);
-        v.add(mouseRotate.mulScalar((1 - pan) * this.orbitSpeed * orbitFactor * this.mouseRotateSensitivity * DISPLACEMENT_SCALE));
+        v.add(
+            mouseRotate.mulScalar(
+                (1 - pan) * this.orbitSpeed * orbitFactor * this.mouseRotateSensitivity * DISPLACEMENT_SCALE
+            )
+        );
         deltas.rotate.append([v.x, v.y, v.z]);
     }
 }

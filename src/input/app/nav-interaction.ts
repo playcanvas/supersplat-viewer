@@ -7,10 +7,8 @@ import { TAP_EPSILON } from '../shared';
 
 const tmpV = new Vec3();
 
-const canTargetFly = (global: Global) => (
-    global.state.cameraMode === 'fly' &&
-    !(global.state.inputMode === 'desktop' && global.state.gamingControls)
-);
+const canTargetFly = (global: Global) =>
+    global.state.cameraMode === 'fly' && !(global.state.inputMode === 'desktop' && global.state.gamingControls);
 
 // Mirror gaming-controls speed modifiers: shift = run/boost, ctrl = crawl/slow.
 // Multipliers match keyboard-mouse.ts so click-nav and held-key movement feel the same.
@@ -68,11 +66,11 @@ class NavInteraction {
         const canvas = this._canvas;
         if (!global || !canvas) return;
         const { state } = global;
-        const canClickTarget = state.inputMode === 'desktop' && (
-            (state.cameraMode === 'walk' && !state.gamingControls) ||
-            canTargetFly(global) ||
-            state.cameraMode === 'orbit'
-        );
+        const canClickTarget =
+            state.inputMode === 'desktop' &&
+            ((state.cameraMode === 'walk' && !state.gamingControls) ||
+                canTargetFly(global) ||
+                state.cameraMode === 'orbit');
         if (canClickTarget) {
             canvas.style.cursor = this._mouseClickTracking ? 'default' : 'pointer';
         } else {
@@ -95,8 +93,12 @@ class NavInteraction {
         tmpV.sub(cameraPos).normalize();
 
         const hit = this.collision.queryRay(
-            cameraPos.x, cameraPos.y, cameraPos.z,
-            tmpV.x, tmpV.y, tmpV.z,
+            cameraPos.x,
+            cameraPos.y,
+            cameraPos.z,
+            tmpV.x,
+            tmpV.y,
+            tmpV.z,
             camera.camera!.farClip
         );
 
@@ -119,10 +121,7 @@ class NavInteraction {
             return collisionTarget;
         }
 
-        const result = await this._picker.pickSurface(
-            offsetX / canvas.clientWidth,
-            offsetY / canvas.clientHeight
-        );
+        const result = await this._picker.pickSurface(offsetX / canvas.clientWidth, offsetY / canvas.clientHeight);
         if (result) {
             return result;
         }
@@ -175,9 +174,11 @@ class NavInteraction {
         // reliable native dblclick events on the canvas.
         const now = Date.now();
         const delay = Math.max(0, now - this._lastTap.time);
-        if (delay < 300 &&
+        if (
+            delay < 300 &&
             Math.abs(event.clientX - this._lastTap.x) < 8 &&
-            Math.abs(event.clientY - this._lastTap.y) < 8) {
+            Math.abs(event.clientY - this._lastTap.y) < 8
+        ) {
             this._suppressClick = true;
             events.fire('inputEvent', 'dblclick', event);
             this._lastTap.time = 0;

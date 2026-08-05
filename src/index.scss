@@ -1,10 +1,9 @@
-
-$clr-text: #E0DCDD;
+$clr-text: #e0dcdd;
 $clr-text-light: #fff;
-$clr-text-dark: #AAA;
+$clr-text-dark: #aaa;
 $clr-text-darkest: #666;
-$clr-accent: #F60;
-$clr-grip: #FFAF50;
+$clr-accent: #f60;
+$clr-grip: #ffaf50;
 
 $clr-bkg: #333;
 $clr-bkg-dark: #282828;
@@ -130,9 +129,9 @@ button {
         font-weight: bold;
         text-shadow:
             -1px -1px 0 rgba(black, 0.4),
-             1px -1px 0 rgba(black, 0.4),
-            -1px  1px 0 rgba(black, 0.4),
-             1px  1px 0 rgba(black, 0.4);
+            1px -1px 0 rgba(black, 0.4),
+            -1px 1px 0 rgba(black, 0.4),
+            1px 1px 0 rgba(black, 0.4);
     }
 }
 
@@ -201,7 +200,9 @@ button {
     &.faded-out {
         visibility: hidden;
         opacity: 0;
-        transition: visibility 0s 0.5s, opacity 0.5s ease-out;
+        transition:
+            visibility 0s 0.5s,
+            opacity 0.5s ease-out;
     }
 
     > #timelineContainer {
@@ -297,13 +298,7 @@ button {
 
             /* camera toggle styling */
             &.toggle {
-                background: linear-gradient(
-                    90deg,
-                    transparent 0%,
-                    transparent 50%,
-                    $clr-accent 50%,
-                    $clr-accent 100%
-                );
+                background: linear-gradient(90deg, transparent 0%, transparent 50%, $clr-accent 50%, $clr-accent 100%);
                 background-size: 200% 100%;
                 background-position: 100% 0%;
                 background-repeat: no-repeat;
@@ -334,7 +329,6 @@ button {
                 }
             }
         }
-
     }
 }
 
@@ -378,7 +372,9 @@ button {
 
             color: $clr-text-dark;
             background-color: rgba(white, 0.04);
-            transition: background-color 250ms ease, color 250ms ease;
+            transition:
+                background-color 250ms ease,
+                color 250ms ease;
 
             &:hover {
                 color: $clr-text-light;
@@ -414,7 +410,9 @@ button {
                         position: absolute;
                         top: 2px;
                         left: 2px;
-                        transition: transform 200ms ease, background-color 200ms ease;
+                        transition:
+                            transform 200ms ease,
+                            background-color 200ms ease;
                     }
                 }
 
@@ -601,7 +599,9 @@ button {
                 font-weight: bold;
                 font-size: 13px;
                 color: $clr-text-dark;
-                transition: color 150ms ease, border-color 150ms ease;
+                transition:
+                    color 150ms ease,
+                    border-color 150ms ease;
             }
 
             > .tab:hover {
@@ -628,11 +628,14 @@ button {
     background-color: #0003;
     border: 2px solid #fff3;
 
-    transition: width 0.2s ease, height 0.2s ease, border-radius 0.2s ease;
+    transition:
+        width 0.2s ease,
+        height 0.2s ease,
+        border-radius 0.2s ease;
 
     > #joystick {
         position: absolute;
-        left: 8px;  // (56 - 40) / 2 = 8px to center horizontally
+        left: 8px; // (56 - 40) / 2 = 8px to center horizontally
         width: 40px;
         height: 40px;
         border-radius: 50%;
@@ -653,7 +656,7 @@ button {
         background-color: #0003;
 
         > #joystick {
-            left: 30px;  // (100 - 40) / 2 = 30px to center horizontally
+            left: 30px; // (100 - 40) / 2 = 30px to center horizontally
         }
     }
 }
@@ -711,7 +714,9 @@ button {
                 cursor: pointer;
                 color: $clr-text-dark;
                 background-color: rgba(white, 0.04);
-                transition: background-color 250ms ease, color 250ms ease;
+                transition:
+                    background-color 250ms ease,
+                    color 250ms ease;
 
                 &:hover {
                     color: $clr-text-light;
@@ -771,7 +776,9 @@ button {
     &.faded-out {
         visibility: hidden;
         opacity: 0;
-        transition: visibility 0s 0.5s, opacity 0.5s ease-out;
+        transition:
+            visibility 0s 0.5s,
+            opacity 0.5s ease-out;
     }
 
     > button {

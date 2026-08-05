@@ -1,5 +1,7 @@
-import { ExperienceSettings as V1, AnimTrack as AnimTrackV1, validateV1 } from './schemas/v1';
-import { ExperienceSettings as V2, AnimTrack as AnimTrackV2, validateV2 } from './schemas/v2';
+import type { ExperienceSettings as V1, AnimTrack as AnimTrackV1 } from './schemas/v1';
+import { validateV1 } from './schemas/v1';
+import type { ExperienceSettings as V2, AnimTrack as AnimTrackV2 } from './schemas/v2';
+import { validateV2 } from './schemas/v2';
 import { assertObject } from './schemas/validate-utils';
 
 const migrateV1 = (settings: V1): V1 => {
@@ -17,6 +19,7 @@ const migrateV1 = (settings: V1): V1 => {
             }
 
             // smoothness property added in v1.4.0
+            // eslint-disable-next-line no-prototype-builtins -- preserve property lookup semantics
             if (!track.hasOwnProperty('smoothness')) {
                 track.smoothness = 0;
             }
@@ -54,7 +57,7 @@ const migrateV2 = (v1: V1): V2 => {
         tonemapping: 'none',
         highPrecisionRendering: false,
         background: {
-            color: v1.background.color as [number, number, number] || [0, 0, 0]
+            color: (v1.background.color as [number, number, number]) || [0, 0, 0]
         },
         postEffectSettings: {
             sharpness: {
@@ -88,23 +91,28 @@ const migrateV2 = (v1: V1): V2 => {
         animTracks: v1.animTracks.map((animTrackV1: AnimTrackV1) => {
             return migrateAnimTrackV2(animTrackV1, v1.camera.fov || 60);
         }),
-        cameras: (v1.camera.position && v1.camera.target) ? [{
-            initial: {
-                position: v1.camera.position as [number, number, number],
-                target: v1.camera.target as [number, number, number],
-                fov: v1.camera.fov || 75
-            }
-        }] : [],
+        cameras:
+            v1.camera.position && v1.camera.target
+                ? [
+                      {
+                          initial: {
+                              position: v1.camera.position as [number, number, number],
+                              target: v1.camera.target as [number, number, number],
+                              fov: v1.camera.fov || 75
+                          }
+                      }
+                  ]
+                : [],
         annotations: [],
         startMode: v1.camera.startAnim === 'animTrack' ? 'animTrack' : 'default'
     };
 };
 
 // migrate a JSON object to the latest settings schema (assumes valid input)
-const importSettings = (settings: any): V2 => {
+const importSettings = (settings: unknown): V2 => {
     let result: V2;
 
-    const version = settings.version;
+    const version = (settings as { version?: unknown }).version;
     if (version === undefined) {
         // v1 -> v2
         result = migrateV2(migrateV1(settings as V1));

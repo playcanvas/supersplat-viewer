@@ -1,7 +1,8 @@
 import { Vec3 } from 'playcanvas';
 
 import { CubicSpline } from '../core/spline';
-import { AnimTrack } from '../settings';
+import type { AnimTrack } from '../settings';
+
 import { AnimCursor } from './anim-cursor';
 
 // manage the state of a camera animation track
@@ -57,7 +58,7 @@ class AnimState {
             points.push(fov[i]);
         }
 
-        const extra = (duration === times[times.length - 1] / frameRate) ? 1 : 0;
+        const extra = duration === times[times.length - 1] / frameRate ? 1 : 0;
 
         const spline = CubicSpline.fromPointsLooping((duration + extra) * frameRate, times, points, smoothness);
 

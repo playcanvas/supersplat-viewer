@@ -2,7 +2,13 @@ import { math, Vec3 } from 'playcanvas';
 
 import type { Collision, PushOut } from '../collision';
 import type { CameraFrame, Camera, CameraController } from './camera';
-import { DEFAULT_CONTROLLER_DAMPING, applyFrameRotation, dampAngles, setBasisOffset, setYawBasis } from './camera-utils';
+import {
+    DEFAULT_CONTROLLER_DAMPING,
+    applyFrameRotation,
+    dampAngles,
+    setBasisOffset,
+    setYawBasis
+} from './camera-utils';
 import { SpawnState } from './spawn-state';
 import { findCylinderSpawn } from '../collision/find-spawn';
 import { damp } from '../core/math';
@@ -153,16 +159,20 @@ class WalkController implements CameraController {
             // check accounts for the placed capsule's full vertical envelope:
             // foot sits at `floor + hoverHeight`, head at `floor + hoverHeight
             // + capsuleHeight`.
-            if (findCylinderSpawn(this.collision,
-                camera.position.x, camera.position.y, camera.position.z,
-                (this.capsuleHeight + this.hoverHeight) * 0.5, this.capsuleRadius, spawnProbe)) {
+            if (
+                findCylinderSpawn(
+                    this.collision,
+                    camera.position.x,
+                    camera.position.y,
+                    camera.position.z,
+                    (this.capsuleHeight + this.hoverHeight) * 0.5,
+                    this.capsuleRadius,
+                    spawnProbe
+                )
+            ) {
                 // spawnProbe is the floor world position the cylinder rests
                 // on. Eye sits hoverHeight + eyeHeight above the floor.
-                this._position.set(
-                    spawnProbe.x,
-                    spawnProbe.y + this.hoverHeight + this.eyeHeight,
-                    spawnProbe.z
-                );
+                this._position.set(spawnProbe.x, spawnProbe.y + this.hoverHeight + this.eyeHeight, spawnProbe.z);
                 this._grounded = true;
                 this._velocity.y = 0;
                 this._storeSpawn();

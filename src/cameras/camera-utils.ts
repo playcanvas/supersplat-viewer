@@ -1,7 +1,8 @@
 import { math, Quat, Vec3 } from 'playcanvas';
 
-import type { CameraFrame } from './camera';
 import { damp, mod } from '../core/math';
+
+import type { CameraFrame } from './camera';
 
 /**
  * Shared damping factor for controller smoothing (rotate / move / zoom) so
@@ -26,12 +27,7 @@ const rotation = new Quat();
  * @param maxPitch - Maximum pitch angle in degrees.
  * @returns The mutated angles.
  */
-const applyFrameRotation = (
-    angles: Vec3,
-    rotate: readonly number[],
-    minPitch = -90,
-    maxPitch = 90
-) => {
+const applyFrameRotation = (angles: Vec3, rotate: readonly number[], minPitch = -90, maxPitch = 90) => {
     angles.x -= rotate[1];
     angles.y -= rotate[0];
     angles.z = 0;
@@ -90,15 +86,7 @@ const setYawBasis = (yaw: number, forward: Vec3, right: Vec3) => {
  * @param up - Up basis vector.
  * @returns The mutated output vector.
  */
-const setBasisOffset = (
-    out: Vec3,
-    x: number,
-    y: number,
-    z: number,
-    forward: Vec3,
-    right: Vec3,
-    up: Vec3
-) => {
+const setBasisOffset = (out: Vec3, x: number, y: number, z: number, forward: Vec3, right: Vec3, up: Vec3) => {
     out.set(
         right.x * x + up.x * y + forward.x * z,
         right.y * x + up.y * y + forward.y * z,

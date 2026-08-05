@@ -1,41 +1,34 @@
-import {
-    assertObject,
-    assertNumber,
-    assertString,
-    assertEnum,
-    assertArray,
-    assertNumberArray
-} from './validate-utils';
+import { assertObject, assertNumber, assertString, assertEnum, assertArray, assertNumberArray } from './validate-utils';
 
 type AnimTrack = {
-    name: string,
-    duration: number,
-    frameRate?: number,
-    target: 'camera',
-    loopMode: 'none' | 'repeat' | 'pingpong',
-    interpolation: 'step' | 'spline',
-    smoothness?: number,
+    name: string;
+    duration: number;
+    frameRate?: number;
+    target: 'camera';
+    loopMode: 'none' | 'repeat' | 'pingpong';
+    interpolation: 'step' | 'spline';
+    smoothness?: number;
     keyframes: {
-        times: number[],
+        times: number[];
         values: {
-            position: number[],
-            target: number[],
-        }
-    }
+            position: number[];
+            target: number[];
+        };
+    };
 };
 
 type ExperienceSettings = {
     camera: {
-        fov?: number,
-        position?: number[],
-        target?: number[],
-        startAnim?: 'none' | 'orbit' | 'animTrack',
-        animTrack?: string | null
-    },
+        fov?: number;
+        position?: number[];
+        target?: number[];
+        startAnim?: 'none' | 'orbit' | 'animTrack';
+        animTrack?: string | null;
+    };
     background: {
-        color?: number[]
-    },
-    animTracks?: AnimTrack[]
+        color?: number[];
+    };
+    animTracks?: AnimTrack[];
 };
 
 const validateAnimTrack = (data: unknown, path: string): AnimTrack => {
@@ -64,7 +57,8 @@ const validateV1 = (data: unknown): ExperienceSettings => {
     if (camera.fov !== undefined) assertNumber(camera.fov, 'settings.camera.fov');
     if (camera.position !== undefined) assertNumberArray(camera.position, 'settings.camera.position');
     if (camera.target !== undefined) assertNumberArray(camera.target, 'settings.camera.target');
-    if (camera.startAnim !== undefined) assertEnum(camera.startAnim, ['none', 'orbit', 'animTrack'] as const, 'settings.camera.startAnim');
+    if (camera.startAnim !== undefined)
+        assertEnum(camera.startAnim, ['none', 'orbit', 'animTrack'] as const, 'settings.camera.startAnim');
     if (camera.animTrack != null) assertString(camera.animTrack, 'settings.camera.animTrack');
 
     const bg = assertObject(obj.background, 'settings.background');
