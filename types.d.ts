@@ -10,6 +10,8 @@ interface Window {
 
     firstFrame?: () => void;
 
+    app?: import('playcanvas').AppBase;
+
     scrubTo?: (time: number) => Promise<void>;
 
     captureFrame?: (options?: { time?: number; width?: number; height?: number; supersample?: number }) => Promise<{ width: number; height: number; data: string }>;

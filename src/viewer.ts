@@ -342,6 +342,9 @@ class Viewer {
 
             window.animationDuration = state.animationDuration;
 
+            // expose the app for console-driven debugging (e.g. scene.gsplat tuning)
+            window.app = app;
+
             // Capture hook for the thumbnail pipeline. Renders the scene (with post
             // effects) into an offscreen supersampled target, GPU box-downsamples it to
             // the requested size and returns just that small buffer. Lazily created on
@@ -462,12 +465,13 @@ class Viewer {
                 };
 
                 gsplat.splatBudget = budget() * 1000000;
+                gsplat.colorUpdateAngle = state.performanceMode ? 2 : 0;
                 gsplatComponent.lodRangeMin = 0;
                 gsplatComponent.lodRangeMax = 1000;
-                gsplat.colorUpdateAngle = state.performanceMode ? 4 : 2;
-                gsplat.minContribution = 1;
-                gsplat.alphaClip = 1 / 255;
-                gsplat.antiAlias = config.aa;
+
+                // request a frame so the param changes are processed (full work-buffer
+                // rebuild) even when on-demand rendering is active and the camera is idle
+                app.renderNextFrame = true;
             };
 
             if (config.fullload) {
@@ -485,9 +489,17 @@ class Viewer {
             // these two allow LOD behind camera to drop, saves lots of splats
             gsplat.lodUpdateAngle = 90;
             gsplat.lodBehindPenalty = 5;
+            gsplat.minContribution = 1;
+            gsplat.alphaClip = 1 / 255;
+            gsplat.antiAlias = config.aa;
 
             // same performance, but rotating on slow devices does not give us unsorted splats on sides
             gsplat.radialSorting = true;
+
+            // apply before streaming starts: this bakes into the work-buffer copies as
+            // persistent per-splat data, so the first loaded splats must already carry
+            // it (later changes only apply on a full rebuild)
+            gsplat.debug = config.colorize ? GSPLAT_DEBUG_LOD : GSPLAT_DEBUG_NONE;
 
             const eventHandler = app.systems.gsplat;
 
@@ -512,8 +524,6 @@ class Viewer {
                     events.on('performanceMode:changed', applyPerfSettings);
                     applyPerfSettings();
 
-                    // debug colorize lods
-                    gsplat.debug = config.colorize ? GSPLAT_DEBUG_LOD : GSPLAT_DEBUG_NONE;
                     gsplat.renderer = rendererTable[renderer];
 
                     // wait for the first valid frame to complete rendering
