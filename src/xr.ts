@@ -1,7 +1,7 @@
 import { Color, DEVICETYPE_WEBGL2, Quat, Vec3, XrManager } from 'playcanvas';
 import type { CameraComponent, Entity } from 'playcanvas';
-import { XrControllers } from 'playcanvas/scripts/esm/xr-controllers.mjs';
-import { XrNavigation } from 'playcanvas/scripts/esm/xr-navigation.mjs';
+import { XrControllers } from 'playcanvas/scripts/esm/xr/xr-controllers.mjs';
+import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 
 import type { Global } from './types';
 
