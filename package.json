@@ -50,7 +50,7 @@
     "eslint": "9.39.5",
     "globals": "17.9.0",
     "playcanvas": "2.21.3",
-    "postcss": "8.5.18",
+    "postcss": "8.5.23",
     "prettier": "3.9.6",
     "publint": "0.3.23",
     "rollup": "4.62.4",
