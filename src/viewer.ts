@@ -465,7 +465,7 @@ class Viewer {
                 };
 
                 gsplat.splatBudget = budget() * 1000000;
-                gsplat.colorUpdateAngle = state.performanceMode ? 2 : 0;
+                gsplat.colorUpdateAngle = state.performanceMode ? 1 : 0.2;
                 gsplatComponent.lodRangeMin = 0;
                 gsplatComponent.lodRangeMax = 1000;
 
