@@ -1,0 +1,136 @@
+import css from '../../public/index.css';
+import html from '../../public/index.html';
+import js from '../../public/index.js';
+
+// Defaults the embedder supplies to the viewer. URL params on the served page take
+// precedence over every field here, matching the standalone document's behaviour.
+type ViewerBootstrap = {
+    // Experience settings as an object. When omitted the viewer fetches `settingsUrl`.
+    settings?: unknown;
+    settingsUrl?: string;
+    // Splat url. May be a `data:` uri for a self-contained document.
+    contentUrl?: string;
+    posterUrl?: string;
+    skyboxUrl?: string;
+    collisionUrl?: string;
+};
+
+type RenderViewerHtmlOptions = {
+    bootstrap?: ViewerBootstrap;
+    // Value for the document's `<base href>`, for a viewer served from a sub-path.
+    baseHref?: string;
+    // Page background, applied before the first frame renders to avoid a flash.
+    backgroundColor?: [number, number, number];
+    // Raw markup injected before `</head>` — analytics, error reporting.
+    headExtras?: string;
+    // Inline the stylesheet into a `<style>` block instead of linking `./index.css`.
+    inlineCss?: boolean;
+    // Inline the module bundle instead of importing `./index.js`. Independent of `inlineCss`:
+    // a server that serves the bundle from its own route wants the css inlined to avoid a
+    // round trip before first paint, but not a megabyte of js in every page.
+    inlineJs?: boolean;
+};
+
+type Replacer = (match: string, ...groups: string[]) => string;
+
+// The seams below are matched against this package's own `index.html`, so a miss means the
+// document and this function have drifted apart within one release — a build-time invariant,
+// not a bad caller. Throw rather than return a half-rendered document.
+//
+// Every replacement is a function, so `$&`-style sequences in settings json, urls or the
+// bundle are inserted literally instead of being interpreted as replacement patterns.
+// Annotation text is user-authored, so this matters.
+const replaceOnce = (source: string, pattern: RegExp, replacement: Replacer) => {
+    if (!pattern.test(source)) {
+        throw new Error(`renderViewerHtml: no match for ${String(pattern)} in the viewer html`);
+    }
+    return source.replace(pattern, replacement);
+};
+
+// Serialize for embedding in a `<script type="application/json">` block. The html parser
+// reads that block as raw text up to the first `</script`, so `</` must not appear; `\/` is
+// a valid json escape for `/`. U+2028/U+2029 are escaped because they are legal in json
+// strings but terminate a line in some js parsers.
+const jsonForScriptBlock = (value: unknown) => {
+    return JSON.stringify(value)
+        .replace(/<\//g, '<\\/')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
+};
+
+const indent = (text: string, spaces: number) => {
+    const whitespace = ' '.repeat(spaces);
+    return text
+        .split('\n')
+        .map((line) => whitespace + line)
+        .join('\n');
+};
+
+const BOOTSTRAP = /<script type="application\/json" id="sse-bootstrap">[\s\S]*?<\/script>/;
+const BASE_HREF = /<base\b[^>]*>/;
+const STYLESHEET = /<link\b[^>]*href="\.\/index\.css"[^>]*>/;
+const MODULE_IMPORT = /import \{ main \} from '\.\/index\.js';/;
+const HEAD_CLOSE = /^([ \t]*)<\/head>/m;
+
+/**
+ * Render a standalone viewer document.
+ *
+ * This is the supported way to embed the viewer in a page you generate. Called with no
+ * options it returns the document this package ships, unmodified.
+ *
+ * @param options - Embedding options; see {@link RenderViewerHtmlOptions}.
+ * @returns The rendered html document.
+ */
+const renderViewerHtml = (options: RenderViewerHtmlOptions = {}) => {
+    const { bootstrap, baseHref, backgroundColor, headExtras, inlineCss, inlineJs } = options;
+
+    let result = html;
+
+    if (bootstrap) {
+        const json = jsonForScriptBlock(bootstrap);
+        result = replaceOnce(
+            result,
+            BOOTSTRAP,
+            () => `<script type="application/json" id="sse-bootstrap">${json}</script>`
+        );
+    }
+
+    if (baseHref !== undefined) {
+        result = replaceOnce(result, BASE_HREF, () => `<base href="${baseHref}">`);
+    }
+
+    const rgb = backgroundColor?.map((c) => Math.round(c * 255)).join(', ');
+    const headAppend = [headExtras, rgb && `<style>\n    body { background-color: rgb(${rgb}); }\n</style>`].filter(
+        Boolean
+    ) as string[];
+
+    // Emitted at the end of head, so the background rule wins over the stylesheet on equal
+    // specificity. Done before inlining so every seam is matched against this package's own
+    // document rather than against a megabyte of bundled js that might contain the same text.
+    if (headAppend.length > 0) {
+        result = replaceOnce(
+            result,
+            HEAD_CLOSE,
+            (_match, ws) => `${indent(headAppend.join('\n'), ws.length + 4)}\n${ws}</head>`
+        );
+    }
+
+    if (inlineCss) {
+        result = replaceOnce(result, STYLESHEET, () => `<style>\n${indent(css, 12)}\n        </style>`);
+    }
+
+    if (inlineJs) {
+        // An inline module script ends at the first `</script`, so a bundle containing that
+        // sequence cannot be inlined. It does not today; fail loudly if that ever changes,
+        // because the symptom is an exported file that renders nothing.
+        if (js.includes('</script')) {
+            throw new Error('renderViewerHtml: the viewer bundle contains "</script" and cannot be inlined');
+        }
+        result = replaceOnce(result, MODULE_IMPORT, () => js);
+    }
+
+    return result;
+};
+
+export type { RenderViewerHtmlOptions, ViewerBootstrap };
+export { renderViewerHtml };

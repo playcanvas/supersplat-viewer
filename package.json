@@ -13,6 +13,7 @@
   ],
   "license": "MIT",
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -35,7 +36,10 @@
   },
   "files": [
     "dist",
-    "public",
+    "public/index.html",
+    "public/index.css",
+    "public/index.js",
+    "public/index.js.map",
     "LICENSE",
     "package.json",
     "README.md"
@@ -59,7 +63,8 @@
     "rollup-plugin-string": "3.0.0",
     "sass": "1.102.0",
     "serve": "14.2.6",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
   },
   "scripts": {
     "build": "rollup -c",
@@ -70,7 +75,7 @@
     "lint:fix": "eslint src rollup.config.mjs eslint.config.mjs prettier.config.mjs --fix",
     "publint": "publint",
     "serve": "serve public -C -c ../serve.json",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
     "type:check": "tsc --noEmit",
     "watch": "rollup -c -w"
   },

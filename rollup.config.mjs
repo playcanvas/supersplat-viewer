@@ -37,7 +37,11 @@ const buildCss = {
         scss({
             exclude: ['static/**/*'],
             fileName: 'index.css',
-            sourceMap: true,
+            // The `processor` below returns only `result.css`, so postcss's map is dropped and
+            // no index.css.map is ever emitted. Asking for one just appends a sourceMappingURL
+            // comment pointing at a file that does not exist, which 404s wherever the css is
+            // served or inlined.
+            sourceMap: false,
             runtime: sass,
             processor: (css) => {
                 return postcss([autoprefixer])
