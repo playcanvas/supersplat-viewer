@@ -385,6 +385,27 @@ class Viewer {
             };
         });
 
+        const { gsplat } = app.scene;
+
+        // Scene-level gsplat params. Set before any load resolves: streaming starts on the first
+        // frame after the gsplat component is created, and lodUpdateAngle / lodBehindPenalty shape
+        // which nodes that first pass pulls in.
+
+        // these two allow LOD behind camera to drop, saves lots of splats
+        gsplat.lodUpdateAngle = 90;
+        gsplat.lodBehindPenalty = 5;
+        gsplat.minContribution = 1;
+        gsplat.alphaClip = 1 / 255;
+        gsplat.antiAlias = config.aa;
+
+        // same performance, but rotating on slow devices does not give us unsorted splats on sides
+        gsplat.radialSorting = true;
+
+        // apply before streaming starts: this bakes into the work-buffer copies as
+        // persistent per-splat data, so the first loaded splats must already carry
+        // it (later changes only apply on a full rebuild)
+        gsplat.debug = config.colorize ? GSPLAT_DEBUG_LOD : GSPLAT_DEBUG_NONE;
+
         // Clamp to the coarsest LOD for the fastest possible reveal. This chains off gsplatLoad
         // alone (not the Promise.all below): the octree starts streaming on the first frame after
         // the component is created, and already-requested files are never cancelled — so waiting
@@ -458,8 +479,6 @@ class Viewer {
 
             this.debugPanel = new DebugPanel(global, this.cameraManager);
 
-            const { gsplat } = app.scene;
-
             // quality budget
             const budgets = {
                 mobile: {
@@ -495,21 +514,6 @@ class Viewer {
                 // reveal once full quality has finished loading (used for screenshots)
                 applyPerfSettings();
             }
-
-            // these two allow LOD behind camera to drop, saves lots of splats
-            gsplat.lodUpdateAngle = 90;
-            gsplat.lodBehindPenalty = 5;
-            gsplat.minContribution = 1;
-            gsplat.alphaClip = 1 / 255;
-            gsplat.antiAlias = config.aa;
-
-            // same performance, but rotating on slow devices does not give us unsorted splats on sides
-            gsplat.radialSorting = true;
-
-            // apply before streaming starts: this bakes into the work-buffer copies as
-            // persistent per-splat data, so the first loaded splats must already carry
-            // it (later changes only apply on a full rebuild)
-            gsplat.debug = config.colorize ? GSPLAT_DEBUG_LOD : GSPLAT_DEBUG_NONE;
 
             const eventHandler = app.systems.gsplat;
 
