@@ -385,6 +385,23 @@ class Viewer {
             };
         });
 
+        // Clamp to the coarsest LOD for the fastest possible reveal. This chains off gsplatLoad
+        // alone (not the Promise.all below): the octree starts streaming on the first frame after
+        // the component is created, and already-requested files are never cancelled — so waiting
+        // on skybox/collision here would let a full-detail burst queue up and block the reveal
+        // until it has all downloaded. The handler runs as a microtask of the asset's load event,
+        // so no frame renders unclamped.
+        if (!config.fullload) {
+            gsplatLoad.then((entity) => {
+                const gsplatComponent = entity.gsplat as GSplatComponent;
+                const resource = gsplatComponent.resource as GSplatOctreeResourceLike | null;
+                const lodLevels = resource?.octree?.lodLevels;
+                if (lodLevels) {
+                    gsplatComponent.lodRangeMax = gsplatComponent.lodRangeMin = lodLevels - 1;
+                }
+            });
+        }
+
         // wait for the model to load
         Promise.all([gsplatLoad, skyboxLoad, collisionLoad]).then((results) => {
             const gsplatComponent = results[0].gsplat as GSplatComponent;
@@ -477,13 +494,6 @@ class Viewer {
             if (config.fullload) {
                 // reveal once full quality has finished loading (used for screenshots)
                 applyPerfSettings();
-            } else {
-                // reveal once low lod has loaded for fastest possible reveal
-                const resource = results[0].gsplat.resource as GSplatOctreeResourceLike | null;
-                const lodLevels = resource?.octree?.lodLevels;
-                if (lodLevels) {
-                    gsplatComponent.lodRangeMax = gsplatComponent.lodRangeMin = lodLevels - 1;
-                }
             }
 
             // these two allow LOD behind camera to drop, saves lots of splats
