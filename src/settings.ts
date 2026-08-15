@@ -2,9 +2,14 @@ import type { ExperienceSettings as V1, AnimTrack as AnimTrackV1 } from './schem
 import { validateV1 } from './schemas/v1';
 import type { ExperienceSettings as V2, AnimTrack as AnimTrackV2 } from './schemas/v2';
 import { validateV2 } from './schemas/v2';
+import { validateLimitsV2 } from './schemas/validate-limits';
 import { assertObject } from './schemas/validate-utils';
 
-const migrateV1 = (settings: V1): V1 => {
+const migrateV1 = (input: V1): V1 => {
+    // Copy first: callers own the object they pass in, and an API consumer holding a
+    // reference should not see it rewritten underneath them.
+    const settings: V1 = structuredClone(input);
+
     if (settings.animTracks) {
         settings.animTracks?.forEach((track: AnimTrackV1) => {
             // some early settings did not have frameRate set on anim tracks
@@ -126,15 +131,29 @@ const importSettings = (settings: unknown): V2 => {
     return result;
 };
 
+type ValidateOptions = {
+    // Also check the authoring bounds in `ranges.ts`. Off by default: those bounds are
+    // stricter than what the viewer can render, and some historical published settings fail
+    // them. Producers writing new settings should turn this on.
+    limits?: boolean;
+};
+
 // validate unknown data against any supported settings schema version, throwing on invalid input
-const validateSettings = (settings: unknown): void => {
+const validateSettings = (settings: unknown, options: ValidateOptions = {}): void => {
     const obj = assertObject(settings, 'settings');
     const version = obj.version;
 
     if (version === undefined) {
         validateV1(settings);
+        if (options.limits) {
+            // v1 has no direct limit checks; validate what it migrates to
+            validateLimitsV2(migrateV2(migrateV1(settings as V1)));
+        }
     } else if (version === 2) {
         validateV2(settings);
+        if (options.limits) {
+            validateLimitsV2(settings as V2);
+        }
     } else if (typeof version !== 'number') {
         throw new Error(`settings.version must be a number, got ${typeof version}`);
     } else {
@@ -142,6 +161,25 @@ const validateSettings = (settings: unknown): void => {
     }
 };
 
-export type { AnimTrack, Camera, Annotation, PostEffectSettings, ExperienceSettings } from './schemas/v2';
+export type { AnimTrack, Camera, Annotation, CameraPose, PostEffectSettings, ExperienceSettings } from './schemas/v2';
+export type { NumericRange, PostEffectRanges } from './schemas/ranges';
+export type { CameraFit } from './schemas/defaults';
+export type { ValidateOptions };
+
+export {
+    ANIM_TRACK_LIMITS,
+    ANNOTATION_LIMITS,
+    CAMERA_FOV_RANGE,
+    POST_EFFECT_RANGES,
+    isCameraFovInRange
+} from './schemas/ranges';
+export {
+    DEFAULT_BACKGROUND_COLOR,
+    DEFAULT_CAMERA_FOV,
+    DEFAULT_TONEMAPPING,
+    defaultCameraPose,
+    defaultPostEffectSettings,
+    defaultSettings
+} from './schemas/defaults';
 
 export { importSettings, validateSettings };

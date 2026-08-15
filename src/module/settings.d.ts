@@ -79,5 +79,58 @@ export type ExperienceSettings = {
     startMode: 'default' | 'animTrack' | 'annotation';
 };
 
+export type CameraFit = 'environment' | 'object';
+
+export type NumericRange = {
+    min: number;
+    max: number;
+    step: number;
+};
+
+export type PostEffectRanges = {
+    sharpness: NumericRange;
+    bloom: { intensity: NumericRange; blurLevel: NumericRange };
+    grading: { brightness: NumericRange; contrast: NumericRange; saturation: NumericRange };
+    vignette: { intensity: NumericRange; inner: NumericRange; outer: NumericRange; curvature: NumericRange };
+    fringing: { intensity: NumericRange };
+};
+
+export type ValidateOptions = {
+    /**
+     * Also check the authoring bounds in the exported ranges. Off by default: those bounds
+     * are stricter than what the viewer can render, and some historical published settings
+     * fail them. Producers writing new settings should turn this on.
+     */
+    limits?: boolean;
+};
+
+/** Authoring bounds, shared with the experience editor's slider components. */
+export const CAMERA_FOV_RANGE: NumericRange;
+export const POST_EFFECT_RANGES: PostEffectRanges;
+export const ANIM_TRACK_LIMITS: {
+    readonly duration: { readonly min: number; readonly max: number };
+    readonly frameRate: { readonly min: number; readonly max: number };
+    readonly smoothness: { readonly min: number; readonly max: number };
+    readonly maxKeyframes: number;
+    readonly nameMax: number;
+    readonly maxTracks: number;
+};
+export const ANNOTATION_LIMITS: {
+    readonly maxCount: number;
+    readonly titleMax: number;
+    readonly textMax: number;
+};
+export function isCameraFovInRange(fov: number): boolean;
+
+export const DEFAULT_BACKGROUND_COLOR: [number, number, number];
+export const DEFAULT_TONEMAPPING: ExperienceSettings['tonemapping'];
+export const DEFAULT_CAMERA_FOV: number;
+
+/** The single source of default experience settings for every producer. */
+export function defaultSettings(fit?: CameraFit): ExperienceSettings;
+export function defaultPostEffectSettings(): PostEffectSettings;
+export function defaultCameraPose(fit?: CameraFit): CameraPose;
+
+/** Migrate any supported version to the latest. Does not mutate its argument. */
 export function importSettings(settings: unknown): ExperienceSettings;
-export function validateSettings(settings: unknown): void;
+export function validateSettings(settings: unknown, options?: ValidateOptions): void;

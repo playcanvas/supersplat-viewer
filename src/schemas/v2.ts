@@ -199,4 +199,4 @@ const validateV2 = (data: unknown): ExperienceSettings => {
 };
 
 export { validateV2 };
-export type { AnimTrack, Camera, Annotation, PostEffectSettings, ExperienceSettings };
+export type { AnimTrack, Camera, CameraPose, Annotation, PostEffectSettings, ExperienceSettings };
