@@ -81,6 +81,11 @@ const validateLimitsV2 = (settings: ExperienceSettings) => {
         }
         range(track.smoothness, ANIM_TRACK_LIMITS.smoothness, `${path}.smoothness`);
         maxCount(track.keyframes.times, ANIM_TRACK_LIMITS.maxKeyframes, `${path}.keyframes.times`);
+        // Deliberately no CAMERA_FOV_RANGE check on keyframes.values.fov, even though those
+        // values are splined straight onto the camera. The upstream zod schema this replaces
+        // types them as a bare number array, so adding a bound here would make this validator
+        // stricter than the one it consolidates and could reject already-published animations.
+        // Tighten in both places together, or not at all.
         track.keyframes.times.forEach((time, k) => {
             if (time < 0) {
                 throw new Error(`${path}.keyframes.times[${k}] must be non-negative, got ${time}`);

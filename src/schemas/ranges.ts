@@ -7,9 +7,20 @@
 // `step` is UI granularity, not a constraint.
 
 type NumericRange = {
-    min: number;
-    max: number;
-    step: number;
+    readonly min: number;
+    readonly max: number;
+    readonly step: number;
+};
+
+// These are published constants that the validators themselves read, so a consumer mutating
+// one would silently change validation for everyone in the realm. Freeze rather than rely on
+// `as const`, which is erased at runtime.
+const deepFreeze = <T>(value: T): T => {
+    if (value !== null && typeof value === 'object') {
+        Object.values(value).forEach(deepFreeze);
+        Object.freeze(value);
+    }
+    return value;
 };
 
 // Sources (PlayCanvas engine v2.15.1):
@@ -38,13 +49,13 @@ type PostEffectRanges = {
     };
 };
 
-const CAMERA_FOV_RANGE: NumericRange = {
+const CAMERA_FOV_RANGE: NumericRange = deepFreeze({
     min: 10,
     max: 120,
     step: 1
-};
+});
 
-const POST_EFFECT_RANGES: PostEffectRanges = {
+const POST_EFFECT_RANGES: PostEffectRanges = deepFreeze({
     sharpness: { min: 0, max: 1, step: 0.01 },
     bloom: {
         intensity: { min: 0, max: 0.1, step: 0.01 },
@@ -64,24 +75,24 @@ const POST_EFFECT_RANGES: PostEffectRanges = {
     fringing: {
         intensity: { min: 0, max: 100, step: 1 }
     }
-};
+});
 
 // Intentionally tight; can be relaxed later.
-const ANIM_TRACK_LIMITS = {
+const ANIM_TRACK_LIMITS = deepFreeze({
     duration: { min: 0.1, max: 600 },
     frameRate: { min: 1, max: 120 },
     smoothness: { min: 0, max: 1 },
     maxKeyframes: 1000,
     nameMax: 120,
     maxTracks: 10
-} as const;
+} as const);
 
 // Intentionally tight; can be relaxed later.
-const ANNOTATION_LIMITS = {
+const ANNOTATION_LIMITS = deepFreeze({
     maxCount: 25,
     titleMax: 60,
     textMax: 280
-} as const;
+} as const);
 
 const isCameraFovInRange = (fov: number) => {
     return fov >= CAMERA_FOV_RANGE.min && fov <= CAMERA_FOV_RANGE.max;

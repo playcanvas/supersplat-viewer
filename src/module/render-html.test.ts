@@ -135,6 +135,14 @@ describe('renderViewerHtml', () => {
             expect(readBootstrap(result).contentUrl).toBe("https://cdn.example.com/a$&b$'c.sog");
         });
 
+        it('escapes baseHref so it cannot break out of its attribute', () => {
+            const result = renderViewerHtml({ baseHref: '/"><script>alert(1)</script><base x="' });
+
+            expect(result).not.toContain('<script>alert(1)</script>');
+            expect(result.match(/<script/g).length).toBe(html.match(/<script/g).length);
+            expect(result.match(/<base\b/g)).toHaveLength(1);
+        });
+
         it('does not let headExtras be mangled by replacement patterns', () => {
             const result = renderViewerHtml({ headExtras: '<script>const a = "$&$\'";</script>' });
 

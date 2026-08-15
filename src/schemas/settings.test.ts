@@ -54,6 +54,29 @@ describe('defaults', () => {
         expect(defaultPostEffectSettings().bloom.intensity).toBe(0.1);
     });
 
+    it('freezes the published constants, so a consumer cannot change validation globally', () => {
+        // the validators read these at call time; a successful mutation would alter results
+        // for every other caller in the realm
+        expect(Object.isFrozen(POST_EFFECT_RANGES)).toBe(true);
+        expect(Object.isFrozen(POST_EFFECT_RANGES.bloom.intensity)).toBe(true);
+        expect(Object.isFrozen(CAMERA_FOV_RANGE)).toBe(true);
+        expect(Object.isFrozen(ANIM_TRACK_LIMITS.duration)).toBe(true);
+        expect(Object.isFrozen(ANNOTATION_LIMITS)).toBe(true);
+
+        const settings = clone(defaultSettings());
+        settings.postEffectSettings.bloom.intensity = 1;
+        expect(() => validateSettings(settings, { limits: true })).toThrow();
+
+        // still rejected after an attempted widening of the bound
+        try {
+            (POST_EFFECT_RANGES.bloom.intensity as { max: number }).max = 99;
+        } catch {
+            // strict mode throws on frozen writes; either outcome is fine
+        }
+        expect(POST_EFFECT_RANGES.bloom.intensity.max).toBe(0.1);
+        expect(() => validateSettings(settings, { limits: true })).toThrow();
+    });
+
     it('frames from inside for environment and outside for object', () => {
         expect(defaultSettings('environment').cameras[0].initial.position).toEqual([0, 2, 0]);
         expect(defaultSettings('object').cameras[0].initial.target).toEqual([0, 0, 0]);

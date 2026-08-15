@@ -58,6 +58,13 @@ const jsonForScriptBlock = (value: unknown) => {
         .replace(/\u2029/g, '\\u2029');
 };
 
+// Escape for use inside a double-quoted html attribute. `headExtras` is documented as raw
+// markup and is deliberately not escaped, but scalar options like `baseHref` are not an
+// injection channel and a caller passing one through from user input should be safe.
+const escapeAttribute = (value: string) => {
+    return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+};
+
 const indent = (text: string, spaces: number) => {
     const whitespace = ' '.repeat(spaces);
     return text
@@ -96,7 +103,7 @@ const renderViewerHtml = (options: RenderViewerHtmlOptions = {}) => {
     }
 
     if (baseHref !== undefined) {
-        result = replaceOnce(result, BASE_HREF, () => `<base href="${baseHref}">`);
+        result = replaceOnce(result, BASE_HREF, () => `<base href="${escapeAttribute(baseHref)}">`);
     }
 
     const rgb = backgroundColor?.map((c) => Math.round(c * 255)).join(', ');
