@@ -38,7 +38,7 @@ describe('defaults', () => {
         expect(() => validateSettings(defaultSettings('object'), { limits: true })).not.toThrow();
     });
 
-    it('resolves the four-way disagreement on the monorepo values', () => {
+    it('uses the values matching settings already published in the wild', () => {
         const settings = defaultSettings();
         expect(settings.tonemapping).toBe('linear');
         expect(settings.background.color).toEqual([0, 0, 0]);
@@ -93,7 +93,7 @@ describe('validateSettings', () => {
 
     it('does not enforce authoring limits by default', () => {
         const settings = clone(defaultSettings());
-        // the value three of the four legacy defaults objects wrote, outside the range
+        // a value older defaults wrote, outside the authoring range
         settings.postEffectSettings.bloom.intensity = 1;
 
         expect(() => validateSettings(settings)).not.toThrow();

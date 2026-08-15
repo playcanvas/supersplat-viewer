@@ -12,9 +12,9 @@
 
         <!--
             Single injection seam. `renderViewerHtml` replaces the contents of this block to
-            supply asset urls and inline settings; everything that embeds the viewer (the
-            superspl.at server, splat-transform's html/zip export) goes through that function
-            rather than pattern-matching this document. Left as `null` for the standalone case.
+            supply asset urls and inline settings, so anything generating a page around the
+            viewer goes through that function rather than pattern-matching this document.
+            Left as `null` for the standalone case.
         -->
         <script type="application/json" id="sse-bootstrap">
             null

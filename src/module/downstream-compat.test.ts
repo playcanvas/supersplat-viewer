@@ -2,14 +2,18 @@ import { describe, expect, it } from 'vitest';
 
 import { css, html } from './index';
 
-// Temporary guard. `super-splat-server` currently pattern-matches the shipped index.html
-// instead of calling `renderViewerHtml`, so a formatting change here takes the production
-// /s route down — and its tests only catch that in the monorepo, after the version bump.
-// Until that controller is migrated, assert its patterns here so the break surfaces in this
-// repo's CI instead. Delete this file with the server migration.
+// Temporary compatibility guard.
 //
-// Source: monorepo/services/super-splat-server/server/controllers/experience.tsx
-describe('super-splat-server html patching (remove once the server calls renderViewerHtml)', () => {
+// Before `renderViewerHtml` existed, the only way to embed the viewer in a generated page was
+// to rewrite the shipped index.html by pattern matching. Known consumers still do that, and
+// because the document's formatting is not part of this package's api, a reformat here breaks
+// them — with the failure surfacing in *their* repository, one version bump later, rather than
+// in this one.
+//
+// So until those consumers call `renderViewerHtml`, assert the patterns they match, to keep
+// the breakage visible in this repo's ci. Delete this file once they have migrated; nothing
+// here is a contract worth preserving on its own.
+describe('legacy html rewriting patterns (remove once consumers use renderViewerHtml)', () => {
     const patterns: [string, RegExp][] = [
         ['base href', /<base\b[^>]*>/],
         ['stylesheet link', /<link\b[^>]*href="\.\/index\.css"[^>]*>/],
@@ -24,17 +28,17 @@ describe('super-splat-server html patching (remove once the server calls renderV
         expect(pattern.test(html)).toBe(true);
     });
 
-    it('still exposes the seams the server appends to', () => {
-        // sentry + telemetry scripts are injected before this
+    it('still exposes the seams consumers append to', () => {
+        // extra head markup is injected before this
         expect(html).toContain('</head>');
-        // and the background colour is spliced into the stylesheet's first `body {` rule.
-        // This one is unguarded on the server side, so it would silently no-op.
+        // and a background colour is spliced into the stylesheet's first `body {` rule to
+        // avoid a flash before the first frame
         expect(css).toContain('body {');
     });
 
-    it('keeps the params-override-embedder precedence the server relies on', () => {
-        // the server rewrites these two to `searchParams.get(...) ?? <default>`, so the
-        // declarations must remain single assignments it can replace wholesale
+    it('keeps the asset urls as single replaceable declarations', () => {
+        // consumers rewrite these to `searchParams.get(...) ?? <their default>`, so each must
+        // remain one assignment that can be replaced wholesale
         expect(html).toMatch(/const skyboxUrl =[^;]*bootstrap\.skyboxUrl[^;]*;/);
         expect(html).toMatch(/const collisionUrl =[\s\S]*?bootstrap\.collisionUrl[\s\S]*?;/);
     });

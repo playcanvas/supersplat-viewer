@@ -60,10 +60,10 @@ describe('renderViewerHtml', () => {
         expect(result.match(/^ {4}<\/head>$/gm)).toHaveLength(1);
     });
 
-    // The three consumers need three different combinations: the superspl.at server inlines
-    // the css but serves the bundle from its own /s/index.js route, splat-transform's
-    // single-file export inlines both, and its zip export inlines neither.
-    it('inlines css only, for a host that serves the bundle itself', () => {
+    // The two flags are independent because real hosts need all the combinations: one serving
+    // the bundle from its own route wants the css inlined but not the js, a single-file export
+    // wants both, and a directory export beside sibling files wants neither.
+    it('inlines css only, for a host serving the bundle itself', () => {
         const result = renderViewerHtml({ inlineCss: true });
 
         expect(result).not.toContain('<link rel="stylesheet"');

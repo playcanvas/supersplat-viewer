@@ -1,14 +1,11 @@
 import type { CameraPose, ExperienceSettings, PostEffectSettings } from './v2';
 
-// The single source of default experience settings, replacing four objects that disagreed:
-// this package's v1 migration, the monorepo's sse/schemas/defaults.ts, the editor's
-// defaultPostEffectSettings and splat-transform's defaultSettings literal.
-//
-// Values follow the monorepo's, because those are what published experiences already carry.
-// Two consequences for the other producers: `tonemapping` becomes 'linear' rather than 'none',
-// `background.color` becomes black rather than 0.4 grey, `bloom.intensity` becomes 0.1 rather
-// than 1 (1 is outside the authoring range in ranges.ts) and `grading.brightness` becomes 1
-// rather than 0.
+// The single source of default experience settings, so every tool that writes a settings file
+// agrees. Several independent copies of these values had drifted apart; these are the ones
+// matching the settings already published in the wild, which means some producers change:
+// `tonemapping` is 'linear' rather than 'none', `background.color` is black rather than 0.4
+// grey, `bloom.intensity` is 0.1 rather than 1 (1 falls outside the authoring range in
+// ranges.ts) and `grading.brightness` is 1 rather than 0.
 
 // Frozen: `defaultSettings()` copies this, so a consumer mutating it would otherwise change
 // every later call's result.

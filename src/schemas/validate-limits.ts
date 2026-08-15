@@ -5,11 +5,10 @@ import type { ExperienceSettings } from './v2';
 // Authoring-limit checks, deliberately separate from the shape validation in v2.ts.
 //
 // Shape validation answers "can the viewer read this" and must keep accepting every settings
-// file ever published. These limits answer "is this sane input from an editor" and are
-// stricter — strictly enough that some historical data fails them. `bloom.intensity` is the
-// known case: the range caps it at 0.1, while the editor's own default, splat-transform's
-// default and the viewer's v1 migration all wrote 1. So this runs only on request, via
-// `validateSettings(x, { limits: true })`, and never on the viewer's read path.
+// file ever written. These limits answer "is this sane input from an editor" and are stricter
+// — strictly enough that some existing data fails them. `bloom.intensity` is the known case:
+// the range caps it at 0.1, while several older default objects wrote 1. So this runs only on
+// request, via `validateSettings(x, { limits: true })`, and never on the viewer's read path.
 
 type Bounds = Pick<NumericRange, 'min' | 'max'>;
 
@@ -82,10 +81,9 @@ const validateLimitsV2 = (settings: ExperienceSettings) => {
         range(track.smoothness, ANIM_TRACK_LIMITS.smoothness, `${path}.smoothness`);
         maxCount(track.keyframes.times, ANIM_TRACK_LIMITS.maxKeyframes, `${path}.keyframes.times`);
         // Deliberately no CAMERA_FOV_RANGE check on keyframes.values.fov, even though those
-        // values are splined straight onto the camera. The upstream zod schema this replaces
-        // types them as a bare number array, so adding a bound here would make this validator
-        // stricter than the one it consolidates and could reject already-published animations.
-        // Tighten in both places together, or not at all.
+        // values are splined straight onto the camera: the validators this consolidates treat
+        // them as a bare number array, so bounding them here would reject animations that
+        // already validate elsewhere. Tighten everywhere at once, or not at all.
         track.keyframes.times.forEach((time, k) => {
             if (time < 0) {
                 throw new Error(`${path}.keyframes.times[${k}] must be non-negative, got ${time}`);

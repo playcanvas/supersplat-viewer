@@ -1,9 +1,9 @@
-// Authoring bounds for experience settings, shared by the viewer, the web experience editor's
-// slider components and the settings validators. Pure data with no imports, so any consumer
-// can take these without pulling in the schema.
+// Authoring bounds for experience settings, shared by the settings validators and by editor
+// UIs that need slider ranges. Pure data with no imports, so a consumer can take these
+// without pulling in the schema.
 //
 // These are *authoring* limits, not read limits: the viewer renders values outside them
-// perfectly well, and historical published settings contain some (see validate-limits.ts).
+// perfectly well, and settings in the wild contain some (see validate-limits.ts).
 // `step` is UI granularity, not a constraint.
 
 type NumericRange = {
