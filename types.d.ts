@@ -1,11 +1,11 @@
 /* eslint-disable no-unused-vars */
 interface Window {
+    // Handoff from the document's inline bootstrap to the module. `settings` is a plain
+    // object when the embedder inlined one into the #sse-bootstrap block, and a promise of
+    // the fetched json otherwise.
     sse: {
-        poster?: HTMLImageElement,
-        settings: Promise<object>,
-        contentUrl: string,
-        contents: ArrayBuffer,
-        params: Record<string, string>
+        config: import('./src/types').Config,
+        settings: object | Promise<object>
     }
 
     firstFrame?: () => void;

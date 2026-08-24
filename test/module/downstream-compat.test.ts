@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { css, html } from './index';
+import { css, html } from '../../src/module/index';
 
 // Temporary compatibility guard.
 //

@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { renderViewerHtml } from './render-html';
-
-import { html, css, js } from './index';
+import { html, css, js } from '../../src/module/index';
+import { renderViewerHtml } from '../../src/module/render-html';
 
 // Extract the bootstrap block's json payload the way the browser does.
 const readBootstrap = (document: string) => {

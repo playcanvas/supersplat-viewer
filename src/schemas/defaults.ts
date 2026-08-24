@@ -9,11 +9,20 @@ import type { CameraPose, ExperienceSettings, PostEffectSettings } from './v2';
 
 // Frozen: `defaultSettings()` copies this, so a consumer mutating it would otherwise change
 // every later call's result.
+/** Default page and scene background, as normalized 0..1 rgb components. */
 const DEFAULT_BACKGROUND_COLOR: readonly [number, number, number] = Object.freeze([0, 0, 0]);
+/** Default tonemapping curve. */
 const DEFAULT_TONEMAPPING: ExperienceSettings['tonemapping'] = 'linear';
-const DEFAULT_CAMERA_FOV = 75;
+/** Default vertical field of view, in degrees. */
+// Annotated so the published declaration widens to `number`; without it the emitted type is
+// the literal `75`, which bakes the value into the api.
+// eslint-disable-next-line @typescript-eslint/no-inferrable-types
+const DEFAULT_CAMERA_FOV: number = 75;
 
-// 'environment' frames a captured space from inside it; 'object' frames a subject from outside.
+/**
+ * How the default camera is placed: `environment` frames a captured space from inside it,
+ * `object` frames a subject from outside.
+ */
 type CameraFit = 'environment' | 'object';
 
 const defaultCameraPose = (fit: CameraFit = 'environment'): CameraPose => {
@@ -22,6 +31,11 @@ const defaultCameraPose = (fit: CameraFit = 'environment'): CameraPose => {
         : { position: [2, 2, -2], target: [0, 0, 0], fov: DEFAULT_CAMERA_FOV };
 };
 
+/**
+ * Default post-processing settings, with every effect disabled.
+ *
+ * @returns A fresh object; callers may mutate it freely.
+ */
 const defaultPostEffectSettings = (): PostEffectSettings => ({
     sharpness: {
         enabled: false,
@@ -52,6 +66,12 @@ const defaultPostEffectSettings = (): PostEffectSettings => ({
     }
 });
 
+/**
+ * Default experience settings, shared by every tool that writes a settings file.
+ *
+ * @param fit - How to place the default camera. Defaults to `environment`.
+ * @returns A fresh object; callers may mutate it freely.
+ */
 const defaultSettings = (fit: CameraFit = 'environment'): ExperienceSettings => ({
     version: 2,
     tonemapping: DEFAULT_TONEMAPPING,
@@ -71,7 +91,6 @@ export {
     DEFAULT_BACKGROUND_COLOR,
     DEFAULT_TONEMAPPING,
     DEFAULT_CAMERA_FOV,
-    defaultCameraPose,
     defaultPostEffectSettings,
     defaultSettings
 };

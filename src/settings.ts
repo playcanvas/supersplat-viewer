@@ -92,7 +92,16 @@ const migrateV2 = (v1: V1): V2 => {
     };
 };
 
-// migrate a JSON object to the latest settings schema (assumes valid input)
+/**
+ * Migrate settings of any supported version to the latest schema.
+ *
+ * Assumes valid input — call {@link validateSettings} first if the source is untrusted. Does
+ * not mutate the object passed in.
+ *
+ * @param settings - Parsed contents of a settings file.
+ * @returns The settings at the latest version.
+ * @throws If the version is not supported.
+ */
 const importSettings = (settings: unknown): V2 => {
     let result: V2;
 
@@ -110,14 +119,23 @@ const importSettings = (settings: unknown): V2 => {
     return result;
 };
 
+/** Options for {@link validateSettings}. */
 type ValidateOptions = {
-    // Also check the authoring bounds in `ranges.ts`. Off by default: those bounds are
-    // stricter than what the viewer can render, and some settings in the wild fail them.
-    // Producers writing new settings should turn this on.
+    /**
+     * Also check the exported authoring bounds. Off by default: those bounds are stricter
+     * than what the viewer will render, and some settings in the wild fail them. Producers
+     * writing new settings should turn this on.
+     */
     limits?: boolean;
 };
 
-// validate unknown data against any supported settings schema version, throwing on invalid input
+/**
+ * Validate unknown data against any supported settings schema version.
+ *
+ * @param settings - Data to validate.
+ * @param options - See {@link ValidateOptions}.
+ * @throws If the data is not valid settings, with a message naming the offending field.
+ */
 const validateSettings = (settings: unknown, options: ValidateOptions = {}): void => {
     const obj = assertObject(settings, 'settings');
     const version = obj.version;
@@ -141,7 +159,7 @@ const validateSettings = (settings: unknown, options: ValidateOptions = {}): voi
 };
 
 export type { AnimTrack, Camera, Annotation, CameraPose, PostEffectSettings, ExperienceSettings } from './schemas/v2';
-export type { NumericRange, PostEffectRanges } from './schemas/ranges';
+export type { AnimTrackLimits, AnnotationLimits, Bounds, NumericRange, PostEffectRanges } from './schemas/ranges';
 export type { CameraFit } from './schemas/defaults';
 export type { ValidateOptions };
 
@@ -156,7 +174,6 @@ export {
     DEFAULT_BACKGROUND_COLOR,
     DEFAULT_CAMERA_FOV,
     DEFAULT_TONEMAPPING,
-    defaultCameraPose,
     defaultPostEffectSettings,
     defaultSettings
 } from './schemas/defaults';

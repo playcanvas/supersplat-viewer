@@ -6,6 +6,7 @@
 // perfectly well, and settings in the wild contain some (see validate-limits.ts).
 // `step` is UI granularity, not a constraint.
 
+/** An inclusive numeric bound. `step` is UI granularity, not a constraint. */
 type NumericRange = {
     readonly min: number;
     readonly max: number;
@@ -23,10 +24,10 @@ const deepFreeze = <T>(value: T): T => {
     return value;
 };
 
-// Sources (PlayCanvas engine v2.15.1):
-// - CameraFrame JSDoc ranges: src/extras/render-passes/camera-frame.js
-// - Bloom blurLevel bounds: src/extras/render-passes/render-pass-bloom.js
-//   (clamps passes to [1, blurLevel], default 16).
+/**
+ * Bounds for each post-processing parameter, taken from the PlayCanvas engine's documented
+ * ranges (`CameraFrame`, and `RenderPassBloom` for `blurLevel`).
+ */
 type PostEffectRanges = {
     sharpness: NumericRange;
     bloom: {
@@ -49,12 +50,14 @@ type PostEffectRanges = {
     };
 };
 
+/** Bounds for a camera's vertical field of view, in degrees. */
 const CAMERA_FOV_RANGE: NumericRange = deepFreeze({
     min: 10,
     max: 120,
     step: 1
 });
 
+/** Bounds for each post-processing parameter. */
 const POST_EFFECT_RANGES: PostEffectRanges = deepFreeze({
     sharpness: { min: 0, max: 1, step: 0.01 },
     bloom: {
@@ -77,26 +80,58 @@ const POST_EFFECT_RANGES: PostEffectRanges = deepFreeze({
     }
 });
 
-// Intentionally tight; can be relaxed later.
-const ANIM_TRACK_LIMITS = deepFreeze({
+/** An inclusive bound with no UI step. */
+type Bounds = {
+    readonly min: number;
+    readonly max: number;
+};
+
+/** Bounds and size limits for camera animation tracks. */
+type AnimTrackLimits = {
+    readonly duration: Bounds;
+    readonly frameRate: Bounds;
+    readonly smoothness: Bounds;
+    readonly maxKeyframes: number;
+    readonly nameMax: number;
+    readonly maxTracks: number;
+};
+
+/** Size limits for annotations. */
+type AnnotationLimits = {
+    readonly maxCount: number;
+    readonly titleMax: number;
+    readonly textMax: number;
+};
+
+// Annotated rather than `as const`: the annotation keeps them readonly while widening the
+// values, so the published types do not bake in numbers we may want to relax later.
+
+/** Bounds and size limits for camera animation tracks. Intentionally tight for now. */
+const ANIM_TRACK_LIMITS: AnimTrackLimits = deepFreeze({
     duration: { min: 0.1, max: 600 },
     frameRate: { min: 1, max: 120 },
     smoothness: { min: 0, max: 1 },
     maxKeyframes: 1000,
     nameMax: 120,
     maxTracks: 10
-} as const);
+});
 
-// Intentionally tight; can be relaxed later.
-const ANNOTATION_LIMITS = deepFreeze({
+/** Size limits for annotations. Intentionally tight for now. */
+const ANNOTATION_LIMITS: AnnotationLimits = deepFreeze({
     maxCount: 25,
     titleMax: 60,
     textMax: 280
-} as const);
+});
 
+/**
+ * Test a field of view against {@link CAMERA_FOV_RANGE}.
+ *
+ * @param fov - Vertical field of view in degrees.
+ * @returns Whether the value is within the authoring bounds.
+ */
 const isCameraFovInRange = (fov: number) => {
     return fov >= CAMERA_FOV_RANGE.min && fov <= CAMERA_FOV_RANGE.max;
 };
 
-export type { NumericRange, PostEffectRanges };
+export type { AnimTrackLimits, AnnotationLimits, Bounds, NumericRange, PostEffectRanges };
 export { CAMERA_FOV_RANGE, POST_EFFECT_RANGES, ANIM_TRACK_LIMITS, ANNOTATION_LIMITS, isCameraFovInRange };

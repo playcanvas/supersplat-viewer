@@ -9,8 +9,8 @@ import {
     defaultSettings,
     importSettings,
     validateSettings
-} from '../settings';
-import type { ExperienceSettings } from '../settings';
+} from '../src/settings';
+import type { ExperienceSettings } from '../src/settings';
 
 const clone = (settings: ExperienceSettings) => structuredClone(settings);
 

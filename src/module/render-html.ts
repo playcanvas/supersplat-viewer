@@ -2,34 +2,53 @@ import css from '../../public/index.css';
 import html from '../../public/index.html';
 import js from '../../public/index.js';
 
-// Defaults the embedder supplies to the viewer. URL params on the served page take
-// precedence over every field here, matching the standalone document's behaviour.
+/**
+ * Asset urls and settings the embedder supplies to the viewer.
+ *
+ * Url params on the served page take precedence over every url here, so an embed stays
+ * overridable per instance. Inline {@link ViewerBootstrap.settings} is the exception: it wins
+ * over `?settings=`, so a published experience cannot be repointed at another settings file.
+ */
 type ViewerBootstrap = {
-    // Experience settings as an object. When omitted the viewer fetches `settingsUrl`.
+    /**
+     * Experience settings as an object, avoiding a round trip. When omitted the viewer
+     * fetches {@link ViewerBootstrap.settingsUrl}.
+     */
     settings?: unknown;
+    /** Where to fetch settings from. Defaults to `./settings.json`. */
     settingsUrl?: string;
-    // Splat url. May be a `data:` uri for a self-contained document.
+    /** Splat url. May be a `data:` uri, for a document with no sibling files. */
     contentUrl?: string;
+    /** Poster image shown, blurred, while the splat loads. */
     posterUrl?: string;
+    /** Equirectangular skybox texture url. */
     skyboxUrl?: string;
+    /** Collision data url, for walk mode. A `.glb` is treated as a mesh, otherwise voxels. */
     collisionUrl?: string;
 };
 
+/** Options for {@link renderViewerHtml}. */
 type RenderViewerHtmlOptions = {
+    /** Asset urls and settings for the viewer to boot with. */
     bootstrap?: ViewerBootstrap;
-    // Value for the document's `<base href>`, for a viewer served from a sub-path.
+    /** Value for the document's `<base href>`, for a viewer served from a sub-path. */
     baseHref?: string;
-    // Page background, applied before the first frame renders to avoid a flash. Components
-    // are normalized 0..1, not 0..255, matching `settings.background.color` — so an
-    // experience's own colour can be passed straight through.
+    /**
+     * Page background, applied before the first frame renders to avoid a flash. Components
+     * are normalized 0..1, not 0..255, matching `background.color` in the settings format —
+     * so an experience's own colour can be passed straight through.
+     */
     backgroundColor?: [number, number, number];
-    // Raw markup injected before `</head>` — analytics, error reporting.
+    /** Raw markup injected before `</head>`, for analytics or error reporting. */
     headExtras?: string;
-    // Inline the stylesheet into a `<style>` block instead of linking `./index.css`.
+    /** Inline the stylesheet into a `<style>` block instead of linking `./index.css`. */
     inlineCss?: boolean;
-    // Inline the module bundle instead of importing `./index.js`. Independent of `inlineCss`:
-    // a server that serves the bundle from its own route wants the css inlined to avoid a
-    // round trip before first paint, but not a megabyte of js in every page.
+    /**
+     * Inline the module bundle instead of importing `./index.js`. Independent of
+     * {@link RenderViewerHtmlOptions.inlineCss}: a host serving the bundle from its own route
+     * wants the css inlined to avoid a round trip before first paint, but not a megabyte of
+     * js in every page.
+     */
     inlineJs?: boolean;
 };
 

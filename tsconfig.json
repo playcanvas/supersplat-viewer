@@ -10,6 +10,6 @@
         "inlineSources": true,
         "resolveJsonModule": true,
     },
-    "includes": ["src", "module", "types.d.ts"],
+    "includes": ["src", "test", "types.d.ts"],
     "exclude": ["dist", "public"]
 }
