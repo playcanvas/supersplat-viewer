@@ -19,7 +19,9 @@ type RenderViewerHtmlOptions = {
     bootstrap?: ViewerBootstrap;
     // Value for the document's `<base href>`, for a viewer served from a sub-path.
     baseHref?: string;
-    // Page background, applied before the first frame renders to avoid a flash.
+    // Page background, applied before the first frame renders to avoid a flash. Components
+    // are normalized 0..1, not 0..255, matching `settings.background.color` — so an
+    // experience's own colour can be passed straight through.
     backgroundColor?: [number, number, number];
     // Raw markup injected before `</head>` — analytics, error reporting.
     headExtras?: string;

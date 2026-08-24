@@ -156,6 +156,7 @@ describe('importSettings', () => {
             {
                 name: 'anim',
                 duration: 5,
+                target: 'camera' as const,
                 loopMode: 'repeat',
                 interpolation: 'spline',
                 keyframes: { times: [0, 1], values: { position: [] as number[], target: [] as number[] } }
@@ -183,6 +184,24 @@ describe('importSettings', () => {
         // v1 migration backfills frameRate and smoothness and rescales keyframe times —
         // an API consumer holding this object must not see any of that
         expect(input).toEqual(before);
+    });
+
+    it('migrates using the shared post-effect defaults, so a sane v1 doc passes limits', () => {
+        // regression: the migration used to invent bloom.intensity = 1, outside the authoring
+        // range, so limit validation failed for every v1 input regardless of its own contents
+        const migrated = importSettings(v1());
+        expect(migrated.postEffectSettings).toEqual(defaultPostEffectSettings());
+        expect(() => validateSettings(v1(), { limits: true })).not.toThrow();
+    });
+
+    it("still reports the caller's own out-of-bounds v1 data", () => {
+        const doc = v1();
+        doc.camera.fov = 500;
+        expect(() => validateSettings(doc, { limits: true })).toThrow(/fov/);
+    });
+
+    it('keeps tonemapping at none, since it applies unconditionally', () => {
+        expect(importSettings(v1()).tonemapping).toBe('none');
     });
 
     it('rejects an unsupported version', () => {

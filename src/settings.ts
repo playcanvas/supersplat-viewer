@@ -1,3 +1,4 @@
+import { defaultPostEffectSettings } from './schemas/defaults';
 import type { ExperienceSettings as V1, AnimTrack as AnimTrackV1 } from './schemas/v1';
 import { validateV1 } from './schemas/v1';
 import type { ExperienceSettings as V2, AnimTrack as AnimTrackV2 } from './schemas/v2';
@@ -59,40 +60,18 @@ const migrateAnimTrackV2 = (animTrackV1: AnimTrackV1, fov: number): AnimTrackV2 
 const migrateV2 = (v1: V1): V2 => {
     return {
         version: 2,
+        // Not the shared default ('linear'): tonemapping applies unconditionally, so changing
+        // it here would alter how existing v1 content renders.
         tonemapping: 'none',
         highPrecisionRendering: false,
         background: {
             color: (v1.background.color as [number, number, number]) || [0, 0, 0]
         },
-        postEffectSettings: {
-            sharpness: {
-                enabled: false,
-                amount: 0
-            },
-            bloom: {
-                enabled: false,
-                intensity: 1,
-                blurLevel: 2
-            },
-            grading: {
-                enabled: false,
-                brightness: 0,
-                contrast: 1,
-                saturation: 1,
-                tint: [1, 1, 1]
-            },
-            vignette: {
-                enabled: false,
-                intensity: 0.5,
-                inner: 0.3,
-                outer: 0.75,
-                curvature: 1
-            },
-            fringing: {
-                enabled: false,
-                intensity: 0.5
-            }
-        },
+        // Shared defaults rather than a private copy, so a migrated document lands inside the
+        // authoring bounds and `validateSettings(v1, { limits: true })` reports the caller's
+        // data instead of values invented here. Every effect is `enabled: false`, so which
+        // numbers they carry is inert.
+        postEffectSettings: defaultPostEffectSettings(),
         animTracks: v1.animTracks.map((animTrackV1: AnimTrackV1) => {
             return migrateAnimTrackV2(animTrackV1, v1.camera.fov || 60);
         }),

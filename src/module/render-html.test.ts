@@ -47,6 +47,7 @@ describe('renderViewerHtml', () => {
         });
         expect(result).toContain('<base href="/s/">');
         expect(result).not.toContain('<base href=""');
+        // components are normalized 0..1, so 0.5 -> 128
         expect(result).toContain('body { background-color: rgb(0, 128, 255); }');
         expect(result).toContain('<script data-test="sentry"></script>');
     });
