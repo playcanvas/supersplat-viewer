@@ -75,11 +75,12 @@
     "lint:fix": "eslint src test rollup.config.mjs eslint.config.mjs prettier.config.mjs --fix",
     "publint": "publint",
     "serve": "serve public -C -c ../serve.json",
-    "test": "vitest run",
+    "test": "npm run build && vitest run",
+    "test:unit": "vitest run",
     "type:check": "tsc --noEmit",
     "watch": "rollup -c -w"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }

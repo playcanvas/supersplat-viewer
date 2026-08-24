@@ -30,9 +30,10 @@ jobs:
       - name: Build SuperSplat Viewer
         run: npm run build
 
-      # After the build: the tests assert against the emitted public/index.{html,css,js}
+      # `test:unit` rather than `test`: the build above already produced the
+      # public/index.{html,css,js} the tests assert against, so skip rebuilding
       - name: Run Tests
-        run: npm test
+        run: npm run test:unit
 
       - name: Validate Package
         run: npm run publint

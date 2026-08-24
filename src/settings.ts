@@ -3,7 +3,7 @@ import type { ExperienceSettings as V1, AnimTrack as AnimTrackV1 } from './schem
 import { validateV1 } from './schemas/v1';
 import type { ExperienceSettings as V2, AnimTrack as AnimTrackV2 } from './schemas/v2';
 import { validateV2 } from './schemas/v2';
-import { validateLimitsV2 } from './schemas/validate-limits';
+import { validateLimitsV1, validateLimitsV2 } from './schemas/validate-limits';
 import { assertObject } from './schemas/validate-utils';
 
 const migrateV1 = (input: V1): V1 => {
@@ -143,7 +143,9 @@ const validateSettings = (settings: unknown, options: ValidateOptions = {}): voi
     if (version === undefined) {
         validateV1(settings);
         if (options.limits) {
-            // v1 has no direct limit checks; validate what it migrates to
+            // Fields the migration would coerce, as the caller wrote them, then everything
+            // else against the migrated result.
+            validateLimitsV1(settings as V1);
             validateLimitsV2(migrateV2(migrateV1(settings as V1)));
         }
     } else if (version === 2) {

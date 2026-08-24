@@ -236,6 +236,27 @@ describe('importSettings', () => {
         expect(importSettings(v1()).tonemapping).toBe('none');
     });
 
+    it('checks v1 fields the migration would coerce, before it coerces them', () => {
+        // `frameRate: 0` becomes 30 and `camera.fov: 0` becomes 75 during migration, so a
+        // post-migration check cannot see an explicitly invalid zero
+        const withFov = (fov: number) => ({ ...v1(), camera: { ...v1().camera, fov } });
+        expect(() => validateSettings(withFov(0), { limits: true })).toThrow(
+            /settings\.camera\.fov must be between 10 and 120, got 0/
+        );
+        expect(() => validateSettings(withFov(500), { limits: true })).toThrow(/settings\.camera\.fov/);
+        expect(() => validateSettings(withFov(75), { limits: true })).not.toThrow();
+
+        const withFrameRate = (frameRate: number) => {
+            const doc = v1();
+            return { ...doc, animTracks: [{ ...doc.animTracks[0], frameRate }] };
+        };
+        expect(() => validateSettings(withFrameRate(0), { limits: true })).toThrow(
+            /animTracks\[0\]\.frameRate must be between 1 and 120, got 0/
+        );
+        expect(() => validateSettings(withFrameRate(30.5), { limits: true })).toThrow(/frameRate must be an integer/);
+        expect(() => validateSettings(withFrameRate(30), { limits: true })).not.toThrow();
+    });
+
     it('rejects an unsupported version', () => {
         expect(() => importSettings({ version: 99 })).toThrow(/Unsupported/);
     });

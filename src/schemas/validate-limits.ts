@@ -1,5 +1,6 @@
 import { ANIM_TRACK_LIMITS, ANNOTATION_LIMITS, CAMERA_FOV_RANGE, POST_EFFECT_RANGES } from './ranges';
 import type { NumericRange } from './ranges';
+import type { ExperienceSettings as ExperienceSettingsV1 } from './v1';
 import type { ExperienceSettings } from './v2';
 
 // Authoring-limit checks, deliberately separate from the shape validation in v2.ts.
@@ -128,4 +129,27 @@ const validateLimitsV2 = (settings: ExperienceSettings) => {
     });
 };
 
-export { validateLimitsV2 };
+// The v1 -> v2 migration substitutes defaults for falsy values — `frameRate: 0` becomes 30,
+// `camera.fov: 0` becomes 75 — so a post-migration check cannot see them and an explicitly
+// invalid zero would pass. Check those fields as the caller supplied them.
+//
+// Only the coerced fields are checked here; everything else survives migration unchanged and
+// is covered by validateLimitsV2.
+const validateLimitsV1 = (settings: ExperienceSettingsV1) => {
+    if (settings.camera.fov !== undefined) {
+        range(settings.camera.fov, CAMERA_FOV_RANGE, 'settings.camera.fov');
+    }
+
+    settings.animTracks?.forEach((track, i) => {
+        if (track.frameRate === undefined) {
+            return;
+        }
+        const path = `settings.animTracks[${i}].frameRate`;
+        range(track.frameRate, ANIM_TRACK_LIMITS.frameRate, path);
+        if (!Number.isInteger(track.frameRate)) {
+            throw new Error(`${path} must be an integer, got ${track.frameRate}`);
+        }
+    });
+};
+
+export { validateLimitsV1, validateLimitsV2 };
