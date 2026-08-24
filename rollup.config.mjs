@@ -5,7 +5,7 @@ import resolve from '@rollup/plugin-node-resolve';
 import typescript from '@rollup/plugin-typescript';
 import autoprefixer from 'autoprefixer';
 import postcss from 'postcss';
-import copy from 'rollup-plugin-copy';
+import { dts } from 'rollup-plugin-dts';
 import scss from 'rollup-plugin-scss';
 import { string } from 'rollup-plugin-string';
 import sass from 'sass';
@@ -18,7 +18,13 @@ function htmlPlugin() {
         },
         generateBundle() {
             const contents = readFileSync('src/index.html', 'utf-8');
-            const transformed = contents.replace('<base href="">', `<base href="${process.env.BASE_HREF ?? ''}">`);
+            // Matched as a pattern, not an exact string: prettier formats the tag as
+            // `<base href="" />`, and an exact-string match silently no-ops when the
+            // formatting shifts, shipping an empty base href to BASE_HREF deploys.
+            const transformed = contents.replace(
+                /<base\b[^>]*>/,
+                () => `<base href="${process.env.BASE_HREF ?? ''}" />`
+            );
             this.emitFile({
                 type: 'asset',
                 fileName: 'index.html',
@@ -37,7 +43,11 @@ const buildCss = {
         scss({
             exclude: ['static/**/*'],
             fileName: 'index.css',
-            sourceMap: true,
+            // The `processor` below returns only `result.css`, so postcss's map is dropped and
+            // no index.css.map is ever emitted. Asking for one just appends a sourceMappingURL
+            // comment pointing at a file that does not exist, which 404s wherever the css is
+            // served or inlined.
+            sourceMap: false,
             runtime: sass,
             processor: (css) => {
                 return postcss([autoprefixer])
@@ -82,13 +92,7 @@ const buildDist = {
             include: ['**/*.html', '**/*.css', '**/*.js']
         }),
         typescript({ noEmit: true }),
-        json(),
-        copy({
-            targets: [
-                { src: 'src/module/index.d.ts', dest: 'dist' },
-                { src: 'src/module/settings.d.ts', dest: 'dist' }
-            ]
-        })
+        json()
     ]
 };
 
@@ -102,4 +106,22 @@ const buildSettings = {
     plugins: [typescript({ noEmit: true })]
 };
 
-export default [buildCss, buildPublic, buildDist, buildSettings];
+// Declarations are bundled from the source, so the published types cannot drift from the
+// implementation. Each entry produces one flat .d.ts with no internal modules exposed.
+const buildDistTypes = {
+    input: 'src/module/index.ts',
+    output: { file: 'dist/index.d.ts', format: 'es' },
+    // The three `public/` imports are strings at runtime and `string` in the declarations
+    // (via the ambient `declare module '*.css'` in types.d.ts), so there is nothing for the
+    // declaration bundler to read. Treat them as external and let tree-shaking drop them.
+    external: [/public\/index\.(css|html|js)$/],
+    plugins: [dts()]
+};
+
+const buildSettingsTypes = {
+    input: 'src/settings.ts',
+    output: { file: 'dist/settings.d.ts', format: 'es' },
+    plugins: [dts()]
+};
+
+export default [buildCss, buildPublic, buildDist, buildSettings, buildDistTypes, buildSettingsTypes];

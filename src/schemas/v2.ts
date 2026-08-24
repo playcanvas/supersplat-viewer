@@ -9,6 +9,7 @@ import {
     assertTuple3
 } from './validate-utils';
 
+/** A camera animation track. Only the first track in a settings file is played. */
 type AnimTrack = {
     name: string;
     duration: number;
@@ -26,16 +27,19 @@ type AnimTrack = {
     };
 };
 
+/** A camera position, look-at target and vertical field of view in degrees. */
 type CameraPose = {
     position: [number, number, number];
     target: [number, number, number];
     fov: number;
 };
 
+/** A camera. Only the first camera in a settings file is used. */
 type Camera = {
     initial: CameraPose;
 };
 
+/** A point of interest in the scene, with the camera framing used to view it. */
 type Annotation = {
     position: [number, number, number];
     title: string;
@@ -44,6 +48,7 @@ type Annotation = {
     camera: Camera;
 };
 
+/** Post-processing applied to the rendered image. Each effect is independently toggled. */
 type PostEffectSettings = {
     sharpness: {
         enabled: boolean;
@@ -74,6 +79,12 @@ type PostEffectSettings = {
     };
 };
 
+/**
+ * A published experience: what is in the scene and how it is presented.
+ *
+ * This is the wire format of `settings.json`. Read it with {@link importSettings}, which
+ * migrates older versions forward.
+ */
 type ExperienceSettings = {
     version: 2;
     tonemapping: 'none' | 'linear' | 'filmic' | 'hejl' | 'aces' | 'aces2' | 'neutral';
@@ -199,4 +210,4 @@ const validateV2 = (data: unknown): ExperienceSettings => {
 };
 
 export { validateV2 };
-export type { AnimTrack, Camera, Annotation, PostEffectSettings, ExperienceSettings };
+export type { AnimTrack, Camera, CameraPose, Annotation, PostEffectSettings, ExperienceSettings };

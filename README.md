@@ -56,40 +56,80 @@ By default the viewer uses WebGPU when available (falling back automatically whe
 
 ## NPM Package
 
-The web app source files are available as strings for templating when you import the package from npm:
+### Embedding the viewer
+
+If you generate a page around the viewer, use `renderViewerHtml`. It returns a complete
+document, with your asset URLs and settings supplied through a single JSON block:
 
 ```ts
-import { html, css, js } from '@playcanvas/supersplat-viewer';
+import { renderViewerHtml } from '@playcanvas/supersplat-viewer';
 
-// logs the source of index.html
-console.log(html);
-
-// logs the source of index.css
-console.log(css);
-
-// logs the source of index.js
-console.log(js);
+const document = renderViewerHtml({
+    bootstrap: {
+        settings,                      // an object, or omit and set settingsUrl
+        contentUrl: 'scene.sog',
+        posterUrl: 'poster.jpg'
+    },
+    baseHref: '/viewer/',              // serving from a sub-path
+    backgroundColor: [0, 0, 0],        // components are 0..1, not 0..255
+    headExtras: '<script src="analytics.js"></script>',
+    inlineCss: true                    // no sibling index.css needed
+});
 ```
 
-The package also exports the settings schema types and helpers via the `/settings` subpath, which is useful for generating, validating or migrating a `settings.json` file:
+Called with no options it returns the document the package ships, unmodified. URL parameters
+on the served page override the bootstrap's asset URLs, so an embed stays overridable per
+instance — except an inline `settings` object, which takes precedence over `?settings=`.
+
+Set both `inlineCss` and `inlineJs` for a single self-contained file, with the splat passed as
+a `data:` URI in `contentUrl` and the settings supplied inline through the bootstrap's
+`settings` object — without an inline settings object the page still fetches `./settings.json`
+from a sibling file. The flags are independent, so a server that serves the bundle from its
+own route can inline only the stylesheet.
+
+`html`, `css` and `js` are still exported as raw strings, but are **deprecated**: their
+formatting is not part of this package's API and changes between releases, so pattern-matching
+them is unsupported. `js` remains useful for serving the bundle yourself.
+
+### Settings
+
+The `/settings` subpath exports the schema types plus helpers for generating, validating and
+migrating a `settings.json` file:
 
 ```ts
 import {
+    defaultSettings,
     importSettings,
     validateSettings,
+    POST_EFFECT_RANGES,
     type ExperienceSettings
 } from '@playcanvas/supersplat-viewer/settings';
 
-// throws on invalid input
+// a complete settings object every tool agrees on; pass 'object' to frame a subject
+// from outside rather than a captured space from within
+const settings: ExperienceSettings = defaultSettings();
+
+// throws on invalid input, naming the offending field
 validateSettings(json);
 
-// migrates a v1 settings object to the latest schema
-const settings: ExperienceSettings = importSettings(json);
+// additionally check the authoring bounds — stricter than what the viewer will render,
+// so existing files may fail. Producers writing new settings should enable it
+validateSettings(json, { limits: true });
+
+// migrates older versions forward; does not mutate its argument
+const migrated = importSettings(json);
+
+// the bounds are data, so an editor UI can drive a slider from the same numbers
+const { min, max, step } = POST_EFFECT_RANGES.bloom.intensity;
 ```
+
+`CAMERA_FOV_RANGE`, `POST_EFFECT_RANGES`, `ANIM_TRACK_LIMITS` and `ANNOTATION_LIMITS` are
+exported as data, so an editor UI can drive sliders from the same bounds the validator uses.
+They are frozen at runtime.
 
 ## Local Development
 
-To initialize a local development environment for SuperSplat Viewer, ensure you have [Node.js](https://nodejs.org/) 18 or later installed. Follow these steps:
+To initialize a local development environment for SuperSplat Viewer, ensure you have [Node.js](https://nodejs.org/) 20 or later installed. Follow these steps:
 
 1. Clone the repository:
 
@@ -199,8 +239,8 @@ type ExperienceSettings = {
     },
     "postEffectSettings": {
         "sharpness": { "enabled": false, "amount": 0 },
-        "bloom":     { "enabled": false, "intensity": 1, "blurLevel": 2 },
-        "grading":   { "enabled": false, "brightness": 0, "contrast": 1, "saturation": 1, "tint": [1, 1, 1] },
+        "bloom":     { "enabled": false, "intensity": 0.1, "blurLevel": 2 },
+        "grading":   { "enabled": false, "brightness": 1, "contrast": 1, "saturation": 1, "tint": [1, 1, 1] },
         "vignette":  { "enabled": false, "intensity": 0.5, "inner": 0.3, "outer": 0.75, "curvature": 1 },
         "fringing":  { "enabled": false, "intensity": 0.5 }
     },

@@ -14,7 +14,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v7
 
-      - name: Set up Node.js 18.x
+      - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24.x
@@ -30,6 +30,11 @@ jobs:
       - name: Build SuperSplat Viewer
         run: npm run build
 
+      # `test:unit` rather than `test`: the build above already produced the dist/ and
+      # public/ artifacts the tests import, so skip rebuilding
+      - name: Run Tests
+        run: npm run test:unit
+
       - name: Validate Package
         run: npm run publint
 
@@ -40,7 +45,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v7
 
-      - name: Set up Node.js 18.x
+      - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24.x

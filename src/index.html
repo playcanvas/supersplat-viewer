@@ -9,6 +9,17 @@
         />
         <base href="" />
         <link rel="stylesheet" href="./index.css" />
+
+        <!--
+            Single injection seam. `renderViewerHtml` replaces the contents of this block to
+            supply asset urls and inline settings, so anything generating a page around the
+            viewer goes through that function rather than pattern-matching this document.
+            Left as `null` for the standalone case.
+        -->
+        <script type="application/json" id="sse-bootstrap">
+            null
+        </script>
+
         <script type="module">
             const createImage = (url) => {
                 const img = new Image();
@@ -18,13 +29,18 @@
 
             const url = new URL(location.href);
 
-            const posterUrl = url.searchParams.get('poster');
-            const skyboxUrl = url.searchParams.get('skybox');
-            const collisionUrl = url.searchParams.get('collision') ?? url.searchParams.get('voxel');
-            const settingsUrl = url.searchParams.has('settings') ? url.searchParams.get('settings') : './settings.json';
-            const contentUrl = url.searchParams.has('content')
-                ? url.searchParams.get('content')
-                : './scene.compressed.ply';
+            // Embedder-supplied defaults. URL params take precedence over the asset urls below,
+            // so an embed can still be overridden per-instance (e.g. `?skybox=` to preview a
+            // different sky). Inline `settings` is the exception: it wins over `?settings=`, so a
+            // published experience cannot be repointed at someone else's settings file.
+            const bootstrap = JSON.parse(document.getElementById('sse-bootstrap').textContent) ?? {};
+
+            const posterUrl = url.searchParams.get('poster') ?? bootstrap.posterUrl ?? null;
+            const skyboxUrl = url.searchParams.get('skybox') ?? bootstrap.skyboxUrl ?? null;
+            const collisionUrl =
+                url.searchParams.get('collision') ?? url.searchParams.get('voxel') ?? bootstrap.collisionUrl ?? null;
+            const settingsUrl = url.searchParams.get('settings') ?? bootstrap.settingsUrl ?? './settings.json';
+            const contentUrl = url.searchParams.get('content') ?? bootstrap.contentUrl ?? './scene.compressed.ply';
 
             const renderer = url.searchParams.has('webgl') ? 'webgl' : 'webgpu';
 
@@ -56,7 +72,7 @@
 
             window.sse = {
                 config: sseConfig,
-                settings: fetch(settingsUrl).then((response) => response.json())
+                settings: bootstrap.settings ?? fetch(settingsUrl).then((response) => response.json())
             };
         </script>
     </head>
