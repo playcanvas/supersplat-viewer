@@ -3,9 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { html, css, js } from '../../src/module/index';
 import { renderViewerHtml } from '../../src/module/render-html';
 
+// The output contract for the bootstrap block, as the browser consumes it: a script element
+// found by id whose text is the json payload. Deliberately independent of whatever pattern
+// renderViewerHtml matches internally.
+const BOOTSTRAP_BLOCK = /<script type="application\/json" id="sse-bootstrap">([\s\S]*?)<\/script>/;
+
 // Extract the bootstrap block's json payload the way the browser does.
 const readBootstrap = (document: string) => {
-    const match = document.match(/<script type="application\/json" id="sse-bootstrap">([\s\S]*?)<\/script>/);
+    const match = document.match(BOOTSTRAP_BLOCK);
     expect(match, 'bootstrap block missing').not.toBeNull();
     return JSON.parse(match[1]);
 };
@@ -98,6 +103,14 @@ describe('renderViewerHtml', () => {
         expect(result.length).toBeGreaterThan(js.length);
     });
 
+    it('strips the dangling sourceMappingURL comment when inlining the bundle', () => {
+        // the map is a sibling of index.js, which a self-contained document is not next to —
+        // an inlined reference would 404, or bind whatever map the host serves at that path
+        const result = renderViewerHtml({ inlineJs: true });
+
+        expect(result).not.toContain('sourceMappingURL=index.js.map');
+    });
+
     it('leaves the document self-contained when inlining both', () => {
         const result = renderViewerHtml({
             bootstrap: { settings: { version: 2 }, contentUrl: 'data:application/octet-stream;base64,AAAA' },
@@ -147,6 +160,19 @@ describe('renderViewerHtml', () => {
             expect(readBootstrap(result).settings).toEqual(settings);
         });
 
+        it('neutralises the script-data double-escape sequence in settings', () => {
+            // `<!--` followed by `<script` switches the html tokenizer into the double-escaped
+            // state, where the block's own </script> is consumed as text and the rest of the
+            // document — including the boot script — is swallowed into the json block. Every
+            // `<` must therefore leave the block as a json unicode escape.
+            const settings = { annotations: [{ text: 'see <!--<script> tags in html' }] };
+
+            const result = renderViewerHtml({ bootstrap: { settings } });
+
+            expect(result.match(BOOTSTRAP_BLOCK)[1]).not.toContain('<');
+            expect(readBootstrap(result).settings).toEqual(settings);
+        });
+
         it('inserts replacement patterns in urls literally', () => {
             const result = renderViewerHtml({ bootstrap: { contentUrl: "https://cdn.example.com/a$&b$'c.sog" } });
 
@@ -174,10 +200,7 @@ describe('renderViewerHtml', () => {
             // the payload survives verbatim as data, and the only occurrence of the literal is
             // inside the bootstrap block — the real import was replaced by the bundle
             expect(readBootstrap(result).settings.annotations[0].text).toBe(payload);
-            const outsideBootstrap = result.replace(
-                /<script type="application\/json" id="sse-bootstrap">[\s\S]*?<\/script>/,
-                ''
-            );
+            const outsideBootstrap = result.replace(BOOTSTRAP_BLOCK, '');
             expect(outsideBootstrap).not.toContain(payload);
             expect(result.length).toBeGreaterThan(js.length);
         });
@@ -209,19 +232,33 @@ describe('renderViewerHtml', () => {
 
             expect(result).toContain('<script>const a = "$&$\'";</script>');
         });
+
+        it('inserts multi-line headExtras verbatim, preserving interior whitespace', () => {
+            // raw markup: reindenting interior lines would rewrite whitespace-sensitive
+            // content, like this template literal's runtime value
+            const extras = '<script>const msg = `line1\nline2`;</script>';
+
+            const result = renderViewerHtml({ headExtras: extras });
+
+            expect(result).toContain(extras);
+        });
     });
 
     it('throws when a seam is missing rather than returning a partial document', () => {
-        // guards the invariant that this function and index.html stay in step
-        expect(() => renderViewerHtml({ bootstrap: {} })).not.toThrow();
-        for (const seam of [
-            /<script type="application\/json" id="sse-bootstrap">[\s\S]*?<\/script>/,
-            /<base\b[^>]*>/,
-            /<link\b[^>]*href="\.\/index\.css"[^>]*>/,
-            /import \{ main \} from '\.\/index\.js';/,
-            /^([ \t]*)<\/head>/m
-        ]) {
-            expect(seam.test(html), `seam absent from index.html: ${seam}`).toBe(true);
-        }
+        // Guards the invariant that this function and index.html stay in step, through the
+        // public api: every option forces its replacement, which throws (naming the pattern)
+        // if a seam no longer matches — including seams that must still match after earlier
+        // replacements ran.
+        expect(() =>
+            renderViewerHtml({
+                bootstrap: { contentUrl: 'scene.sog' },
+                baseHref: '/s/',
+                backgroundColor: [0, 0, 0],
+                headExtras: '<meta name="x" />',
+                bodyStartExtras: '<div></div>',
+                inlineCss: true,
+                inlineJs: true
+            })
+        ).not.toThrow();
     });
 });

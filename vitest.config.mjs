@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { defineConfig } from 'vitest/config';
@@ -9,10 +10,11 @@ import { defineConfig } from 'vitest/config';
 // empty module. So map these imports onto `\0`-prefixed virtual ids that carry no extension
 // — vite leaves those alone — and read the files directly.
 //
-// Matched on the resolved path rather than the caller's relative specifier, so an import from
-// any directory depth works. Keying on the specifier would silently fall through to vite for
-// an importer at a different depth, and vite returns an *empty* module for css — which reads
-// as a passing test rather than a failure.
+// Each specifier is resolved against its importer and compared to the real public/ dir, so
+// an import from any directory depth matches and nothing else does — a suffix match on the
+// raw specifier would also hijack some other module's own `public/index.js`. Falling through
+// to vite matters: it returns an *empty* module for css, which reads as a passing test
+// rather than a failure.
 const PREFIX = '\0viewer-raw:';
 
 // Token per asset, deliberately without a file extension: vite decides a module is css from
@@ -29,8 +31,12 @@ const publicDir = fileURLToPath(new URL('./public/', import.meta.url));
 const viewerRawStrings = {
     name: 'viewer-raw-strings',
     enforce: 'pre',
-    resolveId(source) {
-        const match = assets.find(([file]) => source.endsWith(`public/${file}`));
+    resolveId(source, importer) {
+        if (!importer) {
+            return null;
+        }
+        const resolved = resolve(dirname(importer.split('?')[0]), source);
+        const match = assets.find(([file]) => resolved === `${publicDir}${file}`);
         return match ? PREFIX + match[1] : null;
     },
     load(id) {

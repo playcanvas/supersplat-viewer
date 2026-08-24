@@ -31,7 +31,7 @@ const maxCount = (value: readonly unknown[], max: number, path: string) => {
 
 const validateLimitsV2 = (settings: ExperienceSettings) => {
     const fx = settings.postEffectSettings;
-    range(fx.sharpness.amount, POST_EFFECT_RANGES.sharpness, 'settings.postEffectSettings.sharpness.amount');
+    range(fx.sharpness.amount, POST_EFFECT_RANGES.sharpness.amount, 'settings.postEffectSettings.sharpness.amount');
     range(fx.bloom.intensity, POST_EFFECT_RANGES.bloom.intensity, 'settings.postEffectSettings.bloom.intensity');
     range(fx.bloom.blurLevel, POST_EFFECT_RANGES.bloom.blurLevel, 'settings.postEffectSettings.bloom.blurLevel');
     range(
@@ -134,8 +134,8 @@ const validateLimitsV2 = (settings: ExperienceSettings) => {
 };
 
 // The v1 -> v2 migration substitutes defaults for falsy values — `frameRate: 0` becomes 30,
-// `camera.fov: 0` becomes 75 — so a post-migration check cannot see them and an explicitly
-// invalid zero would pass. Check those fields as the caller supplied them.
+// `camera.fov: 0` becomes the default fov — so a post-migration check cannot see them and an
+// explicitly invalid zero would pass. Check those fields as the caller supplied them.
 //
 // Only the coerced fields are checked here; everything else survives migration unchanged and
 // is covered by validateLimitsV2.

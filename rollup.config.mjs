@@ -18,7 +18,13 @@ function htmlPlugin() {
         },
         generateBundle() {
             const contents = readFileSync('src/index.html', 'utf-8');
-            const transformed = contents.replace('<base href="">', `<base href="${process.env.BASE_HREF ?? ''}">`);
+            // Matched as a pattern, not an exact string: prettier formats the tag as
+            // `<base href="" />`, and an exact-string match silently no-ops when the
+            // formatting shifts, shipping an empty base href to BASE_HREF deploys.
+            const transformed = contents.replace(
+                /<base\b[^>]*>/,
+                () => `<base href="${process.env.BASE_HREF ?? ''}" />`
+            );
             this.emitFile({
                 type: 'asset',
                 fileName: 'index.html',

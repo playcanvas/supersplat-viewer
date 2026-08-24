@@ -4,6 +4,7 @@ import {
     ANIM_TRACK_LIMITS,
     ANNOTATION_LIMITS,
     CAMERA_FOV_RANGE,
+    DEFAULT_CAMERA_FOV,
     POST_EFFECT_RANGES,
     defaultPostEffectSettings,
     defaultSettings,
@@ -271,6 +272,26 @@ describe('importSettings', () => {
         );
         expect(() => validateSettings(withFrameRate(30.5), { limits: true })).toThrow(/frameRate must be an integer/);
         expect(() => validateSettings(withFrameRate(30), { limits: true })).not.toThrow();
+    });
+
+    it('rejects v1 vectors whose arity would migrate to invalid v2', () => {
+        // migration casts these straight into v2 tuples, so any other arity used to pass
+        // validation while producing migrated output that failed it
+        const withColor = { ...v1(), background: { color: [1, 0, 0, 1] } };
+        expect(() => validateSettings(withColor)).toThrow(/background.color must have exactly 3 elements/);
+
+        const withPosition = { ...v1(), camera: { ...v1().camera, position: [1, 2] } };
+        expect(() => validateSettings(withPosition)).toThrow(/camera.position must have exactly 3 elements/);
+    });
+
+    it('falls back to the shared default fov for both the camera and anim keyframes', () => {
+        // these two fallbacks used to disagree (60 for keyframes, 75 for the camera), giving
+        // fov-less v1 docs a zoom pop when playback handed off to the interactive camera
+        const doc = { ...v1(), camera: { position: [1, 2, 3], target: [0, 0, 0], startAnim: 'animTrack' } };
+        const migrated = importSettings(doc);
+
+        expect(migrated.cameras[0].initial.fov).toBe(DEFAULT_CAMERA_FOV);
+        expect(migrated.animTracks[0].keyframes.values.fov).toEqual([DEFAULT_CAMERA_FOV, DEFAULT_CAMERA_FOV]);
     });
 
     it('marks limit failures that come from migrated rather than authored values', () => {

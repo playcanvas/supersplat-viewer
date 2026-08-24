@@ -14,6 +14,7 @@ import { WalkController } from './cameras/walk-controller';
 import { WalkSource } from './cameras/walk-source';
 import type { Collision } from './collision';
 import { easeOut } from './core/math';
+import { DEFAULT_CAMERA_FOV } from './schemas/defaults';
 import type { Annotation } from './settings';
 import type { CameraMode, Global } from './types';
 
@@ -63,7 +64,7 @@ class CameraManager {
         const walkAllowed = isWalkAllowed(bbox, collision);
 
         const camera0 = settings.cameras[0]?.initial;
-        const defaultFov = camera0?.fov ?? 75;
+        const defaultFov = camera0?.fov ?? DEFAULT_CAMERA_FOV;
         const frameCamera = createFrameCamera(bbox, defaultFov);
         const resetCamera = camera0
             ? createCamera(new Vec3(camera0.position), new Vec3(camera0.target), camera0.fov)

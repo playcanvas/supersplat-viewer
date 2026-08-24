@@ -29,7 +29,9 @@ const deepFreeze = <T>(value: T): T => {
  * ranges (`CameraFrame`, and `RenderPassBloom` for `blurLevel`).
  */
 type PostEffectRanges = {
-    readonly sharpness: NumericRange;
+    readonly sharpness: {
+        readonly amount: NumericRange;
+    };
     readonly bloom: {
         readonly intensity: NumericRange;
         readonly blurLevel: NumericRange;
@@ -59,7 +61,9 @@ const CAMERA_FOV_RANGE: NumericRange = deepFreeze({
 
 /** Bounds for each post-processing parameter. */
 const POST_EFFECT_RANGES: PostEffectRanges = deepFreeze({
-    sharpness: { min: 0, max: 1, step: 0.01 },
+    sharpness: {
+        amount: { min: 0, max: 1, step: 0.01 }
+    },
     bloom: {
         intensity: { min: 0, max: 0.1, step: 0.01 },
         blurLevel: { min: 1, max: 16, step: 1 }

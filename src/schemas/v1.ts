@@ -1,4 +1,12 @@
-import { assertObject, assertNumber, assertString, assertEnum, assertArray, assertNumberArray } from './validate-utils';
+import {
+    assertObject,
+    assertNumber,
+    assertString,
+    assertEnum,
+    assertArray,
+    assertNumberArray,
+    assertTuple3
+} from './validate-utils';
 
 type AnimTrack = {
     name: string;
@@ -55,14 +63,16 @@ const validateV1 = (data: unknown): ExperienceSettings => {
 
     const camera = assertObject(obj.camera, 'settings.camera');
     if (camera.fov !== undefined) assertNumber(camera.fov, 'settings.camera.fov');
-    if (camera.position !== undefined) assertNumberArray(camera.position, 'settings.camera.position');
-    if (camera.target !== undefined) assertNumberArray(camera.target, 'settings.camera.target');
+    // Exactly 3 elements: migration casts these straight into v2 tuples, so any other arity
+    // would validate here yet produce output that fails v2 validation.
+    if (camera.position !== undefined) assertTuple3(camera.position, 'settings.camera.position');
+    if (camera.target !== undefined) assertTuple3(camera.target, 'settings.camera.target');
     if (camera.startAnim !== undefined)
         assertEnum(camera.startAnim, ['none', 'orbit', 'animTrack'] as const, 'settings.camera.startAnim');
     if (camera.animTrack != null) assertString(camera.animTrack, 'settings.camera.animTrack');
 
     const bg = assertObject(obj.background, 'settings.background');
-    if (bg.color !== undefined) assertNumberArray(bg.color, 'settings.background.color');
+    if (bg.color !== undefined) assertTuple3(bg.color, 'settings.background.color');
 
     if (obj.animTracks !== undefined) {
         const tracks = assertArray(obj.animTracks, 'settings.animTracks');

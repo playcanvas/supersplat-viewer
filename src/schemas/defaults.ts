@@ -17,7 +17,7 @@ const DEFAULT_TONEMAPPING: ExperienceSettings['tonemapping'] = 'linear';
 // Annotated so the published declaration widens to `number`; without it the emitted type is
 // the literal `75`, which bakes the value into the api.
 // eslint-disable-next-line @typescript-eslint/no-inferrable-types
-const DEFAULT_CAMERA_FOV: number = 75;
+const DEFAULT_CAMERA_FOV: number = 85;
 
 /**
  * How the default camera is placed: `environment` frames a captured space from inside it,

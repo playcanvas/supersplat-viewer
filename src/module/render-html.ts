@@ -73,13 +73,16 @@ const replaceOnce = (source: string, pattern: RegExp, replacement: Replacer) => 
     return source.replace(pattern, replacement);
 };
 
-// Serialize for embedding in a `<script type="application/json">` block. The html parser
-// reads that block as raw text up to the first `</script`, so `</` must not appear; `\/` is
-// a valid json escape for `/`. U+2028/U+2029 are escaped because they are legal in json
+// Serialize for embedding in a `<script type="application/json">` block. Every `<` is
+// escaped with its json unicode escape (so the payload round-trips byte-exact), which
+// neutralises all of the parser's script-content hazards at once: `</script` ending
+// the block early, and `<!--` followed by `<script` switching the tokenizer into the
+// double-escaped state, where the block's own close tag is consumed as text and the rest of
+// the document is swallowed. U+2028/U+2029 are escaped because they are legal in json
 // strings but terminate a line in some js parsers.
 const jsonForScriptBlock = (value: unknown) => {
     return JSON.stringify(value)
-        .replace(/<\//g, '<\\/')
+        .replace(/</g, '\\u003c')
         .replace(/\u2028/g, '\\u2028')
         .replace(/\u2029/g, '\\u2029');
 };
@@ -131,36 +134,53 @@ const renderViewerHtml = (options: RenderViewerHtmlOptions = {}) => {
     }
 
     if (inlineCss) {
+        // A `<style>` element is rawtext: it ends at the first `</style` regardless of css
+        // syntax, so a stylesheet containing that sequence cannot be inlined. The built css
+        // contains no `<` at all today; fail loudly if that ever changes.
+        if (/<\/style/i.test(css)) {
+            throw new Error('renderViewerHtml: the viewer stylesheet contains "</style" and cannot be inlined');
+        }
         result = replaceOnce(result, STYLESHEET, () => `<style>\n${indent(css, 12)}\n        </style>`);
     }
 
     if (inlineJs) {
-        // An inline module script ends at the first `</script`, so a bundle containing that
-        // sequence cannot be inlined. It does not today; fail loudly if that ever changes,
-        // because the symptom is an exported file that renders nothing.
-        if (js.includes('</script')) {
-            throw new Error('renderViewerHtml: the viewer bundle contains "</script" and cannot be inlined');
+        // The bundle's trailing sourceMappingURL comment points at a sibling index.js.map
+        // that an inlined document does not sit next to, so devtools would 404 on it (or
+        // bind whatever stranger's map the host serves at that path).
+        const inlineJsSource = js.replace(/\n\/\/# sourceMappingURL=\S+\s*$/, '\n');
+
+        // An inline module script ends at the first `</script`, and `<!--` followed by
+        // `<script` switches the tokenizer into a state where that close tag is consumed as
+        // text instead — either way the symptom is an exported file that renders nothing.
+        // The bundle contains none of these today; fail loudly if that ever changes.
+        // Case-insensitive, because the html parser is.
+        if (/<\/script|<!--|<script/i.test(inlineJsSource)) {
+            throw new Error(
+                'renderViewerHtml: the viewer bundle contains markup the html parser acts on and cannot be inlined'
+            );
         }
-        result = replaceOnce(result, MODULE_IMPORT, () => js);
+        result = replaceOnce(result, MODULE_IMPORT, () => inlineJsSource);
     }
 
     if (bodyStartExtras !== undefined) {
         result = replaceOnce(result, BODY_OPEN, (bodyTag) => `${bodyTag}\n        ${bodyStartExtras}`);
     }
 
-    const rgb = backgroundColor?.map((c) => Math.round(c * 255)).join(', ');
-    const headAppend = [headExtras, rgb && `<style>\n    body { background-color: rgb(${rgb}); }\n</style>`].filter(
-        Boolean
-    ) as string[];
+    const headAppend: string[] = [];
+    if (headExtras !== undefined) {
+        headAppend.push(headExtras);
+    }
+    if (backgroundColor) {
+        const rgb = backgroundColor.map((c) => Math.round(c * 255)).join(', ');
+        headAppend.push(`<style>body { background-color: rgb(${rgb}); }</style>`);
+    }
 
     // Emitted at the end of head, so the background rule wins over the stylesheet on equal
-    // specificity.
+    // specificity. Only the first line gains indentation: `headExtras` is raw markup, and
+    // reindenting its interior lines would rewrite whitespace-sensitive content (a template
+    // literal in an inline script, for instance).
     if (headAppend.length > 0) {
-        result = replaceOnce(
-            result,
-            HEAD_CLOSE,
-            (_match, ws) => `${indent(headAppend.join('\n'), ws.length + 4)}\n${ws}</head>`
-        );
+        result = replaceOnce(result, HEAD_CLOSE, (_match, ws) => `${ws}    ${headAppend.join('\n')}\n${ws}</head>`);
     }
 
     // Last: the bootstrap block sits earlier in the document than `</head>`, so its own seam

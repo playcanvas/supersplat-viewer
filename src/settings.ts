@@ -1,4 +1,4 @@
-import { defaultPostEffectSettings } from './schemas/defaults';
+import { DEFAULT_CAMERA_FOV, defaultPostEffectSettings } from './schemas/defaults';
 import type { ExperienceSettings as V1, AnimTrack as AnimTrackV1 } from './schemas/v1';
 import { validateV1 } from './schemas/v1';
 import type { ExperienceSettings as V2, AnimTrack as AnimTrackV2 } from './schemas/v2';
@@ -73,7 +73,7 @@ const migrateV2 = (v1: V1): V2 => {
         // numbers they carry is inert.
         postEffectSettings: defaultPostEffectSettings(),
         animTracks: v1.animTracks.map((animTrackV1: AnimTrackV1) => {
-            return migrateAnimTrackV2(animTrackV1, v1.camera.fov || 60);
+            return migrateAnimTrackV2(animTrackV1, v1.camera.fov || DEFAULT_CAMERA_FOV);
         }),
         cameras:
             v1.camera.position && v1.camera.target
@@ -82,7 +82,7 @@ const migrateV2 = (v1: V1): V2 => {
                           initial: {
                               position: v1.camera.position as [number, number, number],
                               target: v1.camera.target as [number, number, number],
-                              fov: v1.camera.fov || 75
+                              fov: v1.camera.fov || DEFAULT_CAMERA_FOV
                           }
                       }
                   ]
