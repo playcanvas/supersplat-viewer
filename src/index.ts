@@ -29,8 +29,9 @@ const loadGsplat = async (app: AppBase, config: Config, progressCallback: (progr
     const { contents, contentUrl, contentFilename } = config;
     const c = contents as unknown as ArrayBuffer;
     // the filename's extension selects the gsplat parser, so a url with no usable name (a
-    // data: uri) needs the config to name its content instead
-    const filename = contentFilename ?? new URL(contentUrl, location.href).pathname.split('/').pop();
+    // data: uri) needs the config to name its content instead; falsy (an empty name) falls
+    // back to the url-derived name
+    const filename = contentFilename || new URL(contentUrl, location.href).pathname.split('/').pop();
     const data = filename.toLowerCase() === 'meta.json' ? await (await contents).json() : undefined;
     const asset = new Asset(filename, 'gsplat', { url: contentUrl, filename, contents: c }, data);
 
