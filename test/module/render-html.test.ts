@@ -143,6 +143,49 @@ describe('renderViewerHtml', () => {
             expect(result.match(/<base\b/g)).toHaveLength(1);
         });
 
+        // Each seam is matched with a non-global regex, so a caller-controlled payload that
+        // looks like a seam must not be matched ahead of the real one. Annotation text is
+        // user-authored, so settings are the hostile case.
+        it('does not let settings spoof the module-import seam', () => {
+            const payload = "import { main } from './index.js';";
+            const result = renderViewerHtml({
+                bootstrap: { settings: { annotations: [{ text: payload }] } },
+                inlineJs: true
+            });
+
+            // the payload survives verbatim as data, and the only occurrence of the literal is
+            // inside the bootstrap block — the real import was replaced by the bundle
+            expect(readBootstrap(result).settings.annotations[0].text).toBe(payload);
+            const outsideBootstrap = result.replace(
+                /<script type="application\/json" id="sse-bootstrap">[\s\S]*?<\/script>/,
+                ''
+            );
+            expect(outsideBootstrap).not.toContain(payload);
+            expect(result.length).toBeGreaterThan(js.length);
+        });
+
+        it('does not let headExtras spoof the module-import seam', () => {
+            const result = renderViewerHtml({
+                headExtras: "<!-- import { main } from './index.js'; -->",
+                inlineJs: true
+            });
+
+            expect(result).not.toMatch(/<script type="module">\s*import \{ main \}/);
+            expect(result).toContain("<!-- import { main } from './index.js'; -->");
+        });
+
+        it('does not let settings spoof the base-href or stylesheet seams', () => {
+            const result = renderViewerHtml({
+                bootstrap: { settings: { a: '<base href="evil">', b: '<link rel="stylesheet" href="./index.css">' } },
+                baseHref: '/s/',
+                inlineCss: true
+            });
+
+            expect(result).toContain('<base href="/s/">');
+            expect(result).not.toContain('<link rel="stylesheet" href="./index.css" />');
+            expect(readBootstrap(result).settings.a).toBe('<base href="evil">');
+        });
+
         it('does not let headExtras be mangled by replacement patterns', () => {
             const result = renderViewerHtml({ headExtras: '<script>const a = "$&$\'";</script>' });
 

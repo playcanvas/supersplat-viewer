@@ -114,33 +114,14 @@ const renderViewerHtml = (options: RenderViewerHtmlOptions = {}) => {
 
     let result = html;
 
-    if (bootstrap) {
-        const json = jsonForScriptBlock(bootstrap);
-        result = replaceOnce(
-            result,
-            BOOTSTRAP,
-            () => `<script type="application/json" id="sse-bootstrap">${json}</script>`
-        );
-    }
+    // Order matters. Each seam is matched with a non-global regex, so the *first* occurrence
+    // in the document wins — and caller-controlled content (the bootstrap json, `headExtras`)
+    // can contain text that looks like a seam. Settings carry user-authored annotation text,
+    // so treat that as hostile. Every seam is therefore replaced before any caller content is
+    // inserted, and the two insertions go last, in document order.
 
     if (baseHref !== undefined) {
         result = replaceOnce(result, BASE_HREF, () => `<base href="${escapeAttribute(baseHref)}">`);
-    }
-
-    const rgb = backgroundColor?.map((c) => Math.round(c * 255)).join(', ');
-    const headAppend = [headExtras, rgb && `<style>\n    body { background-color: rgb(${rgb}); }\n</style>`].filter(
-        Boolean
-    ) as string[];
-
-    // Emitted at the end of head, so the background rule wins over the stylesheet on equal
-    // specificity. Done before inlining so every seam is matched against this package's own
-    // document rather than against a megabyte of bundled js that might contain the same text.
-    if (headAppend.length > 0) {
-        result = replaceOnce(
-            result,
-            HEAD_CLOSE,
-            (_match, ws) => `${indent(headAppend.join('\n'), ws.length + 4)}\n${ws}</head>`
-        );
     }
 
     if (inlineCss) {
@@ -155,6 +136,32 @@ const renderViewerHtml = (options: RenderViewerHtmlOptions = {}) => {
             throw new Error('renderViewerHtml: the viewer bundle contains "</script" and cannot be inlined');
         }
         result = replaceOnce(result, MODULE_IMPORT, () => js);
+    }
+
+    const rgb = backgroundColor?.map((c) => Math.round(c * 255)).join(', ');
+    const headAppend = [headExtras, rgb && `<style>\n    body { background-color: rgb(${rgb}); }\n</style>`].filter(
+        Boolean
+    ) as string[];
+
+    // Emitted at the end of head, so the background rule wins over the stylesheet on equal
+    // specificity.
+    if (headAppend.length > 0) {
+        result = replaceOnce(
+            result,
+            HEAD_CLOSE,
+            (_match, ws) => `${indent(headAppend.join('\n'), ws.length + 4)}\n${ws}</head>`
+        );
+    }
+
+    // Last: the bootstrap block sits earlier in the document than `</head>`, so its own seam
+    // still matches ahead of anything `headExtras` added.
+    if (bootstrap) {
+        const json = jsonForScriptBlock(bootstrap);
+        result = replaceOnce(
+            result,
+            BOOTSTRAP,
+            () => `<script type="application/json" id="sse-bootstrap">${json}</script>`
+        );
     }
 
     return result;
