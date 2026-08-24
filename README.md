@@ -84,12 +84,15 @@ instance — except an inline `settings` object, which takes precedence over `?s
 Set both `inlineCss` and `inlineJs` for a single self-contained file, with the splat passed as
 a `data:` URI in `contentUrl` and the settings supplied inline through the bootstrap's
 `settings` object — without an inline settings object the page still fetches `./settings.json`
-from a sibling file. The flags are independent, so a server that serves the bundle from its
-own route can inline only the stylesheet.
+from a sibling file. A `data:` URI has no filename and the splat format is chosen by the
+name's extension, so name its content with the bootstrap's `contentFilename` (e.g.
+`scene.sog`). The flags are independent, so a server that serves the bundle from its own
+route can inline only the stylesheet.
 
-`html`, `css` and `js` are still exported as raw strings, but are **deprecated**: their
-formatting is not part of this package's API and changes between releases, so pattern-matching
-them is unsupported. `js` remains useful for serving the bundle yourself.
+`html` is still exported as a raw string, but is **deprecated**: its formatting is not part of
+this package's API and changes between releases, so pattern-matching it is unsupported. `css`
+and `js` remain exported for serving (or writing) the stylesheet and bundle alongside a
+rendered document that doesn't inline them.
 
 ### Settings
 

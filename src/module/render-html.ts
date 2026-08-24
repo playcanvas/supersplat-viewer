@@ -19,6 +19,13 @@ type ViewerBootstrap = {
     settingsUrl?: string;
     /** Splat url. May be a `data:` uri, for a document with no sibling files. */
     contentUrl?: string;
+    /**
+     * Filename describing {@link ViewerBootstrap.contentUrl}, e.g. `scene.sog`. The splat
+     * format is chosen by the name's extension, so this is required when the url itself has
+     * no usable name — a `data:` uri. Ignored when a `?content=` url param overrides the url
+     * it describes.
+     */
+    contentFilename?: string;
     /** Poster image shown, blurred, while the splat loads. */
     posterUrl?: string;
     /** Equirectangular skybox texture url. */

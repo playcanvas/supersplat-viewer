@@ -11,6 +11,7 @@ type Config = {
     poster?: HTMLImageElement;
     skyboxUrl?: string;
     contentUrl?: string;
+    contentFilename?: string; // names contentUrl when the url itself has no usable name (a data: uri)
     contents?: Promise<Response>;
     collisionUrl?: string;
 

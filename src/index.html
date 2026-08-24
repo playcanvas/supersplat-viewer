@@ -42,6 +42,11 @@
             const settingsUrl = url.searchParams.get('settings') ?? bootstrap.settingsUrl ?? './settings.json';
             const contentUrl = url.searchParams.get('content') ?? bootstrap.contentUrl ?? './scene.compressed.ply';
 
+            // Names the bootstrap's contentUrl when the url itself has no usable name (a data:
+            // uri, say) — the splat format is chosen by the name's extension. Ignored when a
+            // ?content= override replaces the url it describes.
+            const contentFilename = url.searchParams.has('content') ? null : (bootstrap.contentFilename ?? null);
+
             const renderer = url.searchParams.has('webgl') ? 'webgl' : 'webgpu';
 
             const budgetParam = url.searchParams.get('budget');
@@ -52,6 +57,7 @@
                 skyboxUrl,
                 collisionUrl,
                 contentUrl,
+                contentFilename,
                 contents: fetch(contentUrl),
                 noui: url.searchParams.has('noui'),
                 noanim: url.searchParams.has('noanim'),

@@ -11,11 +11,7 @@ import jsSource from '../../public/index.js';
  */
 const html: string = htmlSource;
 
-/**
- * The viewer's stylesheet.
- *
- * @deprecated Use {@link renderViewerHtml} instead, which can inline it for you.
- */
+/** The viewer's stylesheet, for serving alongside a rendered document. */
 const css: string = cssSource;
 
 /** The viewer's module bundle, for serving alongside a rendered document. */
