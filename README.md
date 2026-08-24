@@ -82,8 +82,10 @@ on the served page override the bootstrap's asset URLs, so an embed stays overri
 instance — except an inline `settings` object, which takes precedence over `?settings=`.
 
 Set both `inlineCss` and `inlineJs` for a single self-contained file, with the splat passed as
-a `data:` URI in `contentUrl`. They are independent, so a server that serves the bundle from
-its own route can inline only the stylesheet.
+a `data:` URI in `contentUrl` and the settings supplied inline through the bootstrap's
+`settings` object — without an inline settings object the page still fetches `./settings.json`
+from a sibling file. The flags are independent, so a server that serves the bundle from its
+own route can inline only the stylesheet.
 
 `html`, `css` and `js` are still exported as raw strings, but are **deprecated**: their
 formatting is not part of this package's API and changes between releases, so pattern-matching

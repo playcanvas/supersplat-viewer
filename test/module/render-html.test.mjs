@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 
-import { html, css, js } from '../../src/module/index';
-import { renderViewerHtml } from '../../src/module/render-html';
+// Tests run against the built artifact, so they exercise exactly what the package ships.
+// Run `npm run build` first (`npm test` does both).
+import { html, css, js, renderViewerHtml } from '../../dist/index.js';
 
 // The output contract for the bootstrap block, as the browser consumes it: a script element
 // found by id whose text is the json payload. Deliberately independent of whatever pattern
@@ -9,22 +11,21 @@ import { renderViewerHtml } from '../../src/module/render-html';
 const BOOTSTRAP_BLOCK = /<script type="application\/json" id="sse-bootstrap">([\s\S]*?)<\/script>/;
 
 // Extract the bootstrap block's json payload the way the browser does.
-const readBootstrap = (document: string) => {
+const readBootstrap = (document) => {
     const match = document.match(BOOTSTRAP_BLOCK);
-    expect(match, 'bootstrap block missing').not.toBeNull();
+    assert.ok(match, 'bootstrap block missing');
     return JSON.parse(match[1]);
 };
 
 describe('renderViewerHtml', () => {
     it('returns the shipped document unmodified when given no options', () => {
-        expect(renderViewerHtml()).toBe(html);
-        expect(renderViewerHtml({})).toBe(html);
+        assert.strictEqual(renderViewerHtml(), html);
+        assert.strictEqual(renderViewerHtml({}), html);
     });
 
     it('ships exactly one bootstrap seam, defaulting to null', () => {
-        const seams = html.match(/id="sse-bootstrap"/g);
-        expect(seams).toHaveLength(1);
-        expect(readBootstrap(html)).toBeNull();
+        assert.strictEqual(html.match(/id="sse-bootstrap"/g)?.length, 1);
+        assert.strictEqual(readBootstrap(html), null);
     });
 
     it('renders the full set of embedder options', () => {
@@ -42,26 +43,26 @@ describe('renderViewerHtml', () => {
             headExtras: '<script data-test="sentry"></script>'
         });
 
-        expect(readBootstrap(result)).toEqual({
+        assert.deepStrictEqual(readBootstrap(result), {
             settings,
             contentUrl: 'https://cdn.example.com/hash/v2/meta.json',
             posterUrl: 'https://cdn.example.com/thumb.png',
             skyboxUrl: 'skybox?id=hash',
             collisionUrl: 'https://cdn.example.com/hash/v2/scene.voxel.json'
         });
-        expect(result).toContain('<base href="/s/">');
-        expect(result).not.toContain('<base href=""');
+        assert.ok(result.includes('<base href="/s/">'));
+        assert.ok(!result.includes('<base href=""'));
         // components are normalized 0..1, so 0.5 -> 128
-        expect(result).toContain('body { background-color: rgb(0, 128, 255); }');
-        expect(result).toContain('<script data-test="sentry"></script>');
+        assert.ok(result.includes('body { background-color: rgb(0, 128, 255); }'));
+        assert.ok(result.includes('<script data-test="sentry"></script>'));
     });
 
     it('injects body content immediately after the opening body tag', () => {
         const result = renderViewerHtml({ bodyStartExtras: '<div id="marker"></div>' });
 
-        expect(result).toMatch(/<body[^>]*>\s*<div id="marker"><\/div>/);
+        assert.match(result, /<body[^>]*>\s*<div id="marker"><\/div>/);
         // before the canvas, which is what a marker element is for
-        expect(result.indexOf('id="marker"')).toBeLessThan(result.indexOf('application-canvas'));
+        assert.ok(result.indexOf('id="marker"') < result.indexOf('application-canvas'));
     });
 
     it('does not let body content spoof the module-import seam', () => {
@@ -70,17 +71,17 @@ describe('renderViewerHtml', () => {
             inlineJs: true
         });
 
-        expect(result).not.toMatch(/<script type="module">\s*import \{ main \}/);
-        expect(result).toContain("<!-- import { main } from './index.js'; -->");
+        assert.doesNotMatch(result, /<script type="module">\s*import \{ main \}/);
+        assert.ok(result.includes("<!-- import { main } from './index.js'; -->"));
     });
 
     it('places head additions after the stylesheet and before </head>', () => {
         const result = renderViewerHtml({ backgroundColor: [1, 1, 1], headExtras: '<meta name="t" />' });
 
-        expect(result.indexOf('index.css')).toBeLessThan(result.indexOf('background-color'));
-        expect(result.indexOf('<meta name="t" />')).toBeLessThan(result.indexOf('</head>'));
+        assert.ok(result.indexOf('index.css') < result.indexOf('background-color'));
+        assert.ok(result.indexOf('<meta name="t" />') < result.indexOf('</head>'));
         // the closing tag survives exactly once, at its original indentation
-        expect(result.match(/^ {4}<\/head>$/gm)).toHaveLength(1);
+        assert.strictEqual(result.match(/^ {4}<\/head>$/gm)?.length, 1);
     });
 
     // The two flags are independent because real hosts need all the combinations: one serving
@@ -89,18 +90,18 @@ describe('renderViewerHtml', () => {
     it('inlines css only, for a host serving the bundle itself', () => {
         const result = renderViewerHtml({ inlineCss: true });
 
-        expect(result).not.toContain('<link rel="stylesheet"');
-        expect(result).toContain("import { main } from './index.js';");
-        expect(result.length).toBeGreaterThan(css.length);
-        expect(result.length).toBeLessThan(js.length);
+        assert.ok(!result.includes('<link rel="stylesheet"'));
+        assert.ok(result.includes("import { main } from './index.js';"));
+        assert.ok(result.length > css.length);
+        assert.ok(result.length < js.length);
     });
 
     it('inlines js only', () => {
         const result = renderViewerHtml({ inlineJs: true });
 
-        expect(result).toContain('href="./index.css"');
-        expect(result).not.toContain("import { main } from './index.js';");
-        expect(result.length).toBeGreaterThan(js.length);
+        assert.ok(result.includes('href="./index.css"'));
+        assert.ok(!result.includes("import { main } from './index.js';"));
+        assert.ok(result.length > js.length);
     });
 
     it('strips the dangling sourceMappingURL comment when inlining the bundle', () => {
@@ -108,7 +109,7 @@ describe('renderViewerHtml', () => {
         // an inlined reference would 404, or bind whatever map the host serves at that path
         const result = renderViewerHtml({ inlineJs: true });
 
-        expect(result).not.toContain('sourceMappingURL=index.js.map');
+        assert.ok(!result.includes('sourceMappingURL=index.js.map'));
     });
 
     it('leaves the document self-contained when inlining both', () => {
@@ -118,28 +119,28 @@ describe('renderViewerHtml', () => {
             inlineJs: true
         });
 
-        expect(result).not.toContain('<link rel="stylesheet"');
-        expect(result).not.toContain("import { main } from './index.js';");
-        expect(result.length).toBeGreaterThan(css.length + js.length);
-        expect(readBootstrap(result).contentUrl).toBe('data:application/octet-stream;base64,AAAA');
+        assert.ok(!result.includes('<link rel="stylesheet"'));
+        assert.ok(!result.includes("import { main } from './index.js';"));
+        assert.ok(result.length > css.length + js.length);
+        assert.strictEqual(readBootstrap(result).contentUrl, 'data:application/octet-stream;base64,AAAA');
     });
 
     it('documents the bootstrap precedence the shipped script implements', () => {
         // asset urls: `searchParams.get(...) ?? bootstrap.<field>`, so a param wins
         for (const field of ['posterUrl', 'skyboxUrl', 'collisionUrl', 'settingsUrl', 'contentUrl']) {
-            expect(html).toMatch(new RegExp(`searchParams\\.get\\([^)]*\\)[\\s\\S]*?\\?\\? bootstrap\\.${field}`));
+            assert.match(html, new RegExp(`searchParams\\.get\\([^)]*\\)[\\s\\S]*?\\?\\? bootstrap\\.${field}`));
         }
         // settings is the exception: inline settings beat `?settings=`, so a published
         // experience cannot be repointed at another settings file
-        expect(html).toContain('settings: bootstrap.settings ?? fetch(settingsUrl)');
+        assert.ok(html.includes('settings: bootstrap.settings ?? fetch(settingsUrl)'));
     });
 
     it('keeps both external references when inlining neither', () => {
         const result = renderViewerHtml({ bootstrap: { contentUrl: 'scene.sog' } });
 
-        expect(result).toContain('href="./index.css"');
-        expect(result).toContain("import { main } from './index.js';");
-        expect(result.length).toBeLessThan(css.length + js.length);
+        assert.ok(result.includes('href="./index.css"'));
+        assert.ok(result.includes("import { main } from './index.js';"));
+        assert.ok(result.length < css.length + js.length);
     });
 
     describe('escaping', () => {
@@ -156,8 +157,8 @@ describe('renderViewerHtml', () => {
             const result = renderViewerHtml({ bootstrap: { settings } });
 
             // the block is not terminated early, and the payload round-trips byte-exact
-            expect(result.match(/<\/script>/g).length).toBe(html.match(/<\/script>/g).length);
-            expect(readBootstrap(result).settings).toEqual(settings);
+            assert.strictEqual(result.match(/<\/script>/g).length, html.match(/<\/script>/g).length);
+            assert.deepStrictEqual(readBootstrap(result).settings, settings);
         });
 
         it('neutralises the script-data double-escape sequence in settings', () => {
@@ -169,22 +170,22 @@ describe('renderViewerHtml', () => {
 
             const result = renderViewerHtml({ bootstrap: { settings } });
 
-            expect(result.match(BOOTSTRAP_BLOCK)[1]).not.toContain('<');
-            expect(readBootstrap(result).settings).toEqual(settings);
+            assert.ok(!result.match(BOOTSTRAP_BLOCK)[1].includes('<'));
+            assert.deepStrictEqual(readBootstrap(result).settings, settings);
         });
 
         it('inserts replacement patterns in urls literally', () => {
             const result = renderViewerHtml({ bootstrap: { contentUrl: "https://cdn.example.com/a$&b$'c.sog" } });
 
-            expect(readBootstrap(result).contentUrl).toBe("https://cdn.example.com/a$&b$'c.sog");
+            assert.strictEqual(readBootstrap(result).contentUrl, "https://cdn.example.com/a$&b$'c.sog");
         });
 
         it('escapes baseHref so it cannot break out of its attribute', () => {
             const result = renderViewerHtml({ baseHref: '/"><script>alert(1)</script><base x="' });
 
-            expect(result).not.toContain('<script>alert(1)</script>');
-            expect(result.match(/<script/g).length).toBe(html.match(/<script/g).length);
-            expect(result.match(/<base\b/g)).toHaveLength(1);
+            assert.ok(!result.includes('<script>alert(1)</script>'));
+            assert.strictEqual(result.match(/<script/g).length, html.match(/<script/g).length);
+            assert.strictEqual(result.match(/<base\b/g)?.length, 1);
         });
 
         // Each seam is matched with a non-global regex, so a caller-controlled payload that
@@ -199,10 +200,10 @@ describe('renderViewerHtml', () => {
 
             // the payload survives verbatim as data, and the only occurrence of the literal is
             // inside the bootstrap block — the real import was replaced by the bundle
-            expect(readBootstrap(result).settings.annotations[0].text).toBe(payload);
+            assert.strictEqual(readBootstrap(result).settings.annotations[0].text, payload);
             const outsideBootstrap = result.replace(BOOTSTRAP_BLOCK, '');
-            expect(outsideBootstrap).not.toContain(payload);
-            expect(result.length).toBeGreaterThan(js.length);
+            assert.ok(!outsideBootstrap.includes(payload));
+            assert.ok(result.length > js.length);
         });
 
         it('does not let headExtras spoof the module-import seam', () => {
@@ -211,8 +212,8 @@ describe('renderViewerHtml', () => {
                 inlineJs: true
             });
 
-            expect(result).not.toMatch(/<script type="module">\s*import \{ main \}/);
-            expect(result).toContain("<!-- import { main } from './index.js'; -->");
+            assert.doesNotMatch(result, /<script type="module">\s*import \{ main \}/);
+            assert.ok(result.includes("<!-- import { main } from './index.js'; -->"));
         });
 
         it('does not let settings spoof the base-href or stylesheet seams', () => {
@@ -222,15 +223,15 @@ describe('renderViewerHtml', () => {
                 inlineCss: true
             });
 
-            expect(result).toContain('<base href="/s/">');
-            expect(result).not.toContain('<link rel="stylesheet" href="./index.css" />');
-            expect(readBootstrap(result).settings.a).toBe('<base href="evil">');
+            assert.ok(result.includes('<base href="/s/">'));
+            assert.ok(!result.includes('<link rel="stylesheet" href="./index.css" />'));
+            assert.strictEqual(readBootstrap(result).settings.a, '<base href="evil">');
         });
 
         it('does not let headExtras be mangled by replacement patterns', () => {
             const result = renderViewerHtml({ headExtras: '<script>const a = "$&$\'";</script>' });
 
-            expect(result).toContain('<script>const a = "$&$\'";</script>');
+            assert.ok(result.includes('<script>const a = "$&$\'";</script>'));
         });
 
         it('inserts multi-line headExtras verbatim, preserving interior whitespace', () => {
@@ -240,7 +241,7 @@ describe('renderViewerHtml', () => {
 
             const result = renderViewerHtml({ headExtras: extras });
 
-            expect(result).toContain(extras);
+            assert.ok(result.includes(extras));
         });
     });
 
@@ -249,7 +250,7 @@ describe('renderViewerHtml', () => {
         // public api: every option forces its replacement, which throws (naming the pattern)
         // if a seam no longer matches — including seams that must still match after earlier
         // replacements ran.
-        expect(() =>
+        assert.doesNotThrow(() =>
             renderViewerHtml({
                 bootstrap: { contentUrl: 'scene.sog' },
                 baseHref: '/s/',
@@ -259,6 +260,6 @@ describe('renderViewerHtml', () => {
                 inlineCss: true,
                 inlineJs: true
             })
-        ).not.toThrow();
+        );
     });
 });

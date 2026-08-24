@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 
-import { css, html } from '../../src/module/index';
+// Tests run against the built artifact, so they exercise exactly what the package ships.
+// Run `npm run build` first (`npm test` does both).
+import { css, html } from '../../dist/index.js';
 
 // Temporary compatibility guard.
 //
@@ -14,7 +17,7 @@ import { css, html } from '../../src/module/index';
 // the breakage visible in this repo's ci. Delete this file once they have migrated; nothing
 // here is a contract worth preserving on its own.
 describe('legacy html rewriting patterns (remove once consumers use renderViewerHtml)', () => {
-    const patterns: [string, RegExp][] = [
+    const patterns = [
         ['base href', /<base\b[^>]*>/],
         ['stylesheet link', /<link\b[^>]*href="\.\/index\.css"[^>]*>/],
         ['poster url', /const posterUrl =[\s\S]*?;/],
@@ -26,16 +29,18 @@ describe('legacy html rewriting patterns (remove once consumers use renderViewer
         ['body tag', /<body\b[^>]*>/]
     ];
 
-    it.each(patterns)('still matches the %s pattern', (_name, pattern) => {
-        expect(pattern.test(html)).toBe(true);
-    });
+    for (const [name, pattern] of patterns) {
+        it(`still matches the ${name} pattern`, () => {
+            assert.ok(pattern.test(html));
+        });
+    }
 
     it('still exposes the seams consumers append to', () => {
         // extra head markup is injected before this
-        expect(html).toContain('</head>');
+        assert.ok(html.includes('</head>'));
         // and a background colour is spliced into the stylesheet's first `body {` rule to
         // avoid a flash before the first frame
-        expect(css).toContain('body {');
+        assert.ok(css.includes('body {'));
     });
 
     it('keeps the settings assignment on one line', () => {
@@ -44,13 +49,13 @@ describe('legacy html rewriting patterns (remove once consumers use renderViewer
         // and a syntax error. Matching that pattern is not enough to prove it is safe: a
         // partial wrap still matches the first line. Require the expression to terminate on
         // the same line as the key.
-        expect(html).toMatch(/settings: [^\n]*response\.json\(\)\)$/m);
+        assert.match(html, /settings: [^\n]*response\.json\(\)\)$/m);
     });
 
     it('keeps the asset urls as single replaceable declarations', () => {
         // consumers rewrite these to `searchParams.get(...) ?? <their default>`, so each must
         // remain one assignment that can be replaced wholesale
-        expect(html).toMatch(/const skyboxUrl =[^;]*bootstrap\.skyboxUrl[^;]*;/);
-        expect(html).toMatch(/const collisionUrl =[\s\S]*?bootstrap\.collisionUrl[\s\S]*?;/);
+        assert.match(html, /const skyboxUrl =[^;]*bootstrap\.skyboxUrl[^;]*;/);
+        assert.match(html, /const collisionUrl =[\s\S]*?bootstrap\.collisionUrl[\s\S]*?;/);
     });
 });

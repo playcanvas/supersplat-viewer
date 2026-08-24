@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 
+// Tests run against the built artifact, so they exercise exactly what the package ships.
+// Run `npm run build` first (`npm test` does both).
 import {
     ANIM_TRACK_LIMITS,
     ANNOTATION_LIMITS,
@@ -10,12 +13,11 @@ import {
     defaultSettings,
     importSettings,
     validateSettings
-} from '../src/settings';
-import type { ExperienceSettings } from '../src/settings';
+} from '../dist/settings.js';
 
-const clone = (settings: ExperienceSettings) => structuredClone(settings);
+const clone = (settings) => structuredClone(settings);
 
-const withAnimTrack = (overrides: Record<string, unknown> = {}) => {
+const withAnimTrack = (overrides = {}) => {
     const settings = defaultSettings();
     settings.animTracks = [
         {
@@ -30,69 +32,70 @@ const withAnimTrack = (overrides: Record<string, unknown> = {}) => {
                 values: { position: [0, 0, 0, 1, 1, 1], target: [0, 0, 0, 0, 0, 0], fov: [75, 75] }
             },
             ...overrides
-        } as ExperienceSettings['animTracks'][number]
+        }
     ];
     return settings;
 };
 
 describe('defaults', () => {
     it('produces settings that pass both shape and limit validation', () => {
-        expect(() => validateSettings(defaultSettings())).not.toThrow();
-        expect(() => validateSettings(defaultSettings(), { limits: true })).not.toThrow();
-        expect(() => validateSettings(defaultSettings('object'), { limits: true })).not.toThrow();
+        assert.doesNotThrow(() => validateSettings(defaultSettings()));
+        assert.doesNotThrow(() => validateSettings(defaultSettings(), { limits: true }));
+        assert.doesNotThrow(() => validateSettings(defaultSettings('object'), { limits: true }));
     });
 
     it('uses the values matching settings already published in the wild', () => {
         const settings = defaultSettings();
-        expect(settings.tonemapping).toBe('linear');
-        expect(settings.background.color).toEqual([0, 0, 0]);
-        expect(settings.postEffectSettings.bloom.intensity).toBe(0.1);
-        expect(settings.postEffectSettings.grading.brightness).toBe(1);
+        assert.strictEqual(settings.tonemapping, 'linear');
+        assert.deepStrictEqual(settings.background.color, [0, 0, 0]);
+        assert.strictEqual(settings.postEffectSettings.bloom.intensity, 0.1);
+        assert.strictEqual(settings.postEffectSettings.grading.brightness, 1);
     });
 
     it('returns fresh objects, so callers cannot corrupt the defaults', () => {
         const a = defaultSettings();
         a.background.color[0] = 1;
         a.postEffectSettings.bloom.intensity = 99;
-        expect(defaultSettings().background.color).toEqual([0, 0, 0]);
-        expect(defaultPostEffectSettings().bloom.intensity).toBe(0.1);
+        assert.deepStrictEqual(defaultSettings().background.color, [0, 0, 0]);
+        assert.strictEqual(defaultPostEffectSettings().bloom.intensity, 0.1);
     });
 
     it('freezes the published constants, so a consumer cannot change validation globally', () => {
         // the validators read these at call time; a successful mutation would alter results
         // for every other caller in the realm
-        expect(Object.isFrozen(POST_EFFECT_RANGES)).toBe(true);
-        expect(Object.isFrozen(POST_EFFECT_RANGES.bloom.intensity)).toBe(true);
-        expect(Object.isFrozen(CAMERA_FOV_RANGE)).toBe(true);
-        expect(Object.isFrozen(ANIM_TRACK_LIMITS.duration)).toBe(true);
-        expect(Object.isFrozen(ANNOTATION_LIMITS)).toBe(true);
+        assert.strictEqual(Object.isFrozen(POST_EFFECT_RANGES), true);
+        assert.strictEqual(Object.isFrozen(POST_EFFECT_RANGES.bloom.intensity), true);
+        assert.strictEqual(Object.isFrozen(CAMERA_FOV_RANGE), true);
+        assert.strictEqual(Object.isFrozen(ANIM_TRACK_LIMITS.duration), true);
+        assert.strictEqual(Object.isFrozen(ANNOTATION_LIMITS), true);
 
         const settings = clone(defaultSettings());
         settings.postEffectSettings.bloom.intensity = 1;
-        expect(() => validateSettings(settings, { limits: true })).toThrow();
+        assert.throws(() => validateSettings(settings, { limits: true }));
 
         // still rejected after an attempted widening of the bound
         try {
-            (POST_EFFECT_RANGES.bloom.intensity as { max: number }).max = 99;
+            POST_EFFECT_RANGES.bloom.intensity.max = 99;
         } catch {
-            // strict mode throws on frozen writes; either outcome is fine
+            // module code runs in strict mode, which throws on frozen writes; either
+            // outcome is fine
         }
-        expect(POST_EFFECT_RANGES.bloom.intensity.max).toBe(0.1);
-        expect(() => validateSettings(settings, { limits: true })).toThrow();
+        assert.strictEqual(POST_EFFECT_RANGES.bloom.intensity.max, 0.1);
+        assert.throws(() => validateSettings(settings, { limits: true }));
     });
 
     it('frames from inside for environment and outside for object', () => {
-        expect(defaultSettings('environment').cameras[0].initial.position).toEqual([0, 2, 0]);
-        expect(defaultSettings('object').cameras[0].initial.target).toEqual([0, 0, 0]);
+        assert.deepStrictEqual(defaultSettings('environment').cameras[0].initial.position, [0, 2, 0]);
+        assert.deepStrictEqual(defaultSettings('object').cameras[0].initial.target, [0, 0, 0]);
     });
 });
 
 describe('validateSettings', () => {
     it('accepts a valid v2 document and rejects a broken one', () => {
-        expect(() => validateSettings(defaultSettings())).not.toThrow();
-        expect(() => validateSettings({ version: 2 })).toThrow();
-        expect(() => validateSettings({ version: 9 })).toThrow(/Unsupported/);
-        expect(() => validateSettings({ version: 'two' })).toThrow(/must be a number/);
+        assert.doesNotThrow(() => validateSettings(defaultSettings()));
+        assert.throws(() => validateSettings({ version: 2 }));
+        assert.throws(() => validateSettings({ version: 9 }), /Unsupported/);
+        assert.throws(() => validateSettings({ version: 'two' }), /must be a number/);
     });
 
     it('does not enforce authoring limits by default', () => {
@@ -100,67 +103,78 @@ describe('validateSettings', () => {
         // a value older defaults wrote, outside the authoring range
         settings.postEffectSettings.bloom.intensity = 1;
 
-        expect(() => validateSettings(settings)).not.toThrow();
-        expect(() => validateSettings(settings, { limits: true })).toThrow(/bloom.intensity must be between 0 and 0.1/);
+        assert.doesNotThrow(() => validateSettings(settings));
+        assert.throws(() => validateSettings(settings, { limits: true }), /bloom.intensity must be between 0 and 0.1/);
     });
 
     it('enforces post-effect ranges when asked', () => {
         const settings = clone(defaultSettings());
         settings.postEffectSettings.vignette.curvature = POST_EFFECT_RANGES.vignette.curvature.max + 1;
-        expect(() => validateSettings(settings, { limits: true })).toThrow(/vignette.curvature/);
+        assert.throws(() => validateSettings(settings, { limits: true }), /vignette.curvature/);
     });
 
     it('enforces camera fov range when asked', () => {
         const settings = clone(defaultSettings());
         settings.cameras[0].initial.fov = CAMERA_FOV_RANGE.max + 1;
-        expect(() => validateSettings(settings, { limits: true })).toThrow(/cameras\[0\].initial.fov/);
+        assert.throws(() => validateSettings(settings, { limits: true }), /cameras\[0\].initial.fov/);
     });
 
     it('allows more than one camera — the format permits it even though the viewer reads only the first', () => {
         const settings = clone(defaultSettings());
         settings.cameras.push(structuredClone(settings.cameras[0]));
-        expect(() => validateSettings(settings, { limits: true })).not.toThrow();
+        assert.doesNotThrow(() => validateSettings(settings, { limits: true }));
     });
 
     it('enforces anim track limits when asked', () => {
-        expect(() => validateSettings(withAnimTrack({ frameRate: 30.5 }), { limits: true })).toThrow(/integer/);
-        expect(() =>
-            validateSettings(withAnimTrack({ duration: ANIM_TRACK_LIMITS.duration.max + 1 }), { limits: true })
-        ).toThrow(/duration/);
-        expect(() =>
-            validateSettings(
-                withAnimTrack({ keyframes: { times: [-1], values: { position: [], target: [], fov: [] } } }),
-                { limits: true }
-            )
-        ).toThrow(/non-negative/);
-        expect(() =>
-            validateSettings(withAnimTrack({ name: 'x'.repeat(ANIM_TRACK_LIMITS.nameMax + 1) }), { limits: true })
-        ).toThrow(/name/);
+        assert.throws(() => validateSettings(withAnimTrack({ frameRate: 30.5 }), { limits: true }), /integer/);
+        assert.throws(
+            () => validateSettings(withAnimTrack({ duration: ANIM_TRACK_LIMITS.duration.max + 1 }), { limits: true }),
+            /duration/
+        );
+        assert.throws(
+            () =>
+                validateSettings(
+                    withAnimTrack({ keyframes: { times: [-1], values: { position: [], target: [], fov: [] } } }),
+                    { limits: true }
+                ),
+            /non-negative/
+        );
+        assert.throws(
+            () =>
+                validateSettings(withAnimTrack({ name: 'x'.repeat(ANIM_TRACK_LIMITS.nameMax + 1) }), { limits: true }),
+            /name/
+        );
     });
 
     it('enforces keyframe invariants when asked', () => {
-        const kf = (times: number[], position: number[], target: number[], fov: number[]) =>
+        const kf = (times, position, target, fov) =>
             withAnimTrack({ keyframes: { times, values: { position, target, fov } } });
 
         // frames must be integers, strictly ascending, and each value array correctly sized
-        expect(() =>
-            validateSettings(kf([0, 1.5], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true })
-        ).toThrow(/times\[1\] must be an integer/);
-        expect(() =>
-            validateSettings(kf([0, 0], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true })
-        ).toThrow(/greater than the previous frame/);
-        expect(() =>
-            validateSettings(kf([5, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true })
-        ).toThrow(/greater than the previous frame/);
-        expect(() => validateSettings(kf([0, 1], [0, 0, 0], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true })).toThrow(
+        assert.throws(
+            () => validateSettings(kf([0, 1.5], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true }),
+            /times\[1\] must be an integer/
+        );
+        assert.throws(
+            () => validateSettings(kf([0, 0], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true }),
+            /greater than the previous frame/
+        );
+        assert.throws(
+            () => validateSettings(kf([5, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true }),
+            /greater than the previous frame/
+        );
+        assert.throws(
+            () => validateSettings(kf([0, 1], [0, 0, 0], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true }),
             /position must have 3 values per keyframe \(6\), got 3/
         );
-        expect(() => validateSettings(kf([0, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0], [75, 75]), { limits: true })).toThrow(
+        assert.throws(
+            () => validateSettings(kf([0, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0], [75, 75]), { limits: true }),
             /target must have 3 values per keyframe/
         );
-        expect(() =>
-            validateSettings(kf([0, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75]), { limits: true })
-        ).toThrow(/fov must have 1 value per keyframe \(2\), got 1/);
+        assert.throws(
+            () => validateSettings(kf([0, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75]), { limits: true }),
+            /fov must have 1 value per keyframe \(2\), got 1/
+        );
     });
 
     it('rejects a track with no keyframes, which the viewer cannot load', () => {
@@ -175,8 +189,8 @@ describe('validateSettings', () => {
             }
         ];
 
-        expect(() => validateSettings(settings)).not.toThrow();
-        expect(() => validateSettings(settings, { limits: true })).toThrow(/at least one keyframe/);
+        assert.doesNotThrow(() => validateSettings(settings));
+        assert.throws(() => validateSettings(settings, { limits: true }), /at least one keyframe/);
     });
 
     it('enforces annotation limits when asked', () => {
@@ -189,7 +203,7 @@ describe('validateSettings', () => {
                 camera: { initial: { position: [0, 0, 0], target: [0, 0, 0], fov: 75 } }
             }
         ];
-        expect(() => validateSettings(settings, { limits: true })).toThrow(/annotations\[0\].title/);
+        assert.throws(() => validateSettings(settings, { limits: true }), /annotations\[0\].title/);
     });
 });
 
@@ -201,7 +215,7 @@ describe('importSettings', () => {
             {
                 name: 'anim',
                 duration: 5,
-                target: 'camera' as const,
+                target: 'camera',
                 loopMode: 'repeat',
                 interpolation: 'spline',
                 // 3 values per keyframe for position/target; the migration fills fov itself
@@ -215,13 +229,13 @@ describe('importSettings', () => {
 
     it('migrates v1 to v2 and passes v2 through', () => {
         const migrated = importSettings(v1());
-        expect(migrated.version).toBe(2);
-        expect(migrated.startMode).toBe('animTrack');
-        expect(migrated.background.color).toEqual([0.2, 0.2, 0.2]);
-        expect(migrated.cameras[0].initial.fov).toBe(60);
+        assert.strictEqual(migrated.version, 2);
+        assert.strictEqual(migrated.startMode, 'animTrack');
+        assert.deepStrictEqual(migrated.background.color, [0.2, 0.2, 0.2]);
+        assert.strictEqual(migrated.cameras[0].initial.fov, 60);
 
         const already = defaultSettings();
-        expect(importSettings(already)).toBe(already);
+        assert.strictEqual(importSettings(already), already);
     });
 
     it('does not mutate the object it is given', () => {
@@ -232,56 +246,58 @@ describe('importSettings', () => {
 
         // v1 migration backfills frameRate and smoothness and rescales keyframe times —
         // an API consumer holding this object must not see any of that
-        expect(input).toEqual(before);
+        assert.deepStrictEqual(input, before);
     });
 
     it('migrates using the shared post-effect defaults, so a sane v1 doc passes limits', () => {
         // regression: the migration used to invent bloom.intensity = 1, outside the authoring
         // range, so limit validation failed for every v1 input regardless of its own contents
         const migrated = importSettings(v1());
-        expect(migrated.postEffectSettings).toEqual(defaultPostEffectSettings());
-        expect(() => validateSettings(v1(), { limits: true })).not.toThrow();
+        assert.deepStrictEqual(migrated.postEffectSettings, defaultPostEffectSettings());
+        assert.doesNotThrow(() => validateSettings(v1(), { limits: true }));
     });
 
     it("still reports the caller's own out-of-bounds v1 data", () => {
         const doc = v1();
         doc.camera.fov = 500;
-        expect(() => validateSettings(doc, { limits: true })).toThrow(/fov/);
+        assert.throws(() => validateSettings(doc, { limits: true }), /fov/);
     });
 
     it('keeps tonemapping at none, since it applies unconditionally', () => {
-        expect(importSettings(v1()).tonemapping).toBe('none');
+        assert.strictEqual(importSettings(v1()).tonemapping, 'none');
     });
 
     it('checks v1 fields the migration would coerce, before it coerces them', () => {
-        // `frameRate: 0` becomes 30 and `camera.fov: 0` becomes 75 during migration, so a
-        // post-migration check cannot see an explicitly invalid zero
-        const withFov = (fov: number) => ({ ...v1(), camera: { ...v1().camera, fov } });
-        expect(() => validateSettings(withFov(0), { limits: true })).toThrow(
+        // `frameRate: 0` becomes 30 and `camera.fov: 0` becomes the default fov during
+        // migration, so a post-migration check cannot see an explicitly invalid zero
+        const withFov = (fov) => ({ ...v1(), camera: { ...v1().camera, fov } });
+        assert.throws(
+            () => validateSettings(withFov(0), { limits: true }),
             /settings\.camera\.fov must be between 10 and 120, got 0/
         );
-        expect(() => validateSettings(withFov(500), { limits: true })).toThrow(/settings\.camera\.fov/);
-        expect(() => validateSettings(withFov(75), { limits: true })).not.toThrow();
+        assert.throws(() => validateSettings(withFov(500), { limits: true }), /settings\.camera\.fov/);
+        assert.doesNotThrow(() => validateSettings(withFov(75), { limits: true }));
 
-        const withFrameRate = (frameRate: number) => {
+        const withFrameRate = (frameRate) => {
             const doc = v1();
             return { ...doc, animTracks: [{ ...doc.animTracks[0], frameRate }] };
         };
-        expect(() => validateSettings(withFrameRate(0), { limits: true })).toThrow(
+        assert.throws(
+            () => validateSettings(withFrameRate(0), { limits: true }),
             /animTracks\[0\]\.frameRate must be between 1 and 120, got 0/
         );
-        expect(() => validateSettings(withFrameRate(30.5), { limits: true })).toThrow(/frameRate must be an integer/);
-        expect(() => validateSettings(withFrameRate(30), { limits: true })).not.toThrow();
+        assert.throws(() => validateSettings(withFrameRate(30.5), { limits: true }), /frameRate must be an integer/);
+        assert.doesNotThrow(() => validateSettings(withFrameRate(30), { limits: true }));
     });
 
     it('rejects v1 vectors whose arity would migrate to invalid v2', () => {
         // migration casts these straight into v2 tuples, so any other arity used to pass
         // validation while producing migrated output that failed it
         const withColor = { ...v1(), background: { color: [1, 0, 0, 1] } };
-        expect(() => validateSettings(withColor)).toThrow(/background.color must have exactly 3 elements/);
+        assert.throws(() => validateSettings(withColor), /background.color must have exactly 3 elements/);
 
         const withPosition = { ...v1(), camera: { ...v1().camera, position: [1, 2] } };
-        expect(() => validateSettings(withPosition)).toThrow(/camera.position must have exactly 3 elements/);
+        assert.throws(() => validateSettings(withPosition), /camera.position must have exactly 3 elements/);
     });
 
     it('falls back to the shared default fov for both the camera and anim keyframes', () => {
@@ -290,8 +306,8 @@ describe('importSettings', () => {
         const doc = { ...v1(), camera: { position: [1, 2, 3], target: [0, 0, 0], startAnim: 'animTrack' } };
         const migrated = importSettings(doc);
 
-        expect(migrated.cameras[0].initial.fov).toBe(DEFAULT_CAMERA_FOV);
-        expect(migrated.animTracks[0].keyframes.values.fov).toEqual([DEFAULT_CAMERA_FOV, DEFAULT_CAMERA_FOV]);
+        assert.strictEqual(migrated.cameras[0].initial.fov, DEFAULT_CAMERA_FOV);
+        assert.deepStrictEqual(migrated.animTracks[0].keyframes.values.fov, [DEFAULT_CAMERA_FOV, DEFAULT_CAMERA_FOV]);
     });
 
     it('marks limit failures that come from migrated rather than authored values', () => {
@@ -300,10 +316,10 @@ describe('importSettings', () => {
         const doc = v1();
         doc.animTracks[0].keyframes.times = [0, 0.05];
 
-        expect(() => validateSettings(doc, { limits: true })).toThrow(/checked after migrating from v1/);
+        assert.throws(() => validateSettings(doc, { limits: true }), /checked after migrating from v1/);
     });
 
     it('rejects an unsupported version', () => {
-        expect(() => importSettings({ version: 99 })).toThrow(/Unsupported/);
+        assert.throws(() => importSettings({ version: 99 }), /Unsupported/);
     });
 });

@@ -63,8 +63,7 @@
     "rollup-plugin-string": "3.0.0",
     "sass": "1.102.0",
     "serve": "14.2.6",
-    "typescript": "5.9.3",
-    "vitest": "4.1.10"
+    "typescript": "5.9.3"
   },
   "scripts": {
     "build": "rollup -c",
@@ -75,8 +74,8 @@
     "lint:fix": "eslint src test rollup.config.mjs eslint.config.mjs prettier.config.mjs --fix",
     "publint": "publint",
     "serve": "serve public -C -c ../serve.json",
-    "test": "npm run build && vitest run",
-    "test:unit": "vitest run",
+    "test": "npm run build && npm run test:unit",
+    "test:unit": "node --test",
     "type:check": "tsc --noEmit",
     "watch": "rollup -c -w"
   },
