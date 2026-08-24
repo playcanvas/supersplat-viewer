@@ -21,7 +21,9 @@ describe('legacy html rewriting patterns (remove once consumers use renderViewer
         ['content url', /const contentUrl =[\s\S]*?;/],
         ['skybox url', /const skyboxUrl =[\s\S]*?;/],
         ['collision url', /const collisionUrl =[\s\S]*?;/],
-        ['settings', /settings: .*$/m]
+        ['settings', /settings: .*$/m],
+        // a marker element is injected straight after the opening tag
+        ['body tag', /<body\b[^>]*>/]
     ];
 
     it.each(patterns)('still matches the %s pattern', (_name, pattern) => {
@@ -34,6 +36,15 @@ describe('legacy html rewriting patterns (remove once consumers use renderViewer
         // and a background colour is spliced into the stylesheet's first `body {` rule to
         // avoid a flash before the first frame
         expect(css).toContain('body {');
+    });
+
+    it('keeps the settings assignment on one line', () => {
+        // The consumer's `/settings: .*$/m` replacement is line-anchored, so a wrapped
+        // statement would be truncated mid-expression — leaving a dangling `?? fetch(...)`
+        // and a syntax error. Matching that pattern is not enough to prove it is safe: a
+        // partial wrap still matches the first line. Require the expression to terminate on
+        // the same line as the key.
+        expect(html).toMatch(/settings: [^\n]*response\.json\(\)\)$/m);
     });
 
     it('keeps the asset urls as single replaceable declarations', () => {

@@ -116,6 +116,9 @@ validateSettings(json, { limits: true });
 
 // migrates older versions forward; does not mutate its argument
 const migrated = importSettings(json);
+
+// the bounds are data, so an editor UI can drive a slider from the same numbers
+const { min, max, step } = POST_EFFECT_RANGES.bloom.intensity;
 ```
 
 `CAMERA_FOV_RANGE`, `POST_EFFECT_RANGES`, `ANIM_TRACK_LIMITS` and `ANNOTATION_LIMITS` are

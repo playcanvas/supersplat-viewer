@@ -38,7 +38,7 @@ type RenderViewerHtmlOptions = {
      * are normalized 0..1, not 0..255, matching `background.color` in the settings format —
      * so an experience's own colour can be passed straight through.
      */
-    backgroundColor?: [number, number, number];
+    backgroundColor?: readonly [number, number, number];
     /** Raw markup injected before `</head>`, for analytics or error reporting. */
     headExtras?: string;
     /**

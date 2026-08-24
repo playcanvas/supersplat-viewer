@@ -162,6 +162,22 @@ describe('validateSettings', () => {
         ).toThrow(/fov must have 1 value per keyframe \(2\), got 1/);
     });
 
+    it('rejects a track with no keyframes, which the viewer cannot load', () => {
+        // CubicSpline.calcKnots derives dim as points.length / times.length, so an empty
+        // track computes 0/0 and allocates new Array(NaN), which throws at load
+        const settings = clone(defaultSettings());
+        settings.startMode = 'animTrack';
+        settings.animTracks = [
+            {
+                ...withAnimTrack().animTracks[0],
+                keyframes: { times: [], values: { position: [], target: [], fov: [] } }
+            }
+        ];
+
+        expect(() => validateSettings(settings)).not.toThrow();
+        expect(() => validateSettings(settings, { limits: true })).toThrow(/at least one keyframe/);
+    });
+
     it('enforces annotation limits when asked', () => {
         const settings = clone(defaultSettings());
         settings.annotations = [
@@ -255,6 +271,15 @@ describe('importSettings', () => {
         );
         expect(() => validateSettings(withFrameRate(30.5), { limits: true })).toThrow(/frameRate must be an integer/);
         expect(() => validateSettings(withFrameRate(30), { limits: true })).not.toThrow();
+    });
+
+    it('marks limit failures that come from migrated rather than authored values', () => {
+        // v1 times are in seconds when frameRate is absent; migration rescales by 30, which
+        // can land on a fraction the caller never wrote
+        const doc = v1();
+        doc.animTracks[0].keyframes.times = [0, 0.05];
+
+        expect(() => validateSettings(doc, { limits: true })).toThrow(/checked after migrating from v1/);
     });
 
     it('rejects an unsupported version', () => {

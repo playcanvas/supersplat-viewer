@@ -1,5 +1,5 @@
 import { ANIM_TRACK_LIMITS, ANNOTATION_LIMITS, CAMERA_FOV_RANGE, POST_EFFECT_RANGES } from './ranges';
-import type { NumericRange } from './ranges';
+import type { Bounds } from './ranges';
 import type { ExperienceSettings as ExperienceSettingsV1 } from './v1';
 import type { ExperienceSettings } from './v2';
 
@@ -10,8 +10,6 @@ import type { ExperienceSettings } from './v2';
 // — strictly enough that some existing data fails them. `bloom.intensity` is the known case:
 // the range caps it at 0.1, while several older default objects wrote 1. So this runs only on
 // request, via `validateSettings(x, { limits: true })`, and never on the viewer's read path.
-
-type Bounds = Pick<NumericRange, 'min' | 'max'>;
 
 const range = (value: number, bounds: Bounds, path: string) => {
     if (value < bounds.min || value > bounds.max) {
@@ -84,6 +82,12 @@ const validateLimitsV2 = (settings: ExperienceSettings) => {
         // the spline is built from them in order.
         const { times, values } = track.keyframes;
         maxCount(times, ANIM_TRACK_LIMITS.maxKeyframes, `${path}.keyframes.times`);
+        // At least one: `CubicSpline.calcKnots` derives its dimension as
+        // `points.length / times.length`, so an empty track computes 0/0 and allocates
+        // `new Array(NaN)`, which throws. A track the viewer cannot load is not valid input.
+        if (times.length === 0) {
+            throw new Error(`${path}.keyframes.times must have at least one keyframe`);
+        }
         times.forEach((time, k) => {
             const at = `${path}.keyframes.times[${k}]`;
             if (time < 0) {

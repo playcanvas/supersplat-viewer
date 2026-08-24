@@ -143,10 +143,24 @@ const validateSettings = (settings: unknown, options: ValidateOptions = {}): voi
     if (version === undefined) {
         validateV1(settings);
         if (options.limits) {
-            // Fields the migration would coerce, as the caller wrote them, then everything
-            // else against the migrated result.
+            // Fields the migration would coerce, as the caller wrote them.
             validateLimitsV1(settings as V1);
-            validateLimitsV2(migrateV2(migrateV1(settings as V1)));
+
+            // Everything else has to be checked against the migrated result, so a value the
+            // migration derived can fail — v1 keyframe times in seconds are rescaled to
+            // frames, for instance, and may land on a fraction. Say so, rather than reporting
+            // a path and number the caller never wrote.
+            let migrated: V2;
+            try {
+                migrated = migrateV2(migrateV1(settings as V1));
+            } catch (err) {
+                throw new Error(`settings could not be migrated for validation: ${(err as Error).message}`);
+            }
+            try {
+                validateLimitsV2(migrated);
+            } catch (err) {
+                throw new Error(`${(err as Error).message} (checked after migrating from v1)`);
+            }
         }
     } else if (version === 2) {
         validateV2(settings);
