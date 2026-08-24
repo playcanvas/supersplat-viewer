@@ -112,8 +112,8 @@ const importSettings = (settings: unknown): V2 => {
 
 type ValidateOptions = {
     // Also check the authoring bounds in `ranges.ts`. Off by default: those bounds are
-    // stricter than what the viewer can render, and some historical published settings fail
-    // them. Producers writing new settings should turn this on.
+    // stricter than what the viewer can render, and some settings in the wild fail them.
+    // Producers writing new settings should turn this on.
     limits?: boolean;
 };
 

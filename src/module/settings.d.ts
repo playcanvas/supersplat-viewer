@@ -82,9 +82,9 @@ export type ExperienceSettings = {
 export type CameraFit = 'environment' | 'object';
 
 export type NumericRange = {
-    min: number;
-    max: number;
-    step: number;
+    readonly min: number;
+    readonly max: number;
+    readonly step: number;
 };
 
 export type PostEffectRanges = {
@@ -98,13 +98,16 @@ export type PostEffectRanges = {
 export type ValidateOptions = {
     /**
      * Also check the authoring bounds in the exported ranges. Off by default: those bounds
-     * are stricter than what the viewer can render, and some historical published settings
-     * fail them. Producers writing new settings should turn this on.
+     * are stricter than what the viewer can render, and some settings in the wild fail
+     * them. Producers writing new settings should turn this on.
      */
     limits?: boolean;
 };
 
-/** Authoring bounds, shared with the experience editor's slider components. */
+/**
+ * Authoring bounds, shared by the settings validators and by editor UIs that need slider
+ * ranges. Frozen at runtime, so writing to them throws in strict mode.
+ */
 export const CAMERA_FOV_RANGE: NumericRange;
 export const POST_EFFECT_RANGES: PostEffectRanges;
 export const ANIM_TRACK_LIMITS: {
@@ -122,7 +125,7 @@ export const ANNOTATION_LIMITS: {
 };
 export function isCameraFovInRange(fov: number): boolean;
 
-export const DEFAULT_BACKGROUND_COLOR: [number, number, number];
+export const DEFAULT_BACKGROUND_COLOR: readonly [number, number, number];
 export const DEFAULT_TONEMAPPING: ExperienceSettings['tonemapping'];
 export const DEFAULT_CAMERA_FOV: number;
 
