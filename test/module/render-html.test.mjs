@@ -114,7 +114,11 @@ describe('renderViewerHtml', () => {
 
     it('leaves the document self-contained when inlining both', () => {
         const result = renderViewerHtml({
-            bootstrap: { settings: { version: 2 }, contentUrl: 'data:application/octet-stream;base64,AAAA' },
+            bootstrap: {
+                settings: { version: 2 },
+                contentUrl: 'data:application/octet-stream;base64,AAAA',
+                contentFilename: 'scene.sog'
+            },
             inlineCss: true,
             inlineJs: true
         });
@@ -123,6 +127,8 @@ describe('renderViewerHtml', () => {
         assert.ok(!result.includes("import { main } from './index.js';"));
         assert.ok(result.length > css.length + js.length);
         assert.strictEqual(readBootstrap(result).contentUrl, 'data:application/octet-stream;base64,AAAA');
+        // a data: uri has no usable name, so the filename rides along to select the format
+        assert.strictEqual(readBootstrap(result).contentFilename, 'scene.sog');
     });
 
     it('documents the bootstrap precedence the shipped script implements', () => {
@@ -133,6 +139,8 @@ describe('renderViewerHtml', () => {
         // settings is the exception: inline settings beat `?settings=`, so a published
         // experience cannot be repointed at another settings file
         assert.ok(html.includes('settings: bootstrap.settings ?? fetch(settingsUrl)'));
+        // contentFilename names the bootstrap's contentUrl, so a ?content= override drops it
+        assert.match(html, /searchParams\.has\('content'\) \? null : \(?bootstrap\.contentFilename/);
     });
 
     it('keeps both external references when inlining neither', () => {
