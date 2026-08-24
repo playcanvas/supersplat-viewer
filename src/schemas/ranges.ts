@@ -29,24 +29,24 @@ const deepFreeze = <T>(value: T): T => {
  * ranges (`CameraFrame`, and `RenderPassBloom` for `blurLevel`).
  */
 type PostEffectRanges = {
-    sharpness: NumericRange;
-    bloom: {
-        intensity: NumericRange;
-        blurLevel: NumericRange;
+    readonly sharpness: NumericRange;
+    readonly bloom: {
+        readonly intensity: NumericRange;
+        readonly blurLevel: NumericRange;
     };
-    grading: {
-        brightness: NumericRange;
-        contrast: NumericRange;
-        saturation: NumericRange;
+    readonly grading: {
+        readonly brightness: NumericRange;
+        readonly contrast: NumericRange;
+        readonly saturation: NumericRange;
     };
-    vignette: {
-        intensity: NumericRange;
-        inner: NumericRange;
-        outer: NumericRange;
-        curvature: NumericRange;
+    readonly vignette: {
+        readonly intensity: NumericRange;
+        readonly inner: NumericRange;
+        readonly outer: NumericRange;
+        readonly curvature: NumericRange;
     };
-    fringing: {
-        intensity: NumericRange;
+    readonly fringing: {
+        readonly intensity: NumericRange;
     };
 };
 

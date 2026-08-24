@@ -24,7 +24,10 @@ const withAnimTrack = (overrides: Record<string, unknown> = {}) => {
             loopMode: 'repeat',
             interpolation: 'spline',
             smoothness: 0,
-            keyframes: { times: [0, 1], values: { position: [], target: [], fov: [] } },
+            keyframes: {
+                times: [0, 1],
+                values: { position: [0, 0, 0, 1, 1, 1], target: [0, 0, 0, 0, 0, 0], fov: [75, 75] }
+            },
             ...overrides
         } as ExperienceSettings['animTracks'][number]
     ];
@@ -134,6 +137,31 @@ describe('validateSettings', () => {
         ).toThrow(/name/);
     });
 
+    it('enforces keyframe invariants when asked', () => {
+        const kf = (times: number[], position: number[], target: number[], fov: number[]) =>
+            withAnimTrack({ keyframes: { times, values: { position, target, fov } } });
+
+        // frames must be integers, strictly ascending, and each value array correctly sized
+        expect(() =>
+            validateSettings(kf([0, 1.5], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true })
+        ).toThrow(/times\[1\] must be an integer/);
+        expect(() =>
+            validateSettings(kf([0, 0], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true })
+        ).toThrow(/greater than the previous frame/);
+        expect(() =>
+            validateSettings(kf([5, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true })
+        ).toThrow(/greater than the previous frame/);
+        expect(() => validateSettings(kf([0, 1], [0, 0, 0], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true })).toThrow(
+            /position must have 3 values per keyframe \(6\), got 3/
+        );
+        expect(() => validateSettings(kf([0, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0], [75, 75]), { limits: true })).toThrow(
+            /target must have 3 values per keyframe/
+        );
+        expect(() =>
+            validateSettings(kf([0, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75]), { limits: true })
+        ).toThrow(/fov must have 1 value per keyframe \(2\), got 1/);
+    });
+
     it('enforces annotation limits when asked', () => {
         const settings = clone(defaultSettings());
         settings.annotations = [
@@ -159,7 +187,11 @@ describe('importSettings', () => {
                 target: 'camera' as const,
                 loopMode: 'repeat',
                 interpolation: 'spline',
-                keyframes: { times: [0, 1], values: { position: [] as number[], target: [] as number[] } }
+                // 3 values per keyframe for position/target; the migration fills fov itself
+                keyframes: {
+                    times: [0, 1],
+                    values: { position: [0, 0, 0, 1, 1, 1], target: [0, 0, 0, 0, 0, 0] }
+                }
             }
         ]
     });

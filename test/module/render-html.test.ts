@@ -51,6 +51,24 @@ describe('renderViewerHtml', () => {
         expect(result).toContain('<script data-test="sentry"></script>');
     });
 
+    it('injects body content immediately after the opening body tag', () => {
+        const result = renderViewerHtml({ bodyStartExtras: '<div id="marker"></div>' });
+
+        expect(result).toMatch(/<body[^>]*>\s*<div id="marker"><\/div>/);
+        // before the canvas, which is what a marker element is for
+        expect(result.indexOf('id="marker"')).toBeLessThan(result.indexOf('application-canvas'));
+    });
+
+    it('does not let body content spoof the module-import seam', () => {
+        const result = renderViewerHtml({
+            bodyStartExtras: "<!-- import { main } from './index.js'; -->",
+            inlineJs: true
+        });
+
+        expect(result).not.toMatch(/<script type="module">\s*import \{ main \}/);
+        expect(result).toContain("<!-- import { main } from './index.js'; -->");
+    });
+
     it('places head additions after the stylesheet and before </head>', () => {
         const result = renderViewerHtml({ backgroundColor: [1, 1, 1], headExtras: '<meta name="t" />' });
 

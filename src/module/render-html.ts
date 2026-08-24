@@ -41,6 +41,11 @@ type RenderViewerHtmlOptions = {
     backgroundColor?: [number, number, number];
     /** Raw markup injected before `</head>`, for analytics or error reporting. */
     headExtras?: string;
+    /**
+     * Raw markup injected immediately after `<body>`, for content that must precede the
+     * canvas — a marker element a screenshot pipeline waits on, for example.
+     */
+    bodyStartExtras?: string;
     /** Inline the stylesheet into a `<style>` block instead of linking `./index.css`. */
     inlineCss?: boolean;
     /**
@@ -99,6 +104,7 @@ const BASE_HREF = /<base\b[^>]*>/;
 const STYLESHEET = /<link\b[^>]*href="\.\/index\.css"[^>]*>/;
 const MODULE_IMPORT = /import \{ main \} from '\.\/index\.js';/;
 const HEAD_CLOSE = /^([ \t]*)<\/head>/m;
+const BODY_OPEN = /<body\b[^>]*>/;
 
 /**
  * Render a standalone viewer document.
@@ -110,7 +116,7 @@ const HEAD_CLOSE = /^([ \t]*)<\/head>/m;
  * @returns The rendered html document.
  */
 const renderViewerHtml = (options: RenderViewerHtmlOptions = {}) => {
-    const { bootstrap, baseHref, backgroundColor, headExtras, inlineCss, inlineJs } = options;
+    const { bootstrap, baseHref, backgroundColor, headExtras, bodyStartExtras, inlineCss, inlineJs } = options;
 
     let result = html;
 
@@ -136,6 +142,10 @@ const renderViewerHtml = (options: RenderViewerHtmlOptions = {}) => {
             throw new Error('renderViewerHtml: the viewer bundle contains "</script" and cannot be inlined');
         }
         result = replaceOnce(result, MODULE_IMPORT, () => js);
+    }
+
+    if (bodyStartExtras !== undefined) {
+        result = replaceOnce(result, BODY_OPEN, (bodyTag) => `${bodyTag}\n        ${bodyStartExtras}`);
     }
 
     const rgb = backgroundColor?.map((c) => Math.round(c * 255)).join(', ');
