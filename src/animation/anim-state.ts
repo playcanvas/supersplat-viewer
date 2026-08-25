@@ -60,7 +60,12 @@ class AnimState {
 
         const extra = duration === times[times.length - 1] / frameRate ? 1 : 0;
 
-        const spline = CubicSpline.fromPointsLooping((duration + extra) * frameRate, times, points, smoothness);
+        // 'repeat' wraps the path from the last key back to the first; 'none' and
+        // 'pingpong' clamp at the outer keys, holding the end poses instead
+        const spline =
+            loopMode === 'repeat'
+                ? CubicSpline.fromPointsLooping((duration + extra) * frameRate, times, points, smoothness)
+                : CubicSpline.fromPoints(times, points, smoothness);
 
         return new AnimState(spline, duration, loopMode, frameRate);
     }

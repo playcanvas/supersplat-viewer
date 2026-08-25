@@ -179,6 +179,11 @@ class CameraManager {
             // update animation timeline
             if (state.cameraMode === 'anim') {
                 state.animationTime = controllers.anim.animState.cursor.value;
+
+                // a play-once animation pauses once it reaches the end of the track
+                if (!state.animationPaused && controllers.anim.animState.cursor.ended) {
+                    state.animationPaused = true;
+                }
             }
 
             if (clearOrbitTargetOnTransitionEnd && prevTransitionTimer < 1 && transitionTimer === 1) {
@@ -271,6 +276,18 @@ class CameraManager {
             // enter new controller
             const newController = getController(value);
             newController.onEnter(this.camera);
+        });
+
+        // pressing play at (or within a frame of) the end of a play-once animation
+        // restarts it from the beginning (a scrub can park just short of the end)
+        events.on('animationPaused:changed', (paused: boolean) => {
+            const animState = controllers.anim?.animState;
+            if (!paused && animState) {
+                const { cursor } = animState;
+                if (cursor.loopMode === 'none' && cursor.duration - cursor.value < 1 / animState.frameRate) {
+                    cursor.value = 0;
+                }
+            }
         });
 
         // handle user scrubbing the animation timeline
