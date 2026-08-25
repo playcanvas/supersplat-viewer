@@ -43,8 +43,16 @@ class AnimCursor {
         this.cursor = 0;
     }
 
+    // true once a play-once animation has reached the end of the track
+    get ended() {
+        return this.loopMode === 'none' && this.cursor >= this.duration;
+    }
+
     set value(value: number) {
-        this.cursor = mod(value, this.duration);
+        // 'repeat' wraps (the end is the start); 'none' and 'pingpong' clamp so a
+        // scrub to the exact end parks on the last frame instead of wrapping to 0
+        this.cursor =
+            this.loopMode === 'repeat' ? mod(value, this.duration) : Math.max(0, Math.min(this.duration, value));
     }
 
     get value() {

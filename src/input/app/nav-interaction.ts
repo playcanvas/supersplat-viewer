@@ -240,24 +240,26 @@ class NavInteraction {
         if (eventName !== 'dblclick') return;
         if (!(event instanceof MouseEvent)) return;
         const { events, state } = global;
-        // dblclick swaps the active mode and uses the picked target:
-        //   fly          → orbit, focus orbit at point
-        //   orbit / walk → fly, navigate fly toward point
+        // dblclick in captured walk mode does nothing, like click
+        if (state.cameraMode === 'walk' && state.gamingControls) return;
+
         const request = ++this._targetPickRequest;
         const target = await this._pickSceneTarget(event.offsetX, event.offsetY);
         if (!target || request !== this._targetPickRequest) return;
 
-        const currentMode = this._global?.state.cameraMode;
-        if (currentMode === 'fly') {
-            // 'pick' switches mode to orbit, which cancels the active fly nav
-            // and would clobber any pre-set orbit target — set it after.
+        const currentState = this._global?.state;
+        if (!currentState) return;
+        if (currentState.cameraMode === 'walk') {
+            if (!currentState.gamingControls) {
+                // run to the picked point (same multiplier as shift-click)
+                events.fire('navigateTo', target.position, target.normal, 2);
+            }
+        } else {
+            // in other modes dblclick focuses orbit on the picked point.
+            // 'pick' switches mode to orbit, which cancels any active navigation
+            // and would clobber a pre-set orbit target — set it after.
             events.fire('pick', target.position);
             events.fire('orbitTarget:set', target.position, target.normal);
-        } else if (currentMode === 'orbit' || currentMode === 'walk') {
-            state.cameraMode = 'fly';
-            // Modifiers apply against the destination mode (fly), not the source.
-            const speedMul = computeClickSpeedMul(event, 'fly');
-            events.fire('navigateTo', target.position, target.normal, speedMul);
         }
     };
 
@@ -291,7 +293,7 @@ class NavInteraction {
         canvas.addEventListener('pointermove', this._onPointerMove);
         canvas.addEventListener('pointerup', this._onPointerUp);
 
-        // double-click/tap fallback -> fly target or orbit focus (skipped in walk mode)
+        // double-click/tap fallback -> run to walk target or orbit focus
         events.on('inputEvent', this._onInputEvent);
 
         // mobile tap (no movement) → walk/fly target or orbit focus
