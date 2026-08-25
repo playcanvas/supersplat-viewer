@@ -154,44 +154,62 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
     return { app, camera, renderer };
 };
 
+// measure the canvas's css size, falling back to the window size while the canvas
+// has no layout (stylesheet still loading) — the canvas is styled to fill the
+// viewport, so the window size is the correct stand-in. a hidden embed (e.g. a
+// display:none iframe) measures 0×0.
+const measureCanvas = (canvas: HTMLCanvasElement) => ({
+    width: canvas.clientWidth || window.innerWidth,
+    height: canvas.clientHeight || window.innerHeight
+});
+
+// size the canvas backbuffer from a css size: scaled by the pixel ratio (capped to
+// limit resolution on high-DPI devices), halved in performance mode. a zero css size
+// (hidden canvas) is skipped — the canvas keeps its previous size, as a zero-sized
+// swap chain is invalid in webgpu.
+const resizeCanvas = (
+    canvas: HTMLCanvasElement,
+    cssSize: { width: number; height: number },
+    performanceMode: boolean
+) => {
+    if (!cssSize.width || !cssSize.height) return;
+
+    // maximum pixel dimension we will allow along the shortest screen dimension based on platform
+    const maxPixelDim = platform.mobile ? 1080 : 2160;
+    const pixelRatio = Math.min(maxPixelDim / Math.min(screen.width, screen.height), window.devicePixelRatio);
+
+    const scale = pixelRatio * (performanceMode ? 0.5 : 1.0);
+    const width = Math.ceil(cssSize.width * scale);
+    const height = Math.ceil(cssSize.height * scale);
+    if (width !== canvas.width || height !== canvas.height) {
+        canvas.width = width;
+        canvas.height = height;
+    }
+};
+
 // initialize canvas size and resizing
 const initCanvas = (global: Global) => {
     const { app, events, state } = global;
     const { canvas } = app.graphicsDevice;
 
-    // maximum pixel dimension we will allow along the shortest screen dimension based on platform
-    const maxPixelDim = platform.mobile ? 1080 : 2160;
-
-    // cap pixel ratio to limit resolution on high-DPI devices
-    const calcPixelRatio = () => Math.min(maxPixelDim / Math.min(screen.width, screen.height), window.devicePixelRatio);
-
-    // last known device pixel size (full resolution, before any quality scaling)
-    const deviceSize = { width: 0, height: 0 };
-
-    const set = (width: number, height: number) => {
-        const ratio = calcPixelRatio();
-        deviceSize.width = width * ratio;
-        deviceSize.height = height * ratio;
-    };
+    // the canvas css size, kept current by the resize observer. measured directly at
+    // startup so the first frames are sized before the observer's first delivery.
+    const cssSize = measureCanvas(canvas);
 
     const apply = () => {
         // don't resize the canvas during XR - the XR system manages its own framebuffers
         // and resetting canvas dimensions can invalidate the XRWebGLLayer
         if (app.xr?.active) return;
 
-        const s = state.performanceMode ? 0.5 : 1.0;
-        const w = Math.ceil(deviceSize.width * s);
-        const h = Math.ceil(deviceSize.height * s);
-        if (w !== canvas.width || h !== canvas.height) {
-            canvas.width = w;
-            canvas.height = h;
-        }
+        resizeCanvas(canvas, cssSize, state.performanceMode);
     };
 
     const resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
         const e = entries[0]?.contentBoxSize?.[0];
-        if (e) {
-            set(e.inlineSize, e.blockSize);
+        // ignore hidden deliveries (0×0), keeping the last real size
+        if (e && e.inlineSize && e.blockSize) {
+            cssSize.width = e.inlineSize;
+            cssSize.height = e.blockSize;
             app.renderNextFrame = true;
         }
     });
@@ -206,16 +224,10 @@ const initCanvas = (global: Global) => {
 
     // Disable the engine's built-in canvas resize — we handle it via ResizeObserver
     (app as unknown as { _allowResize: boolean })._allowResize = false;
-    set(canvas.clientWidth, canvas.clientHeight);
     apply();
 };
 
 const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Config) => {
-    const { app, camera, renderer } = await createApp(canvas, config);
-
-    // create events
-    const events = new EventHandler();
-
     // migrate legacy `retinaDisplay` preference (inverted) to `performanceMode`
     const legacyRetina = localStorage.getItem('retinaDisplay');
     if (legacyRetina !== null && localStorage.getItem('performanceMode') === null) {
@@ -223,10 +235,22 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
         localStorage.removeItem('retinaDisplay');
     }
     const storedPerformanceMode = localStorage.getItem('performanceMode');
+    const performanceMode = storedPerformanceMode !== null ? storedPerformanceMode === 'true' : platform.mobile;
+
+    // size the canvas backbuffer before the graphics device is created, so the swap
+    // chain and any backbuffer-sized resources start at the correct resolution instead
+    // of being recreated on the first frame's resize. a hidden embed keeps the default
+    // canvas size here; the resize observer sizes it on reveal
+    resizeCanvas(canvas, measureCanvas(canvas), performanceMode);
+
+    const { app, camera, renderer } = await createApp(canvas, config);
+
+    // create events
+    const events = new EventHandler();
 
     const state = observe<State>(events, {
         loaded: false,
-        performanceMode: storedPerformanceMode !== null ? storedPerformanceMode === 'true' : platform.mobile,
+        performanceMode,
         progress: 0,
         inputMode: platform.mobile ? 'touch' : 'desktop',
         cameraMode: 'orbit',
