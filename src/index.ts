@@ -154,13 +154,12 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
     return { app, camera, renderer };
 };
 
-// measure the canvas's css size, falling back to the window size while the canvas
-// has no layout (stylesheet still loading) — the canvas is styled to fill the
-// viewport, so the window size is the correct stand-in. a hidden embed (e.g. a
-// display:none iframe) measures 0×0.
+// measure the canvas's css size. a hidden canvas (e.g. inside a display:none
+// iframe) measures 0×0 — resizeCanvas skips those, keeping the current backing
+// size until the resize observer reports a real layout
 const measureCanvas = (canvas: HTMLCanvasElement) => ({
-    width: canvas.clientWidth || window.innerWidth,
-    height: canvas.clientHeight || window.innerHeight
+    width: canvas.clientWidth,
+    height: canvas.clientHeight
 });
 
 // size the canvas backbuffer from a css size: scaled by the pixel ratio (capped to
