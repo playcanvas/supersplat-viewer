@@ -254,6 +254,8 @@ class CursorRing {
 class NavCursor {
     private svg: SVGSVGElement;
 
+    private captureMarker: SVGCircleElement;
+
     private hoverRing: CursorRing;
 
     private targetRing: CursorRing;
@@ -304,6 +306,17 @@ class NavCursor {
             'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:1';
         this.canvas.parentElement!.appendChild(this.svg);
 
+        this.captureMarker = document.createElementNS(SVGNS, 'circle');
+        this.captureMarker.setAttribute('cx', '50%');
+        this.captureMarker.setAttribute('cy', '50%');
+        this.captureMarker.setAttribute('r', '2');
+        this.captureMarker.setAttribute('fill', 'white');
+        this.captureMarker.setAttribute('stroke', 'black');
+        this.captureMarker.setAttribute('stroke-opacity', '0.5');
+        this.captureMarker.setAttribute('stroke-width', '2');
+        this.captureMarker.style.display = 'none';
+        this.svg.appendChild(this.captureMarker);
+
         this.hoverRing = new CursorRing(this.svg, this.canvas, camera, true);
         this.targetRing = new CursorRing(this.svg, this.canvas, camera, false);
 
@@ -325,6 +338,15 @@ class NavCursor {
         this.canvas.addEventListener('pointerleave', this.onPointerLeave);
 
         const updateActive = () => {
+            const captureActive =
+                state.inputMode === 'desktop' &&
+                state.gamingControls &&
+                (state.cameraMode === 'walk' || state.cameraMode === 'fly');
+            this.captureMarker.style.display = captureActive ? '' : 'none';
+            if (captureActive) {
+                this.svg.style.display = '';
+            }
+
             // Hover ring only in walk mode with mouse navigation. Gaming
             // controls use pointer-lock and don't need a hover preview.
             this.hoverActive = state.cameraMode === 'walk' && !state.gamingControls;
