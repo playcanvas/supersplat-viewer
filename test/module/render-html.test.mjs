@@ -143,6 +143,11 @@ describe('renderViewerHtml', () => {
         assert.match(html, /searchParams\.has\('content'\) \? null : \(?bootstrap\.contentFilename/);
     });
 
+    it('does not hide the canvas just because collision data is configured', () => {
+        assert.match(html, /const \{ poster \} = config/);
+        assert.doesNotMatch(html, /poster \|\| collisionUrl/);
+    });
+
     it('keeps both external references when inlining neither', () => {
         const result = renderViewerHtml({ bootstrap: { contentUrl: 'scene.sog' } });
 

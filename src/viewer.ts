@@ -25,7 +25,7 @@ import {
 import type { CameraComponent, Entity, GSplatComponent, Layer } from 'playcanvas';
 
 import { Annotations } from './annotations';
-import { CameraManager, isWalkAllowed } from './camera-manager';
+import { CameraManager } from './camera-manager';
 import type { Camera } from './cameras/camera';
 import { Capture } from './capture';
 import type { Collision } from './collision';
@@ -180,7 +180,7 @@ class Viewer {
         global: Global,
         gsplatLoad: Promise<Entity>,
         skyboxLoad: Promise<void> | undefined,
-        collisionLoad: Promise<Collision> | undefined
+        collisionLoad: Promise<Collision | null> | undefined
     ) {
         this.global = global;
 
@@ -428,10 +428,9 @@ class Viewer {
             );
         }
 
-        // wait for the model to load
-        const loadSetup = Promise.all([gsplatLoad, skyboxLoad, collisionLoad]).then((results) => {
+        // wait for the visible scene to load; collision attaches asynchronously below
+        const loadSetup = Promise.all([gsplatLoad, skyboxLoad]).then((results) => {
             const gsplatComponent = results[0].gsplat as GSplatComponent;
-            const collision = results[2];
 
             // get scene bounding box
             const gsplatBbox = gsplatComponent.customAabb;
@@ -445,52 +444,63 @@ class Viewer {
 
             this.picker = new Picker(app, camera);
             this.inputController = new InputController(global, this.picker);
-            this.inputController.collision = collision ?? null;
 
-            // hasCollision = collision data exists (drives fly-mode collision
-            // detection and the voxel/mesh debug overlay availability).
-            // walkAllowed = walk mode is offered to the user; requires both
-            // collision data and a scene large enough to walk around in.
-            state.hasCollision = !!collision;
-            state.walkAllowed = isWalkAllowed(sceneBound, collision ?? null);
-
-            // Make the collision debug overlay available, but defer its expensive
-            // GPU allocation until the user first enables it.
-            if (collision instanceof VoxelCollision && renderer !== 'webgl') {
-                state.hasCollisionOverlay = true;
-
-                events.on('collisionOverlayEnabled:changed', (value: boolean) => {
-                    if (value && !this.voxelOverlay) {
-                        this.voxelOverlay = new VoxelDebugOverlay(app, collision, camera);
-                        this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
-                    }
-                    if (this.voxelOverlay) {
-                        this.voxelOverlay.enabled = value;
-                    }
-                    app.renderNextFrame = true;
-                });
-            } else if (collision instanceof MeshCollision) {
-                state.hasCollisionOverlay = true;
-
-                events.on('collisionOverlayEnabled:changed', (value: boolean) => {
-                    if (value && !this.meshOverlay) {
-                        this.meshOverlay = new MeshDebugOverlay(app, collision, camera, !!this.cameraFrame);
-                    }
-                    if (this.meshOverlay) {
-                        this.meshOverlay.enabled = value;
-                    }
-                    app.renderNextFrame = true;
-                });
-            }
-
-            this.cameraManager = new CameraManager(global, sceneBound, collision);
+            this.cameraManager = new CameraManager(global, sceneBound);
             applyCamera(this.cameraManager.camera);
 
             if (!config.noui) {
-                this.navCursor = new NavCursor(app, camera, collision ?? null, events, state);
+                this.navCursor = new NavCursor(app, camera, null, events, state);
             }
 
             this.debugPanel = new DebugPanel(global, this.cameraManager);
+
+            const attachCollision = (collision: Collision | null) => {
+                if (!collision) {
+                    return;
+                }
+
+                this.inputController.collision = collision;
+                this.cameraManager.setCollision(collision);
+                if (this.navCursor) {
+                    this.navCursor.collision = collision;
+                }
+                state.hasCollision = true;
+
+                // Make the collision debug overlay available, but defer its expensive
+                // GPU allocation until the user first enables it.
+                if (collision instanceof VoxelCollision && renderer !== 'webgl') {
+                    state.hasCollisionOverlay = true;
+
+                    events.on('collisionOverlayEnabled:changed', (value: boolean) => {
+                        if (value && !this.voxelOverlay) {
+                            this.voxelOverlay = new VoxelDebugOverlay(app, collision, camera);
+                            this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
+                        }
+                        if (this.voxelOverlay) {
+                            this.voxelOverlay.enabled = value;
+                        }
+                        app.renderNextFrame = true;
+                    });
+                } else if (collision instanceof MeshCollision) {
+                    state.hasCollisionOverlay = true;
+
+                    events.on('collisionOverlayEnabled:changed', (value: boolean) => {
+                        if (value && !this.meshOverlay) {
+                            this.meshOverlay = new MeshDebugOverlay(app, collision, camera, !!this.cameraFrame);
+                        }
+                        if (this.meshOverlay) {
+                            this.meshOverlay.enabled = value;
+                        }
+                        app.renderNextFrame = true;
+                    });
+                }
+
+                app.renderNextFrame = true;
+            };
+
+            collisionLoad?.then(attachCollision).catch((err: unknown) => {
+                console.warn('Failed to attach collision data:', err);
+            });
 
             // quality budget
             const budgets = {

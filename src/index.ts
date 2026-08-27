@@ -320,7 +320,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
             });
 
     // Load collision data (type determined by file extension)
-    let collisionLoad: Promise<Collision> | undefined;
+    let collisionLoad: Promise<Collision | null> | undefined;
     if (config.collisionUrl) {
         const ext = new URL(config.collisionUrl, location.href).pathname.split('.').pop()?.toLowerCase();
         if (ext === 'glb') {

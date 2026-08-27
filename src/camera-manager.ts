@@ -49,6 +49,8 @@ const createFrameCamera = (bbox: BoundingBox, fov: number) => {
 class CameraManager {
     update: (deltaTime: number, cameraFrame: CameraFrame) => void;
 
+    setCollision: (collision: Collision) => void;
+
     // Re-seed the active controller from the current camera pose and
     // cancel any in-progress transition lerp. Use after externally
     // mutating `camera` and/or `state.cameraMode` to make the change
@@ -61,7 +63,7 @@ class CameraManager {
     constructor(global: Global, bbox: BoundingBox, collision: Collision | null = null) {
         const { events, settings, state } = global;
 
-        const walkAllowed = isWalkAllowed(bbox, collision);
+        let walkAllowed = isWalkAllowed(bbox, collision);
 
         const camera0 = settings.cameras[0]?.initial;
         const defaultFov = camera0?.fov ?? DEFAULT_CAMERA_FOV;
@@ -120,6 +122,7 @@ class CameraManager {
         // set the global animation flag
         state.hasAnimation = !!controllers.anim;
         state.animationDuration = controllers.anim ? controllers.anim.animState.cursor.duration : 0;
+        state.walkAllowed = walkAllowed;
 
         // initialize camera mode and initial camera position
         state.cameraMode = state.hasAnimation ? 'anim' : isObjectExperience ? 'orbit' : walkAllowed ? 'walk' : 'fly';
@@ -127,11 +130,27 @@ class CameraManager {
 
         const target = new Camera(this.camera); // the active controller updates this
         const from = new Camera(this.camera); // stores the previous camera state during transition
-        const defaultMode: CameraMode = isObjectExperience ? 'orbit' : walkAllowed ? 'walk' : 'fly';
+        let defaultMode: CameraMode = isObjectExperience ? 'orbit' : walkAllowed ? 'walk' : 'fly';
         let fromMode: CameraMode = defaultMode;
 
         // tracks the mode to restore when exiting walk
         let preWalkMode: CameraMode = isObjectExperience ? 'orbit' : 'fly';
+
+        this.setCollision = (value) => {
+            controllers.fly.collision = value;
+            controllers.walk.collision = value;
+
+            walkAllowed = isWalkAllowed(bbox, value);
+            state.walkAllowed = walkAllowed;
+
+            const previousDefaultMode = defaultMode;
+            defaultMode = isObjectExperience ? 'orbit' : walkAllowed ? 'walk' : 'fly';
+            if (state.cameraMode === 'anim' && fromMode === previousDefaultMode) {
+                fromMode = defaultMode;
+            }
+
+            global.app.renderNextFrame = true;
+        };
 
         // enter the initial controller
         getController(state.cameraMode).onEnter(this.camera);
