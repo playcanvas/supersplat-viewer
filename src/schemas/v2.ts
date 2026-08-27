@@ -111,18 +111,43 @@ const START_MODES = ['default', 'animTrack', 'annotation'] as const;
 const validateAnimTrack = (data: unknown, path: string): AnimTrack => {
     const obj = assertObject(data, path);
     assertString(obj.name, `${path}.name`);
-    assertNumber(obj.duration, `${path}.duration`);
-    assertNumber(obj.frameRate, `${path}.frameRate`);
+    const duration = assertNumber(obj.duration, `${path}.duration`);
+    if (duration <= 0) throw new Error(`${path}.duration must be greater than 0`);
+    const frameRate = assertNumber(obj.frameRate, `${path}.frameRate`);
+    if (frameRate <= 0) throw new Error(`${path}.frameRate must be greater than 0`);
     assertEnum(obj.loopMode, LOOP_MODES, `${path}.loopMode`);
     assertEnum(obj.interpolation, INTERPOLATIONS, `${path}.interpolation`);
     assertNumber(obj.smoothness, `${path}.smoothness`);
 
     const kf = assertObject(obj.keyframes, `${path}.keyframes`);
-    assertNumberArray(kf.times, `${path}.keyframes.times`);
+    const times = assertNumberArray(kf.times, `${path}.keyframes.times`);
+    if (times.length === 0) throw new Error(`${path}.keyframes.times must have at least one keyframe`);
+    for (let i = 1; i < times.length; i++) {
+        if (times[i] <= times[i - 1]) {
+            throw new Error(`${path}.keyframes.times[${i}] must be greater than the previous frame, got ${times[i]}`);
+        }
+    }
+
     const vals = assertObject(kf.values, `${path}.keyframes.values`);
-    assertNumberArray(vals.position, `${path}.keyframes.values.position`);
-    assertNumberArray(vals.target, `${path}.keyframes.values.target`);
-    assertNumberArray(vals.fov, `${path}.keyframes.values.fov`);
+    const position = assertNumberArray(vals.position, `${path}.keyframes.values.position`);
+    const target = assertNumberArray(vals.target, `${path}.keyframes.values.target`);
+    const fov = assertNumberArray(vals.fov, `${path}.keyframes.values.fov`);
+    const vectorValues = times.length * 3;
+    if (position.length !== vectorValues) {
+        throw new Error(
+            `${path}.keyframes.values.position must have 3 values per keyframe (${vectorValues}), got ${position.length}`
+        );
+    }
+    if (target.length !== vectorValues) {
+        throw new Error(
+            `${path}.keyframes.values.target must have 3 values per keyframe (${vectorValues}), got ${target.length}`
+        );
+    }
+    if (fov.length !== times.length) {
+        throw new Error(
+            `${path}.keyframes.values.fov must have 1 value per keyframe (${times.length}), got ${fov.length}`
+        );
+    }
 
     return data as AnimTrack;
 };

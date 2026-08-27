@@ -555,6 +555,8 @@ class Picker {
 
     pickSurface: (x: number, y: number) => Promise<PickSurface | null>;
 
+    invalidate: () => void;
+
     release: () => void;
 
     constructor(app: AppBase, camera: Entity) {
@@ -865,6 +867,10 @@ class Picker {
 
         this.pickSurface = (x: number, y: number) => serializePick(() => pickSurface(x, y));
 
+        this.invalidate = () => {
+            cacheValid = false;
+        };
+
         this.release = () => {
             if (chunksPatched) {
                 unregisterPickerShaderPatches(app);
@@ -873,7 +879,7 @@ class Picker {
             accumPass?.destroy();
             accumTarget?.destroy();
             accumBuffer?.destroy();
-            cacheValid = false;
+            this.invalidate();
         };
     }
 }

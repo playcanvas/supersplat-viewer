@@ -18,7 +18,7 @@ import { MeshCollision, loadVoxelCollision } from './collision';
 import type { Collision } from './collision';
 import { observe } from './core/observe';
 import { initLocalization } from './localization';
-import { importSettings } from './settings';
+import { importSettings, validateSettings } from './settings';
 import type { Config, Global, State } from './types';
 import { initPoster, initUI } from './ui';
 import { Viewer } from './viewer';
@@ -227,6 +227,10 @@ const initCanvas = (global: Global) => {
 };
 
 const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Config) => {
+    validateSettings(settingsJson);
+    const settings = importSettings(settingsJson);
+    validateSettings(settings);
+
     // migrate legacy `retinaDisplay` preference (inverted) to `performanceMode`
     const legacyRetina = localStorage.getItem('retinaDisplay');
     if (legacyRetina !== null && localStorage.getItem('performanceMode') === null) {
@@ -271,7 +275,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
 
     const global: Global = {
         app,
-        settings: importSettings(settingsJson),
+        settings,
         config,
         state,
         events,

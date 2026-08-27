@@ -134,7 +134,9 @@ describe('validateSettings', () => {
         assert.throws(
             () =>
                 validateSettings(
-                    withAnimTrack({ keyframes: { times: [-1], values: { position: [], target: [], fov: [] } } }),
+                    withAnimTrack({
+                        keyframes: { times: [-1], values: { position: [0, 0, 0], target: [0, 0, 0], fov: [75] } }
+                    }),
                     { limits: true }
                 ),
             /non-negative/
@@ -150,29 +152,33 @@ describe('validateSettings', () => {
         const kf = (times, position, target, fov) =>
             withAnimTrack({ keyframes: { times, values: { position, target, fov } } });
 
-        // frames must be integers, strictly ascending, and each value array correctly sized
+        assert.throws(() => validateSettings(withAnimTrack({ duration: 0 })), /duration must be greater than 0/);
+        assert.throws(() => validateSettings(withAnimTrack({ frameRate: 0 })), /frameRate must be greater than 0/);
+
+        // integer frame numbers are an authoring limit
         assert.throws(
             () => validateSettings(kf([0, 1.5], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true }),
             /times\[1\] must be an integer/
         );
+        // Ordering and value-array sizes are runtime requirements, even without authoring limits.
         assert.throws(
-            () => validateSettings(kf([0, 0], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true }),
+            () => validateSettings(kf([0, 0], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75])),
             /greater than the previous frame/
         );
         assert.throws(
-            () => validateSettings(kf([5, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true }),
+            () => validateSettings(kf([5, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75, 75])),
             /greater than the previous frame/
         );
         assert.throws(
-            () => validateSettings(kf([0, 1], [0, 0, 0], [0, 0, 0, 0, 0, 0], [75, 75]), { limits: true }),
+            () => validateSettings(kf([0, 1], [0, 0, 0], [0, 0, 0, 0, 0, 0], [75, 75])),
             /position must have 3 values per keyframe \(6\), got 3/
         );
         assert.throws(
-            () => validateSettings(kf([0, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0], [75, 75]), { limits: true }),
+            () => validateSettings(kf([0, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0], [75, 75])),
             /target must have 3 values per keyframe/
         );
         assert.throws(
-            () => validateSettings(kf([0, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75]), { limits: true }),
+            () => validateSettings(kf([0, 1], [0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0], [75])),
             /fov must have 1 value per keyframe \(2\), got 1/
         );
     });
@@ -189,8 +195,7 @@ describe('validateSettings', () => {
             }
         ];
 
-        assert.doesNotThrow(() => validateSettings(settings));
-        assert.throws(() => validateSettings(settings, { limits: true }), /at least one keyframe/);
+        assert.throws(() => validateSettings(settings), /at least one keyframe/);
     });
 
     it('enforces annotation limits when asked', () => {

@@ -110,6 +110,18 @@ export class Annotation extends Script {
      */
     materials: StandardMaterial[] = [];
 
+    private readonly screenPosition = new Vec3();
+
+    private readonly onDocumentClick = () => {
+        if (Annotation.activeAnnotation === this) {
+            this.hideTooltip();
+        }
+    };
+
+    private readonly onPrerender = () => {
+        this._update();
+    };
+
     /**
      * Injects required CSS styles into the document.
      * @param {number} size - The size of the hotspot in screen pixels.
@@ -434,16 +446,14 @@ export class Annotation extends Script {
         this.hotspotDom.addEventListener('pointerenter', enter);
         this.hotspotDom.addEventListener('pointerleave', leave);
 
-        document.addEventListener('click', () => {
-            if (Annotation.activeAnnotation === this) {
-                this.hideTooltip();
-            }
-        });
+        document.addEventListener('click', this.onDocumentClick);
 
         Annotation.parentDom.appendChild(this.hotspotDom);
 
         // Clean up on entity destruction
         this.on('destroy', () => {
+            document.removeEventListener('click', this.onDocumentClick);
+            this.app.off('prerender', this.onPrerender);
             this.hotspotDom.remove();
             if (Annotation.activeAnnotation === this) {
                 this.hideTooltip();
@@ -456,9 +466,7 @@ export class Annotation extends Script {
             this.texture = null;
         });
 
-        this.app.on('prerender', () => {
-            this._update();
-        });
+        this.app.on('prerender', this.onPrerender);
     }
 
     /**
@@ -471,7 +479,7 @@ export class Annotation extends Script {
         if (!Annotation.camera) return;
 
         const position = this.entity.getPosition();
-        const screenPos = Annotation.camera.camera.worldToScreen(position);
+        const screenPos = Annotation.camera.camera.worldToScreen(position, this.screenPosition);
 
         const { viewMatrix } = Annotation.camera.camera;
         viewMatrix.transformPoint(position, vec);

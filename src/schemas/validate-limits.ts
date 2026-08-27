@@ -78,16 +78,9 @@ const validateLimitsV2 = (settings: ExperienceSettings) => {
             throw new Error(`${path}.frameRate must be an integer, got ${track.frameRate}`);
         }
         range(track.smoothness, ANIM_TRACK_LIMITS.smoothness, `${path}.smoothness`);
-        // Keyframe times are frame numbers: non-negative integers, strictly ascending, since
-        // the spline is built from them in order.
-        const { times, values } = track.keyframes;
+        // Keyframe times are frame numbers: non-negative integers.
+        const { times } = track.keyframes;
         maxCount(times, ANIM_TRACK_LIMITS.maxKeyframes, `${path}.keyframes.times`);
-        // At least one: `CubicSpline.calcKnots` derives its dimension as
-        // `points.length / times.length`, so an empty track computes 0/0 and allocates
-        // `new Array(NaN)`, which throws. A track the viewer cannot load is not valid input.
-        if (times.length === 0) {
-            throw new Error(`${path}.keyframes.times must have at least one keyframe`);
-        }
         times.forEach((time, k) => {
             const at = `${path}.keyframes.times[${k}]`;
             if (time < 0) {
@@ -96,29 +89,7 @@ const validateLimitsV2 = (settings: ExperienceSettings) => {
             if (!Number.isInteger(time)) {
                 throw new Error(`${at} must be an integer, got ${time}`);
             }
-            if (k > 0 && time <= times[k - 1]) {
-                throw new Error(`${at} must be greater than the previous frame, got ${time}`);
-            }
         });
-
-        // The track is flattened into one spline, so a mis-sized array silently stops the
-        // animation rather than failing loudly at runtime.
-        const vectorValues = times.length * 3;
-        if (values.position.length !== vectorValues) {
-            throw new Error(
-                `${path}.keyframes.values.position must have 3 values per keyframe (${vectorValues}), got ${values.position.length}`
-            );
-        }
-        if (values.target.length !== vectorValues) {
-            throw new Error(
-                `${path}.keyframes.values.target must have 3 values per keyframe (${vectorValues}), got ${values.target.length}`
-            );
-        }
-        if (values.fov.length !== times.length) {
-            throw new Error(
-                `${path}.keyframes.values.fov must have 1 value per keyframe (${times.length}), got ${values.fov.length}`
-            );
-        }
 
         // No CAMERA_FOV_RANGE check on keyframes.values.fov: the validator this reaches parity
         // with does not bound those either, and they are splined rather than set directly.

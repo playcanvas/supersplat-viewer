@@ -1,5 +1,5 @@
-import { Asset, INDEXFORMAT_UINT32, SEMANTIC_POSITION } from 'playcanvas';
-import type { AppBase, Mesh } from 'playcanvas';
+import { Asset, Mat4, PRIMITIVE_TRIANGLES, Vec3 } from 'playcanvas';
+import type { AppBase, Entity, Mesh, RenderComponent } from 'playcanvas';
 
 import { DEFAULT_VOXEL_RESOLUTION, PENETRATION_EPSILON, resolveIterative } from './collision';
 import type { Collision, PushOut, RayHit } from './collision';
@@ -60,6 +60,32 @@ type TriangleSoA = {
     readonly ny: Float32Array;
     readonly nz: Float32Array;
     readonly count: number;
+};
+
+const appendMeshGeometry = (mesh: Mesh, transform: Mat4, positions: number[], indices: number[]) => {
+    const meshPositions: number[] = [];
+    const meshIndices: number[] = [];
+    const numVertices = mesh.getPositions(meshPositions);
+    const numIndices = mesh.getIndices(meshIndices);
+    const vertexOffset = positions.length / 3;
+    const source = new Vec3();
+    const transformed = new Vec3();
+
+    for (let i = 0; i < numVertices; i++) {
+        const base = i * 3;
+        source.set(meshPositions[base], meshPositions[base + 1], meshPositions[base + 2]);
+        transform.transformPoint(source, transformed);
+        positions.push(transformed.x, transformed.y, transformed.z);
+    }
+
+    for (const primitive of mesh.primitive) {
+        if (primitive.type !== PRIMITIVE_TRIANGLES) continue;
+
+        for (let i = 0; i < primitive.count; i++) {
+            const index = numIndices > 0 ? meshIndices[primitive.base + i] : primitive.base + i;
+            indices.push(index + vertexOffset);
+        }
+    }
 };
 
 // ---- BVH construction ----
@@ -1059,71 +1085,50 @@ class MeshCollision implements Collision {
             };
 
             asset.on('load', () => {
-                const renders = (asset.resource as { renders?: { resource: { meshes: Mesh[] } }[] }).renders;
-                if (!renders || renders.length === 0) {
-                    cleanup();
-                    reject(new Error('GLB contains no mesh data'));
-                    return;
-                }
-
-                const allPositions: number[] = [];
-                const allIndices: number[] = [];
-                let vertexOffset = 0;
-
-                for (const renderAsset of renders) {
-                    const render = renderAsset.resource;
-                    for (let m = 0; m < render.meshes.length; m++) {
-                        const mesh = render.meshes[m];
-                        const vb = mesh.vertexBuffer;
-                        const ib = mesh.indexBuffer[0];
-
-                        if (!vb || !ib) continue;
-
-                        const format = vb.format;
-                        let posElement: (typeof format.elements)[number] | null = null;
-                        for (let e = 0; e < format.elements.length; e++) {
-                            if (format.elements[e].name === SEMANTIC_POSITION) {
-                                posElement = format.elements[e];
-                                break;
-                            }
-                        }
-                        if (!posElement) continue;
-
-                        const data = new Float32Array(vb.storage);
-                        const stride = format.size / 4;
-                        const offset = posElement.offset / 4;
-                        const numVerts = vb.numVertices;
-
-                        for (let v = 0; v < numVerts; v++) {
-                            const base = v * stride + offset;
-                            allPositions.push(data[base], data[base + 1], data[base + 2]);
-                        }
-
-                        const indexData =
-                            ib.format === INDEXFORMAT_UINT32
-                                ? new Uint32Array(ib.storage)
-                                : new Uint16Array(ib.storage);
-
-                        for (const prim of mesh.primitive) {
-                            for (let i = 0; i < prim.count; i++) {
-                                allIndices.push(indexData[prim.base + i] + vertexOffset);
-                            }
-                        }
-
-                        vertexOffset += numVerts;
+                let root: Entity | null = null;
+                try {
+                    const resource = asset.resource as { instantiateRenderEntity?: () => Entity };
+                    if (!resource.instantiateRenderEntity) {
+                        throw new Error('GLB contains no renderable scene');
                     }
-                }
 
-                if (allIndices.length === 0) {
+                    root = resource.instantiateRenderEntity();
+                    const renderComponents = root.findComponents('render') as RenderComponent[];
+                    const allPositions: number[] = [];
+                    const allIndices: number[] = [];
+                    const instanceTransform = new Mat4();
+                    const worldTransform = new Mat4();
+
+                    for (const render of renderComponents) {
+                        for (const meshInstance of render.meshInstances) {
+                            const nodeTransform = meshInstance.node.getWorldTransform();
+                            const instancing = meshInstance.instancingData;
+                            const instanceBuffer = instancing?.vertexBuffer;
+
+                            if (instancing && instanceBuffer) {
+                                const matrices = new Float32Array(instanceBuffer.storage);
+                                for (let i = 0; i < instancing.count; i++) {
+                                    instanceTransform.data.set(matrices.subarray(i * 16, i * 16 + 16));
+                                    worldTransform.mul2(nodeTransform, instanceTransform);
+                                    appendMeshGeometry(meshInstance.mesh, worldTransform, allPositions, allIndices);
+                                }
+                            } else {
+                                appendMeshGeometry(meshInstance.mesh, nodeTransform, allPositions, allIndices);
+                            }
+                        }
+                    }
+
+                    if (allIndices.length === 0) {
+                        throw new Error('GLB meshes contain no triangle data');
+                    }
+
+                    resolve(new MeshCollision(new Float32Array(allPositions), new Uint32Array(allIndices)));
+                } catch (err) {
+                    reject(err);
+                } finally {
+                    root?.destroy();
                     cleanup();
-                    reject(new Error('GLB meshes contain no triangle data'));
-                    return;
                 }
-
-                const collision = new MeshCollision(new Float32Array(allPositions), new Uint32Array(allIndices));
-
-                cleanup();
-                resolve(collision);
             });
 
             asset.on('error', (err: string) => {

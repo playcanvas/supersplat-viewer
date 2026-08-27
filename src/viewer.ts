@@ -413,18 +413,23 @@ class Viewer {
         // until it has all downloaded. The handler runs as a microtask of the asset's load event,
         // so no frame renders unclamped.
         if (!config.fullload) {
-            gsplatLoad.then((entity) => {
-                const gsplatComponent = entity.gsplat as GSplatComponent;
-                const resource = gsplatComponent.resource as GSplatOctreeResourceLike | null;
-                const lodLevels = resource?.octree?.lodLevels;
-                if (lodLevels) {
-                    gsplatComponent.lodRangeMax = gsplatComponent.lodRangeMin = lodLevels - 1;
+            gsplatLoad.then(
+                (entity) => {
+                    const gsplatComponent = entity.gsplat as GSplatComponent;
+                    const resource = gsplatComponent.resource as GSplatOctreeResourceLike | null;
+                    const lodLevels = resource?.octree?.lodLevels;
+                    if (lodLevels) {
+                        gsplatComponent.lodRangeMax = gsplatComponent.lodRangeMin = lodLevels - 1;
+                    }
+                },
+                () => {
+                    // The main load chain below reports the error.
                 }
-            });
+            );
         }
 
         // wait for the model to load
-        Promise.all([gsplatLoad, skyboxLoad, collisionLoad]).then((results) => {
+        const loadSetup = Promise.all([gsplatLoad, skyboxLoad, collisionLoad]).then((results) => {
             const gsplatComponent = results[0].gsplat as GSplatComponent;
             const collision = results[2];
 
@@ -449,23 +454,31 @@ class Viewer {
             state.hasCollision = !!collision;
             state.walkAllowed = isWalkAllowed(sceneBound, collision ?? null);
 
-            // Create collision debug overlay (voxel uses a compute shader, mesh
-            // uses standard line rendering). The voxel path requires WebGPU.
+            // Make the collision debug overlay available, but defer its expensive
+            // GPU allocation until the user first enables it.
             if (collision instanceof VoxelCollision && renderer !== 'webgl') {
-                this.voxelOverlay = new VoxelDebugOverlay(app, collision, camera);
-                this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
                 state.hasCollisionOverlay = true;
 
                 events.on('collisionOverlayEnabled:changed', (value: boolean) => {
-                    this.voxelOverlay.enabled = value;
+                    if (value && !this.voxelOverlay) {
+                        this.voxelOverlay = new VoxelDebugOverlay(app, collision, camera);
+                        this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
+                    }
+                    if (this.voxelOverlay) {
+                        this.voxelOverlay.enabled = value;
+                    }
                     app.renderNextFrame = true;
                 });
             } else if (collision instanceof MeshCollision) {
-                this.meshOverlay = new MeshDebugOverlay(app, collision, camera, !!this.cameraFrame);
                 state.hasCollisionOverlay = true;
 
                 events.on('collisionOverlayEnabled:changed', (value: boolean) => {
-                    this.meshOverlay.enabled = value;
+                    if (value && !this.meshOverlay) {
+                        this.meshOverlay = new MeshDebugOverlay(app, collision, camera, !!this.cameraFrame);
+                    }
+                    if (this.meshOverlay) {
+                        this.meshOverlay.enabled = value;
+                    }
                     app.renderNextFrame = true;
                 });
             }
@@ -504,6 +517,7 @@ class Viewer {
                 gsplat.colorUpdateAngle = state.performanceMode ? 1 : 0.2;
                 gsplatComponent.lodRangeMin = 0;
                 gsplatComponent.lodRangeMax = 1000;
+                this.picker.invalidate();
 
                 // request a frame so the param changes are processed (full work-buffer
                 // rebuild) even when on-demand rendering is active and the camera is idle
@@ -521,6 +535,7 @@ class Viewer {
             // produces new data a render would show (new LOD/world-state, pending sort). This also
             // keeps work-buffer texture lifetime coupled to the submit under app.autoRender = false.
             eventHandler.on('frame:request', () => {
+                this.picker.invalidate();
                 app.renderNextFrame = true;
             });
 
@@ -558,6 +573,11 @@ class Viewer {
             };
 
             eventHandler.on('frame:ready', readyHandler);
+        });
+        loadSetup.catch((err: unknown) => {
+            app.autoRender = false;
+            console.error('Failed to load scene:', err);
+            events.fire('loadError', err);
         });
     }
 

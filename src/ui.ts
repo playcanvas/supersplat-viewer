@@ -351,6 +351,11 @@ const initUI = (global: Global) => {
         }
     });
 
+    events.on('loadError', () => {
+        dom.loadingText.textContent = 'Failed to load scene';
+        dom.loadingBar.style.backgroundImage = 'linear-gradient(90deg, #C33 0%, #C33 100%)';
+    });
+
     // Hide loading bar once loaded
     events.on('loaded:changed', () => {
         document.getElementById('loadingWrap').classList.add('hidden');
@@ -684,6 +689,17 @@ const initUI = (global: Global) => {
         let paused = false;
         let captured = false;
 
+        const endScrub = (event: PointerEvent) => {
+            if (!captured) return;
+
+            captured = false;
+            if (dom.timelineContainer.hasPointerCapture(event.pointerId)) {
+                dom.timelineContainer.releasePointerCapture(event.pointerId);
+            }
+            dom.time.classList.add('hidden');
+            state.animationPaused = paused;
+        };
+
         dom.timelineContainer.addEventListener('pointerdown', (event: PointerEvent) => {
             if (!captured) {
                 handleScrub(event);
@@ -701,14 +717,9 @@ const initUI = (global: Global) => {
             }
         });
 
-        dom.timelineContainer.addEventListener('pointerup', (event) => {
-            if (captured) {
-                dom.timelineContainer.releasePointerCapture(event.pointerId);
-                dom.time.classList.add('hidden');
-                state.animationPaused = paused;
-                captured = false;
-            }
-        });
+        dom.timelineContainer.addEventListener('pointerup', endScrub);
+        dom.timelineContainer.addEventListener('pointercancel', endScrub);
+        dom.timelineContainer.addEventListener('lostpointercapture', endScrub);
     });
 
     // Camera mode UI

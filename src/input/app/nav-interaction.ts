@@ -241,7 +241,12 @@ class NavInteraction {
         if (!(event instanceof MouseEvent)) return;
         const { events, state } = global;
         // dblclick/double-tap in gaming controls does nothing, like click/tap
-        if ((state.cameraMode === 'walk' || state.cameraMode === 'fly') && state.gamingControls) return;
+        if ((state.cameraMode === 'walk' || state.cameraMode === 'fly') && state.gamingControls) {
+            if (event instanceof PointerEvent && event.pointerType === 'touch') {
+                this._suppressClick = false;
+            }
+            return;
+        }
 
         const request = ++this._targetPickRequest;
         const target = await this._pickSceneTarget(event.offsetX, event.offsetY);

@@ -693,9 +693,14 @@
             }
 
             document.addEventListener('DOMContentLoaded', async () => {
-                const canvas = document.getElementById('application-canvas');
-                const settingsJson = await settings;
-                const viewer = await main(canvas, settingsJson, config);
+                try {
+                    const canvas = document.getElementById('application-canvas');
+                    const settingsJson = await settings;
+                    const viewer = await main(canvas, settingsJson, config);
+                } catch (err) {
+                    console.error('Failed to start viewer:', err);
+                    document.getElementById('loadingText').textContent = 'Failed to load scene';
+                }
             });
         </script>
     </body>
