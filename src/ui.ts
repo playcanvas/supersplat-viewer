@@ -342,14 +342,16 @@ const initUI = (global: Global) => {
     );
 
     // Handle loading progress updates
-    events.on('progress:changed', (progress) => {
+    const updateLoadingProgress = (progress: number) => {
         dom.loadingText.textContent = `${progress}%`;
         if (progress < 100) {
             dom.loadingBar.style.backgroundImage = `linear-gradient(90deg, #F60 0%, #F60 ${progress}%, white ${progress}%, white 100%)`;
         } else {
             dom.loadingBar.style.backgroundImage = 'linear-gradient(90deg, #F60 0%, #F60 100%)';
         }
-    });
+    };
+    events.on('progress:changed', updateLoadingProgress);
+    updateLoadingProgress(state.progress);
 
     // Hide loading bar once loaded
     events.on('loaded:changed', () => {
