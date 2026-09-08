@@ -18,6 +18,7 @@ import {
     Vec3,
     GSPLAT_DEBUG_LOD,
     GSPLAT_DEBUG_NONE,
+    GSPLAT_LODMODE_DISTANCE,
     GSPLAT_RENDERER_RASTER_CPU_SORT,
     GSPLAT_RENDERER_RASTER_GPU_SORT,
     platform
@@ -394,6 +395,7 @@ class Viewer {
         // these two allow LOD behind camera to drop, saves lots of splats
         gsplat.lodUpdateAngle = 90;
         gsplat.lodBehindPenalty = 5;
+        gsplat.lodMode = GSPLAT_LODMODE_DISTANCE;
         gsplat.minContribution = 1;
         gsplat.alphaClip = 1 / 255;
         gsplat.antiAlias = config.aa;
