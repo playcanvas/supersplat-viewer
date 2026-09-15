@@ -220,12 +220,15 @@ const initAnnotationNav = (
 };
 
 // update the poster image to start blurry and then resolve to sharp during loading
-const initPoster = (events: EventHandler) => {
-    const poster = document.getElementById('poster');
+const initPoster = (global: Global) => {
+    const { events, root } = global;
+    const poster = root.querySelector<HTMLElement>('#poster');
 
     events.on('loaded:changed', () => {
         poster.style.display = 'none';
-        document.documentElement.style.setProperty('--canvas-opacity', '1');
+        // the canvas inherits this from the root; the document's own script sets it to 0
+        // on the same element before the viewer starts
+        root.style.setProperty('--canvas-opacity', '1');
     });
 
     const blur = (progress: number) => {
@@ -239,11 +242,10 @@ const initPoster = (events: EventHandler) => {
 // document, screen) and cancels pending timers. Listeners on the subtree's own elements are
 // released with the elements.
 const initUI = (global: Global) => {
-    const { config, events, state } = global;
+    const { config, events, state, root } = global;
     const disposers: (() => void)[] = [];
 
     // Acquire Elements
-    const docRoot = document.documentElement;
     const dom = [
         'ui',
         'controlsWrap',
@@ -289,6 +291,7 @@ const initUI = (global: Global) => {
         'walkHint',
         'reset',
         'frame',
+        'loadingWrap',
         'loadingText',
         'loadingBar',
         'joystickBase',
@@ -308,7 +311,7 @@ const initUI = (global: Global) => {
         'xrModalOk',
         'xrModalCancel'
     ].reduce((acc: Record<string, HTMLElement>, id) => {
-        acc[id] = document.getElementById(id);
+        acc[id] = root.querySelector<HTMLElement>(`#${id}`);
         return acc;
     }, {});
 
@@ -361,15 +364,16 @@ const initUI = (global: Global) => {
 
     // Hide loading bar once loaded
     events.on('loaded:changed', () => {
-        document.getElementById('loadingWrap').classList.add('hidden');
+        dom.loadingWrap.classList.add('hidden');
     });
 
-    // Fullscreen support
-    const hasFullscreenAPI = docRoot.requestFullscreen && document.exitFullscreen;
+    // Fullscreen support. The root goes fullscreen rather than the document, so an embedded
+    // instance fills the screen on its own; the standalone document's root is <body>.
+    const hasFullscreenAPI = root.requestFullscreen && document.exitFullscreen;
 
     const requestFullscreen = () => {
         if (hasFullscreenAPI) {
-            docRoot.requestFullscreen();
+            root.requestFullscreen();
         } else {
             window.parent.postMessage('requestFullscreen', '*');
             state.isFullscreen = true;

@@ -50,13 +50,15 @@ const detectLocale = (lang?: string): string => {
 const localize = (key: string): string => current[key] ?? en[key] ?? key;
 
 // Detect the preferred locale and replace the text of every `[data-i18n]`
-// element with its translation. Call once after the DOM is parsed and before
-// any code reads localized strings.
-const initLocalization = (lang?: string) => {
+// element under `root` with its translation. Call once after the DOM is parsed
+// and before any code reads localized strings. The locale is recorded as the
+// root's `lang` so the browser picks fonts for that language (CJK glyph
+// selection depends on it) without the viewer touching the document's own.
+const initLocalization = (lang: string | undefined, root: HTMLElement) => {
     const locale = detectLocale(lang);
     current = dictionaries[locale];
-    document.documentElement.lang = locale;
-    document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => {
+    root.lang = locale;
+    root.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => {
         el.textContent = localize(el.dataset.i18n);
     });
 };

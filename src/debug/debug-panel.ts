@@ -108,6 +108,8 @@ class DebugPanel {
 
     private _root: HTMLDivElement | null = null;
 
+    private _style: HTMLStyleElement | null = null;
+
     private _positionValue: HTMLSpanElement | null = null;
 
     private _focusValue: HTMLSpanElement | null = null;
@@ -179,15 +181,20 @@ class DebugPanel {
             this._root.remove();
             this._root = null;
         }
-        document.getElementById(STYLE_ID)?.remove();
+        this._style?.remove();
+        this._style = null;
     }
 
     private _build() {
-        if (!document.getElementById(STYLE_ID)) {
+        // both live in the viewer's root, so each instance carries and removes its own
+        const host = this._global.root;
+
+        if (!this._style) {
             const style = document.createElement('style');
             style.id = STYLE_ID;
             style.textContent = STYLES;
-            document.head.appendChild(style);
+            host.appendChild(style);
+            this._style = style;
         }
 
         const root = document.createElement('div');
@@ -203,7 +210,7 @@ class DebugPanel {
                 <button data-id="screenshot">Screenshot</button>
             </div>
         `;
-        document.body.appendChild(root);
+        host.appendChild(root);
 
         this._root = root;
         this._positionValue = root.querySelector('[data-id="position"]')!;

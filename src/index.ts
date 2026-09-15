@@ -246,6 +246,10 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
 
     const { app, camera, renderer } = await createApp(canvas, config);
 
+    // the canvas and the ui markup are siblings under one element, which scopes everything the
+    // viewer looks up or attaches in the dom
+    const root = canvas.parentElement ?? document.body;
+
     // create events
     const events = new EventHandler();
 
@@ -278,7 +282,8 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
         state,
         events,
         camera,
-        renderer
+        renderer,
+        root
     };
 
     const disposeCanvas = initCanvas(global);
@@ -288,7 +293,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
 
     // Initialize the load-time poster
     if (config.poster) {
-        initPoster(events);
+        initPoster(global);
     }
 
     camera.addComponent('camera');
@@ -298,7 +303,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
     initXr(global);
 
     // Initialize user interface
-    initLocalization(config.lang);
+    initLocalization(config.lang, root);
     const disposeUI = initUI(global);
 
     // Load model
@@ -344,12 +349,12 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
                 sound.play();
             }
         };
-        document.body.addEventListener('click', unlock, {
+        root.addEventListener('click', unlock, {
             capture: true,
             once: true
         });
         disposeAudio = () => {
-            document.body.removeEventListener('click', unlock, { capture: true });
+            root.removeEventListener('click', unlock, { capture: true });
             sound.pause();
         };
     }

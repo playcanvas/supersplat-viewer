@@ -15,7 +15,7 @@ class Annotations {
         const parentDom = document.createElement('div');
         parentDom.id = 'annotations';
         Annotation.parentDom = parentDom;
-        document.querySelector('#ui').appendChild(parentDom);
+        global.root.querySelector('#ui').appendChild(parentDom);
 
         this.annotations = global.settings.annotations;
         this.parentDom = parentDom;

@@ -7,7 +7,7 @@ import type { Global } from './types';
 
 // On entering/exiting AR, we need to set the camera clear color to transparent black
 const initXr = (global: Global) => {
-    const { app, events, state, camera, renderer } = global;
+    const { app, events, state, camera, renderer, root } = global;
 
     // Engine availability is backend-aware (2.20+): under WebGPU a session is only
     // reported available when it can start on the current device (browser exposes
@@ -87,7 +87,7 @@ const initXr = (global: Global) => {
         // some browsers (e.g. Chrome on Android) the canvas is moved to a new root
         // during XR, and needs to be moved back on exit.
         requestAnimationFrame(() => {
-            document.body.prepend(app.graphicsDevice.canvas);
+            root.prepend(app.graphicsDevice.canvas);
             app.renderNextFrame = true;
         });
     });

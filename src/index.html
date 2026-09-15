@@ -688,8 +688,8 @@
                 element.style.display = 'block';
                 element.style.filter = 'blur(40px)';
 
-                // hide the canvas
-                document.documentElement.style.setProperty('--canvas-opacity', '0');
+                // hide the canvas; the viewer restores this on the same element once loaded
+                document.body.style.setProperty('--canvas-opacity', '0');
             }
 
             document.addEventListener('DOMContentLoaded', async () => {

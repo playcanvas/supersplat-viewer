@@ -61,6 +61,10 @@ type Global = {
     events: EventHandler;
     camera: Entity;
     renderer: 'webgl' | 'webgpu'; // actual renderer in use (reflects engine fallback from WebGPU to WebGL2)
+    // the element containing the canvas and the ui subtree; every dom lookup, attribute and
+    // listener the viewer owns is scoped to it rather than to the document, so two instances
+    // can share a page (the standalone document's root is <body>)
+    root: HTMLElement;
 };
 
 export { CameraMode, InputMode, Config, State, Global };
