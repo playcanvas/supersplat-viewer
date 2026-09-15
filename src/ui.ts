@@ -141,6 +141,8 @@ const initJoystick = (
 
     dom.joystickBase.addEventListener('pointerup', endJoystickTouch);
     dom.joystickBase.addEventListener('pointercancel', endJoystickTouch);
+
+    return () => window.removeEventListener('resize', updateJoystickVisibility);
 };
 
 // Initialize the annotation navigator for stepping between annotations
@@ -233,8 +235,12 @@ const initPoster = (events: EventHandler) => {
     events.on('progress:changed', blur);
 };
 
+// Returns a function that removes the listeners added outside the ui subtree (window,
+// document, screen) and cancels pending timers. Listeners on the subtree's own elements are
+// released with the elements.
 const initUI = (global: Global) => {
     const { config, events, state } = global;
+    const disposers: (() => void)[] = [];
 
     // Acquire Elements
     const docRoot = document.documentElement;
@@ -384,9 +390,11 @@ const initUI = (global: Global) => {
     };
 
     if (hasFullscreenAPI) {
-        document.addEventListener('fullscreenchange', () => {
+        const onFullscreenChange = () => {
             state.isFullscreen = !!document.fullscreenElement;
-        });
+        };
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+        disposers.push(() => document.removeEventListener('fullscreenchange', onFullscreenChange));
     }
 
     dom.enterFullscreen.addEventListener('click', requestFullscreen);
@@ -394,13 +402,15 @@ const initUI = (global: Global) => {
 
     // toggle fullscreen when user switches between landscape portrait
     // orientation
-    screen?.orientation?.addEventListener('change', (_event) => {
+    const onOrientationChange = () => {
         if (['landscape-primary', 'landscape-secondary'].includes(screen.orientation.type)) {
             requestFullscreen();
         } else {
             exitFullscreen();
         }
-    });
+    };
+    screen?.orientation?.addEventListener('change', onOrientationChange);
+    disposers.push(() => screen?.orientation?.removeEventListener('change', onOrientationChange));
 
     // update UI when fullscreen state changes
     events.on('isFullscreen:changed', (value) => {
@@ -569,6 +579,13 @@ const initUI = (global: Global) => {
     // show the ui and start a timer to hide it again
     let uiTimeout: ReturnType<typeof setTimeout> | null = null;
     let annotationVisible = false;
+
+    disposers.push(() => {
+        if (uiTimeout) {
+            clearTimeout(uiTimeout);
+            uiTimeout = null;
+        }
+    });
 
     const isPointerCapturedMode = () =>
         state.inputMode === 'desktop' &&
@@ -797,7 +814,7 @@ const initUI = (global: Global) => {
     });
 
     // Initialize touch joystick for fly mode
-    initJoystick(dom, events, state);
+    disposers.push(initJoystick(dom, events, state));
 
     // Initialize annotation navigator
     initAnnotationNav(dom, events, state, global.settings.annotations);
@@ -809,6 +826,7 @@ const initUI = (global: Global) => {
 
     // tooltips
     const tooltip = new Tooltip(dom.tooltip);
+    disposers.push(tooltip.destroy);
 
     tooltip.register(dom.play, localize('tooltip.play'), 'top');
     tooltip.register(dom.pause, localize('tooltip.pause'), 'top');
@@ -844,6 +862,12 @@ const initUI = (global: Global) => {
         dom.viewerBranding.classList.remove('hidden');
         (dom.viewerTitle as HTMLAnchorElement).href = viewUrl.toString();
     }
+
+    return () => {
+        for (const dispose of disposers) {
+            dispose();
+        }
+    };
 };
 
 export { initPoster, initUI };

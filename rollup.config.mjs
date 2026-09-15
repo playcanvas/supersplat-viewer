@@ -15,6 +15,7 @@ function htmlPlugin() {
         name: 'html',
         buildStart() {
             this.addWatchFile('src/index.html');
+            this.addWatchFile('src/dev/mount-loop.html');
         },
         generateBundle() {
             const contents = readFileSync('src/index.html', 'utf-8');
@@ -29,6 +30,15 @@ function htmlPlugin() {
                 type: 'asset',
                 fileName: 'index.html',
                 source: transformed
+            });
+
+            // Development page that mounts and destroys the viewer in a loop, to prove teardown
+            // releases the graphics context. Served with `npm run develop`; not in package.json
+            // `files`, so it never ships.
+            this.emitFile({
+                type: 'asset',
+                fileName: 'mount-loop.html',
+                source: readFileSync('src/dev/mount-loop.html', 'utf-8')
             });
         }
     };

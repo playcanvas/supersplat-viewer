@@ -152,6 +152,16 @@ class Capture {
         return rt;
     }
 
+    /** Release the render targets and shader. The instance is unusable afterwards. */
+    destroy() {
+        for (const target of ['srcRT', 'dstRT'] as const) {
+            this[target]?.colorBuffer.destroy();
+            this[target]?.destroy();
+            this[target] = null;
+        }
+        this.shader.destroy();
+    }
+
     private ensure(target: 'srcRT' | 'dstRT', width: number, height: number, depth: boolean) {
         const existing = this[target];
         if (existing && existing.width === width && existing.height === height) {

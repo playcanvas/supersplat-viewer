@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <title>SuperSplat Viewer — mount/unmount loop</title>
+        <meta charset="UTF-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+        />
+        <link rel="stylesheet" href="./index.css" />
+        <style>
+            #harness {
+                position: fixed;
+                top: 8px;
+                right: 8px;
+                z-index: 1000;
+                max-height: calc(100vh - 16px);
+                overflow: auto;
+                padding: 8px 12px;
+                background: rgba(0, 0, 0, 0.75);
+                color: #e0dcdd;
+                font: 12px/1.5 monospace;
+                white-space: pre;
+                pointer-events: none;
+            }
+            #harness .fail {
+                color: #f66;
+            }
+        </style>
+    </head>
+    <body>
+        <!--
+            Development harness for Viewer.destroy(). Mounts the viewer into #host using the
+            shipped document's own markup, waits for the first frame (or not, in immediate
+            mode), destroys it, and repeats. Browsers cap live WebGL contexts at around 16, so
+            twenty iterations that all reach a first frame is itself the leak test; each
+            iteration also reports whether the previous context was released.
+
+            TEMPORARY. This page exists only while the instance-scoping work (viewer-api-plan.md
+            phase D) is changing teardown-sensitive code, and is run by hand before each of those
+            changes merges. Delete it, and its emit in rollup.config.mjs, in the last phase D
+            change. The automated replacement is a browser test against createViewer, which
+            arrives with the programmatic api (phase E/F) and no longer needs to borrow this
+            document's markup.
+
+            Params: ?iterations=20  ?mode=loaded|immediate  ?webgl  ?content=  ?settings=
+        -->
+        <div id="host"></div>
+        <pre id="harness"></pre>
+
+        <script type="module">
+            import { main } from './index.js';
+
+            const url = new URL(location.href);
+            const iterations = Number(url.searchParams.get('iterations') ?? 20);
+            const mode = url.searchParams.get('mode') ?? 'loaded';
+            const renderer = url.searchParams.has('webgl') ? 'webgl' : 'webgpu';
+            const contentUrl = url.searchParams.get('content') ?? './scene.compressed.ply';
+            const settingsUrl = url.searchParams.get('settings') ?? './settings.json';
+
+            const harness = document.getElementById('harness');
+            const log = (line, fail = false) => {
+                const span = document.createElement('span');
+                span.textContent = `${line}\n`;
+                if (fail) span.className = 'fail';
+                harness.appendChild(span);
+                console.log(`[mount-loop] ${line}`);
+            };
+
+            // The viewer does not own its markup yet, so take it from the shipped document —
+            // never a copy that can drift.
+            const shipped = new DOMParser().parseFromString(await (await fetch('./index.html')).text(), 'text/html');
+            shipped.body.querySelectorAll('script').forEach((script) => script.remove());
+            const markup = shipped.body.innerHTML;
+
+            const settings = await (await fetch(settingsUrl)).json();
+
+            // Mirrors the config the shipped bootstrap builds, with every flag at its default.
+            const createConfig = () => ({
+                poster: null,
+                skyboxUrl: null,
+                collisionUrl: null,
+                contentUrl,
+                contentFilename: null,
+                contents: fetch(contentUrl),
+                noui: false,
+                noanim: false,
+                nofx: false,
+                hpr: undefined,
+                ministats: false,
+                colorize: false,
+                renderer,
+                aa: false,
+                budget: undefined,
+                heatmap: false,
+                fullload: false,
+                debug: false,
+                lang: null
+            });
+
+            const host = document.getElementById('host');
+            const timeout = (ms, value) => new Promise((resolve) => setTimeout(() => resolve(value), ms));
+
+            // A hidden tab throttles requestAnimationFrame, and the reveal needs many frames, so
+            // iterations run far slower until the pane is visible.
+            log(`${iterations} iterations, mode=${mode}, renderer=${renderer}, tab ${document.visibilityState}`);
+
+            let failures = 0;
+            for (let i = 1; i <= iterations; i++) {
+                const started = performance.now();
+                host.innerHTML = markup;
+                const canvas = document.getElementById('application-canvas');
+
+                // the viewer calls this hook once the first complete frame has rendered
+                const firstFrame = new Promise((resolve) => {
+                    window.firstFrame = () => resolve(true);
+                });
+
+                try {
+                    const viewer = await main(canvas, settings, createConfig());
+                    const device = viewer.global.app.graphicsDevice;
+                    const gl = device.gl ?? null;
+                    const lost = device.wgpu ? device.wgpu.lost.then(() => true) : null;
+
+                    if (mode === 'loaded') {
+                        const rendered = await Promise.race([firstFrame, timeout(120000, false)]);
+                        if (!rendered) {
+                            viewer.destroy();
+                            throw new Error('no first frame within 120s — check the content url');
+                        }
+                    }
+
+                    // `loaded` flips in the viewer's own first-frame handler, so it proves the hook
+                    // came from this instance rendering and not from anything stale
+                    const { loaded, progress } = viewer.global.state;
+
+                    viewer.destroy();
+                    host.innerHTML = '';
+
+                    const released = gl ? gl.isContextLost() : await Promise.race([lost, timeout(1000, false)]);
+                    const ok = released && (mode !== 'loaded' || loaded);
+                    if (!ok) failures++;
+                    log(
+                        `#${i} ${device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${released}`,
+                        !ok
+                    );
+                } catch (err) {
+                    failures++;
+                    log(`#${i} failed: ${err?.message ?? err}`, true);
+                    console.error(err);
+                    host.innerHTML = '';
+                }
+            }
+
+            delete window.firstFrame;
+            log(failures ? `done, ${failures} failed` : 'done, no leaks detected', failures > 0);
+        </script>
+    </body>
+</html>

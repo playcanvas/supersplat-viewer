@@ -56,7 +56,7 @@ class TouchDevice implements InputDevice {
     }
 
     detach(): void {
-        // MultiTouchSource doesn't expose a detach.
+        this._source.detach();
         if (this._global) {
             this._global.events.off('joystickInput', this._onJoystickInput);
             this._global = null;

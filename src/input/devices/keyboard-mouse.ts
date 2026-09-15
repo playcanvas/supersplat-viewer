@@ -90,8 +90,8 @@ class KeyboardMouseDevice implements InputDevice {
     }
 
     detach(): void {
-        // KeyboardMouseSource does not expose a detach; nothing to undo for
-        // its DOM listeners here.
+        this._source.detach();
+        this._global = null;
     }
 
     update(ctx: UpdateContext, frame: CameraInputFrame): void {

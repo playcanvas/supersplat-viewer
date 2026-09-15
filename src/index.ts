@@ -224,6 +224,8 @@ const initCanvas = (global: Global) => {
     // Disable the engine's built-in canvas resize — we handle it via ResizeObserver
     (app as unknown as { _allowResize: boolean })._allowResize = false;
     apply();
+
+    return () => resizeObserver.disconnect();
 };
 
 const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Config) => {
@@ -279,7 +281,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
         renderer
     };
 
-    initCanvas(global);
+    const disposeCanvas = initCanvas(global);
 
     // start the application
     app.start();
@@ -297,7 +299,7 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
 
     // Initialize user interface
     initLocalization(config.lang);
-    initUI(global);
+    const disposeUI = initUI(global);
 
     // Load model
     const gsplatLoad = loadGsplat(app, config, (progress: number) => {
@@ -333,25 +335,33 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
     }
 
     // Load and play sound
+    let disposeAudio: (() => void) | undefined;
     if (global.settings.soundUrl) {
         const sound = new Audio(global.settings.soundUrl);
         sound.crossOrigin = 'anonymous';
-        document.body.addEventListener(
-            'click',
-            () => {
-                if (sound) {
-                    sound.play();
-                }
-            },
-            {
-                capture: true,
-                once: true
+        const unlock = () => {
+            if (sound) {
+                sound.play();
             }
-        );
+        };
+        document.body.addEventListener('click', unlock, {
+            capture: true,
+            once: true
+        });
+        disposeAudio = () => {
+            document.body.removeEventListener('click', unlock, { capture: true });
+            sound.pause();
+        };
     }
 
     // Create the viewer
-    return new Viewer(global, gsplatLoad, skyboxLoad, collisionLoad);
+    const viewer = new Viewer(global, gsplatLoad, skyboxLoad, collisionLoad);
+    viewer.onDestroy(disposeCanvas);
+    viewer.onDestroy(disposeUI);
+    if (disposeAudio) {
+        viewer.onDestroy(disposeAudio);
+    }
+    return viewer;
 };
 
 console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engineRevision})`);

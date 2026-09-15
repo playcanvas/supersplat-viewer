@@ -92,6 +92,16 @@ class Annotations {
             }
         });
     }
+
+    /**
+     * Remove the annotation dom and reset the shared `Annotation` state, so a later viewer
+     * instance initialises against its own app. Call after the annotation entities have been
+     * destroyed with the app.
+     */
+    destroy() {
+        this.parentDom.remove();
+        Annotation._destroyStatic();
+    }
 }
 
 export { Annotations };

@@ -41,6 +41,9 @@ const depthClampWgsl = `
 
 const vec = new Vec3();
 
+const HOTSPOT_COLOR = new Color(0.8, 0.8, 0.8);
+const HOVER_COLOR = new Color(1.0, 0.4, 0.0);
+
 /**
  * A script for creating interactive 3D annotations in a scene. Each annotation consists of:
  *
@@ -54,9 +57,11 @@ export class Annotation extends Script {
 
     static hotspotSize = 25;
 
-    static hotspotColor = new Color(0.8, 0.8, 0.8);
+    // Mutable copies: `Annotations` converts them to gamma space when post effects are active,
+    // and `_destroyStatic` restores them from the defaults.
+    static hotspotColor = HOTSPOT_COLOR.clone();
 
-    static hoverColor = new Color(1.0, 0.4, 0.0);
+    static hoverColor = HOVER_COLOR.clone();
 
     static parentDom: HTMLElement | null = null;
 
@@ -238,6 +243,28 @@ export class Annotation extends Script {
         Annotation.tooltipDom.appendChild(Annotation.textDom);
 
         Annotation.parentDom.appendChild(Annotation.tooltipDom);
+    }
+
+    /**
+     * Undo {@link Annotation._initializeStatic} so the next app starts clean: remove the
+     * injected stylesheet and drop the references to the previous app's camera, layers and
+     * mesh. Call after the annotation entities have been destroyed — the mesh is owned by
+     * their mesh instances and released with them, so only the reference is dropped here.
+     * Nulling `camera` also makes `_update` a no-op for any script still pending destruction.
+     * @private
+     */
+    static _destroyStatic() {
+        Annotation.styleSheet?.remove();
+        Annotation.styleSheet = null;
+        Annotation.parentDom = null;
+        Annotation.camera = null;
+        Annotation.layers = [];
+        Annotation.mesh = null;
+        Annotation.activeAnnotation = null;
+        Annotation.hoverAnnotation = null;
+        Annotation.opacity = 1.0;
+        Annotation.hotspotColor.copy(HOTSPOT_COLOR);
+        Annotation.hoverColor.copy(HOVER_COLOR);
     }
 
     /**
@@ -434,16 +461,18 @@ export class Annotation extends Script {
         this.hotspotDom.addEventListener('pointerenter', enter);
         this.hotspotDom.addEventListener('pointerleave', leave);
 
-        document.addEventListener('click', () => {
+        const onDocumentClick = () => {
             if (Annotation.activeAnnotation === this) {
                 this.hideTooltip();
             }
-        });
+        };
+        document.addEventListener('click', onDocumentClick);
 
         Annotation.parentDom.appendChild(this.hotspotDom);
 
         // Clean up on entity destruction
         this.on('destroy', () => {
+            document.removeEventListener('click', onDocumentClick);
             this.hotspotDom.remove();
             if (Annotation.activeAnnotation === this) {
                 this.hideTooltip();
