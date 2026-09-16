@@ -23,12 +23,13 @@ import {
     GSPLAT_RENDERER_RASTER_GPU_SORT,
     platform
 } from 'playcanvas';
-import type { CameraComponent, Entity, GSplatComponent, Layer } from 'playcanvas';
+import type { CameraComponent, Entity, GraphicsDevice, GSplatComponent, Layer } from 'playcanvas';
 
 import { Annotations } from './annotations';
 import { CameraManager, isWalkAllowed } from './camera-manager';
 import type { Camera } from './cameras/camera';
 import { Capture } from './capture';
+import type { CaptureResult } from './capture';
 import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
@@ -38,7 +39,7 @@ import { MeshDebugOverlay } from './mesh-debug-overlay';
 import { NavCursor } from './nav-cursor';
 import { Picker } from './picker';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
-import type { Config, Global } from './types';
+import type { CaptureOptions, Config, Global } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
 
 // String.replace wrapper that warns when the source substring is missing, so
@@ -142,8 +143,30 @@ const anyPostEffectEnabled = (settings: PostEffectSettings): boolean => {
 
 const vec = new Vec3();
 
-// store the original isColorBufferSrgb so the override in updatePostEffects is idempotent
+// When post effects are on, the final compose blit must not convert linear to gamma, which
+// the engine decides from `isColorBufferSrgb` on the target. The backbuffer is not ours to
+// flag, so the prototype is patched — keyed by device rather than closed over one, so several
+// viewers on a page (with and without post effects) each get the right answer. Restored when
+// no device needs it.
 const origIsColorBufferSrgb = RenderTarget.prototype.isColorBufferSrgb;
+const srgbBackBufferDevices = new Set<GraphicsDevice>();
+
+const patchedIsColorBufferSrgb = function (this: RenderTarget, index: number) {
+    return srgbBackBufferDevices.has(this.device) && this === this.device.backBuffer
+        ? true
+        : origIsColorBufferSrgb.call(this, index);
+};
+
+const setBackBufferSrgb = (device: GraphicsDevice, enabled: boolean) => {
+    if (enabled) {
+        srgbBackBufferDevices.add(device);
+    } else {
+        srgbBackBufferDevices.delete(device);
+    }
+    RenderTarget.prototype.isColorBufferSrgb = srgbBackBufferDevices.size
+        ? patchedIsColorBufferSrgb
+        : origIsColorBufferSrgb;
+};
 
 class Viewer {
     global: Global;
@@ -166,6 +189,31 @@ class Viewer {
 
     debugPanel: DebugPanel | null = null;
 
+    /** Set once {@link destroy} has run. Load continuations check it and bail. */
+    destroyed = false;
+
+    private disposers: (() => void)[] = [];
+
+    private capture: Capture | null = null;
+
+    // captures are serialised: they share the viewer camera, so concurrent ones would
+    // interleave the redirect/restore and could leave it mis-targeted
+    private captureQueue: Promise<unknown> = Promise.resolve();
+
+    // Resolves once the first complete frame has rendered, and rejects if the viewer is
+    // destroyed before that — the frame event it waits on is gone by then, so a capture
+    // waiting here would never settle. One shared promise, so its waiters are released when it
+    // settles either way.
+    private ready: Promise<void>;
+
+    private failReady!: (reason: Error) => void;
+
+    // Abort signals for the captures in flight. A capture's later waits are inside the engine,
+    // so they are raced against one of these rather than handled individually — and each is
+    // removed as its capture settles, since a signal that outlived it would keep the race, and
+    // with it the captured image, reachable until the viewer went away.
+    private abortHandlers = new Set<(reason: Error) => void>();
+
     origChunks: {
         glsl: {
             gsplatOutputVS: string;
@@ -187,6 +235,15 @@ class Viewer {
 
         const { app, settings, config, events, state, camera, renderer } = global;
         const { graphicsDevice } = app;
+
+        this.ready = new Promise((resolve, reject) => {
+            events.once('firstFrame', () => resolve());
+            this.failReady = reject;
+        });
+        // destroying a viewer that never captured anything must not report an unhandled rejection
+        this.ready.catch(() => {
+            // intentionally ignored
+        });
 
         // render skybox as plain equirect
         const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
@@ -328,6 +385,11 @@ class Viewer {
             state.loaded = true;
             state.animationPaused = !!config.noanim;
 
+            // the window.* hooks below are the standalone document's api for the thumbnail
+            // pipeline and console debugging; an embedded instance keeps them off, since two
+            // viewers would overwrite each other's
+            if (!config.exposeGlobals) return;
+
             window.scrubTo = (time: number) => {
                 if (!state.hasAnimation) {
                     return Promise.reject(new Error('No animation track'));
@@ -346,44 +408,8 @@ class Viewer {
             // expose the app for console-driven debugging (e.g. scene.gsplat tuning)
             window.app = app;
 
-            // Capture hook for the thumbnail pipeline. Renders the scene (with post
-            // effects) into an offscreen supersampled target, GPU box-downsamples it to
-            // the requested size and returns just that small buffer. Lazily created on
-            // first use — no ?capture flag and no preserveDrawingBuffer needed, and it
-            // works on both WebGL and WebGPU.
-            let capture: Capture | null = null;
-            let captureQueue: Promise<unknown> = Promise.resolve();
-            window.captureFrame = ({ time, width = 480, height = width, supersample } = {}) => {
-                const run = () => {
-                    if (!capture) {
-                        capture = new Capture(app, camera.camera, () => this.cameraFrame ?? null);
-                    }
-                    return capture.grab({
-                        time,
-                        width,
-                        height,
-                        supersample,
-                        scrub: (t) => {
-                            if (state.hasAnimation) {
-                                state.animationPaused = true;
-                                events.fire('scrubAnim', t);
-                            }
-                        }
-                    });
-                };
-                // serialize calls: they share the viewer camera, so concurrent captures
-                // would interleave the redirect/restore and could leave it mis-targeted
-                const result = captureQueue.then(run, run);
-                captureQueue = result.then(
-                    () => {
-                        // intentionally ignored
-                    },
-                    () => {
-                        // intentionally ignored
-                    }
-                );
-                return result;
-            };
+            // capture hook for the thumbnail pipeline
+            window.captureFrame = (options) => this.captureFrame(options);
         });
 
         const { gsplat } = app.scene;
@@ -414,19 +440,31 @@ class Viewer {
         // on skybox/collision here would let a full-detail burst queue up and block the reveal
         // until it has all downloaded. The handler runs as a microtask of the asset's load event,
         // so no frame renders unclamped.
+        // Both chains below are started and never awaited, so each needs a rejection handler or
+        // a failed load is reported as unhandled. Nothing is logged here: `loadGsplat` already
+        // logs its own asset errors, the skybox and collision loads resolve to null on failure,
+        // and a destroy mid-load rejects deliberately.
+        const ignoreLoadFailure = () => {
+            // intentionally ignored
+        };
+
         if (!config.fullload) {
             gsplatLoad.then((entity) => {
+                if (this.destroyed) return;
                 const gsplatComponent = entity.gsplat as GSplatComponent;
                 const resource = gsplatComponent.resource as GSplatOctreeResourceLike | null;
                 const lodLevels = resource?.octree?.lodLevels;
                 if (lodLevels) {
                     gsplatComponent.lodRangeMax = gsplatComponent.lodRangeMin = lodLevels - 1;
                 }
-            });
+            }, ignoreLoadFailure);
         }
 
         // wait for the model to load
         Promise.all([gsplatLoad, skyboxLoad, collisionLoad]).then((results) => {
+            // destroyed while loading: the app is gone, so there is nothing to wire up
+            if (this.destroyed) return;
+
             const gsplatComponent = results[0].gsplat as GSplatComponent;
             const collision = results[2];
 
@@ -436,7 +474,7 @@ class Viewer {
                 sceneBound.setFromTransformedAabb(gsplatBbox, results[0].getWorldTransform());
             }
 
-            if (!config.noui) {
+            if (config.ui) {
                 this.annotations = new Annotations(global, this.cameraFrame != null);
             }
 
@@ -475,7 +513,7 @@ class Viewer {
             this.cameraManager = new CameraManager(global, sceneBound, collision);
             applyCamera(this.cameraManager.camera);
 
-            if (!config.noui) {
+            if (config.ui) {
                 this.navCursor = new NavCursor(app, camera, collision ?? null, events, state);
             }
 
@@ -560,7 +598,161 @@ class Viewer {
             };
 
             eventHandler.on('frame:ready', readyHandler);
+        }, ignoreLoadFailure);
+    }
+
+    /**
+     * Render the scene, with post effects, into an offscreen supersampled target, GPU
+     * box-downsample it to the requested size and return just that small buffer. Waits for
+     * the first frame. The capture target is created lazily on first use — no flag and no
+     * preserveDrawingBuffer needed, and it works on both WebGL and WebGPU.
+     */
+    captureFrame({ time, width = 480, height = width, supersample }: CaptureOptions = {}): Promise<CaptureResult> {
+        const run = async () => {
+            await this.ready;
+            if (this.destroyed) {
+                throw new Error('captureFrame: the viewer has been destroyed');
+            }
+            const { app, camera, state, events } = this.global;
+            if (!this.capture) {
+                this.capture = new Capture(app, camera.camera, () => this.cameraFrame ?? null);
+            }
+            const grab = this.capture.grab({
+                time,
+                width,
+                height,
+                supersample,
+                scrub: (t) => {
+                    if (state.hasAnimation) {
+                        state.animationPaused = true;
+                        events.fire('scrubAnim', t);
+                    }
+                }
+            });
+            return this.untilDestroyed(grab);
+        };
+        const result = this.captureQueue.then(run, run);
+        this.captureQueue = result.then(
+            () => {
+                // intentionally ignored
+            },
+            () => {
+                // intentionally ignored
+            }
+        );
+        return result;
+    }
+
+    /**
+     * Settle `work` when the viewer is destroyed, whatever it is waiting on. Racing rather than
+     * cancelling, because the waits are the engine's; `work` runs on to completion unobserved,
+     * and the race counts as its handler, so a late failure is not reported as unhandled.
+     */
+    private untilDestroyed<T>(work: Promise<T>): Promise<T> {
+        let onAbort!: (reason: Error) => void;
+        const aborted = new Promise<never>((_resolve, reject) => {
+            onAbort = reject;
         });
+        this.abortHandlers.add(onAbort);
+        return Promise.race([work, aborted]).finally(() => {
+            // releases the signal, and with it this race and its result
+            this.abortHandlers.delete(onAbort);
+        });
+    }
+
+    /**
+     * Register cleanup to run from {@link destroy}, for things the caller set up around the
+     * viewer (the canvas resize observer, document-level listeners). Runs immediately if the
+     * viewer is already destroyed.
+     *
+     * @param fn - Cleanup to run.
+     */
+    onDestroy(fn: () => void) {
+        if (this.destroyed) {
+            fn();
+            return;
+        }
+        this.disposers.push(fn);
+    }
+
+    /**
+     * Tear the viewer down: stop rendering, remove every listener it added to the window,
+     * document and canvas, restore the globals it patched, and release the graphics device.
+     * Safe to call before loading has finished, and idempotent.
+     *
+     * Finally removes the instance root, and with it the canvas and ui subtree createViewer
+     * built. Their element listeners go with them.
+     */
+    destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+
+        // settle anything waiting on an engine event, before the handlers go
+        const gone = () => new Error('captureFrame: the viewer has been destroyed');
+        this.failReady(gone());
+        for (const onAbort of this.abortHandlers) {
+            onAbort(gone());
+        }
+        this.abortHandlers.clear();
+
+        const { app } = this.global;
+
+        // subsystems holding listeners on the canvas, window or document, or gpu resources
+        // outside the entity hierarchy
+        this.debugPanel?.destroy();
+        this.navCursor?.destroy();
+        this.inputController?.destroy();
+        this.voxelOverlay?.destroy();
+        this.meshOverlay?.destroy();
+        this.picker?.release();
+        this.capture?.destroy();
+        this.capture = null;
+        if (this.cameraFrame) {
+            this.cameraFrame.destroy();
+            this.cameraFrame = null;
+        }
+
+        // configureCamera registers our device with the backbuffer srgb patch
+        setBackBufferSrgb(app.graphicsDevice, false);
+
+        // caller cleanup, in reverse registration order
+        for (const dispose of this.disposers.reverse()) {
+            dispose();
+        }
+        this.disposers.length = 0;
+
+        // the first-frame globals, only if they are ours: a later instance may own them
+        if (window.app === app) {
+            delete window.app;
+            delete window.scrubTo;
+            delete window.captureFrame;
+            delete window.animationDuration;
+        }
+
+        // The engine's destroy releases its own resources but leaves the underlying handle to
+        // the garbage collector: the WebGL context is nulled, not lost, and the WebGPU device
+        // is not destroyed. Browsers cap live WebGL contexts at around 16, so release both
+        // explicitly once the engine is done with them. The canvas cannot host another
+        // context type anyway. The engine's device-lost handler ignores a `destroyed` reason.
+        const handles = app.graphicsDevice as unknown as {
+            gl?: WebGL2RenderingContext | null;
+            wgpu?: { destroy(): void } | null;
+        };
+        const gl = handles.gl ?? null;
+        const wgpu = handles.wgpu ?? null;
+
+        // entities (including the annotation scripts), input, assets, xr, the device and every
+        // app event handler
+        app.destroy();
+
+        // after the annotation entities are gone, so their destroy handlers still see the
+        // shared dom
+        this.annotations?.destroy();
+
+        gl?.getExtension('WEBGL_lose_context')?.loseContext();
+        wgpu?.destroy();
+
+        this.global.root.remove();
     }
 
     // configure camera based on application mode and post process settings
@@ -618,9 +810,7 @@ class Viewer {
             );
 
             // ensure the final compose blit doesn't perform linear->gamma conversion.
-            RenderTarget.prototype.isColorBufferSrgb = function (index) {
-                return this === app.graphicsDevice.backBuffer ? true : origIsColorBufferSrgb.call(this, index);
-            };
+            setBackBufferSrgb(app.graphicsDevice, true);
 
             camera.camera.clearColor = new Color(background.color);
         } else {
@@ -637,7 +827,7 @@ class Viewer {
             ShaderChunks.get(app.graphicsDevice, 'wgsl').set('skyboxPS', this.origChunks.wgsl.skyboxPS);
 
             // restore original isColorBufferSrgb behavior
-            RenderTarget.prototype.isColorBufferSrgb = origIsColorBufferSrgb;
+            setBackBufferSrgb(app.graphicsDevice, false);
 
             if (!app.xr.active) {
                 camera.camera.toneMapping = tonemapTable[settings.tonemapping];

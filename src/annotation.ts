@@ -41,6 +41,10 @@ const depthClampWgsl = `
 
 const vec = new Vec3();
 
+const HOTSPOT_SIZE = 25;
+const HOTSPOT_COLOR = new Color(0.8, 0.8, 0.8);
+const HOVER_COLOR = new Color(1.0, 0.4, 0.0);
+
 /**
  * A script for creating interactive 3D annotations in a scene. Each annotation consists of:
  *
@@ -52,33 +56,11 @@ const vec = new Vec3();
 export class Annotation extends Script {
     static scriptName = 'annotation';
 
-    static hotspotSize = 25;
-
-    static hotspotColor = new Color(0.8, 0.8, 0.8);
-
-    static hoverColor = new Color(1.0, 0.4, 0.0);
-
-    static parentDom: HTMLElement | null = null;
-
-    static styleSheet: HTMLStyleElement | null = null;
-
-    static camera: Entity | null = null;
-
-    static tooltipDom: HTMLDivElement | null = null;
-
-    static titleDom: HTMLDivElement | null = null;
-
-    static textDom: HTMLDivElement | null = null;
-
-    static layers: Layer[] = [];
-
-    static mesh: Mesh | null = null;
-
-    static activeAnnotation: Annotation | null = null;
-
-    static hoverAnnotation: Annotation | null = null;
-
-    static opacity = 1.0;
+    /**
+     * State shared by every annotation of one viewer. Set by `Annotations` before the script
+     * initialises.
+     */
+    context: AnnotationContext;
 
     /**
      * @attribute
@@ -111,13 +93,21 @@ export class Annotation extends Script {
     materials: StandardMaterial[] = [];
 
     /**
-     * Injects required CSS styles into the document.
-     * @param {number} size - The size of the hotspot in screen pixels.
+     * Set once the entity is destroyed, so a prerender still queued for this frame does not
+     * touch torn-down state.
      * @private
      */
-    static _injectStyles(size: number) {
+    destroyed = false;
+
+    /**
+     * Creates the stylesheet the annotation dom needs.
+     * @param {number} size - The size of the hotspot in screen pixels.
+     * @returns {HTMLStyleElement} The style element, not yet attached.
+     * @private
+     */
+    static _createStyleSheet(size: number) {
         const css = `
-            .pc-annotation {
+            .sse-annotation {
                 display: block;
                 position: absolute;
                 background-color: rgba(0, 0, 0, 0.8);
@@ -137,14 +127,14 @@ export class Annotation extends Script {
                 visibility: hidden;
             }
 
-            .pc-annotation-title {
+            .sse-annotation-title {
                 font-weight: bold;
                 margin-bottom: 4px;
             }
 
             /* Tooltip arrow */
-            .pc-annotation.arrow-right::before,
-            .pc-annotation.arrow-left::before {
+            .sse-annotation.sse-arrow-right::before,
+            .sse-annotation.sse-arrow-left::before {
                 content: "";
                 position: absolute;
                 top: var(--arrow-top, 50%);
@@ -153,17 +143,17 @@ export class Annotation extends Script {
                 border-bottom: 8px solid transparent;
             }
 
-            .pc-annotation.arrow-right::before {
+            .sse-annotation.sse-arrow-right::before {
                 left: -8px;
                 border-right: 8px solid rgba(0, 0, 0, 0.8);
             }
 
-            .pc-annotation.arrow-left::before {
+            .sse-annotation.sse-arrow-left::before {
                 right: -8px;
                 border-left: 8px solid rgba(0, 0, 0, 0.8);
             }
 
-            .pc-annotation-hotspot {
+            .sse-annotation-hotspot {
                 display: none;
                 position: absolute;
                 width: ${size + 5}px;
@@ -176,68 +166,7 @@ export class Annotation extends Script {
 
         const style = document.createElement('style');
         style.textContent = css;
-        document.head.appendChild(style);
-        Annotation.styleSheet = style;
-    }
-
-    /**
-     * Initialize static resources.
-     * @param {AppBase} app - The application instance
-     * @private
-     */
-    static _initializeStatic(app: AppBase) {
-        if (Annotation.styleSheet) {
-            return;
-        }
-
-        Annotation._injectStyles(Annotation.hotspotSize);
-
-        if (Annotation.parentDom === null) {
-            Annotation.parentDom = document.body;
-        }
-
-        const { layers } = app.scene;
-        const worldLayer = layers.getLayerByName('World');
-
-        const createLayer = (name: string, semitrans: boolean) => {
-            const layer = new Layer({ name: name });
-            const idx = semitrans ? layers.getTransparentIndex(worldLayer) : layers.getOpaqueIndex(worldLayer);
-            layers.insert(layer, idx + 1);
-            return layer;
-        };
-
-        Annotation.layers = [createLayer('HotspotBase', false), createLayer('HotspotOverlay', true)];
-
-        if (Annotation.camera === null) {
-            Annotation.camera = app.root.findComponent('camera').entity;
-        }
-
-        Annotation.camera.camera.layers = [
-            ...Annotation.camera.camera.layers,
-            ...Annotation.layers.map((layer) => layer.id)
-        ];
-
-        Annotation.mesh = Mesh.fromGeometry(
-            app.graphicsDevice,
-            new PlaneGeometry({
-                widthSegments: 1,
-                lengthSegments: 1
-            })
-        );
-
-        // Initialize tooltip dom
-        Annotation.tooltipDom = document.createElement('div');
-        Annotation.tooltipDom.className = 'pc-annotation';
-
-        Annotation.titleDom = document.createElement('div');
-        Annotation.titleDom.className = 'pc-annotation-title';
-        Annotation.tooltipDom.appendChild(Annotation.titleDom);
-
-        Annotation.textDom = document.createElement('div');
-        Annotation.textDom.className = 'pc-annotation-text';
-        Annotation.tooltipDom.appendChild(Annotation.textDom);
-
-        Annotation.parentDom.appendChild(Annotation.tooltipDom);
+        return style;
     }
 
     /**
@@ -318,6 +247,7 @@ export class Annotation extends Script {
     /**
      * Creates a material for hotspot rendering.
      * @param {Texture} texture - The texture to use for emissive and opacity
+     * @param {Color} color - The emissive colour
      * @param {object} [options] - Material options
      * @param {number} [options.opacity] - Base opacity multiplier
      * @param {boolean} [options.depthTest] - Whether to perform depth testing
@@ -325,12 +255,16 @@ export class Annotation extends Script {
      * @returns {StandardMaterial} The configured material
      * @private
      */
-    static _createHotspotMaterial(texture: Texture, { opacity = 1, depthTest = true, depthWrite = true } = {}) {
+    static _createHotspotMaterial(
+        texture: Texture,
+        color: Color,
+        { opacity = 1, depthTest = true, depthWrite = true } = {}
+    ) {
         const material = new StandardMaterial();
 
         // Base properties
         material.diffuse = Color.BLACK;
-        material.emissive.copy(Annotation.hotspotColor);
+        material.emissive.copy(color);
         material.emissiveMap = texture;
         material.opacityMap = texture;
 
@@ -367,39 +301,38 @@ export class Annotation extends Script {
     }
 
     initialize() {
-        // Ensure static resources are initialized
-        Annotation._initializeStatic(this.app);
+        const ctx = this.context;
 
         // Create texture
         this.texture = Annotation._createHotspotTexture(this.app, this.label);
 
         // Create material the base and overlay material
         this.materials = [
-            Annotation._createHotspotMaterial(this.texture, {
+            Annotation._createHotspotMaterial(this.texture, ctx.hotspotColor, {
                 opacity: 1,
                 depthTest: true,
                 depthWrite: true
             }),
-            Annotation._createHotspotMaterial(this.texture, {
+            Annotation._createHotspotMaterial(this.texture, ctx.hotspotColor, {
                 opacity: 0.25,
                 depthTest: false,
                 depthWrite: false
             })
         ];
 
-        const base = new Entity('base');
-        const baseMi = new MeshInstance(Annotation.mesh, this.materials[0]);
+        const base = new Entity('base', this.app);
+        const baseMi = new MeshInstance(ctx.mesh, this.materials[0]);
         baseMi.cull = false;
         base.addComponent('render', {
-            layers: [Annotation.layers[0].id],
+            layers: [ctx.layers[0].id],
             meshInstances: [baseMi]
         });
 
-        const overlay = new Entity('overlay');
-        const overlayMi = new MeshInstance(Annotation.mesh, this.materials[1]);
+        const overlay = new Entity('overlay', this.app);
+        const overlayMi = new MeshInstance(ctx.mesh, this.materials[1]);
         overlayMi.cull = false;
         overlay.addComponent('render', {
-            layers: [Annotation.layers[1].id],
+            layers: [ctx.layers[1].id],
             meshInstances: [overlayMi]
         });
 
@@ -408,7 +341,7 @@ export class Annotation extends Script {
 
         // Create hotspot dom
         this.hotspotDom = document.createElement('div');
-        this.hotspotDom.className = 'pc-annotation-hotspot';
+        this.hotspotDom.className = 'sse-annotation-hotspot';
 
         // Add click handlers
         this.hotspotDom.addEventListener('click', (e) => {
@@ -417,35 +350,41 @@ export class Annotation extends Script {
         });
 
         const leave = () => {
-            if (Annotation.hoverAnnotation === this) {
-                Annotation.hoverAnnotation = null;
+            if (ctx.hoverAnnotation === this) {
+                ctx.hoverAnnotation = null;
                 this.setHover(false);
             }
         };
 
         const enter = () => {
-            if (Annotation.hoverAnnotation !== null) {
-                Annotation.hoverAnnotation.setHover(false);
+            if (ctx.hoverAnnotation !== null) {
+                ctx.hoverAnnotation.setHover(false);
             }
-            Annotation.hoverAnnotation = this;
+            ctx.hoverAnnotation = this;
             this.setHover(true);
         };
 
         this.hotspotDom.addEventListener('pointerenter', enter);
         this.hotspotDom.addEventListener('pointerleave', leave);
 
-        document.addEventListener('click', () => {
-            if (Annotation.activeAnnotation === this) {
+        const onDocumentClick = () => {
+            if (ctx.activeAnnotation === this) {
                 this.hideTooltip();
             }
-        });
+        };
+        document.addEventListener('click', onDocumentClick);
 
-        Annotation.parentDom.appendChild(this.hotspotDom);
+        ctx.parentDom.appendChild(this.hotspotDom);
 
         // Clean up on entity destruction
         this.on('destroy', () => {
+            this.destroyed = true;
+            document.removeEventListener('click', onDocumentClick);
             this.hotspotDom.remove();
-            if (Annotation.activeAnnotation === this) {
+            if (ctx.hoverAnnotation === this) {
+                ctx.hoverAnnotation = null;
+            }
+            if (ctx.activeAnnotation === this) {
                 this.hideTooltip();
             }
 
@@ -468,12 +407,13 @@ export class Annotation extends Script {
      * @private
      */
     _update() {
-        if (!Annotation.camera) return;
+        if (this.destroyed) return;
 
+        const { camera } = this.context;
         const position = this.entity.getPosition();
-        const screenPos = Annotation.camera.camera.worldToScreen(position);
+        const screenPos = camera.camera.worldToScreen(position);
 
-        const { viewMatrix } = Annotation.camera.camera;
+        const { viewMatrix } = camera.camera;
         viewMatrix.transformPoint(position, vec);
         if (vec.z >= 0) {
             this._hideElements();
@@ -485,10 +425,11 @@ export class Annotation extends Script {
 
         // update material opacity and also directly on the uniform so we
         // can avoid a full material update
-        this.materials[0].opacity = Annotation.opacity;
-        this.materials[1].opacity = 0.25 * Annotation.opacity;
-        this.materials[0].setParameter('material_opacity', Annotation.opacity);
-        this.materials[1].setParameter('material_opacity', 0.25 * Annotation.opacity);
+        const { opacity } = this.context;
+        this.materials[0].opacity = opacity;
+        this.materials[1].opacity = 0.25 * opacity;
+        this.materials[0].setParameter('material_opacity', opacity);
+        this.materials[1].setParameter('material_opacity', 0.25 * opacity);
     }
 
     /**
@@ -498,7 +439,7 @@ export class Annotation extends Script {
      */
     setHover(hover: boolean) {
         this.materials.forEach((material) => {
-            material.emissive.copy(hover ? Annotation.hoverColor : Annotation.hotspotColor);
+            material.emissive.copy(hover ? this.context.hoverColor : this.context.hotspotColor);
             material.update();
         });
         this.fire('hover', hover);
@@ -508,11 +449,12 @@ export class Annotation extends Script {
      * @private
      */
     showTooltip() {
-        Annotation.activeAnnotation = this;
-        Annotation.tooltipDom.style.visibility = 'visible';
-        Annotation.tooltipDom.style.opacity = '1';
-        Annotation.titleDom.textContent = this.title;
-        Annotation.textDom.textContent = this.text;
+        const ctx = this.context;
+        ctx.activeAnnotation = this;
+        ctx.tooltipDom.style.visibility = 'visible';
+        ctx.tooltipDom.style.opacity = '1';
+        ctx.titleDom.textContent = this.title;
+        ctx.textDom.textContent = this.text;
 
         // Immediately update incase the camera doesn't move
         this._update();
@@ -524,13 +466,14 @@ export class Annotation extends Script {
      * @private
      */
     hideTooltip() {
-        Annotation.activeAnnotation = null;
-        Annotation.tooltipDom.style.opacity = '0';
+        const { tooltipDom } = this.context;
+        this.context.activeAnnotation = null;
+        tooltipDom.style.opacity = '0';
 
         // Wait for fade out before hiding
         setTimeout(() => {
-            if (Annotation.tooltipDom.style.opacity === '0') {
-                Annotation.tooltipDom.style.visibility = 'hidden';
+            if (tooltipDom.style.opacity === '0') {
+                tooltipDom.style.visibility = 'hidden';
                 this.fire('hide');
             }
         }, 200); // Match the transition duration
@@ -542,9 +485,9 @@ export class Annotation extends Script {
      */
     _hideElements() {
         this.hotspotDom.style.display = 'none';
-        if (Annotation.activeAnnotation === this) {
-            Annotation.tooltipDom.style.visibility = 'hidden';
-            Annotation.tooltipDom.style.opacity = '0';
+        if (this.context.activeAnnotation === this) {
+            this.context.tooltipDom.style.visibility = 'hidden';
+            this.context.tooltipDom.style.opacity = '0';
         }
     }
 
@@ -559,21 +502,23 @@ export class Annotation extends Script {
         this.hotspotDom.style.left = `${screenPos.x}px`;
         this.hotspotDom.style.top = `${screenPos.y}px`;
 
+        const ctx = this.context;
+
         // Re-show tooltip if it was hidden while behind camera
-        if (Annotation.activeAnnotation === this) {
-            Annotation.tooltipDom.style.visibility = 'visible';
-            Annotation.tooltipDom.style.opacity = '1';
+        if (ctx.activeAnnotation === this) {
+            ctx.tooltipDom.style.visibility = 'visible';
+            ctx.tooltipDom.style.opacity = '1';
         }
 
-        // Position tooltip, clamped to viewport
-        if (Annotation.activeAnnotation === this) {
-            const tooltip = Annotation.tooltipDom;
+        // Position tooltip, clamped to the canvas (screenPos is in canvas pixels)
+        if (ctx.activeAnnotation === this) {
+            const tooltip = ctx.tooltipDom;
             const margin = 8;
             const arrowOffset = 25;
             const tw = tooltip.offsetWidth;
             const th = tooltip.offsetHeight;
-            const vw = window.innerWidth;
-            const vh = window.innerHeight;
+            const vw = ctx.canvas.clientWidth;
+            const vh = ctx.canvas.clientHeight;
 
             // Default position: to the right of hotspot, vertically centered
             let left = screenPos.x + arrowOffset;
@@ -596,8 +541,8 @@ export class Annotation extends Script {
             const arrowY = Math.max(16, Math.min(screenPos.y - top, th - 16));
             tooltip.style.setProperty('--arrow-top', `${arrowY}px`);
 
-            tooltip.classList.toggle('arrow-right', !flipped);
-            tooltip.classList.toggle('arrow-left', flipped);
+            tooltip.classList.toggle('sse-arrow-right', !flipped);
+            tooltip.classList.toggle('sse-arrow-left', flipped);
             tooltip.style.transform = 'none';
             tooltip.style.left = `${left}px`;
             tooltip.style.top = `${top}px`;
@@ -611,7 +556,7 @@ export class Annotation extends Script {
      */
     _updateRotationAndScale(viewDepth: number) {
         // Copy camera rotation to align with view plane
-        const cameraRotation = Annotation.camera.getRotation();
+        const cameraRotation = this.context.camera.getRotation();
         this._updateHotspotTransform(this.entity, cameraRotation);
 
         // Calculate scale based on view depth to maintain constant screen size
@@ -642,9 +587,91 @@ export class Annotation extends Script {
         const screenHeight = canvas.clientHeight;
 
         // Use view-space depth (not Euclidean distance) to match the projection matrix
-        const projMatrix = Annotation.camera.camera.projectionMatrix;
-        const worldSize = (Annotation.hotspotSize / screenHeight) * ((2 * viewDepth) / projMatrix.data[5]);
+        const projMatrix = this.context.camera.camera.projectionMatrix;
+        const worldSize = (HOTSPOT_SIZE / screenHeight) * ((2 * viewDepth) / projMatrix.data[5]);
 
         return worldSize;
     }
 }
+
+/**
+ * Everything the annotations of one viewer share: the dom they live in and its stylesheet, the
+ * camera they face, their render layers and quad mesh, the single tooltip, and the hover and
+ * active bookkeeping. One per viewer, so two viewers on a page never fight over shared state.
+ * Owned by `Annotations`, which removes `parentDom` on destroy; the mesh is released through
+ * the mesh instances when the annotation entities go.
+ */
+class AnnotationContext {
+    parentDom: HTMLElement;
+
+    canvas: HTMLCanvasElement;
+
+    camera: Entity;
+
+    layers: Layer[];
+
+    mesh: Mesh;
+
+    tooltipDom: HTMLDivElement;
+
+    titleDom: HTMLDivElement;
+
+    textDom: HTMLDivElement;
+
+    // Mutable copies: `Annotations` converts them to gamma space when post effects are active.
+    hotspotColor = HOTSPOT_COLOR.clone();
+
+    hoverColor = HOVER_COLOR.clone();
+
+    activeAnnotation: Annotation | null = null;
+
+    hoverAnnotation: Annotation | null = null;
+
+    opacity = 1.0;
+
+    constructor(app: AppBase, camera: Entity, parentDom: HTMLElement) {
+        this.parentDom = parentDom;
+        this.canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
+        this.camera = camera;
+
+        parentDom.appendChild(Annotation._createStyleSheet(HOTSPOT_SIZE));
+
+        const { layers } = app.scene;
+        const worldLayer = layers.getLayerByName('World');
+
+        const createLayer = (name: string, semitrans: boolean) => {
+            const layer = new Layer({ name: name });
+            const idx = semitrans ? layers.getTransparentIndex(worldLayer) : layers.getOpaqueIndex(worldLayer);
+            layers.insert(layer, idx + 1);
+            return layer;
+        };
+
+        this.layers = [createLayer('HotspotBase', false), createLayer('HotspotOverlay', true)];
+
+        camera.camera.layers = [...camera.camera.layers, ...this.layers.map((layer) => layer.id)];
+
+        this.mesh = Mesh.fromGeometry(
+            app.graphicsDevice,
+            new PlaneGeometry({
+                widthSegments: 1,
+                lengthSegments: 1
+            })
+        );
+
+        // Initialize tooltip dom
+        this.tooltipDom = document.createElement('div');
+        this.tooltipDom.className = 'sse-annotation';
+
+        this.titleDom = document.createElement('div');
+        this.titleDom.className = 'sse-annotation-title';
+        this.tooltipDom.appendChild(this.titleDom);
+
+        this.textDom = document.createElement('div');
+        this.textDom.className = 'sse-annotation-text';
+        this.tooltipDom.appendChild(this.textDom);
+
+        parentDom.appendChild(this.tooltipDom);
+    }
+}
+
+export { AnnotationContext };

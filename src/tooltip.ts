@@ -17,29 +17,36 @@ class Tooltip {
 
         this.register = (target: HTMLElement, textString: string, direction: Direction = 'bottom') => {
             const activate = () => {
+                // the tooltip is positioned within the ui layer, so express the target's
+                // viewport rect in that layer's coordinates
+                const origin = dom.parentElement.getBoundingClientRect();
                 const rect = target.getBoundingClientRect();
-                const midx = Math.floor((rect.left + rect.right) * 0.5);
-                const midy = Math.floor((rect.top + rect.bottom) * 0.5);
+                const left = rect.left - origin.left;
+                const right = rect.right - origin.left;
+                const top = rect.top - origin.top;
+                const bottom = rect.bottom - origin.top;
+                const midx = Math.floor((left + right) * 0.5);
+                const midy = Math.floor((top + bottom) * 0.5);
 
                 switch (direction) {
                     case 'left':
-                        style.left = `${rect.left}px`;
+                        style.left = `${left}px`;
                         style.top = `${midy}px`;
                         style.transform = 'translate(calc(-100% - 10px), -50%)';
                         break;
                     case 'right':
-                        style.left = `${rect.right}px`;
+                        style.left = `${right}px`;
                         style.top = `${midy}px`;
                         style.transform = 'translate(10px, -50%)';
                         break;
                     case 'top':
                         style.left = `${midx}px`;
-                        style.top = `${rect.top}px`;
+                        style.top = `${top}px`;
                         style.transform = 'translate(-50%, calc(-100% - 10px))';
                         break;
                     case 'bottom':
                         style.left = `${midx}px`;
-                        style.top = `${rect.bottom}px`;
+                        style.top = `${bottom}px`;
                         style.transform = 'translate(-50%, 10px)';
                         break;
                 }

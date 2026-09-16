@@ -1,15 +1,19 @@
 import css from '../../public/index.css';
 import html from '../../public/index.html';
 import js from '../../public/index.js';
+import type { ViewerAssets } from '../options';
 
 /**
- * Asset urls and settings the embedder supplies to the viewer.
+ * Asset urls and settings the embedder supplies to the viewer. The asset urls are the same
+ * fields `createViewer` takes in a page ({@link ViewerAssets}); here every one is optional,
+ * because the document has a default for each.
  *
  * Url params on the served page take precedence over every url here, so an embed stays
  * overridable per instance. Inline {@link ViewerBootstrap.settings} is the exception: it wins
  * over `?settings=`, so a published experience cannot be repointed at another settings file.
+ * `contentFilename` is ignored when a `?content=` param overrides the url it describes.
  */
-type ViewerBootstrap = {
+type ViewerBootstrap = Partial<ViewerAssets> & {
     /**
      * Experience settings as an object, avoiding a round trip. When omitted the viewer
      * fetches {@link ViewerBootstrap.settingsUrl}.
@@ -17,21 +21,6 @@ type ViewerBootstrap = {
     settings?: unknown;
     /** Where to fetch settings from. Defaults to `./settings.json`. */
     settingsUrl?: string;
-    /** Splat url. May be a `data:` uri, for a document with no sibling files. */
-    contentUrl?: string;
-    /**
-     * Filename describing {@link ViewerBootstrap.contentUrl}, e.g. `scene.sog`. The splat
-     * format is chosen by the name's extension, so this is required when the url itself has
-     * no usable name — a `data:` uri. Ignored when a `?content=` url param overrides the url
-     * it describes.
-     */
-    contentFilename?: string;
-    /** Poster image shown, blurred, while the splat loads. */
-    posterUrl?: string;
-    /** Equirectangular skybox texture url. */
-    skyboxUrl?: string;
-    /** Collision data url, for walk mode. A `.glb` is treated as a mesh, otherwise voxels. */
-    collisionUrl?: string;
 };
 
 /** Options for {@link renderViewerHtml}. */
@@ -112,7 +101,7 @@ const indent = (text: string, spaces: number) => {
 const BOOTSTRAP = /<script type="application\/json" id="sse-bootstrap">[\s\S]*?<\/script>/;
 const BASE_HREF = /<base\b[^>]*>/;
 const STYLESHEET = /<link\b[^>]*href="\.\/index\.css"[^>]*>/;
-const MODULE_IMPORT = /import \{ main \} from '\.\/index\.js';/;
+const MODULE_IMPORT = /import \{ createViewer \} from '\.\/index\.js';/;
 const HEAD_CLOSE = /^([ \t]*)<\/head>/m;
 const BODY_OPEN = /<body\b[^>]*>/;
 

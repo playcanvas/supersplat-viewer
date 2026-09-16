@@ -216,7 +216,7 @@ class MeshDebugOverlay {
         const depthInstance = new MeshInstance(mesh, depthMaterial);
         depthInstance.drawOrder = 0;
 
-        const depthEntity = new Entity('CollisionDepthPrepass');
+        const depthEntity = new Entity('CollisionDepthPrepass', this.app);
         depthEntity.addComponent('render', {
             meshInstances: [depthInstance],
             layers: [this.layer.id]
@@ -238,7 +238,7 @@ class MeshDebugOverlay {
         const surfaceInstance = new MeshInstance(mesh, surfaceMaterial);
         surfaceInstance.drawOrder = 1;
 
-        const surfaceEntity = new Entity('CollisionSurface');
+        const surfaceEntity = new Entity('CollisionSurface', this.app);
         surfaceEntity.addComponent('render', {
             meshInstances: [surfaceInstance],
             layers: [this.layer.id]
@@ -268,7 +268,7 @@ class MeshDebugOverlay {
         const wireframeInstance = new MeshInstance(mesh, wireframeMaterial);
         wireframeInstance.drawOrder = 2;
 
-        const wireframeEntity = new Entity('CollisionWireframe');
+        const wireframeEntity = new Entity('CollisionWireframe', this.app);
         wireframeEntity.addComponent('render', {
             meshInstances: [wireframeInstance],
             layers: [this.layer.id]
@@ -277,7 +277,7 @@ class MeshDebugOverlay {
 
         this.materials = [depthMaterial, surfaceMaterial, wireframeMaterial];
 
-        this.entity = new Entity('MeshCollisionDebug');
+        this.entity = new Entity('MeshCollisionDebug', this.app);
         this.entity.addChild(depthEntity);
         this.entity.addChild(surfaceEntity);
         this.entity.addChild(wireframeEntity);

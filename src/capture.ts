@@ -113,6 +113,8 @@ class Capture {
 
     private dstRT: RenderTarget | null = null;
 
+    private destroyed = false;
+
     constructor(app: AppBase, camera: CameraComponent, getCameraFrame: () => CaptureFrame | null) {
         this.app = app;
         this.device = app.graphicsDevice;
@@ -150,6 +152,17 @@ class Capture {
         const rt = new RenderTarget({ name, colorBuffer, depth });
         (rt as { isColorBufferSrgb: (index: number) => boolean }).isColorBufferSrgb = () => srgb;
         return rt;
+    }
+
+    /** Release the render targets and shader. The instance is unusable afterwards. */
+    destroy() {
+        this.destroyed = true;
+        for (const target of ['srcRT', 'dstRT'] as const) {
+            this[target]?.colorBuffer.destroy();
+            this[target]?.destroy();
+            this[target] = null;
+        }
+        this.shader.destroy();
     }
 
     private ensure(target: 'srcRT' | 'dstRT', width: number, height: number, depth: boolean) {
@@ -238,11 +251,16 @@ class Capture {
             }
             return { width: outW, height: outH, data: btoa(chunks.join('')) };
         } finally {
-            camera.aspectRatioMode = saved.aspectRatioMode;
-            camera.aspectRatio = saved.aspectRatio;
-            camera.horizontalFov = saved.horizontalFov;
-            this.setCameraTarget(saved.renderTarget);
-            this.app.renderNextFrame = true;
+            // A capture still in flight when the viewer is torn down resumes here with the
+            // camera, and the app behind it, already destroyed. There is nothing left to put
+            // back, and writing to either would reach into released engine state.
+            if (!this.destroyed) {
+                camera.aspectRatioMode = saved.aspectRatioMode;
+                camera.aspectRatio = saved.aspectRatio;
+                camera.horizontalFov = saved.horizontalFov;
+                this.setCameraTarget(saved.renderTarget);
+                this.app.renderNextFrame = true;
+            }
         }
     }
 }

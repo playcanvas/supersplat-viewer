@@ -10,7 +10,8 @@ const isWasdKey = (event: KeyboardEvent) =>
 /**
  * Keyboard shortcuts that switch camera mode and toggle UI affordances.
  * Listens on `window` so the user can press 1/2/3, V, G, H, F, R, Space,
- * or Escape regardless of which element has focus.
+ * or Escape regardless of which element has focus — unless the host has
+ * cleared `state.inputEnabled`, which is how it routes the keyboard away.
  */
 class ModeShortcuts {
     private _global: Global | null = null;
@@ -21,6 +22,7 @@ class ModeShortcuts {
         const global = this._global;
         if (!global) return;
         const { state, events } = global;
+        if (!state.inputEnabled) return;
 
         if (event.key === 'Escape') {
             if (this._pointerLock?.recentlyExitedCapture) {

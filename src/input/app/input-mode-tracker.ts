@@ -1,8 +1,8 @@
 import type { Global } from '../../types';
 
 /**
- * Watches global pointer events and updates `state.inputMode` to reflect
- * whether the user is on a touch device or desktop.
+ * Watches pointer events over the instance root and updates `state.inputMode`
+ * to reflect whether the user is on a touch device or desktop.
  */
 class InputModeTracker {
     private _global: Global | null = null;
@@ -15,13 +15,13 @@ class InputModeTracker {
 
     attach(global: Global): void {
         this._global = global;
-        window.addEventListener('pointerdown', this._onPointer);
-        window.addEventListener('pointermove', this._onPointer);
+        global.root.addEventListener('pointerdown', this._onPointer);
+        global.root.addEventListener('pointermove', this._onPointer);
     }
 
     detach(): void {
-        window.removeEventListener('pointerdown', this._onPointer);
-        window.removeEventListener('pointermove', this._onPointer);
+        this._global?.root.removeEventListener('pointerdown', this._onPointer);
+        this._global?.root.removeEventListener('pointermove', this._onPointer);
         this._global = null;
     }
 }

@@ -20,10 +20,13 @@ type KeyboardInternals = {
 };
 
 // Patch keydown / keyup so meta-key combinations don't leave keys stuck on
-// macOS (the OS swallows keyup for any key released while Cmd is held).
-const patchKeyboardMeta = (desktopInput: KeyboardInternals) => {
+// macOS (the OS swallows keyup for any key released while Cmd is held), and so
+// keydown is turned away while the host has input disabled: the engine source
+// listens on window, so this is the only place a key can be refused.
+const patchKeyboardMeta = (desktopInput: KeyboardInternals, enabled: () => boolean) => {
     const origOnKeyDown = desktopInput._onKeyDown;
     desktopInput._onKeyDown = (event: KeyboardEvent) => {
+        if (!enabled()) return;
         if (event.key === 'Meta') {
             desktopInput._keyNow.fill(0);
         } else if (!event.metaKey) {
@@ -72,6 +75,14 @@ class KeyboardMouseDevice implements InputDevice {
 
     private _flyKeyVelocity = new Vec3();
 
+    // release every held key when the host disables input, so none can stick; the
+    // releases reach `update` as ordinary deltas and unwind the running axis
+    private _onInputEnabled = (enabled: boolean) => {
+        if (!enabled) {
+            (this._source as unknown as KeyboardInternals)._keyNow.fill(0);
+        }
+    };
+
     /**
      * Get the underlying source so other code (PointerLockManager) can
      * toggle its private pointer-lock flag, which gates how it consumes
@@ -85,13 +96,15 @@ class KeyboardMouseDevice implements InputDevice {
 
     attach(canvas: HTMLCanvasElement, global: Global): void {
         this._global = global;
-        patchKeyboardMeta(this._source as unknown as KeyboardInternals);
+        patchKeyboardMeta(this._source as unknown as KeyboardInternals, () => global.state.inputEnabled);
         this._source.attach(canvas);
+        global.events.on('inputEnabled:changed', this._onInputEnabled);
     }
 
     detach(): void {
-        // KeyboardMouseSource does not expose a detach; nothing to undo for
-        // its DOM listeners here.
+        this._global?.events.off('inputEnabled:changed', this._onInputEnabled);
+        this._source.detach();
+        this._global = null;
     }
 
     update(ctx: UpdateContext, frame: CameraInputFrame): void {

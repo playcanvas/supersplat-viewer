@@ -18,14 +18,21 @@ import { MeshCollision, loadVoxelCollision } from './collision';
 import type { Collision } from './collision';
 import { observe } from './core/observe';
 import { initLocalization } from './localization';
+import type { CreateViewerOptions } from './options';
 import { importSettings } from './settings';
-import type { Config, Global, State } from './types';
+import type { Config, Global, State, ViewerHandle } from './types';
 import { initPoster, initUI } from './ui';
+import uiHtml from './ui.html';
 import { Viewer } from './viewer';
 import { initXr } from './xr';
 import { version as appVersion } from '../package.json';
 
-const loadGsplat = async (app: AppBase, config: Config, progressCallback: (progress: number) => void) => {
+const loadGsplat = async (
+    app: AppBase,
+    config: Config,
+    progressCallback: (progress: number) => void,
+    cancelled: () => boolean
+) => {
     const { contents, contentUrl, contentFilename } = config;
     const c = contents as unknown as ArrayBuffer;
     // the filename's extension selects the gsplat parser, so a url with no usable name (a
@@ -33,11 +40,21 @@ const loadGsplat = async (app: AppBase, config: Config, progressCallback: (progr
     // back to the url-derived name
     const filename = contentFilename || new URL(contentUrl, location.href).pathname.split('/').pop();
     const data = filename.toLowerCase() === 'meta.json' ? await (await contents).json() : undefined;
+
+    // Reading that metadata spans a network round trip, so a destroy can land in the middle of
+    // it. `app.destroy()` nulls the asset registry, so registering the asset now would throw
+    // from the engine's internals; reject instead, which the viewer's load chains expect.
+    if (cancelled()) {
+        throw new Error('loadGsplat: the viewer was destroyed while loading');
+    }
+
     const asset = new Asset(filename, 'gsplat', { url: contentUrl, filename, contents: c }, data);
 
     return new Promise<Entity>((resolve, reject) => {
         asset.on('load', () => {
-            const entity = new Entity('gsplat');
+            // always name the app: the engine's default is the most recently created one,
+            // which is another viewer's when two share a page
+            const entity = new Entity('gsplat', app);
             entity.setLocalEulerAngles(0, 0, 180);
             entity.addComponent('gsplat', {
                 unified: true,
@@ -135,13 +152,13 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
     (app.loader.getHandler('texture') as TextureHandler).imgParser.crossOrigin = 'anonymous';
 
     // Create entity hierarchy
-    const cameraRoot = new Entity('camera root');
+    const cameraRoot = new Entity('camera root', app);
     app.root.addChild(cameraRoot);
 
-    const camera = new Entity('camera');
+    const camera = new Entity('camera', app);
     cameraRoot.addChild(camera);
 
-    const light = new Entity('light');
+    const light = new Entity('light', app);
     light.setEulerAngles(35, 45, 0);
     light.addComponent('light', {
         color: new Color(1.0, 0.98, 0.957),
@@ -224,9 +241,73 @@ const initCanvas = (global: Global) => {
     // Disable the engine's built-in canvas resize — we handle it via ResizeObserver
     (app as unknown as { _allowResize: boolean })._allowResize = false;
     apply();
+
+    return () => resizeObserver.disconnect();
 };
 
-const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Config) => {
+const createImage = (url: string) => {
+    const img = new Image();
+    img.src = url;
+    return img;
+};
+
+// the options with every default applied
+const resolveConfig = (options: CreateViewerOptions): Config => ({
+    contentUrl: options.contentUrl,
+    contentFilename: options.contentFilename,
+    posterUrl: options.posterUrl,
+    skyboxUrl: options.skyboxUrl,
+    collisionUrl: options.collisionUrl,
+    poster: options.poster ?? (options.posterUrl ? createImage(options.posterUrl) : undefined),
+    contents: options.contents ?? fetch(options.contentUrl),
+    renderer: options.renderer ?? 'webgpu',
+    ui: options.ui ?? true,
+    noanim: options.noanim ?? false,
+    nofx: options.nofx ?? false,
+    hpr: options.hpr,
+    ministats: options.ministats ?? false,
+    colorize: options.colorize ?? false,
+    fullload: options.fullload ?? false,
+    aa: options.aa ?? false,
+    budget: options.budget,
+    heatmap: options.heatmap ?? false,
+    debug: options.debug ?? false,
+    lang: options.lang,
+    exposeGlobals: options.exposeGlobals ?? false
+});
+
+const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle> => {
+    const { container } = options;
+    const config = resolveConfig(options);
+
+    // the instance root. The canvas and the ui markup are siblings under it, which scopes
+    // everything the viewer looks up or attaches in the dom; the viewer owns it outright, so
+    // nothing on the host's own element is read or written, and destroy() removes it whole
+    const root = document.createElement('div');
+    root.className = 'sse-viewer';
+    if (config.ui) {
+        root.innerHTML = uiHtml;
+    } else {
+        root.appendChild(document.createElement('canvas'));
+    }
+
+    container.appendChild(root);
+    const canvas = root.querySelector('canvas');
+
+    // create events
+    const events = new EventHandler();
+
+    // the poster covers the hidden canvas from the first moment, before the graphics device
+    // exists. It is part of the ui, so a headless instance shows the canvas from the start and
+    // its host covers the wait however it likes
+    if (config.poster && config.ui) {
+        initPoster(root, config.poster, events);
+    }
+
+    // resolve settings after showing the poster, including a fetch started by the document
+    const settingsJson =
+        typeof options.settings === 'string' ? await (await fetch(options.settings)).json() : await options.settings;
+
     // migrate legacy `retinaDisplay` preference (inverted) to `performanceMode`
     const legacyRetina = localStorage.getItem('retinaDisplay');
     if (legacyRetina !== null && localStorage.getItem('performanceMode') === null) {
@@ -244,8 +325,8 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
 
     const { app, camera, renderer } = await createApp(canvas, config);
 
-    // create events
-    const events = new EventHandler();
+    // translate the markup and get this instance's string lookup, before the ui reads any
+    const localize = initLocalization(config.lang, root);
 
     const state = observe<State>(events, {
         loaded: false,
@@ -266,7 +347,8 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
         isFullscreen: false,
         controlsHidden: false,
         showAnnotations: localStorage.getItem('showAnnotations') !== 'false',
-        gamingControls: localStorage.getItem('gamingControls') === 'true'
+        gamingControls: localStorage.getItem('gamingControls') === 'true',
+        inputEnabled: true
     });
 
     const global: Global = {
@@ -276,18 +358,15 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
         state,
         events,
         camera,
-        renderer
+        renderer,
+        root,
+        localize
     };
 
-    initCanvas(global);
+    const disposeCanvas = initCanvas(global);
 
     // start the application
     app.start();
-
-    // Initialize the load-time poster
-    if (config.poster) {
-        initPoster(events);
-    }
 
     camera.addComponent('camera');
 
@@ -296,13 +375,21 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
     initXr(global);
 
     // Initialize user interface
-    initLocalization(config.lang);
-    initUI(global);
+    const disposeUI = config.ui ? initUI(global) : null;
+
+    // a load continuation can outlive a destroy, so anything that resumes after an await checks
+    // this before touching the app
+    let destroyed = false;
 
     // Load model
-    const gsplatLoad = loadGsplat(app, config, (progress: number) => {
-        state.progress = progress;
-    });
+    const gsplatLoad = loadGsplat(
+        app,
+        config,
+        (progress: number) => {
+            state.progress = progress;
+        },
+        () => destroyed
+    );
 
     // Load skybox (continue without if it fails — e.g. CORS, 404)
     const skyboxLoad =
@@ -333,27 +420,51 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
     }
 
     // Load and play sound
+    let disposeAudio: (() => void) | undefined;
     if (global.settings.soundUrl) {
         const sound = new Audio(global.settings.soundUrl);
         sound.crossOrigin = 'anonymous';
-        document.body.addEventListener(
-            'click',
-            () => {
-                if (sound) {
-                    sound.play();
-                }
-            },
-            {
-                capture: true,
-                once: true
+        const unlock = () => {
+            if (sound) {
+                sound.play();
             }
-        );
+        };
+        root.addEventListener('click', unlock, {
+            capture: true,
+            once: true
+        });
+        disposeAudio = () => {
+            root.removeEventListener('click', unlock, { capture: true });
+            sound.pause();
+        };
     }
 
     // Create the viewer
-    return new Viewer(global, gsplatLoad, skyboxLoad, collisionLoad);
+    const viewer = new Viewer(global, gsplatLoad, skyboxLoad, collisionLoad);
+    viewer.onDestroy(() => {
+        destroyed = true;
+    });
+    viewer.onDestroy(disposeCanvas);
+    if (disposeUI) {
+        viewer.onDestroy(disposeUI);
+    }
+    if (disposeAudio) {
+        viewer.onDestroy(disposeAudio);
+    }
+
+    return {
+        app,
+        state,
+        events,
+        captureFrame: (captureOptions) => viewer.captureFrame(captureOptions),
+        frameScene: () => events.fire('inputEvent', 'frame'),
+        destroy: () => viewer.destroy()
+    };
 };
 
 console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engineRevision})`);
 
-export { main };
+export type { CaptureResult } from './capture';
+export type { CreateViewerOptions, ViewerAssets, ViewerFlags } from './options';
+export type { CaptureOptions, ViewerHandle, ViewerState } from './types';
+export { createViewer };

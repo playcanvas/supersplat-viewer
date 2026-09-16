@@ -2,7 +2,6 @@ import type { EventHandler } from 'playcanvas';
 
 import { version as appVersion } from '../package.json';
 
-import { localize } from './localization';
 import type { Annotation } from './settings';
 import { Tooltip } from './tooltip';
 import type { Global } from './types';
@@ -19,10 +18,6 @@ const initJoystick = (
     const stickCenterY = (joystickHeight - stickSize) / 2; // 30px - top position when centered
     const stickCenterX = (joystickHeight - stickSize) / 2; // 30px - left position when centered (for 2D mode)
     const maxStickTravel = stickCenterY; // can travel 30px up or down from center
-
-    // Fixed joystick position (bottom-left corner with safe area)
-    const joystickFixedX = 70;
-    const joystickFixedY = () => window.innerHeight - 140;
 
     // Joystick touch state
     let joystickPointerId: number | null = null;
@@ -42,10 +37,8 @@ const initJoystick = (
             state.inputMode === 'touch' &&
             state.gamingControls
         ) {
-            dom.joystickBase.classList.remove('hidden');
-            dom.joystickBase.classList.toggle('mode-2d', joystickMode === '2d');
-            dom.joystickBase.style.left = `${joystickFixedX}px`;
-            dom.joystickBase.style.top = `${joystickFixedY()}px`;
+            dom.joystickBase.classList.remove('sse-hidden');
+            dom.joystickBase.classList.toggle('sse-mode-2d', joystickMode === '2d');
             // Center the stick
             dom.joystick.style.top = `${stickCenterY}px`;
             if (joystickMode === '2d') {
@@ -54,18 +47,20 @@ const initJoystick = (
                 dom.joystick.style.left = '8px'; // Reset to 1D centered position
             }
         } else {
-            dom.joystickBase.classList.add('hidden');
+            dom.joystickBase.classList.add('sse-hidden');
         }
     };
 
     events.on('cameraMode:changed', updateJoystickVisibility);
     events.on('inputMode:changed', updateJoystickVisibility);
     events.on('gamingControls:changed', updateJoystickVisibility);
-    window.addEventListener('resize', updateJoystickVisibility);
 
     // Handle joystick touch input directly on the joystick element
     const updateJoystickStick = (clientX: number, clientY: number) => {
-        const baseY = joystickFixedY();
+        // the stylesheet places the base within the instance, so measure its centre rather
+        // than assuming where the viewport put it
+        const base = dom.joystickBase.getBoundingClientRect();
+        const baseY = base.top + base.height / 2;
         // Calculate Y offset from joystick center (positive = down/backward)
         const offsetY = clientY - baseY;
         // Clamp to max travel and normalize to -1 to 1
@@ -77,7 +72,7 @@ const initJoystick = (
 
         // Handle X axis in 2D mode
         if (joystickMode === '2d') {
-            const baseX = joystickFixedX;
+            const baseX = base.left + base.width / 2;
             const offsetX = clientX - baseX;
             const clampedOffsetX = Math.max(-maxStickTravel, Math.min(maxStickTravel, offsetX));
             joystickValueX = clampedOffsetX / maxStickTravel;
@@ -162,17 +157,17 @@ const initAnnotationNav = (
     const updateMode = () => {
         if (!state.loaded) return;
         if (!state.showAnnotations) {
-            dom.annotationNav.classList.add('hidden');
+            dom.annotationNav.classList.add('sse-hidden');
             return;
         }
-        dom.annotationNav.classList.remove('desktop', 'touch', 'hidden');
-        dom.annotationNav.classList.add(state.inputMode);
+        dom.annotationNav.classList.remove('sse-desktop', 'sse-touch', 'sse-hidden');
+        dom.annotationNav.classList.add(`sse-${state.inputMode}`);
     };
 
     const updateFade = () => {
         if (!state.loaded) return;
-        dom.annotationNav.classList.toggle('faded-in', !state.controlsHidden);
-        dom.annotationNav.classList.toggle('faded-out', state.controlsHidden);
+        dom.annotationNav.classList.toggle('sse-faded-in', !state.controlsHidden);
+        dom.annotationNav.classList.toggle('sse-faded-out', state.controlsHidden);
     };
 
     const goTo = (index: number) => {
@@ -217,13 +212,20 @@ const initAnnotationNav = (
     updateDisplay();
 };
 
-// update the poster image to start blurry and then resolve to sharp during loading
-const initPoster = (events: EventHandler) => {
-    const poster = document.getElementById('poster');
+// show the poster image over the hidden canvas, blurry at first and sharpening as loading
+// progresses, until the first frame renders
+const initPoster = (root: HTMLElement, image: HTMLImageElement, events: EventHandler) => {
+    const poster = root.querySelector<HTMLElement>('.sse-poster');
+
+    poster.style.setProperty('--poster-url', `url(${image.src})`);
+    poster.style.display = 'block';
+    poster.style.filter = 'blur(40px)';
+    // the canvas inherits this from the root
+    root.style.setProperty('--canvas-opacity', '0');
 
     events.on('loaded:changed', () => {
         poster.style.display = 'none';
-        document.documentElement.style.setProperty('--canvas-opacity', '1');
+        root.style.setProperty('--canvas-opacity', '1');
     });
 
     const blur = (progress: number) => {
@@ -233,11 +235,14 @@ const initPoster = (events: EventHandler) => {
     events.on('progress:changed', blur);
 };
 
+// Returns a function that removes the listeners added outside the ui subtree (window,
+// document, screen) and cancels pending timers. Listeners on the subtree's own elements are
+// released with the elements.
 const initUI = (global: Global) => {
-    const { config, events, state } = global;
+    const { events, state, root, localize } = global;
+    const disposers: (() => void)[] = [];
 
     // Acquire Elements
-    const docRoot = document.documentElement;
     const dom = [
         'ui',
         'controlsWrap',
@@ -283,6 +288,7 @@ const initUI = (global: Global) => {
         'walkHint',
         'reset',
         'frame',
+        'loadingWrap',
         'loadingText',
         'loadingBar',
         'joystickBase',
@@ -301,8 +307,8 @@ const initUI = (global: Global) => {
         'xrModal',
         'xrModalOk',
         'xrModalCancel'
-    ].reduce((acc: Record<string, HTMLElement>, id) => {
-        acc[id] = document.getElementById(id);
+    ].reduce((acc: Record<string, HTMLElement>, name) => {
+        acc[name] = root.querySelector<HTMLElement>(`.sse-${name}`);
         return acc;
     }, {});
 
@@ -355,15 +361,16 @@ const initUI = (global: Global) => {
 
     // Hide loading bar once loaded
     events.on('loaded:changed', () => {
-        document.getElementById('loadingWrap').classList.add('hidden');
+        dom.loadingWrap.classList.add('sse-hidden');
     });
 
-    // Fullscreen support
-    const hasFullscreenAPI = docRoot.requestFullscreen && document.exitFullscreen;
+    // Fullscreen support. The root goes fullscreen rather than the document, so an embedded
+    // instance fills the screen on its own; the standalone document's root is <body>.
+    const hasFullscreenAPI = root.requestFullscreen && document.exitFullscreen;
 
     const requestFullscreen = () => {
         if (hasFullscreenAPI) {
-            docRoot.requestFullscreen();
+            root.requestFullscreen();
         } else {
             window.parent.postMessage('requestFullscreen', '*');
             state.isFullscreen = true;
@@ -384,9 +391,12 @@ const initUI = (global: Global) => {
     };
 
     if (hasFullscreenAPI) {
-        document.addEventListener('fullscreenchange', () => {
-            state.isFullscreen = !!document.fullscreenElement;
-        });
+        const onFullscreenChange = () => {
+            // ours, not another instance's on the same page
+            state.isFullscreen = document.fullscreenElement === root;
+        };
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+        disposers.push(() => document.removeEventListener('fullscreenchange', onFullscreenChange));
     }
 
     dom.enterFullscreen.addEventListener('click', requestFullscreen);
@@ -394,18 +404,20 @@ const initUI = (global: Global) => {
 
     // toggle fullscreen when user switches between landscape portrait
     // orientation
-    screen?.orientation?.addEventListener('change', (_event) => {
+    const onOrientationChange = () => {
         if (['landscape-primary', 'landscape-secondary'].includes(screen.orientation.type)) {
             requestFullscreen();
         } else {
             exitFullscreen();
         }
-    });
+    };
+    screen?.orientation?.addEventListener('change', onOrientationChange);
+    disposers.push(() => screen?.orientation?.removeEventListener('change', onOrientationChange));
 
     // update UI when fullscreen state changes
     events.on('isFullscreen:changed', (value) => {
-        dom.enterFullscreen.classList[value ? 'add' : 'remove']('hidden');
-        dom.exitFullscreen.classList[value ? 'remove' : 'add']('hidden');
+        dom.enterFullscreen.classList[value ? 'add' : 'remove']('sse-hidden');
+        dom.exitFullscreen.classList[value ? 'remove' : 'add']('sse-hidden');
     });
 
     // Performance mode toggle
@@ -414,7 +426,7 @@ const initUI = (global: Global) => {
     });
 
     const updatePerformanceMode = () => {
-        dom.performanceModeCheck.classList.toggle('active', state.performanceMode);
+        dom.performanceModeCheck.classList.toggle('sse-active', state.performanceMode);
     };
     events.on('performanceMode:changed', updatePerformanceMode);
     updatePerformanceMode();
@@ -426,22 +438,22 @@ const initUI = (global: Global) => {
 
     const updateGamingSettingsVisibility = () => {
         const isDesktop = state.inputMode === 'desktop';
-        dom.gamingControlsDivider.classList.toggle('hidden', isDesktop);
-        dom.gamingControlsRow.classList.toggle('hidden', isDesktop);
+        dom.gamingControlsDivider.classList.toggle('sse-hidden', isDesktop);
+        dom.gamingControlsRow.classList.toggle('sse-hidden', isDesktop);
     };
     events.on('inputMode:changed', updateGamingSettingsVisibility);
     updateGamingSettingsVisibility();
 
     const updateGamingControls = () => {
-        dom.gamingControlsCheck.classList.toggle('active', state.gamingControls);
-        dom.desktopFlyClickToFly.classList.toggle('hidden', state.gamingControls);
-        dom.desktopFlyGamingControls.classList.toggle('hidden', !state.gamingControls);
-        dom.desktopClickToWalk.classList.toggle('hidden', state.gamingControls);
-        dom.desktopGamingControls.classList.toggle('hidden', !state.gamingControls);
-        dom.touchFlyClickToWalk.classList.toggle('hidden', state.gamingControls);
-        dom.touchFlyGamingControls.classList.toggle('hidden', !state.gamingControls);
-        dom.touchClickToWalk.classList.toggle('hidden', state.gamingControls);
-        dom.touchGamingControls.classList.toggle('hidden', !state.gamingControls);
+        dom.gamingControlsCheck.classList.toggle('sse-active', state.gamingControls);
+        dom.desktopFlyClickToFly.classList.toggle('sse-hidden', state.gamingControls);
+        dom.desktopFlyGamingControls.classList.toggle('sse-hidden', !state.gamingControls);
+        dom.desktopClickToWalk.classList.toggle('sse-hidden', state.gamingControls);
+        dom.desktopGamingControls.classList.toggle('sse-hidden', !state.gamingControls);
+        dom.touchFlyClickToWalk.classList.toggle('sse-hidden', state.gamingControls);
+        dom.touchFlyGamingControls.classList.toggle('sse-hidden', !state.gamingControls);
+        dom.touchClickToWalk.classList.toggle('sse-hidden', state.gamingControls);
+        dom.touchGamingControls.classList.toggle('sse-hidden', !state.gamingControls);
     };
 
     events.on('gamingControls:changed', updateGamingControls);
@@ -450,8 +462,8 @@ const initUI = (global: Global) => {
 
     // Annotation visibility toggle
     const updateAnnotationsVisibility = () => {
-        dom.annotationsRow.classList.toggle('hidden', global.settings.annotations.length === 0);
-        dom.annotationsCheck.classList.toggle('active', state.showAnnotations);
+        dom.annotationsRow.classList.toggle('sse-hidden', global.settings.annotations.length === 0);
+        dom.annotationsCheck.classList.toggle('sse-active', state.showAnnotations);
         global.app.renderNextFrame = true;
     };
 
@@ -468,8 +480,8 @@ const initUI = (global: Global) => {
     events.on('showAnnotations:changed', (value: boolean) => localStorage.setItem('showAnnotations', String(value)));
 
     // AR/VR
-    const arChanged = () => dom.arMode.classList[state.hasAR ? 'remove' : 'add']('hidden');
-    const vrChanged = () => dom.vrMode.classList[state.hasVR ? 'remove' : 'add']('hidden');
+    const arChanged = () => dom.arMode.classList[state.hasAR ? 'remove' : 'add']('sse-hidden');
+    const vrChanged = () => dom.vrMode.classList[state.hasVR ? 'remove' : 'add']('sse-hidden');
 
     // When a session can't start on the current (WebGPU) device but would work on
     // WebGL, prompt the user to reload the viewer with the WebGL renderer before
@@ -482,8 +494,8 @@ const initUI = (global: Global) => {
         location.replace(reloadUrl.toString());
     };
 
-    const showXrModal = () => dom.xrModal.classList.remove('hidden');
-    const hideXrModal = () => dom.xrModal.classList.add('hidden');
+    const showXrModal = () => dom.xrModal.classList.remove('sse-hidden');
+    const hideXrModal = () => dom.xrModal.classList.add('sse-hidden');
 
     dom.xrModalOk.addEventListener('click', reloadWithWebgl);
     dom.xrModalCancel.addEventListener('click', hideXrModal);
@@ -512,15 +524,15 @@ const initUI = (global: Global) => {
     // Info panel
     const updateInfoTab = (tab: 'desktop' | 'touch') => {
         if (tab === 'desktop') {
-            dom.desktopTab.classList.add('active');
-            dom.touchTab.classList.remove('active');
-            dom.desktopInfoPanel.classList.remove('hidden');
-            dom.touchInfoPanel.classList.add('hidden');
+            dom.desktopTab.classList.add('sse-active');
+            dom.touchTab.classList.remove('sse-active');
+            dom.desktopInfoPanel.classList.remove('sse-hidden');
+            dom.touchInfoPanel.classList.add('sse-hidden');
         } else {
-            dom.desktopTab.classList.remove('active');
-            dom.touchTab.classList.add('active');
-            dom.desktopInfoPanel.classList.add('hidden');
-            dom.touchInfoPanel.classList.remove('hidden');
+            dom.desktopTab.classList.remove('sse-active');
+            dom.touchTab.classList.add('sse-active');
+            dom.desktopInfoPanel.classList.add('sse-hidden');
+            dom.touchInfoPanel.classList.remove('sse-hidden');
         }
     };
 
@@ -534,13 +546,13 @@ const initUI = (global: Global) => {
 
     const toggleHelp = () => {
         updateInfoTab(state.inputMode);
-        dom.infoPanel.classList.toggle('hidden');
+        dom.infoPanel.classList.toggle('sse-hidden');
     };
 
     dom.info.addEventListener('click', toggleHelp);
 
     dom.infoPanel.addEventListener('pointerdown', () => {
-        dom.infoPanel.classList.add('hidden');
+        dom.infoPanel.classList.add('sse-hidden');
     });
 
     events.on('inputEvent', (event) => {
@@ -548,27 +560,34 @@ const initUI = (global: Global) => {
             toggleHelp();
         } else if (event === 'cancel') {
             // close info panel on cancel
-            dom.infoPanel.classList.add('hidden');
-            dom.settingsPanel.classList.add('hidden');
+            dom.infoPanel.classList.add('sse-hidden');
+            dom.settingsPanel.classList.add('sse-hidden');
 
             // close fullscreen on cancel
             if (state.isFullscreen) {
                 exitFullscreen();
             }
         } else if (event === 'interrupt') {
-            dom.settingsPanel.classList.add('hidden');
+            dom.settingsPanel.classList.add('sse-hidden');
         }
     });
 
     // fade ui controls after 5 seconds of inactivity
     events.on('controlsHidden:changed', (value) => {
-        dom.controlsWrap.classList.toggle('faded-out', value);
-        dom.controlsWrap.classList.toggle('faded-in', !value);
+        dom.controlsWrap.classList.toggle('sse-faded-out', value);
+        dom.controlsWrap.classList.toggle('sse-faded-in', !value);
     });
 
     // show the ui and start a timer to hide it again
     let uiTimeout: ReturnType<typeof setTimeout> | null = null;
     let annotationVisible = false;
+
+    disposers.push(() => {
+        if (uiTimeout) {
+            clearTimeout(uiTimeout);
+            uiTimeout = null;
+        }
+    });
 
     const isPointerCapturedMode = () =>
         state.inputMode === 'desktop' &&
@@ -580,9 +599,9 @@ const initUI = (global: Global) => {
             clearTimeout(uiTimeout);
             uiTimeout = null;
         }
-        dom.infoPanel.classList.add('hidden');
-        dom.settingsPanel.classList.add('hidden');
-        dom.walkHint.classList.add('hidden');
+        dom.infoPanel.classList.add('sse-hidden');
+        dom.settingsPanel.classList.add('sse-hidden');
+        dom.walkHint.classList.add('sse-hidden');
         state.controlsHidden = true;
     };
 
@@ -605,7 +624,7 @@ const initUI = (global: Global) => {
 
     // Show controls once loaded
     events.on('loaded:changed', () => {
-        dom.controlsWrap.classList.remove('hidden');
+        dom.controlsWrap.classList.remove('sse-hidden');
         showUI();
     });
 
@@ -649,17 +668,17 @@ const initUI = (global: Global) => {
 
         const updatePlayPause = () => {
             if (state.cameraMode !== 'anim' || state.animationPaused) {
-                dom.play.classList.remove('hidden');
-                dom.pause.classList.add('hidden');
+                dom.play.classList.remove('sse-hidden');
+                dom.pause.classList.add('sse-hidden');
             } else {
-                dom.play.classList.add('hidden');
-                dom.pause.classList.remove('hidden');
+                dom.play.classList.add('sse-hidden');
+                dom.pause.classList.remove('sse-hidden');
             }
 
             if (state.cameraMode === 'anim') {
-                dom.timelineContainer.classList.remove('hidden');
+                dom.timelineContainer.classList.remove('sse-hidden');
             } else {
-                dom.timelineContainer.classList.add('hidden');
+                dom.timelineContainer.classList.add('sse-hidden');
             }
         };
 
@@ -690,7 +709,7 @@ const initUI = (global: Global) => {
             if (!captured) {
                 handleScrub(event);
                 dom.timelineContainer.setPointerCapture(event.pointerId);
-                dom.time.classList.remove('hidden');
+                dom.time.classList.remove('sse-hidden');
                 paused = state.animationPaused;
                 state.animationPaused = true;
                 captured = true;
@@ -706,7 +725,7 @@ const initUI = (global: Global) => {
         dom.timelineContainer.addEventListener('pointerup', (event) => {
             if (captured) {
                 dom.timelineContainer.releasePointerCapture(event.pointerId);
-                dom.time.classList.add('hidden');
+                dom.time.classList.add('sse-hidden');
                 state.animationPaused = paused;
                 captured = false;
             }
@@ -715,9 +734,9 @@ const initUI = (global: Global) => {
 
     // Camera mode UI
     const updateCameraModeUI = () => {
-        dom.orbitCamera.classList.toggle('active', state.cameraMode === 'orbit');
-        dom.flyCamera.classList.toggle('active', state.cameraMode === 'fly');
-        dom.fpsCamera.classList.toggle('active', state.cameraMode === 'walk');
+        dom.orbitCamera.classList.toggle('sse-active', state.cameraMode === 'orbit');
+        dom.flyCamera.classList.toggle('sse-active', state.cameraMode === 'fly');
+        dom.fpsCamera.classList.toggle('sse-active', state.cameraMode === 'walk');
     };
 
     events.on('cameraMode:changed', updateCameraModeUI);
@@ -736,13 +755,13 @@ const initUI = (global: Global) => {
         if (value === 'walk' && !walkHintShown && !isPointerCapturedMode()) {
             walkHintShown = true;
             dom.walkHint.textContent = getWalkHintText();
-            dom.walkHint.classList.remove('hidden');
+            dom.walkHint.classList.remove('sse-hidden');
         } else if (value !== 'walk') {
-            dom.walkHint.classList.add('hidden');
+            dom.walkHint.classList.add('sse-hidden');
         }
     });
 
-    const dismissWalkHint = () => dom.walkHint.classList.add('hidden');
+    const dismissWalkHint = () => dom.walkHint.classList.add('sse-hidden');
 
     dom.walkHint.addEventListener('click', dismissWalkHint);
     events.on('inputEvent', (type: string) => {
@@ -752,16 +771,16 @@ const initUI = (global: Global) => {
     // show/hide the FPS button based on whether walk mode is offered
     // (collision data exists AND scene is large enough to walk around in)
     events.on('walkAllowed:changed', (value: boolean) => {
-        dom.fpsCamera.classList.toggle('hidden', !value);
+        dom.fpsCamera.classList.toggle('sse-hidden', !value);
         // adjust fly button shape: middle when FPS is visible, right when hidden
-        dom.flyCamera.classList.toggle('middle', value);
-        dom.flyCamera.classList.toggle('right', !value);
+        dom.flyCamera.classList.toggle('sse-middle', value);
+        dom.flyCamera.classList.toggle('sse-right', !value);
     });
 
     // Collision overlay toggle + matching help-panel row (only visible when overlay is available)
     events.on('hasCollisionOverlay:changed', (value: boolean) => {
-        dom.showCollision.classList.toggle('hidden', !value);
-        dom.desktopShowCollisionHelp.classList.toggle('hidden', !value);
+        dom.showCollision.classList.toggle('sse-hidden', !value);
+        dom.desktopShowCollisionHelp.classList.toggle('sse-hidden', !value);
     });
 
     dom.showCollision.addEventListener('click', () => {
@@ -769,11 +788,11 @@ const initUI = (global: Global) => {
     });
 
     events.on('collisionOverlayEnabled:changed', (value: boolean) => {
-        dom.showCollision.classList.toggle('active', value);
+        dom.showCollision.classList.toggle('sse-active', value);
     });
 
     dom.settings.addEventListener('click', () => {
-        dom.settingsPanel.classList.toggle('hidden');
+        dom.settingsPanel.classList.toggle('sse-hidden');
     });
 
     dom.orbitCamera.addEventListener('click', () => {
@@ -802,13 +821,9 @@ const initUI = (global: Global) => {
     // Initialize annotation navigator
     initAnnotationNav(dom, events, state, global.settings.annotations);
 
-    // Hide all UI (poster, loading bar, controls)
-    if (config.noui) {
-        dom.ui.classList.add('hidden');
-    }
-
     // tooltips
     const tooltip = new Tooltip(dom.tooltip);
+    disposers.push(tooltip.destroy);
 
     tooltip.register(dom.play, localize('tooltip.play'), 'top');
     tooltip.register(dom.pause, localize('tooltip.pause'), 'top');
@@ -841,9 +856,15 @@ const initUI = (global: Global) => {
         }
 
         (dom.viewerBranding as HTMLAnchorElement).href = viewUrl.toString();
-        dom.viewerBranding.classList.remove('hidden');
+        dom.viewerBranding.classList.remove('sse-hidden');
         (dom.viewerTitle as HTMLAnchorElement).href = viewUrl.toString();
     }
+
+    return () => {
+        for (const dispose of disposers) {
+            dispose();
+        }
+    };
 };
 
 export { initPoster, initUI };
