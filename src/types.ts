@@ -1,3 +1,8 @@
+// Internal types, plus the public types that reference the engine: `ViewerState`,
+// `CaptureOptions` and `ViewerHandle`. The public types that do not reference it live in
+// `options.ts`, which stays import-free for the reason given there — moving these in beside
+// them would put an engine import into the node-side declarations.
+
 import type { Entity, EventHandler, AppBase } from 'playcanvas';
 
 import type { CaptureResult } from './capture';

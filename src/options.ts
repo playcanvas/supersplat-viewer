@@ -1,5 +1,12 @@
-// The public option types. No imports, so the package's node-side declarations can carry
-// `ViewerAssets` without dragging the engine's types along.
+// The public option types.
+//
+// Keep this file free of imports. `module/render-html.ts` takes `ViewerAssets` from here, so
+// anything this file references ends up in `dist/index.d.ts` — the node-side export, whose
+// consumers use `renderViewerHtml` alone and are not required to install the engine, since it
+// is an optional peer dependency. An engine import here would break type-checking for them,
+// and nothing in this repo would notice. The public types that do reference the engine
+// (`ViewerHandle`, `ViewerState`, `CaptureOptions`) therefore live in `types.ts` instead, and
+// reach consumers through `dist/viewer.d.ts`, which imports the engine already.
 
 /**
  * Asset urls an embedder supplies. Shared by the two ways of instantiating the viewer — as
