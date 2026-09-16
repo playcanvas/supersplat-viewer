@@ -320,7 +320,7 @@ export class Annotation extends Script {
             })
         ];
 
-        const base = new Entity('base');
+        const base = new Entity('base', this.app);
         const baseMi = new MeshInstance(ctx.mesh, this.materials[0]);
         baseMi.cull = false;
         base.addComponent('render', {
@@ -328,7 +328,7 @@ export class Annotation extends Script {
             meshInstances: [baseMi]
         });
 
-        const overlay = new Entity('overlay');
+        const overlay = new Entity('overlay', this.app);
         const overlayMi = new MeshInstance(ctx.mesh, this.materials[1]);
         overlayMi.cull = false;
         overlay.addComponent('render', {

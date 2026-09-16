@@ -43,7 +43,13 @@
             arrives with the programmatic api (phase E/F) and no longer needs to borrow this
             document's markup.
 
-            Params: ?iterations=20  ?mode=loaded|immediate  ?webgl  ?content=  ?settings=
+            With ?instances=N it instead mounts N viewers at once into sibling hosts, checks they
+            do not share dom, state or window globals, destroys the first while the second keeps
+            rendering, then destroys the rest. The stylesheet positions each canvas against the
+            viewport, so the instances overlap visually; that is expected until the viewer owns
+            its markup and layout.
+
+            Params: ?iterations=20  ?mode=loaded|immediate  ?instances=2  ?webgl  ?content=  ?settings=
         -->
         <div id="host"></div>
         <pre id="harness"></pre>
@@ -53,6 +59,7 @@
 
             const url = new URL(location.href);
             const iterations = Number(url.searchParams.get('iterations') ?? 20);
+            const instances = Number(url.searchParams.get('instances') ?? 1);
             const mode = url.searchParams.get('mode') ?? 'loaded';
             const renderer = url.searchParams.has('webgl') ? 'webgl' : 'webgpu';
             const contentUrl = url.searchParams.get('content') ?? './scene.compressed.ply';
@@ -95,65 +102,168 @@
                 heatmap: false,
                 fullload: false,
                 debug: false,
-                lang: null
+                lang: null,
+                // an embedded instance: no window.* hooks, so two viewers cannot collide on them
+                exposeGlobals: false
             });
 
             const host = document.getElementById('host');
             const timeout = (ms, value) => new Promise((resolve) => setTimeout(() => resolve(value), ms));
+            const until = async (test, ms) => {
+                const deadline = performance.now() + ms;
+                while (!test()) {
+                    if (performance.now() > deadline) return false;
+                    await timeout(100);
+                }
+                return true;
+            };
+            const released = async (device, gl, lost) =>
+                gl ? gl.isContextLost() : await Promise.race([lost, timeout(1000, false)]);
 
-            // A hidden tab throttles requestAnimationFrame, and the reveal needs many frames, so
-            // iterations run far slower until the pane is visible.
-            log(`${iterations} iterations, mode=${mode}, renderer=${renderer}, tab ${document.visibilityState}`);
-
-            let failures = 0;
-            for (let i = 1; i <= iterations; i++) {
-                const started = performance.now();
-                host.innerHTML = markup;
-                const canvas = document.getElementById('application-canvas');
-
-                // the viewer calls this hook once the first complete frame has rendered
-                const firstFrame = new Promise((resolve) => {
-                    window.firstFrame = () => resolve(true);
-                });
-
-                try {
-                    const viewer = await main(canvas, settings, createConfig());
-                    const device = viewer.global.app.graphicsDevice;
-                    const gl = device.gl ?? null;
-                    const lost = device.wgpu ? device.wgpu.lost.then(() => true) : null;
-
-                    if (mode === 'loaded') {
-                        const rendered = await Promise.race([firstFrame, timeout(120000, false)]);
-                        if (!rendered) {
-                            viewer.destroy();
-                            throw new Error('no first frame within 120s — check the content url');
-                        }
-                    }
-
-                    // `loaded` flips in the viewer's own first-frame handler, so it proves the hook
-                    // came from this instance rendering and not from anything stale
-                    const { loaded, progress } = viewer.global.state;
-
-                    viewer.destroy();
-                    host.innerHTML = '';
-
-                    const released = gl ? gl.isContextLost() : await Promise.race([lost, timeout(1000, false)]);
-                    const ok = released && (mode !== 'loaded' || loaded);
+            // Several viewers at once. Each gets its own host so `canvas.parentElement` is a
+            // distinct root, and its own canvas id so the engine's application registry, which
+            // is keyed by canvas id, does not conflate them.
+            if (instances > 1) {
+                log(`${instances} instances, renderer=${renderer}, tab ${document.visibilityState}`);
+                const hosts = [];
+                const viewers = [];
+                let failures = 0;
+                const check = (name, ok, detail = '') => {
                     if (!ok) failures++;
-                    log(
-                        `#${i} ${device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${released}`,
-                        !ok
+                    log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`, !ok);
+                };
+                try {
+                    for (let i = 0; i < instances; i++) {
+                        const h = document.createElement('div');
+                        h.innerHTML = markup;
+                        host.appendChild(h);
+                        const canvas = h.querySelector('canvas');
+                        canvas.id = `application-canvas-${i}`;
+                        hosts.push(h);
+                        viewers.push(await main(canvas, settings, createConfig()));
+                    }
+                    const handles = viewers.map((v) => {
+                        const device = v.global.app.graphicsDevice;
+                        return {
+                            device,
+                            gl: device.gl ?? null,
+                            lost: device.wgpu ? device.wgpu.lost.then(() => true) : null
+                        };
+                    });
+
+                    check(
+                        'all instances loaded',
+                        await until(() => viewers.every((v) => v.global.state.loaded), 120000)
                     );
+                    check('no window.app published', window.app === undefined);
+                    check(
+                        'one ui subtree per host',
+                        hosts.every((h) => h.querySelectorAll('#ui').length === 1)
+                    );
+                    log(
+                        `hotspots per instance: ${hosts.map((h) => h.querySelectorAll('.pc-annotation-hotspot').length).join(', ')}`
+                    );
+                    check('distinct apps', new Set(viewers.map((v) => v.global.app)).size === instances);
+                    check(
+                        'entities belong to their own app',
+                        viewers.every((v) => v.global.app.root.children.every((e) => e._app === v.global.app))
+                    );
+
+                    // state and ui are independent: changing one camera mode moves only its buttons
+                    viewers[0].global.state.cameraMode = 'fly';
+                    await timeout(50);
+                    check(
+                        'state does not leak between instances',
+                        viewers.slice(1).every((v) => v.global.state.cameraMode !== 'fly')
+                    );
+                    check(
+                        'ui follows its own instance',
+                        hosts[0].querySelector('#flyCamera').classList.contains('active') &&
+                            !hosts[1].querySelector('#flyCamera').classList.contains('active')
+                    );
+
+                    // the first goes away, the second must keep rendering
+                    viewers[0].destroy();
+                    hosts[0].remove();
+                    check('first released', await released(handles[0].device, handles[0].gl, handles[0].lost));
+                    const survivor = viewers[1].global.app;
+                    survivor.renderNextFrame = true;
+                    const rendered = await Promise.race([
+                        new Promise((resolve) => survivor.once('frameend', () => resolve(true))),
+                        timeout(5000, false)
+                    ]);
+                    check('second still renders after the first is destroyed', rendered);
+                    check('second still has its ui', hosts[1].querySelectorAll('#ui').length === 1);
+
+                    for (let i = 1; i < instances; i++) {
+                        viewers[i].destroy();
+                        hosts[i].remove();
+                        check(
+                            `instance ${i + 1} released`,
+                            await released(handles[i].device, handles[i].gl, handles[i].lost)
+                        );
+                    }
                 } catch (err) {
                     failures++;
-                    log(`#${i} failed: ${err?.message ?? err}`, true);
+                    log(`failed: ${err?.message ?? err}`, true);
                     console.error(err);
-                    host.innerHTML = '';
                 }
-            }
+                log(failures ? `done, ${failures} failed` : 'done, instances coexist', failures > 0);
+            } else {
+                // A hidden tab throttles requestAnimationFrame, and the reveal needs many frames, so
+                // iterations run far slower until the pane is visible.
+                log(`${iterations} iterations, mode=${mode}, renderer=${renderer}, tab ${document.visibilityState}`);
 
-            delete window.firstFrame;
-            log(failures ? `done, ${failures} failed` : 'done, no leaks detected', failures > 0);
+                let failures = 0;
+                for (let i = 1; i <= iterations; i++) {
+                    const started = performance.now();
+                    host.innerHTML = markup;
+                    const canvas = document.getElementById('application-canvas');
+
+                    // the viewer calls this hook once the first complete frame has rendered
+                    const firstFrame = new Promise((resolve) => {
+                        window.firstFrame = () => resolve(true);
+                    });
+
+                    try {
+                        const viewer = await main(canvas, settings, createConfig());
+                        const device = viewer.global.app.graphicsDevice;
+                        const gl = device.gl ?? null;
+                        const lost = device.wgpu ? device.wgpu.lost.then(() => true) : null;
+
+                        if (mode === 'loaded') {
+                            const rendered = await Promise.race([firstFrame, timeout(120000, false)]);
+                            if (!rendered) {
+                                viewer.destroy();
+                                throw new Error('no first frame within 120s — check the content url');
+                            }
+                        }
+
+                        // `loaded` flips in the viewer's own first-frame handler, so it proves the hook
+                        // came from this instance rendering and not from anything stale
+                        const { loaded, progress } = viewer.global.state;
+
+                        viewer.destroy();
+                        host.innerHTML = '';
+
+                        const freed = await released(device, gl, lost);
+                        const ok = freed && (mode !== 'loaded' || loaded);
+                        if (!ok) failures++;
+                        log(
+                            `#${i} ${device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed}`,
+                            !ok
+                        );
+                    } catch (err) {
+                        failures++;
+                        log(`#${i} failed: ${err?.message ?? err}`, true);
+                        console.error(err);
+                        host.innerHTML = '';
+                    }
+                }
+
+                delete window.firstFrame;
+                log(failures ? `done, ${failures} failed` : 'done, no leaks detected', failures > 0);
+            }
         </script>
     </body>
 </html>

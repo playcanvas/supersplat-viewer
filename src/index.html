@@ -73,7 +73,9 @@
                 heatmap: url.searchParams.has('heatmap'),
                 fullload: url.searchParams.has('fullload'),
                 debug: url.searchParams.has('debug'),
-                lang: url.searchParams.get('lang')
+                lang: url.searchParams.get('lang'),
+                // the standalone document is the one place the window.* hooks belong
+                exposeGlobals: true
             };
 
             window.sse = {

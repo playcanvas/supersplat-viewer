@@ -153,8 +153,10 @@ class DebugPanel {
         }
         this._root!.style.display = '';
         this._global.app.on('prerender', this._onPrerender);
-        window.getCameraState = () => captureCameraState(this._cameraManager, this._global.state);
-        window.setCameraState = (snapshot) => restoreCameraState(this._cameraManager, this._global.state, snapshot);
+        if (this._global.config.exposeGlobals) {
+            window.getCameraState = () => captureCameraState(this._cameraManager, this._global.state);
+            window.setCameraState = (snapshot) => restoreCameraState(this._cameraManager, this._global.state, snapshot);
+        }
         this._render();
     }
 
@@ -165,8 +167,10 @@ class DebugPanel {
             this._root.style.display = 'none';
         }
         this._global.app.off('prerender', this._onPrerender);
-        delete window.getCameraState;
-        delete window.setCameraState;
+        if (this._global.config.exposeGlobals) {
+            delete window.getCameraState;
+            delete window.setCameraState;
+        }
     }
 
     toggle() {

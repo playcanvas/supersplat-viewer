@@ -63,7 +63,9 @@ class Annotations {
             for (let i = 0; i < this.annotations.length; i++) {
                 const ann = this.annotations[i];
 
-                const entity = new Entity();
+                // named app: the engine's default is the most recently created one, which is
+                // another viewer's when two share a page
+                const entity = new Entity('annotation', global.app);
                 entity.addComponent('script');
                 entity.script.create(Annotation);
                 const script = entity.script as ScriptComponent & { annotation: Annotation };

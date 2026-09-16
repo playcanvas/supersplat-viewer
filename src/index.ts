@@ -37,7 +37,9 @@ const loadGsplat = async (app: AppBase, config: Config, progressCallback: (progr
 
     return new Promise<Entity>((resolve, reject) => {
         asset.on('load', () => {
-            const entity = new Entity('gsplat');
+            // always name the app: the engine's default is the most recently created one,
+            // which is another viewer's when two share a page
+            const entity = new Entity('gsplat', app);
             entity.setLocalEulerAngles(0, 0, 180);
             entity.addComponent('gsplat', {
                 unified: true,
@@ -135,13 +137,13 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
     (app.loader.getHandler('texture') as TextureHandler).imgParser.crossOrigin = 'anonymous';
 
     // Create entity hierarchy
-    const cameraRoot = new Entity('camera root');
+    const cameraRoot = new Entity('camera root', app);
     app.root.addChild(cameraRoot);
 
-    const camera = new Entity('camera');
+    const camera = new Entity('camera', app);
     cameraRoot.addChild(camera);
 
-    const light = new Entity('light');
+    const light = new Entity('light', app);
     light.setEulerAngles(35, 45, 0);
     light.addComponent('light', {
         color: new Color(1.0, 0.98, 0.957),

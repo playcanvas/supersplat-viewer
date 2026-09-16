@@ -23,7 +23,7 @@ import {
     GSPLAT_RENDERER_RASTER_GPU_SORT,
     platform
 } from 'playcanvas';
-import type { CameraComponent, Entity, GSplatComponent, Layer } from 'playcanvas';
+import type { CameraComponent, Entity, GraphicsDevice, GSplatComponent, Layer } from 'playcanvas';
 
 import { Annotations } from './annotations';
 import { CameraManager, isWalkAllowed } from './camera-manager';
@@ -142,8 +142,30 @@ const anyPostEffectEnabled = (settings: PostEffectSettings): boolean => {
 
 const vec = new Vec3();
 
-// store the original isColorBufferSrgb so the override in updatePostEffects is idempotent
+// When post effects are on, the final compose blit must not convert linear to gamma, which
+// the engine decides from `isColorBufferSrgb` on the target. The backbuffer is not ours to
+// flag, so the prototype is patched — keyed by device rather than closed over one, so several
+// viewers on a page (with and without post effects) each get the right answer. Restored when
+// no device needs it.
 const origIsColorBufferSrgb = RenderTarget.prototype.isColorBufferSrgb;
+const srgbBackBufferDevices = new Set<GraphicsDevice>();
+
+const patchedIsColorBufferSrgb = function (this: RenderTarget, index: number) {
+    return srgbBackBufferDevices.has(this.device) && this === this.device.backBuffer
+        ? true
+        : origIsColorBufferSrgb.call(this, index);
+};
+
+const setBackBufferSrgb = (device: GraphicsDevice, enabled: boolean) => {
+    if (enabled) {
+        srgbBackBufferDevices.add(device);
+    } else {
+        srgbBackBufferDevices.delete(device);
+    }
+    RenderTarget.prototype.isColorBufferSrgb = srgbBackBufferDevices.size
+        ? patchedIsColorBufferSrgb
+        : origIsColorBufferSrgb;
+};
 
 class Viewer {
     global: Global;
@@ -334,6 +356,11 @@ class Viewer {
         events.on('firstFrame', () => {
             state.loaded = true;
             state.animationPaused = !!config.noanim;
+
+            // the window.* hooks below are the standalone document's api for the thumbnail
+            // pipeline and console debugging; an embedded instance keeps them off, since two
+            // viewers would overwrite each other's
+            if (!config.exposeGlobals) return;
 
             window.scrubTo = (time: number) => {
                 if (!state.hasAnimation) {
@@ -617,8 +644,8 @@ class Viewer {
             this.cameraFrame = null;
         }
 
-        // configureCamera patches this prototype with a closure over our device
-        RenderTarget.prototype.isColorBufferSrgb = origIsColorBufferSrgb;
+        // configureCamera registers our device with the backbuffer srgb patch
+        setBackBufferSrgb(app.graphicsDevice, false);
 
         // caller cleanup, in reverse registration order
         for (const dispose of this.disposers.reverse()) {
@@ -713,9 +740,7 @@ class Viewer {
             );
 
             // ensure the final compose blit doesn't perform linear->gamma conversion.
-            RenderTarget.prototype.isColorBufferSrgb = function (index) {
-                return this === app.graphicsDevice.backBuffer ? true : origIsColorBufferSrgb.call(this, index);
-            };
+            setBackBufferSrgb(app.graphicsDevice, true);
 
             camera.camera.clearColor = new Color(background.color);
         } else {
@@ -732,7 +757,7 @@ class Viewer {
             ShaderChunks.get(app.graphicsDevice, 'wgsl').set('skyboxPS', this.origChunks.wgsl.skyboxPS);
 
             // restore original isColorBufferSrgb behavior
-            RenderTarget.prototype.isColorBufferSrgb = origIsColorBufferSrgb;
+            setBackBufferSrgb(app.graphicsDevice, false);
 
             if (!app.xr.active) {
                 camera.camera.toneMapping = tonemapTable[settings.tonemapping];

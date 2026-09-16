@@ -29,6 +29,10 @@ type Config = {
     heatmap: boolean; // render heatmap debug overlay (WebGPU only)
     debug: boolean; // auto-open the developer debug panel; can also be toggled with Ctrl+Shift+D
     lang?: string; // override the UI language (default: detect from browser)
+    // publish window.app, scrubTo, captureFrame, animationDuration and the debug panel's
+    // camera-state hooks. On for the standalone document, which the thumbnail pipeline drives
+    // through them; off for an embedded instance, where they would collide between viewers
+    exposeGlobals: boolean;
 };
 
 // observable state that can change at runtime
