@@ -1,5 +1,6 @@
 import type { Entity, EventHandler, AppBase } from 'playcanvas';
 
+import type { Localize } from './localization';
 import type { ExperienceSettings } from './settings';
 
 type CameraMode = 'orbit' | 'anim' | 'fly' | 'walk';
@@ -65,6 +66,8 @@ type Global = {
     // listener the viewer owns is scoped to it rather than to the document, so two instances
     // can share a page (the standalone document's root is <body>)
     root: HTMLElement;
+    // ui string lookup in this instance's locale
+    localize: Localize;
 };
 
 export { CameraMode, InputMode, Config, State, Global };

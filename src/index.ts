@@ -250,6 +250,9 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
     // viewer looks up or attaches in the dom
     const root = canvas.parentElement ?? document.body;
 
+    // translate the markup and get this instance's string lookup, before the ui reads any
+    const localize = initLocalization(config.lang, root);
+
     // create events
     const events = new EventHandler();
 
@@ -283,7 +286,8 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
         events,
         camera,
         renderer,
-        root
+        root,
+        localize
     };
 
     const disposeCanvas = initCanvas(global);
@@ -303,7 +307,6 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
     initXr(global);
 
     // Initialize user interface
-    initLocalization(config.lang, root);
     const disposeUI = initUI(global);
 
     // Load model

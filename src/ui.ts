@@ -2,7 +2,6 @@ import type { EventHandler } from 'playcanvas';
 
 import { version as appVersion } from '../package.json';
 
-import { localize } from './localization';
 import type { Annotation } from './settings';
 import { Tooltip } from './tooltip';
 import type { Global } from './types';
@@ -242,7 +241,7 @@ const initPoster = (global: Global) => {
 // document, screen) and cancels pending timers. Listeners on the subtree's own elements are
 // released with the elements.
 const initUI = (global: Global) => {
-    const { config, events, state, root } = global;
+    const { config, events, state, root, localize } = global;
     const disposers: (() => void)[] = [];
 
     // Acquire Elements

@@ -24,7 +24,8 @@ const dictionaries: Record<string, Dictionary> = {
     'zh-CN': zhCNJson
 };
 
-let current: Dictionary = en;
+/** Look up a ui string in the locale chosen by {@link initLocalization}. */
+type Localize = (key: string) => string;
 
 const detectLocale = (lang?: string): string => {
     const candidates = [lang, ...(navigator.languages ?? [navigator.language])];
@@ -45,22 +46,27 @@ const detectLocale = (lang?: string): string => {
     return 'en';
 };
 
-// Look up a key in the active locale, falling back to English, then the key
-// itself so missing translations are visible rather than blank.
-const localize = (key: string): string => current[key] ?? en[key] ?? key;
-
 // Detect the preferred locale and replace the text of every `[data-i18n]`
-// element under `root` with its translation. Call once after the DOM is parsed
-// and before any code reads localized strings. The locale is recorded as the
-// root's `lang` so the browser picks fonts for that language (CJK glyph
+// element under `root` with its translation, then return the lookup for that
+// locale so ui code can localize strings at runtime. Per instance rather than
+// module state, so two viewers on a page can differ. The locale is recorded as
+// the root's `lang` so the browser picks fonts for that language (CJK glyph
 // selection depends on it) without the viewer touching the document's own.
-const initLocalization = (lang: string | undefined, root: HTMLElement) => {
+const initLocalization = (lang: string | undefined, root: HTMLElement): Localize => {
     const locale = detectLocale(lang);
-    current = dictionaries[locale];
+    const current = dictionaries[locale];
+
+    // fall back to English, then the key itself so missing translations are
+    // visible rather than blank
+    const localize: Localize = (key) => current[key] ?? en[key] ?? key;
+
     root.lang = locale;
     root.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => {
         el.textContent = localize(el.dataset.i18n);
     });
+
+    return localize;
 };
 
-export { initLocalization, localize };
+export type { Localize };
+export { initLocalization };
