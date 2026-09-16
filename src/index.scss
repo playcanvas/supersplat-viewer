@@ -1,19 +1,22 @@
-$clr-text: #e0dcdd;
-$clr-text-light: #fff;
-$clr-text-dark: #aaa;
-$clr-text-darkest: #666;
-$clr-accent: #f60;
-$clr-grip: #ffaf50;
-
-$clr-bkg: #333;
-$clr-bkg-dark: #282828;
-$clr-bkg-darkest: #141414;
-$clr-bkg-light: #444;
-
 // Every rule is nested under the instance root, so a host page that links this stylesheet
 // has nothing outside the viewer restyled. The host sizes the container; the root fills it,
 // and everything inside is positioned against the root rather than the viewport.
 .sse-viewer {
+    // Theme tokens: the colours the ui is built from. A host restyles the viewer by
+    // setting any of these on the instance root, e.g.
+    // `#myHost .sse-viewer { --sse-accent: #09f; }`. Translucent surfaces derive from the
+    // same properties through color-mix, so a change carries through the whole ui.
+    --sse-text: #e0dcdd;
+    --sse-text-light: #fff;
+    --sse-text-dark: #aaa;
+    --sse-text-darkest: #666;
+    --sse-accent: #f60;
+    --sse-grip: #ffaf50;
+    --sse-bkg: #333;
+    --sse-bkg-dark: #282828;
+    --sse-bkg-darkest: #141414;
+    --sse-bkg-light: #444;
+
     --canvas-opacity: 1;
 
     position: relative;
@@ -95,7 +98,7 @@ $clr-bkg-light: #444;
         left: 50%;
         transform: translateX(-50%);
         background-color: rgba(black, 0.7);
-        color: $clr-text-light;
+        color: var(--sse-text-light);
         font-size: 14px;
         padding: 10px 20px;
         border-radius: 8px;
@@ -118,10 +121,10 @@ $clr-bkg-light: #444;
         cursor: pointer;
         transition: color 150ms ease;
 
-        color: $clr-text;
+        color: var(--sse-text);
 
         &:hover {
-            color: $clr-text-light;
+            color: var(--sse-text-light);
         }
 
         > svg {
@@ -175,7 +178,7 @@ $clr-bkg-light: #444;
 
         > .sse-loadingText {
             font-size: 18px;
-            color: $clr-text-light;
+            color: var(--sse-text-light);
             text-align: center;
             text-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
         }
@@ -232,7 +235,7 @@ $clr-bkg-light: #444;
                 transform: translate(-50%, -50%);
                 border: 2px solid #d9d9d9;
                 border-radius: 50%;
-                background-color: $clr-grip;
+                background-color: var(--sse-grip);
             }
 
             > .sse-time {
@@ -243,8 +246,8 @@ $clr-bkg-light: #444;
                 font-size: 12px;
                 border-radius: 4px;
 
-                color: $clr-text-light;
-                background-color: rgba($clr-bkg-dark, 0.5);
+                color: var(--sse-text-light);
+                background-color: color-mix(in srgb, var(--sse-bkg-dark) 50%, transparent);
             }
         }
 
@@ -272,11 +275,11 @@ $clr-bkg-light: #444;
                 border: 0;
                 cursor: pointer;
 
-                color: $clr-text;
+                color: var(--sse-text);
                 background-color: transparent;
 
                 &:hover {
-                    color: $clr-text-light;
+                    color: var(--sse-text-light);
                 }
 
                 /* icon styling */
@@ -302,7 +305,7 @@ $clr-bkg-light: #444;
 
                 /* active highlight for simple toggle buttons (e.g. voxel overlay) */
                 &.sse-active:not(.sse-toggle) {
-                    color: $clr-accent;
+                    color: var(--sse-accent);
                 }
 
                 /* camera toggle styling */
@@ -311,8 +314,8 @@ $clr-bkg-light: #444;
                         90deg,
                         transparent 0%,
                         transparent 50%,
-                        $clr-accent 50%,
-                        $clr-accent 100%
+                        var(--sse-accent) 50%,
+                        var(--sse-accent) 100%
                     );
                     background-size: 200% 100%;
                     background-position: 100% 0%;
@@ -364,8 +367,8 @@ $clr-bkg-light: #444;
 
         font-size: 14px;
 
-        color: $clr-text;
-        background-color: rgba($clr-bkg, 0.8);
+        color: var(--sse-text);
+        background-color: color-mix(in srgb, var(--sse-bkg) 80%, transparent);
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
 
@@ -385,14 +388,14 @@ $clr-bkg-light: #444;
                 font-size: 13px;
                 cursor: pointer;
 
-                color: $clr-text-dark;
+                color: var(--sse-text-dark);
                 background-color: rgba(white, 0.04);
                 transition:
                     background-color 250ms ease,
                     color 250ms ease;
 
                 &:hover {
-                    color: $clr-text-light;
+                    color: var(--sse-text-light);
                     background-color: rgba(white, 0.1);
                 }
             }
@@ -404,7 +407,7 @@ $clr-bkg-light: #444;
                 padding: 0 8px;
                 cursor: pointer;
 
-                color: $clr-text-dark;
+                color: var(--sse-text-dark);
 
                 &.sse-toggleSwitch {
                     padding: 0 4px;
@@ -432,17 +435,17 @@ $clr-bkg-light: #444;
                     }
 
                     &.sse-active .sse-toggleTrack {
-                        background-color: rgba($clr-accent, 0.35);
+                        background-color: color-mix(in srgb, var(--sse-accent) 35%, transparent);
 
                         .sse-toggleThumb {
                             transform: translateX(16px);
-                            background-color: $clr-accent;
+                            background-color: var(--sse-accent);
                         }
                     }
                 }
 
                 &:hover {
-                    color: $clr-text;
+                    color: var(--sse-text);
                 }
             }
         }
@@ -480,8 +483,8 @@ $clr-bkg-light: #444;
             flex-direction: column;
             overflow: hidden;
 
-            color: $clr-text;
-            background-color: rgba($clr-bkg, 0.85);
+            color: var(--sse-text);
+            background-color: color-mix(in srgb, var(--sse-bkg) 85%, transparent);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
 
@@ -496,7 +499,7 @@ $clr-bkg-light: #444;
                 border-bottom: 1px solid rgba(white, 0.06);
                 text-decoration: none;
                 white-space: nowrap;
-                color: $clr-text;
+                color: var(--sse-text);
 
                 > svg {
                     height: 20px;
@@ -513,7 +516,7 @@ $clr-bkg-light: #444;
                         }
 
                         &.sse-fill {
-                            fill: $clr-accent;
+                            fill: var(--sse-accent);
                             stroke: none;
                         }
                     }
@@ -527,7 +530,7 @@ $clr-bkg-light: #444;
                 > .sse-title-version {
                     font-size: 12px;
                     font-weight: normal;
-                    color: $clr-text-dark;
+                    color: var(--sse-text-dark);
                     margin-left: -2px;
                 }
 
@@ -536,7 +539,7 @@ $clr-bkg-light: #444;
                     transition: color 150ms ease;
 
                     &:hover {
-                        color: $clr-text-light;
+                        color: var(--sse-text-light);
                     }
                 }
             }
@@ -566,7 +569,7 @@ $clr-bkg-light: #444;
                     text-transform: uppercase;
                     letter-spacing: 1px;
                     padding: 4px 0 8px 0;
-                    color: $clr-accent;
+                    color: var(--sse-accent);
                 }
 
                 .sse-control-item {
@@ -585,7 +588,7 @@ $clr-bkg-light: #444;
 
                     > .sse-control-key {
                         text-align: right;
-                        color: $clr-text-dark;
+                        color: var(--sse-text-dark);
                         font-size: 12px;
                     }
 
@@ -613,19 +616,19 @@ $clr-bkg-light: #444;
                     cursor: pointer;
                     font-weight: bold;
                     font-size: 13px;
-                    color: $clr-text-dark;
+                    color: var(--sse-text-dark);
                     transition:
                         color 150ms ease,
                         border-color 150ms ease;
                 }
 
                 > .sse-tab:hover {
-                    color: $clr-text-light;
+                    color: var(--sse-text-light);
                 }
 
                 > .sse-tab.sse-active {
-                    color: $clr-text-light;
-                    border-bottom-color: $clr-accent;
+                    color: var(--sse-text-light);
+                    border-bottom-color: var(--sse-accent);
                 }
             }
         }
@@ -699,22 +702,22 @@ $clr-bkg-light: #444;
             border-radius: 16px;
             border: 1px solid rgba(white, 0.1);
 
-            color: $clr-text;
-            background-color: rgba($clr-bkg, 0.9);
+            color: var(--sse-text);
+            background-color: color-mix(in srgb, var(--sse-bkg) 90%, transparent);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
 
             > h2 {
                 font-size: 16px;
                 font-weight: bold;
-                color: $clr-text-light;
+                color: var(--sse-text-light);
                 margin-bottom: 12px;
             }
 
             > p {
                 font-size: 13px;
                 line-height: 1.4;
-                color: $clr-text;
+                color: var(--sse-text);
                 margin-bottom: 16px;
             }
 
@@ -730,24 +733,24 @@ $clr-bkg-light: #444;
                     border-radius: 8px;
                     font-size: 13px;
                     cursor: pointer;
-                    color: $clr-text-dark;
+                    color: var(--sse-text-dark);
                     background-color: rgba(white, 0.04);
                     transition:
                         background-color 250ms ease,
                         color 250ms ease;
 
                     &:hover {
-                        color: $clr-text-light;
+                        color: var(--sse-text-light);
                         background-color: rgba(white, 0.1);
                     }
 
                     &.sse-xrModalOk {
-                        color: $clr-text-light;
-                        background-color: rgba($clr-accent, 0.7);
-                        border-color: rgba($clr-accent, 0.8);
+                        color: var(--sse-text-light);
+                        background-color: color-mix(in srgb, var(--sse-accent) 70%, transparent);
+                        border-color: color-mix(in srgb, var(--sse-accent) 80%, transparent);
 
                         &:hover {
-                            background-color: $clr-accent;
+                            background-color: var(--sse-accent);
                         }
                     }
                 }
@@ -762,8 +765,8 @@ $clr-bkg-light: #444;
         padding: 4px 4px;
         font-size: 12px;
 
-        color: $clr-text;
-        background-color: $clr-bkg-dark;
+        color: var(--sse-text);
+        background-color: var(--sse-bkg-dark);
     }
 
     .sse-annotations {
@@ -810,11 +813,11 @@ $clr-bkg-light: #444;
             align-items: center;
             justify-content: center;
 
-            color: $clr-text;
+            color: var(--sse-text);
             background-color: rgba(black, 0.3);
 
             &:hover {
-                color: $clr-text-light;
+                color: var(--sse-text-light);
                 background-color: rgba(black, 0.5);
             }
 
@@ -878,7 +881,7 @@ $clr-bkg-light: #444;
 
                 > .sse-annotationNavTitle {
                     font-size: 14px;
-                    color: $clr-text-light;
+                    color: var(--sse-text-light);
                     overflow: hidden;
                     text-overflow: ellipsis;
                 }

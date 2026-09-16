@@ -474,7 +474,7 @@ class Viewer {
                 sceneBound.setFromTransformedAabb(gsplatBbox, results[0].getWorldTransform());
             }
 
-            if (!config.noui) {
+            if (config.ui) {
                 this.annotations = new Annotations(global, this.cameraFrame != null);
             }
 
@@ -513,7 +513,7 @@ class Viewer {
             this.cameraManager = new CameraManager(global, sceneBound, collision);
             applyCamera(this.cameraManager.camera);
 
-            if (!config.noui) {
+            if (config.ui) {
                 this.navCursor = new NavCursor(app, camera, collision ?? null, events, state);
             }
 

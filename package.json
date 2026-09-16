@@ -22,6 +22,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./viewer": {
+      "types": "./dist/viewer.d.ts",
+      "import": "./dist/viewer.js"
+    },
+    "./viewer.css": "./dist/viewer.css",
     "./settings": {
       "types": "./dist/settings.d.ts",
       "import": "./dist/settings.js"
@@ -44,6 +49,14 @@
     "package.json",
     "README.md"
   ],
+  "peerDependencies": {
+    "playcanvas": "^2.22.1"
+  },
+  "peerDependenciesMeta": {
+    "playcanvas": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@playcanvas/eslint-config": "3.0.0-beta.8",
     "@rollup/plugin-json": "6.1.0",

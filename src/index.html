@@ -76,7 +76,7 @@
                 collisionUrl,
                 poster: posterUrl && createImage(posterUrl),
                 contents: fetch(contentUrl),
-                noui: url.searchParams.has('noui'),
+                ui: !url.searchParams.has('noui'),
                 noanim: url.searchParams.has('noanim'),
                 nofx: url.searchParams.has('nofx'),
                 hpr: url.searchParams.has('hpr')

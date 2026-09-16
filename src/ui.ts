@@ -239,7 +239,7 @@ const initPoster = (root: HTMLElement, image: HTMLImageElement, events: EventHan
 // document, screen) and cancels pending timers. Listeners on the subtree's own elements are
 // released with the elements.
 const initUI = (global: Global) => {
-    const { config, events, state, root, localize } = global;
+    const { events, state, root, localize } = global;
     const disposers: (() => void)[] = [];
 
     // Acquire Elements
@@ -820,11 +820,6 @@ const initUI = (global: Global) => {
 
     // Initialize annotation navigator
     initAnnotationNav(dom, events, state, global.settings.annotations);
-
-    // Hide all UI (poster, loading bar, controls)
-    if (config.noui) {
-        dom.ui.classList.add('sse-hidden');
-    }
 
     // tooltips
     const tooltip = new Tooltip(dom.tooltip);

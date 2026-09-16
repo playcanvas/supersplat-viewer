@@ -261,7 +261,7 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     poster: options.poster ?? (options.posterUrl ? createImage(options.posterUrl) : undefined),
     contents: options.contents ?? fetch(options.contentUrl),
     renderer: options.renderer ?? 'webgpu',
-    noui: options.noui ?? false,
+    ui: options.ui ?? true,
     noanim: options.noanim ?? false,
     nofx: options.nofx ?? false,
     hpr: options.hpr,
@@ -286,6 +286,14 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     const root = document.createElement('div');
     root.className = 'sse-viewer';
     root.innerHTML = uiHtml;
+
+    // headless: keep the canvas, drop the overlay and the icons only it uses. Removed rather
+    // than hidden, so a host that renders its own controls has nothing of ours in its way
+    if (!config.ui) {
+        root.querySelector('.sse-ui').remove();
+        root.querySelector(':scope > svg').remove();
+    }
+
     container.appendChild(root);
     const canvas = root.querySelector('canvas');
 
@@ -293,8 +301,9 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     const events = new EventHandler();
 
     // the poster covers the hidden canvas from the first moment, before the graphics device
-    // exists
-    if (config.poster) {
+    // exists. It is part of the ui, so a headless instance shows the canvas from the start and
+    // its host covers the wait however it likes
+    if (config.poster && config.ui) {
         initPoster(root, config.poster, events);
     }
 
@@ -369,7 +378,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     initXr(global);
 
     // Initialize user interface
-    const disposeUI = initUI(global);
+    const disposeUI = config.ui ? initUI(global) : null;
 
     // a load continuation can outlive a destroy, so anything that resumes after an await checks
     // this before touching the app
@@ -439,7 +448,9 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         destroyed = true;
     });
     viewer.onDestroy(disposeCanvas);
-    viewer.onDestroy(disposeUI);
+    if (disposeUI) {
+        viewer.onDestroy(disposeUI);
+    }
     if (disposeAudio) {
         viewer.onDestroy(disposeAudio);
     }
@@ -456,6 +467,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
 
 console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engineRevision})`);
 
+export type { CaptureResult } from './capture';
 export type { CreateViewerOptions, ViewerAssets, ViewerFlags } from './options';
 export type { CaptureOptions, ViewerHandle, ViewerState } from './types';
 export { createViewer };

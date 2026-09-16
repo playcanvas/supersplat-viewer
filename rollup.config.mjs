@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { copyFileSync, readFileSync } from 'fs';
 
 import json from '@rollup/plugin-json';
 import resolve from '@rollup/plugin-node-resolve';
@@ -127,6 +127,37 @@ const buildDist = {
     ]
 };
 
+// The runtime entry, for a page that creates the viewer itself rather than serving a document
+// built by `renderViewerHtml`. The engine stays external here, unlike in the `public/` bundle,
+// so a host that already depends on playcanvas ends up with one copy of it — which is what
+// makes playcanvas a peer dependency of this entry. Matched with a pattern because the xr
+// scripts are imported from a subpath.
+const engineExternal = [/^playcanvas(\/|$)/];
+
+const buildViewer = {
+    input: 'src/index.ts',
+    output: {
+        file: 'dist/viewer.js',
+        format: 'esm',
+        sourcemap: true
+    },
+    external: engineExternal,
+    plugins: [
+        resolve(),
+        typescript(),
+        json(),
+        htmlTemplatePlugin(),
+        {
+            name: 'viewer-css',
+            writeBundle() {
+                // `buildCss` has already run, so ship its output beside the bundle: the styles
+                // are not imported by the module, and a consumer's bundler wants a css file
+                copyFileSync('public/index.css', 'dist/viewer.css');
+            }
+        }
+    ]
+};
+
 const buildSettings = {
     input: 'src/settings.ts',
     output: {
@@ -149,10 +180,29 @@ const buildDistTypes = {
     plugins: [dts()]
 };
 
+// The engine's types are part of this surface (`ViewerHandle.app`, the event handler), so they
+// are imported rather than inlined. The markup template and package.json are values the bundle
+// carries, with nothing for the declaration bundler to read.
+const buildViewerTypes = {
+    input: 'src/index.ts',
+    output: { file: 'dist/viewer.d.ts', format: 'es' },
+    external: [...engineExternal, /\.html$/, /package\.json$/],
+    plugins: [dts()]
+};
+
 const buildSettingsTypes = {
     input: 'src/settings.ts',
     output: { file: 'dist/settings.d.ts', format: 'es' },
     plugins: [dts()]
 };
 
-export default [buildCss, buildPublic, buildDist, buildSettings, buildDistTypes, buildSettingsTypes];
+export default [
+    buildCss,
+    buildPublic,
+    buildDist,
+    buildViewer,
+    buildSettings,
+    buildDistTypes,
+    buildViewerTypes,
+    buildSettingsTypes
+];

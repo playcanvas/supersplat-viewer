@@ -33,7 +33,7 @@ The app supports a number of URL parameters (these are subject to change):
 
 | Parameter | Description |
 | --------- | ----------- |
-| `noui` | Hide the UI overlay |
+| `noui` | Hide the UI overlay (the programmatic form is `ui: false`, which skips building it) |
 | `noanim` | Start with animation paused |
 | `ministats` | Show runtime CPU/GPU performance graphs |
 | `lang` | Override the UI language (`de`, `en`, `es`, `fr`, `ja`, `ko`, `pt-BR`, `ru`, `zh-CN`; default: detect from browser) |
@@ -93,6 +93,81 @@ route can inline only the stylesheet.
 this package's API and changes between releases, so pattern-matching it is unsupported. `css`
 and `js` remain exported for serving (or writing) the stylesheet and bundle alongside a
 rendered document that doesn't inline them.
+
+### Creating a viewer in your own page
+
+The `/viewer` subpath creates the viewer inside an element you supply, for an app that owns its
+own page. `playcanvas` is a peer dependency of this entry, so your copy of the engine is the
+one used:
+
+```ts
+import { createViewer } from '@playcanvas/supersplat-viewer/viewer';
+import '@playcanvas/supersplat-viewer/viewer.css';
+
+const viewer = await createViewer({
+    container: document.getElementById('viewer'),   // you size it; the viewer fills it
+    settings: './settings.json',                    // a URL, or a settings object
+    contentUrl: './scene.sog',
+    posterUrl: './poster.jpg'                       // optional, as are the other assets
+});
+```
+
+The viewer builds its own subtree (canvas, UI and icons) inside the container, so **the
+container needs a size**: an element with no height renders nothing. Every option other than
+`container`, `settings` and `contentUrl` is optional; the switches are the programmatic form of
+the [URL parameters](#url-parameters) above.
+
+`createViewer` resolves once the graphics device exists and loading has started, not once the
+scene is visible. It returns:
+
+| Member | Purpose |
+| --- | --- |
+| `state` | Observable state. Writable keys (`cameraMode`, `performanceMode`, `showAnnotations`, `gamingControls`, `animationPaused`, `collisionOverlayEnabled`, `controlsHidden`, `inputEnabled`) apply at once; the rest are the viewer's to report and are `readonly` in the types |
+| `events` | Fires `<key>:changed` with `(value, previous)` for every key of `state` |
+| `captureFrame(options?)` | Renders offscreen, supersampled, and resolves to `{ width, height, data }` with `data` base64. Waits for the first frame |
+| `frameScene()` | Frames the whole scene, in orbit mode |
+| `destroy()` | Releases the engine application, the graphics context, every listener and the subtree. Idempotent |
+| `app` | The underlying PlayCanvas application, for anything this API doesn't cover |
+
+Wait for the first frame through `state`, which is also how you'd drive a loading indicator:
+
+```ts
+viewer.events.on('progress:changed', (progress) => console.log(`${progress}%`));
+viewer.events.on('loaded:changed', () => console.log('first frame rendered'));
+```
+
+Several viewers can share a page. Each owns its subtree and its own engine application, and
+nothing is published to `window` unless you ask for it with `exposeGlobals`. Keyboard and
+gamepad input is the exception, because those listeners cannot be routed by hit-testing: clear
+`state.inputEnabled` on the instances that should ignore them, and while your own controls have
+focus.
+
+Always `destroy()` a viewer you are finished with. Browsers cap live WebGL contexts at around
+16, so a component that mounts and unmounts without tearing down will stop rendering.
+
+#### Restyling
+
+The colours the UI is built from are CSS custom properties on the instance root, so you can
+retheme it without replacing anything:
+
+```css
+#viewer .sse-viewer {
+    --sse-accent: #09f;                 /* highlights, active toggles, the timeline */
+    --sse-bkg: #204;                    /* panels; translucent surfaces derive from it */
+    --sse-text-light: #fff;
+}
+```
+
+The full set is `--sse-text`, `--sse-text-light`, `--sse-text-dark`, `--sse-text-darkest`,
+`--sse-accent`, `--sse-grip`, `--sse-bkg`, `--sse-bkg-dark`, `--sse-bkg-darkest` and
+`--sse-bkg-light`.
+
+For more than a retheme, pass `ui: false`. The viewer then creates the canvas and nothing
+else — no overlay, no markup and nothing listening outside the canvas — and you render your own
+controls against `state` and `events`. Note that the touch joystick, the fullscreen button and
+the AR/VR fallback prompt are part of the UI you are replacing, so those affordances become
+yours too. Everything between the two, replacing some of the UI but keeping the rest, is not
+supported yet; the class names inside the viewer are not API and do change.
 
 ### Settings
 

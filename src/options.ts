@@ -30,8 +30,14 @@ type ViewerFlags = {
      * `webgpu`.
      */
     renderer?: 'webgl' | 'webgpu';
-    /** Hide the ui overlay. */
-    noui?: boolean;
+    /**
+     * Build the viewer's ui: the controls, panels, poster, loading bar, annotation hotspots
+     * and their navigator. Defaults to `true`. `false` is the headless level: the canvas and
+     * the api, with no markup but the canvas and nothing listening outside it, for a host that
+     * renders its own controls against `state`. Note that the touch joystick and the AR/VR
+     * fallback prompt live in that ui, so a headless host owns those affordances too.
+     */
+    ui?: boolean;
     /** Start with the camera animation paused. */
     noanim?: boolean;
     /** Disable post effects. */

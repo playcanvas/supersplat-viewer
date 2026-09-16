@@ -20,30 +20,50 @@ type Config = ViewerAssets &
 
 // observable state that can change at runtime
 type State = {
-    loaded: boolean; // true once first frame is rendered
+    /** True once the first complete frame has rendered. */
+    loaded: boolean;
+    /** Halves the render resolution. Persisted in local storage; defaults on for mobile. */
     performanceMode: boolean;
-    progress: number; // content loading progress 0-100
+    /** Content loading progress, 0 to 100. */
+    progress: number;
+    /** What the user last interacted with, which decides the ui's affordances. */
     inputMode: InputMode;
+    /** The active camera controller. `anim` is the authored camera animation. */
     cameraMode: CameraMode;
+    /** Whether the experience has an authored camera animation. */
     hasAnimation: boolean;
+    /** Length of that animation in seconds, or 0. */
     animationDuration: number;
+    /** Playhead position in seconds. Read-only: the animation cursor owns it. */
     animationTime: number;
+    /** Whether the animation is paused. */
     animationPaused: boolean;
+    /** Whether an AR session can start, or could after reloading into WebGL. */
     hasAR: boolean;
+    /** Whether a VR session can start, or could after reloading into WebGL. */
     hasVR: boolean;
+    /** Whether the experience ships collision data, which walk mode needs. */
     hasCollision: boolean;
+    /** Whether that collision data can be drawn as a debug overlay. */
     hasCollisionOverlay: boolean;
+    /** Whether walk mode is offered: collision data, and a scene big enough to walk in. */
     walkAllowed: boolean;
+    /** Draws the collision debug overlay. */
     collisionOverlayEnabled: boolean;
+    /** Whether this instance is the fullscreen element. Read-only: the viewer observes it. */
     isFullscreen: boolean;
+    /** Fades the controls out. The viewer also sets this on an idle timer. */
     controlsHidden: boolean;
+    /** Shows the annotation hotspots. Persisted in local storage. */
     showAnnotations: boolean;
+    /** Mouse-look and joystick movement rather than click-to-navigate. Persisted. */
     gamingControls: boolean;
-    // host-writable. Gates the inputs the dom cannot route by hit-testing because their
-    // listeners sit on window: the keyboard (the engine's source and the viewer's shortcuts)
-    // and the gamepad. Pointer input on the canvas is unaffected. A host clears it while its
-    // own controls have focus or a modal is open, and decides which of several viewers on a
-    // page the keyboard drives
+    /**
+     * Gates the inputs the dom cannot route by hit-testing, because their listeners sit on
+     * `window`: the keyboard (both the engine's source and the viewer's own shortcuts) and the
+     * gamepad. Pointer input on the canvas is unaffected. Clear it while your own controls have
+     * focus or a modal is open, and to choose which of several viewers the keyboard drives.
+     */
     inputEnabled: boolean;
 };
 
@@ -61,33 +81,45 @@ type WritableStateKey =
     | 'controlsHidden'
     | 'inputEnabled';
 
-// the state as a host sees it: the same object, with the viewer's own keys read-only
+/**
+ * The viewer's state as a host sees it: one observable object, with the keys the viewer owns
+ * marked read-only. Writing a read-only key is ignored, and the viewer overwrites it.
+ */
 type ViewerState = Pick<State, WritableStateKey> & Readonly<Omit<State, WritableStateKey>>;
 
+/** Options for {@link ViewerHandle.captureFrame}. */
 type CaptureOptions = {
-    // animation time to capture at; the animation is paused there
+    /** Animation time to capture at, in seconds. The animation is paused there. */
     time?: number;
-    // output size in pixels; height defaults to width
+    /** Output width in pixels. Defaults to 480. */
     width?: number;
+    /** Output height in pixels. Defaults to the width. */
     height?: number;
-    // supersampling factor, default 2
+    /** Supersampling factor, capped at 8. Defaults to 2. */
     supersample?: number;
 };
 
-// what createViewer resolves to
+/** What `createViewer` resolves to: one viewer instance. */
 type ViewerHandle = {
-    // the engine application, for a host that needs to reach past this api
+    /** The engine application, for a host that needs to reach past this api. */
     readonly app: AppBase;
-    // observable state. Writable keys take effect at once; the rest are the viewer's to report
+    /** Observable state. Writes to its writable keys take effect at once. */
     readonly state: ViewerState;
-    // fires `<key>:changed` with (value, previous) for every key of state
+    /** Fires `<key>:changed` with `(value, previous)` for every key of {@link ViewerState}. */
     readonly events: EventHandler;
-    // render the scene, with post effects, into an offscreen supersampled target and return it
-    // downsampled to the requested size. Waits for the first frame
+    /**
+     * Render the scene, with post effects, into an offscreen supersampled target and return it
+     * downsampled to the requested size, as base64. Waits for the first frame, and rejects if
+     * the viewer is destroyed before the capture completes. Concurrent calls are serialised,
+     * since they share the one camera.
+     */
     captureFrame(options?: CaptureOptions): Promise<CaptureResult>;
-    // frame the whole scene, in orbit mode
+    /** Frame the whole scene, switching to orbit mode. */
     frameScene(): void;
-    // release everything, including the subtree built in the container. Idempotent
+    /**
+     * Release everything: the engine application, the graphics context, every listener, and the
+     * subtree built inside the container. Idempotent, and safe before loading finishes.
+     */
     destroy(): void;
 };
 
