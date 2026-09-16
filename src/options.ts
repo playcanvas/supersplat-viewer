@@ -81,10 +81,11 @@ type CreateViewerOptions = ViewerAssets &
         /** The element the viewer builds its subtree in. The host sizes it; the viewer fills it. */
         container: HTMLElement;
         /**
-         * Experience settings: an object in any version the viewer reads, or a url to fetch them
-         * from, resolved against the document.
+         * Experience settings: an object in any version the viewer reads, a promise of that
+         * object, or a url to fetch them from, resolved against the document. The poster is
+         * shown while settings are pending.
          */
-        settings: object | string;
+        settings: object | Promise<object> | string;
         /**
          * An already-created poster image, instead of {@link ViewerAssets.posterUrl}. Lets a
          * page start loading it before this bundle arrives.

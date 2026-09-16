@@ -285,13 +285,10 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     // nothing on the host's own element is read or written, and destroy() removes it whole
     const root = document.createElement('div');
     root.className = 'sse-viewer';
-    root.innerHTML = uiHtml;
-
-    // headless: keep the canvas, drop the overlay and the icons only it uses. Removed rather
-    // than hidden, so a host that renders its own controls has nothing of ours in its way
-    if (!config.ui) {
-        root.querySelector('.sse-ui').remove();
-        root.querySelector(':scope > svg').remove();
+    if (config.ui) {
+        root.innerHTML = uiHtml;
+    } else {
+        root.appendChild(document.createElement('canvas'));
     }
 
     container.appendChild(root);
@@ -307,9 +304,9 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         initPoster(root, config.poster, events);
     }
 
-    // settings: an object, or a url to fetch them from
+    // resolve settings after showing the poster, including a fetch started by the document
     const settingsJson =
-        typeof options.settings === 'string' ? await (await fetch(options.settings)).json() : options.settings;
+        typeof options.settings === 'string' ? await (await fetch(options.settings)).json() : await options.settings;
 
     // migrate legacy `retinaDisplay` preference (inverted) to `performanceMode`
     const legacyRetina = localStorage.getItem('retinaDisplay');
