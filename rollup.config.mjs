@@ -44,6 +44,21 @@ function htmlPlugin() {
     };
 }
 
+// Imports the markup template (src/ui.html) as a string. Its comments are for the file's
+// readers and are dropped: they would otherwise ship in the bundle, and a `<!--` inside an
+// inline module script puts the html tokenizer into its escaped state, which
+// renderViewerHtml({ inlineJs }) refuses.
+function htmlTemplatePlugin() {
+    return {
+        name: 'html-template',
+        transform(code, id) {
+            if (!id.endsWith('.html')) return null;
+            const markup = code.replace(/<!--[\s\S]*?-->/g, '').replace(/\n{3,}/g, '\n\n');
+            return { code: `export default ${JSON.stringify(markup)};`, map: { mappings: '' } };
+        }
+    };
+}
+
 const buildCss = {
     input: 'src/index.scss',
     output: {
@@ -87,7 +102,13 @@ const buildPublic = {
         format: 'esm',
         sourcemap: true
     },
-    plugins: [resolve(debugEngine ? { exportConditions: ['development'] } : {}), typescript(), json(), htmlPlugin()]
+    plugins: [
+        resolve(debugEngine ? { exportConditions: ['development'] } : {}),
+        typescript(),
+        json(),
+        htmlTemplatePlugin(),
+        htmlPlugin()
+    ]
 };
 
 const buildDist = {

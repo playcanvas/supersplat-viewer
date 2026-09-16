@@ -21,6 +21,7 @@ import { initLocalization } from './localization';
 import { importSettings } from './settings';
 import type { Config, Global, State } from './types';
 import { initPoster, initUI } from './ui';
+import uiHtml from './ui.html';
 import { Viewer } from './viewer';
 import { initXr } from './xr';
 import { version as appVersion } from '../package.json';
@@ -230,7 +231,33 @@ const initCanvas = (global: Global) => {
     return () => resizeObserver.disconnect();
 };
 
-const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Config) => {
+type CreateViewerOptions = {
+    // the element the viewer builds its subtree in. The host sizes it; the viewer fills it
+    container: HTMLElement;
+    // experience settings, in any version the viewer reads
+    settings: unknown;
+    config: Config;
+};
+
+const createViewer = async ({ container, settings: settingsJson, config }: CreateViewerOptions) => {
+    // the instance root. The canvas and the ui markup are siblings under it, which scopes
+    // everything the viewer looks up or attaches in the dom; the viewer owns it outright, so
+    // nothing on the host's own element is read or written, and destroy() removes it whole
+    const root = document.createElement('div');
+    root.className = 'sse-viewer';
+    root.innerHTML = uiHtml;
+    container.appendChild(root);
+    const canvas = root.querySelector('canvas');
+
+    // create events
+    const events = new EventHandler();
+
+    // the poster covers the hidden canvas from the first moment, before the graphics device
+    // exists
+    if (config.poster) {
+        initPoster(root, config.poster, events);
+    }
+
     // migrate legacy `retinaDisplay` preference (inverted) to `performanceMode`
     const legacyRetina = localStorage.getItem('retinaDisplay');
     if (legacyRetina !== null && localStorage.getItem('performanceMode') === null) {
@@ -248,15 +275,8 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
 
     const { app, camera, renderer } = await createApp(canvas, config);
 
-    // the canvas and the ui markup are siblings under one element, which scopes everything the
-    // viewer looks up or attaches in the dom
-    const root = canvas.parentElement ?? document.body;
-
     // translate the markup and get this instance's string lookup, before the ui reads any
     const localize = initLocalization(config.lang, root);
-
-    // create events
-    const events = new EventHandler();
 
     const state = observe<State>(events, {
         loaded: false,
@@ -296,11 +316,6 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
 
     // start the application
     app.start();
-
-    // Initialize the load-time poster
-    if (config.poster) {
-        initPoster(global);
-    }
 
     camera.addComponent('camera');
 
@@ -376,4 +391,5 @@ const main = async (canvas: HTMLCanvasElement, settingsJson: unknown, config: Co
 
 console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engineRevision})`);
 
-export { main };
+export type { CreateViewerOptions };
+export { createViewer };

@@ -19,10 +19,6 @@ const initJoystick = (
     const stickCenterX = (joystickHeight - stickSize) / 2; // 30px - left position when centered (for 2D mode)
     const maxStickTravel = stickCenterY; // can travel 30px up or down from center
 
-    // Fixed joystick position (bottom-left corner with safe area)
-    const joystickFixedX = 70;
-    const joystickFixedY = () => window.innerHeight - 140;
-
     // Joystick touch state
     let joystickPointerId: number | null = null;
     let joystickValueX = 0; // -1 to 1, negative = left, positive = right
@@ -43,8 +39,6 @@ const initJoystick = (
         ) {
             dom.joystickBase.classList.remove('hidden');
             dom.joystickBase.classList.toggle('mode-2d', joystickMode === '2d');
-            dom.joystickBase.style.left = `${joystickFixedX}px`;
-            dom.joystickBase.style.top = `${joystickFixedY()}px`;
             // Center the stick
             dom.joystick.style.top = `${stickCenterY}px`;
             if (joystickMode === '2d') {
@@ -60,11 +54,13 @@ const initJoystick = (
     events.on('cameraMode:changed', updateJoystickVisibility);
     events.on('inputMode:changed', updateJoystickVisibility);
     events.on('gamingControls:changed', updateJoystickVisibility);
-    window.addEventListener('resize', updateJoystickVisibility);
 
     // Handle joystick touch input directly on the joystick element
     const updateJoystickStick = (clientX: number, clientY: number) => {
-        const baseY = joystickFixedY();
+        // the stylesheet places the base within the instance, so measure its centre rather
+        // than assuming where the viewport put it
+        const base = dom.joystickBase.getBoundingClientRect();
+        const baseY = base.top + base.height / 2;
         // Calculate Y offset from joystick center (positive = down/backward)
         const offsetY = clientY - baseY;
         // Clamp to max travel and normalize to -1 to 1
@@ -76,7 +72,7 @@ const initJoystick = (
 
         // Handle X axis in 2D mode
         if (joystickMode === '2d') {
-            const baseX = joystickFixedX;
+            const baseX = base.left + base.width / 2;
             const offsetX = clientX - baseX;
             const clampedOffsetX = Math.max(-maxStickTravel, Math.min(maxStickTravel, offsetX));
             joystickValueX = clampedOffsetX / maxStickTravel;
@@ -140,8 +136,6 @@ const initJoystick = (
 
     dom.joystickBase.addEventListener('pointerup', endJoystickTouch);
     dom.joystickBase.addEventListener('pointercancel', endJoystickTouch);
-
-    return () => window.removeEventListener('resize', updateJoystickVisibility);
 };
 
 // Initialize the annotation navigator for stepping between annotations
@@ -218,15 +212,19 @@ const initAnnotationNav = (
     updateDisplay();
 };
 
-// update the poster image to start blurry and then resolve to sharp during loading
-const initPoster = (global: Global) => {
-    const { events, root } = global;
-    const poster = root.querySelector<HTMLElement>('#poster');
+// show the poster image over the hidden canvas, blurry at first and sharpening as loading
+// progresses, until the first frame renders
+const initPoster = (root: HTMLElement, image: HTMLImageElement, events: EventHandler) => {
+    const poster = root.querySelector<HTMLElement>('.poster');
+
+    poster.style.setProperty('--poster-url', `url(${image.src})`);
+    poster.style.display = 'block';
+    poster.style.filter = 'blur(40px)';
+    // the canvas inherits this from the root
+    root.style.setProperty('--canvas-opacity', '0');
 
     events.on('loaded:changed', () => {
         poster.style.display = 'none';
-        // the canvas inherits this from the root; the document's own script sets it to 0
-        // on the same element before the viewer starts
         root.style.setProperty('--canvas-opacity', '1');
     });
 
@@ -309,8 +307,8 @@ const initUI = (global: Global) => {
         'xrModal',
         'xrModalOk',
         'xrModalCancel'
-    ].reduce((acc: Record<string, HTMLElement>, id) => {
-        acc[id] = root.querySelector<HTMLElement>(`#${id}`);
+    ].reduce((acc: Record<string, HTMLElement>, name) => {
+        acc[name] = root.querySelector<HTMLElement>(`.${name}`);
         return acc;
     }, {});
 
@@ -394,7 +392,8 @@ const initUI = (global: Global) => {
 
     if (hasFullscreenAPI) {
         const onFullscreenChange = () => {
-            state.isFullscreen = !!document.fullscreenElement;
+            // ours, not another instance's on the same page
+            state.isFullscreen = document.fullscreenElement === root;
         };
         document.addEventListener('fullscreenchange', onFullscreenChange);
         disposers.push(() => document.removeEventListener('fullscreenchange', onFullscreenChange));
@@ -817,7 +816,7 @@ const initUI = (global: Global) => {
     });
 
     // Initialize touch joystick for fly mode
-    disposers.push(initJoystick(dom, events, state));
+    initJoystick(dom, events, state);
 
     // Initialize annotation navigator
     initAnnotationNav(dom, events, state, global.settings.annotations);

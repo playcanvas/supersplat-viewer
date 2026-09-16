@@ -620,8 +620,8 @@ class Viewer {
      * document and canvas, restore the globals it patched, and release the graphics device.
      * Safe to call before loading has finished, and idempotent.
      *
-     * The viewer does not yet own its markup, so the canvas and ui subtree are left in the
-     * document for the caller to remove or reuse. Their element listeners go with them.
+     * Finally removes the instance root, and with it the canvas and ui subtree createViewer
+     * built. Their element listeners go with them.
      */
     destroy() {
         if (this.destroyed) return;
@@ -683,6 +683,8 @@ class Viewer {
 
         gl?.getExtension('WEBGL_lose_context')?.loseContext();
         wgpu?.destroy();
+
+        this.global.root.remove();
     }
 
     // configure camera based on application mode and post process settings

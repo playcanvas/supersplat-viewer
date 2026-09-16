@@ -61,18 +61,18 @@ describe('renderViewerHtml', () => {
         const result = renderViewerHtml({ bodyStartExtras: '<div id="marker"></div>' });
 
         assert.match(result, /<body[^>]*>\s*<div id="marker"><\/div>/);
-        // before the canvas, which is what a marker element is for
-        assert.ok(result.indexOf('id="marker"') < result.indexOf('application-canvas'));
+        // before the boot script that builds the canvas, which is what a marker element is for
+        assert.ok(result.indexOf('id="marker"') < result.indexOf("import { createViewer } from './index.js'"));
     });
 
     it('does not let body content spoof the module-import seam', () => {
         const result = renderViewerHtml({
-            bodyStartExtras: "<!-- import { main } from './index.js'; -->",
+            bodyStartExtras: "<!-- import { createViewer } from './index.js'; -->",
             inlineJs: true
         });
 
         assert.doesNotMatch(result, /<script type="module">\s*import \{ main \}/);
-        assert.ok(result.includes("<!-- import { main } from './index.js'; -->"));
+        assert.ok(result.includes("<!-- import { createViewer } from './index.js'; -->"));
     });
 
     it('places head additions after the stylesheet and before </head>', () => {
@@ -91,7 +91,7 @@ describe('renderViewerHtml', () => {
         const result = renderViewerHtml({ inlineCss: true });
 
         assert.ok(!result.includes('<link rel="stylesheet"'));
-        assert.ok(result.includes("import { main } from './index.js';"));
+        assert.ok(result.includes("import { createViewer } from './index.js';"));
         assert.ok(result.length > css.length);
         assert.ok(result.length < js.length);
     });
@@ -100,7 +100,7 @@ describe('renderViewerHtml', () => {
         const result = renderViewerHtml({ inlineJs: true });
 
         assert.ok(result.includes('href="./index.css"'));
-        assert.ok(!result.includes("import { main } from './index.js';"));
+        assert.ok(!result.includes("import { createViewer } from './index.js';"));
         assert.ok(result.length > js.length);
     });
 
@@ -124,7 +124,7 @@ describe('renderViewerHtml', () => {
         });
 
         assert.ok(!result.includes('<link rel="stylesheet"'));
-        assert.ok(!result.includes("import { main } from './index.js';"));
+        assert.ok(!result.includes("import { createViewer } from './index.js';"));
         assert.ok(result.length > css.length + js.length);
         assert.strictEqual(readBootstrap(result).contentUrl, 'data:application/octet-stream;base64,AAAA');
         // a data: uri has no usable name, so the filename rides along to select the format
@@ -147,7 +147,7 @@ describe('renderViewerHtml', () => {
         const result = renderViewerHtml({ bootstrap: { contentUrl: 'scene.sog' } });
 
         assert.ok(result.includes('href="./index.css"'));
-        assert.ok(result.includes("import { main } from './index.js';"));
+        assert.ok(result.includes("import { createViewer } from './index.js';"));
         assert.ok(result.length < css.length + js.length);
     });
 
@@ -200,7 +200,7 @@ describe('renderViewerHtml', () => {
         // looks like a seam must not be matched ahead of the real one. Annotation text is
         // user-authored, so settings are the hostile case.
         it('does not let settings spoof the module-import seam', () => {
-            const payload = "import { main } from './index.js';";
+            const payload = "import { createViewer } from './index.js';";
             const result = renderViewerHtml({
                 bootstrap: { settings: { annotations: [{ text: payload }] } },
                 inlineJs: true
@@ -216,12 +216,12 @@ describe('renderViewerHtml', () => {
 
         it('does not let headExtras spoof the module-import seam', () => {
             const result = renderViewerHtml({
-                headExtras: "<!-- import { main } from './index.js'; -->",
+                headExtras: "<!-- import { createViewer } from './index.js'; -->",
                 inlineJs: true
             });
 
-            assert.doesNotMatch(result, /<script type="module">\s*import \{ main \}/);
-            assert.ok(result.includes("<!-- import { main } from './index.js'; -->"));
+            assert.doesNotMatch(result, /<script type="module">\s*import \{ createViewer \}/);
+            assert.ok(result.includes("<!-- import { createViewer } from './index.js'; -->"));
         });
 
         it('does not let settings spoof the base-href or stylesheet seams', () => {

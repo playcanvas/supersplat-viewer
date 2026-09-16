@@ -15,7 +15,7 @@ const PANEL_ID = 'sse-debug-panel';
 
 const STYLES = `
 #${PANEL_ID} {
-    position: fixed;
+    position: absolute;
     top: max(8px, env(safe-area-inset-top));
     left: max(8px, env(safe-area-inset-left));
     padding: 8px 10px;

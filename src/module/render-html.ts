@@ -112,7 +112,7 @@ const indent = (text: string, spaces: number) => {
 const BOOTSTRAP = /<script type="application\/json" id="sse-bootstrap">[\s\S]*?<\/script>/;
 const BASE_HREF = /<base\b[^>]*>/;
 const STYLESHEET = /<link\b[^>]*href="\.\/index\.css"[^>]*>/;
-const MODULE_IMPORT = /import \{ main \} from '\.\/index\.js';/;
+const MODULE_IMPORT = /import \{ createViewer \} from '\.\/index\.js';/;
 const HEAD_CLOSE = /^([ \t]*)<\/head>/m;
 const BODY_OPEN = /<body\b[^>]*>/;
 

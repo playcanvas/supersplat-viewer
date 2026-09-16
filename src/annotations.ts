@@ -15,8 +15,8 @@ class Annotations {
     constructor(global: Global, hasCameraFrame: boolean) {
         // create dom parent
         const parentDom = document.createElement('div');
-        parentDom.id = 'annotations';
-        global.root.querySelector('#ui').appendChild(parentDom);
+        parentDom.className = 'annotations';
+        global.root.querySelector('.ui').appendChild(parentDom);
 
         this.annotations = global.settings.annotations;
         this.parentDom = parentDom;

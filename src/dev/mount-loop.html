@@ -9,6 +9,23 @@
         />
         <link rel="stylesheet" href="./index.css" />
         <style>
+            html,
+            body {
+                height: 100%;
+                margin: 0;
+                overflow: hidden;
+            }
+            /* one sized host per instance, side by side */
+            #hosts {
+                display: flex;
+                height: 100%;
+            }
+            #hosts > div {
+                flex: 1;
+                min-width: 0;
+                height: 100%;
+                outline: 1px solid #444;
+            }
             #harness {
                 position: fixed;
                 top: 8px;
@@ -30,31 +47,28 @@
     </head>
     <body>
         <!--
-            Development harness for Viewer.destroy(). Mounts the viewer into #host using the
-            shipped document's own markup, waits for the first frame (or not, in immediate
-            mode), destroys it, and repeats. Browsers cap live WebGL contexts at around 16, so
-            twenty iterations that all reach a first frame is itself the leak test; each
-            iteration also reports whether the previous context was released.
+            Development harness for Viewer.destroy(). Mounts the viewer into a host div through
+            createViewer, waits for the first frame (or not, in immediate mode), destroys it,
+            and repeats. Browsers cap live WebGL contexts at around 16, so twenty iterations
+            that all reach a first frame is itself the leak test; each iteration also reports
+            whether the previous context was released and whether the subtree was removed.
 
             TEMPORARY. This page is run by hand before any change to teardown-sensitive code
-            merges (viewer-api-plan.md, phases D and E). It stays until the programmatic api
-            (phase E) exists, at which point it is rewritten as a browser test against
-            createViewer that no longer needs to borrow this document's markup; delete it, and
-            its emit in rollup.config.mjs, when that test lands.
+            merges (viewer-api-plan.md, phases D and E). It is rewritten as a browser test
+            against createViewer at E4; delete it, and its emit in rollup.config.mjs, when that
+            test lands.
 
-            With ?instances=N it instead mounts N viewers at once into sibling hosts, checks they
-            do not share dom, state or window globals, destroys the first while the second keeps
-            rendering, then destroys the rest. The stylesheet positions each canvas against the
-            viewport, so the instances overlap visually; that is expected until the viewer owns
-            its markup and layout.
+            With ?instances=N it instead mounts N viewers at once into sibling hosts laid out
+            side by side, checks they do not share dom, state or window globals, destroys the
+            first while the second keeps rendering, then destroys the rest.
 
             Params: ?iterations=20  ?mode=loaded|immediate  ?instances=2  ?webgl  ?content=  ?settings=
         -->
-        <div id="host"></div>
+        <div id="hosts"></div>
         <pre id="harness"></pre>
 
         <script type="module">
-            import { main } from './index.js';
+            import { createViewer } from './index.js';
 
             const url = new URL(location.href);
             const iterations = Number(url.searchParams.get('iterations') ?? 20);
@@ -72,12 +86,6 @@
                 harness.appendChild(span);
                 console.log(`[mount-loop] ${line}`);
             };
-
-            // The viewer does not own its markup yet, so take it from the shipped document —
-            // never a copy that can drift.
-            const shipped = new DOMParser().parseFromString(await (await fetch('./index.html')).text(), 'text/html');
-            shipped.body.querySelectorAll('script').forEach((script) => script.remove());
-            const markup = shipped.body.innerHTML;
 
             const settings = await (await fetch(settingsUrl)).json();
 
@@ -106,7 +114,12 @@
                 exposeGlobals: false
             });
 
-            const host = document.getElementById('host');
+            const hosts = document.getElementById('hosts');
+            const addHost = () => {
+                const h = document.createElement('div');
+                hosts.appendChild(h);
+                return h;
+            };
             const timeout = (ms, value) => new Promise((resolve) => setTimeout(() => resolve(value), ms));
             const until = async (test, ms) => {
                 const deadline = performance.now() + ms;
@@ -116,15 +129,21 @@
                 }
                 return true;
             };
-            const released = async (device, gl, lost) =>
+            const handlesOf = (viewer) => {
+                const device = viewer.global.app.graphicsDevice;
+                return {
+                    device,
+                    gl: device.gl ?? null,
+                    lost: device.wgpu ? device.wgpu.lost.then(() => true) : null
+                };
+            };
+            const released = async ({ gl, lost }) =>
                 gl ? gl.isContextLost() : await Promise.race([lost, timeout(1000, false)]);
 
-            // Several viewers at once. Each gets its own host so `canvas.parentElement` is a
-            // distinct root, and its own canvas id so the engine's application registry, which
-            // is keyed by canvas id, does not conflate them.
+            // Several viewers at once, each in its own host so each has a distinct root.
             if (instances > 1) {
                 log(`${instances} instances, renderer=${renderer}, tab ${document.visibilityState}`);
-                const hosts = [];
+                const hostEls = [];
                 const viewers = [];
                 let failures = 0;
                 const check = (name, ok, detail = '') => {
@@ -133,22 +152,11 @@
                 };
                 try {
                     for (let i = 0; i < instances; i++) {
-                        const h = document.createElement('div');
-                        h.innerHTML = markup;
-                        host.appendChild(h);
-                        const canvas = h.querySelector('canvas');
-                        canvas.id = `application-canvas-${i}`;
-                        hosts.push(h);
-                        viewers.push(await main(canvas, settings, createConfig()));
+                        const h = addHost();
+                        hostEls.push(h);
+                        viewers.push(await createViewer({ container: h, settings, config: createConfig() }));
                     }
-                    const handles = viewers.map((v) => {
-                        const device = v.global.app.graphicsDevice;
-                        return {
-                            device,
-                            gl: device.gl ?? null,
-                            lost: device.wgpu ? device.wgpu.lost.then(() => true) : null
-                        };
-                    });
+                    const handles = viewers.map(handlesOf);
 
                     check(
                         'all instances loaded',
@@ -156,11 +164,19 @@
                     );
                     check('no window.app published', window.app === undefined);
                     check(
-                        'one ui subtree per host',
-                        hosts.every((h) => h.querySelectorAll('#ui').length === 1)
+                        'one viewer subtree per host',
+                        hostEls.every((h) => h.querySelectorAll('.sse-viewer').length === 1)
+                    );
+                    check(
+                        'canvas fills its host, not the viewport',
+                        hostEls.every((h) => {
+                            const r = h.querySelector('canvas').getBoundingClientRect();
+                            const b = h.getBoundingClientRect();
+                            return Math.abs(r.left - b.left) < 1 && Math.abs(r.width - b.width) < 1;
+                        })
                     );
                     log(
-                        `hotspots per instance: ${hosts.map((h) => h.querySelectorAll('.pc-annotation-hotspot').length).join(', ')}`
+                        `hotspots per instance: ${hostEls.map((h) => h.querySelectorAll('.pc-annotation-hotspot').length).join(', ')}`
                     );
                     check('distinct apps', new Set(viewers.map((v) => v.global.app)).size === instances);
                     check(
@@ -177,14 +193,14 @@
                     );
                     check(
                         'ui follows its own instance',
-                        hosts[0].querySelector('#flyCamera').classList.contains('active') &&
-                            !hosts[1].querySelector('#flyCamera').classList.contains('active')
+                        hostEls[0].querySelector('.flyCamera').classList.contains('active') &&
+                            !hostEls[1].querySelector('.flyCamera').classList.contains('active')
                     );
 
                     // the first goes away, the second must keep rendering
                     viewers[0].destroy();
-                    hosts[0].remove();
-                    check('first released', await released(handles[0].device, handles[0].gl, handles[0].lost));
+                    check('first subtree removed', hostEls[0].childElementCount === 0);
+                    check('first released', await released(handles[0]));
                     const survivor = viewers[1].global.app;
                     survivor.renderNextFrame = true;
                     const rendered = await Promise.race([
@@ -192,15 +208,11 @@
                         timeout(5000, false)
                     ]);
                     check('second still renders after the first is destroyed', rendered);
-                    check('second still has its ui', hosts[1].querySelectorAll('#ui').length === 1);
+                    check('second still has its ui', hostEls[1].querySelectorAll('.ui').length === 1);
 
                     for (let i = 1; i < instances; i++) {
                         viewers[i].destroy();
-                        hosts[i].remove();
-                        check(
-                            `instance ${i + 1} released`,
-                            await released(handles[i].device, handles[i].gl, handles[i].lost)
-                        );
+                        check(`instance ${i + 1} released`, await released(handles[i]));
                     }
                 } catch (err) {
                     failures++;
@@ -216,8 +228,7 @@
                 let failures = 0;
                 for (let i = 1; i <= iterations; i++) {
                     const started = performance.now();
-                    host.innerHTML = markup;
-                    const canvas = document.getElementById('application-canvas');
+                    const host = addHost();
 
                     // the viewer calls this hook once the first complete frame has rendered
                     const firstFrame = new Promise((resolve) => {
@@ -225,10 +236,8 @@
                     });
 
                     try {
-                        const viewer = await main(canvas, settings, createConfig());
-                        const device = viewer.global.app.graphicsDevice;
-                        const gl = device.gl ?? null;
-                        const lost = device.wgpu ? device.wgpu.lost.then(() => true) : null;
+                        const viewer = await createViewer({ container: host, settings, config: createConfig() });
+                        const handles = handlesOf(viewer);
 
                         if (mode === 'loaded') {
                             const rendered = await Promise.race([firstFrame, timeout(120000, false)]);
@@ -243,21 +252,21 @@
                         const { loaded, progress } = viewer.global.state;
 
                         viewer.destroy();
-                        host.innerHTML = '';
+                        const removed = host.childElementCount === 0;
 
-                        const freed = await released(device, gl, lost);
-                        const ok = freed && (mode !== 'loaded' || loaded);
+                        const freed = await released(handles);
+                        const ok = freed && removed && (mode !== 'loaded' || loaded);
                         if (!ok) failures++;
                         log(
-                            `#${i} ${device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed}`,
+                            `#${i} ${handles.device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed} removed=${removed}`,
                             !ok
                         );
                     } catch (err) {
                         failures++;
                         log(`#${i} failed: ${err?.message ?? err}`, true);
                         console.error(err);
-                        host.innerHTML = '';
                     }
+                    host.remove();
                 }
 
                 delete window.firstFrame;
