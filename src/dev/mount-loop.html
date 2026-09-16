@@ -36,12 +36,11 @@
             twenty iterations that all reach a first frame is itself the leak test; each
             iteration also reports whether the previous context was released.
 
-            TEMPORARY. This page exists only while the instance-scoping work (viewer-api-plan.md
-            phase D) is changing teardown-sensitive code, and is run by hand before each of those
-            changes merges. Delete it, and its emit in rollup.config.mjs, in the last phase D
-            change. The automated replacement is a browser test against createViewer, which
-            arrives with the programmatic api (phase E/F) and no longer needs to borrow this
-            document's markup.
+            TEMPORARY. This page is run by hand before any change to teardown-sensitive code
+            merges (viewer-api-plan.md, phases D and E). It stays until the programmatic api
+            (phase E) exists, at which point it is rewritten as a browser test against
+            createViewer that no longer needs to borrow this document's markup; delete it, and
+            its emit in rollup.config.mjs, when that test lands.
 
             With ?instances=N it instead mounts N viewers at once into sibling hosts, checks they
             do not share dom, state or window globals, destroys the first while the second keeps
