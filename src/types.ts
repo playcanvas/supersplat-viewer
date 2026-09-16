@@ -1,39 +1,22 @@
 import type { Entity, EventHandler, AppBase } from 'playcanvas';
 
+import type { CaptureResult } from './capture';
 import type { Localize } from './localization';
+import type { ViewerAssets, ViewerFlags } from './options';
 import type { ExperienceSettings } from './settings';
 
 type CameraMode = 'orbit' | 'anim' | 'fly' | 'walk';
 
 type InputMode = 'desktop' | 'touch';
 
-// configuration options are immutable at runtime
-type Config = {
-    poster?: HTMLImageElement;
-    skyboxUrl?: string;
-    contentUrl?: string;
-    contentFilename?: string; // names contentUrl when the url itself has no usable name (a data: uri)
-    contents?: Promise<Response>;
-    collisionUrl?: string;
-
-    noui: boolean;
-    noanim: boolean;
-    nofx: boolean; // disable post effects
-    hpr?: boolean; // override highPrecisionRendering (undefined = use settings)
-    ministats: boolean;
-    colorize: boolean; // render with LOD colorization
-    fullload: boolean; // load all streaming LOD data before first frame
-    aa: boolean; // render with antialiasing
-    budget?: number; // override splat budget in millions (overrides platform + performanceMode table)
-    renderer: 'webgl' | 'webgpu'; // requested renderer; the actual one (after engine fallback) is exposed as Global.renderer
-    heatmap: boolean; // render heatmap debug overlay (WebGPU only)
-    debug: boolean; // auto-open the developer debug panel; can also be toggled with Ctrl+Shift+D
-    lang?: string; // override the UI language (default: detect from browser)
-    // publish window.app, scrubTo, captureFrame, animationDuration and the debug panel's
-    // camera-state hooks. On for the standalone document, which the thumbnail pipeline drives
-    // through them; off for an embedded instance, where they would collide between viewers
-    exposeGlobals: boolean;
-};
+// the createViewer options with every default applied: what the viewer reads at runtime, and
+// immutable once it starts. The flags are documented on ViewerFlags
+type Config = ViewerAssets &
+    Required<Omit<ViewerFlags, 'hpr' | 'budget' | 'lang'>> &
+    Pick<ViewerFlags, 'hpr' | 'budget' | 'lang'> & {
+        poster?: HTMLImageElement;
+        contents: Promise<Response>;
+    };
 
 // observable state that can change at runtime
 type State = {
@@ -64,6 +47,48 @@ type State = {
     inputEnabled: boolean;
 };
 
+// the keys a host may set; every other key reports what the viewer found or is doing
+type WritableStateKey =
+    | 'cameraMode'
+    | 'performanceMode'
+    | 'showAnnotations'
+    | 'gamingControls'
+    | 'animationPaused'
+    | 'animationTime'
+    | 'collisionOverlayEnabled'
+    | 'controlsHidden'
+    | 'inputEnabled';
+
+// the state as a host sees it: the same object, with the viewer's own keys read-only
+type ViewerState = Pick<State, WritableStateKey> & Readonly<Omit<State, WritableStateKey>>;
+
+type CaptureOptions = {
+    // animation time to capture at; the animation is paused there
+    time?: number;
+    // output size in pixels; height defaults to width
+    width?: number;
+    height?: number;
+    // supersampling factor, default 2
+    supersample?: number;
+};
+
+// what createViewer resolves to
+type ViewerHandle = {
+    // the engine application, for a host that needs to reach past this api
+    readonly app: AppBase;
+    // observable state. Writable keys take effect at once; the rest are the viewer's to report
+    readonly state: ViewerState;
+    // fires `<key>:changed` with (value, previous) for every key of state
+    readonly events: EventHandler;
+    // render the scene, with post effects, into an offscreen supersampled target and return it
+    // downsampled to the requested size. Waits for the first frame
+    captureFrame(options?: CaptureOptions): Promise<CaptureResult>;
+    // frame the whole scene, in orbit mode
+    frameScene(): void;
+    // release everything, including the subtree built in the container. Idempotent
+    destroy(): void;
+};
+
 type Global = {
     app: AppBase;
     settings: ExperienceSettings;
@@ -80,4 +105,4 @@ type Global = {
     localize: Localize;
 };
 
-export { CameraMode, InputMode, Config, State, Global };
+export { CameraMode, InputMode, Config, State, Global, ViewerState, CaptureOptions, ViewerHandle };

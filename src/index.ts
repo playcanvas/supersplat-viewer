@@ -18,8 +18,9 @@ import { MeshCollision, loadVoxelCollision } from './collision';
 import type { Collision } from './collision';
 import { observe } from './core/observe';
 import { initLocalization } from './localization';
+import type { CreateViewerOptions } from './options';
 import { importSettings } from './settings';
-import type { Config, Global, State } from './types';
+import type { Config, Global, State, ViewerHandle } from './types';
 import { initPoster, initUI } from './ui';
 import uiHtml from './ui.html';
 import { Viewer } from './viewer';
@@ -231,15 +232,41 @@ const initCanvas = (global: Global) => {
     return () => resizeObserver.disconnect();
 };
 
-type CreateViewerOptions = {
-    // the element the viewer builds its subtree in. The host sizes it; the viewer fills it
-    container: HTMLElement;
-    // experience settings, in any version the viewer reads
-    settings: unknown;
-    config: Config;
+const createImage = (url: string) => {
+    const img = new Image();
+    img.src = url;
+    return img;
 };
 
-const createViewer = async ({ container, settings: settingsJson, config }: CreateViewerOptions) => {
+// the options with every default applied
+const resolveConfig = (options: CreateViewerOptions): Config => ({
+    contentUrl: options.contentUrl,
+    contentFilename: options.contentFilename,
+    posterUrl: options.posterUrl,
+    skyboxUrl: options.skyboxUrl,
+    collisionUrl: options.collisionUrl,
+    poster: options.poster ?? (options.posterUrl ? createImage(options.posterUrl) : undefined),
+    contents: options.contents ?? fetch(options.contentUrl),
+    renderer: options.renderer ?? 'webgpu',
+    noui: options.noui ?? false,
+    noanim: options.noanim ?? false,
+    nofx: options.nofx ?? false,
+    hpr: options.hpr,
+    ministats: options.ministats ?? false,
+    colorize: options.colorize ?? false,
+    fullload: options.fullload ?? false,
+    aa: options.aa ?? false,
+    budget: options.budget,
+    heatmap: options.heatmap ?? false,
+    debug: options.debug ?? false,
+    lang: options.lang,
+    exposeGlobals: options.exposeGlobals ?? false
+});
+
+const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle> => {
+    const { container } = options;
+    const config = resolveConfig(options);
+
     // the instance root. The canvas and the ui markup are siblings under it, which scopes
     // everything the viewer looks up or attaches in the dom; the viewer owns it outright, so
     // nothing on the host's own element is read or written, and destroy() removes it whole
@@ -257,6 +284,10 @@ const createViewer = async ({ container, settings: settingsJson, config }: Creat
     if (config.poster) {
         initPoster(root, config.poster, events);
     }
+
+    // settings: an object, or a url to fetch them from
+    const settingsJson =
+        typeof options.settings === 'string' ? await (await fetch(options.settings)).json() : options.settings;
 
     // migrate legacy `retinaDisplay` preference (inverted) to `performanceMode`
     const legacyRetina = localStorage.getItem('retinaDisplay');
@@ -387,10 +418,19 @@ const createViewer = async ({ container, settings: settingsJson, config }: Creat
     if (disposeAudio) {
         viewer.onDestroy(disposeAudio);
     }
-    return viewer;
+
+    return {
+        app,
+        state,
+        events,
+        captureFrame: (captureOptions) => viewer.captureFrame(captureOptions),
+        frameScene: () => events.fire('inputEvent', 'frame'),
+        destroy: () => viewer.destroy()
+    };
 };
 
 console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engineRevision})`);
 
-export type { CreateViewerOptions };
+export type { CreateViewerOptions, ViewerAssets, ViewerFlags } from './options';
+export type { CaptureOptions, ViewerHandle, ViewerState } from './types';
 export { createViewer };

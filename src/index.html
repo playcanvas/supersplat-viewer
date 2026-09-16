@@ -66,12 +66,15 @@
             const budgetParam = url.searchParams.get('budget');
             const budget = budgetParam !== null ? Number(budgetParam) : undefined;
 
-            const sseConfig = {
-                poster: posterUrl && createImage(posterUrl),
-                skyboxUrl,
-                collisionUrl,
+            // createViewer's options, minus the container and the settings. The poster image and
+            // the content fetch start here, before the module bundle has arrived.
+            const sseOptions = {
                 contentUrl,
                 contentFilename,
+                posterUrl,
+                skyboxUrl,
+                collisionUrl,
+                poster: posterUrl && createImage(posterUrl),
                 contents: fetch(contentUrl),
                 noui: url.searchParams.has('noui'),
                 noanim: url.searchParams.has('noanim'),
@@ -93,7 +96,7 @@
             };
 
             window.sse = {
-                config: sseConfig,
+                options: sseOptions,
                 settings: bootstrap.settings ?? fetch(settingsUrl).then((response) => response.json())
             };
         </script>
@@ -103,11 +106,11 @@
         <script type="module">
             import { createViewer } from './index.js';
 
-            const { config, settings } = window.sse;
+            const { options, settings } = window.sse;
 
             // the viewer builds its own subtree (canvas, ui, icons) inside the container; the
             // standalone document's container is the page itself
-            createViewer({ container: document.body, settings: await settings, config });
+            createViewer({ container: document.body, settings: await settings, ...options });
         </script>
     </body>
 </html>

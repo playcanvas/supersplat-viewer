@@ -89,30 +89,10 @@
 
             const settings = await (await fetch(settingsUrl)).json();
 
-            // Mirrors the config the shipped bootstrap builds, with every flag at its default.
-            const createConfig = () => ({
-                poster: null,
-                skyboxUrl: null,
-                collisionUrl: null,
-                contentUrl,
-                contentFilename: null,
-                contents: fetch(contentUrl),
-                noui: false,
-                noanim: false,
-                nofx: false,
-                hpr: undefined,
-                ministats: false,
-                colorize: false,
-                renderer,
-                aa: false,
-                budget: undefined,
-                heatmap: false,
-                fullload: false,
-                debug: false,
-                lang: null,
-                // an embedded instance: no window.* hooks, so two viewers cannot collide on them
-                exposeGlobals: false
-            });
+            // Every other option at its default; an embedded instance publishes no window.* hooks,
+            // so two viewers cannot collide on them.
+            const createOptions = () => ({ contentUrl, renderer, exposeGlobals: false });
+            const cameraOf = (viewer) => viewer.app.root.findByName('camera');
 
             const hosts = document.getElementById('hosts');
             const addHost = () => {
@@ -130,7 +110,7 @@
                 return true;
             };
             const handlesOf = (viewer) => {
-                const device = viewer.global.app.graphicsDevice;
+                const device = viewer.app.graphicsDevice;
                 return {
                     device,
                     gl: device.gl ?? null,
@@ -154,14 +134,11 @@
                     for (let i = 0; i < instances; i++) {
                         const h = addHost();
                         hostEls.push(h);
-                        viewers.push(await createViewer({ container: h, settings, config: createConfig() }));
+                        viewers.push(await createViewer({ container: h, settings, ...createOptions() }));
                     }
                     const handles = viewers.map(handlesOf);
 
-                    check(
-                        'all instances loaded',
-                        await until(() => viewers.every((v) => v.global.state.loaded), 120000)
-                    );
+                    check('all instances loaded', await until(() => viewers.every((v) => v.state.loaded), 120000));
                     check('no window.app published', window.app === undefined);
                     check(
                         'one viewer subtree per host',
@@ -178,18 +155,18 @@
                     log(
                         `hotspots per instance: ${hostEls.map((h) => h.querySelectorAll('.sse-annotation-hotspot').length).join(', ')}`
                     );
-                    check('distinct apps', new Set(viewers.map((v) => v.global.app)).size === instances);
+                    check('distinct apps', new Set(viewers.map((v) => v.app)).size === instances);
                     check(
                         'entities belong to their own app',
-                        viewers.every((v) => v.global.app.root.children.every((e) => e._app === v.global.app))
+                        viewers.every((v) => v.app.root.children.every((e) => e._app === v.app))
                     );
 
                     // state and ui are independent: changing one camera mode moves only its buttons
-                    viewers[0].global.state.cameraMode = 'fly';
+                    viewers[0].state.cameraMode = 'fly';
                     await timeout(50);
                     check(
                         'state does not leak between instances',
-                        viewers.slice(1).every((v) => v.global.state.cameraMode !== 'fly')
+                        viewers.slice(1).every((v) => v.state.cameraMode !== 'fly')
                     );
                     check(
                         'ui follows its own instance',
@@ -200,16 +177,16 @@
                     // the keyboard listens on window, so the host says which instance it drives
                     const pressOne = () =>
                         window.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', bubbles: true }));
-                    viewers.forEach((v) => (v.global.state.cameraMode = 'fly'));
-                    viewers[0].global.state.inputEnabled = false;
+                    viewers.forEach((v) => (v.state.cameraMode = 'fly'));
+                    viewers[0].state.inputEnabled = false;
                     pressOne();
                     check(
                         'an instance with input disabled ignores the keyboard',
-                        viewers[0].global.state.cameraMode === 'fly' && viewers[1].global.state.cameraMode === 'orbit'
+                        viewers[0].state.cameraMode === 'fly' && viewers[1].state.cameraMode === 'orbit'
                     );
-                    viewers[0].global.state.inputEnabled = true;
+                    viewers[0].state.inputEnabled = true;
                     pressOne();
-                    check('and takes it again once re-enabled', viewers[0].global.state.cameraMode === 'orbit');
+                    check('and takes it again once re-enabled', viewers[0].state.cameraMode === 'orbit');
 
                     // the same for the engine's own key source: a held arrow key flies only the
                     // enabled instance. An arrow rather than W, which is also the shortcut that
@@ -218,25 +195,27 @@
                         window.dispatchEvent(
                             new KeyboardEvent(type, { key: 'ArrowUp', code: 'ArrowUp', bubbles: true })
                         );
-                    viewers.forEach((v) => (v.global.state.cameraMode = 'fly'));
-                    viewers[0].global.state.inputEnabled = false;
-                    const before = viewers.map((v) => v.global.camera.getPosition().clone());
+                    viewers.forEach((v) => (v.state.cameraMode = 'fly'));
+                    viewers[0].state.inputEnabled = false;
+                    const before = viewers.map((v) => cameraOf(v).getPosition().clone());
                     arrow('keydown');
-                    await timeout(400);
+                    // a hidden tab throttles frames, so wait for the movement rather than a fixed time
+                    const distance = (i) => cameraOf(viewers[i]).getPosition().distance(before[i]);
+                    await until(() => distance(1) > 0.01, 5000);
                     arrow('keyup');
-                    const moved = viewers.map((v, i) => v.global.camera.getPosition().distance(before[i]));
+                    const moved = viewers.map((v, i) => distance(i));
                     check(
                         'a held arrow key moves only the enabled instance',
                         moved[0] < 1e-6 && moved[1] > 0.01,
                         `moved ${moved.map((m) => m.toFixed(3)).join(', ')}`
                     );
-                    viewers[0].global.state.inputEnabled = true;
+                    viewers[0].state.inputEnabled = true;
 
                     // the first goes away, the second must keep rendering
                     viewers[0].destroy();
                     check('first subtree removed', hostEls[0].childElementCount === 0);
                     check('first released', await released(handles[0]));
-                    const survivor = viewers[1].global.app;
+                    const survivor = viewers[1].app;
                     survivor.renderNextFrame = true;
                     const rendered = await Promise.race([
                         new Promise((resolve) => survivor.once('frameend', () => resolve(true))),
@@ -271,7 +250,7 @@
                     });
 
                     try {
-                        const viewer = await createViewer({ container: host, settings, config: createConfig() });
+                        const viewer = await createViewer({ container: host, settings, ...createOptions() });
                         const handles = handlesOf(viewer);
 
                         if (mode === 'loaded') {
@@ -284,7 +263,7 @@
 
                         // `loaded` flips in the viewer's own first-frame handler, so it proves the hook
                         // came from this instance rendering and not from anything stale
-                        const { loaded, progress } = viewer.global.state;
+                        const { loaded, progress } = viewer.state;
 
                         viewer.destroy();
                         const removed = host.childElementCount === 0;

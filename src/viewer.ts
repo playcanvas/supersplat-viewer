@@ -29,6 +29,7 @@ import { Annotations } from './annotations';
 import { CameraManager, isWalkAllowed } from './camera-manager';
 import type { Camera } from './cameras/camera';
 import { Capture } from './capture';
+import type { CaptureResult } from './capture';
 import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
@@ -38,7 +39,7 @@ import { MeshDebugOverlay } from './mesh-debug-overlay';
 import { NavCursor } from './nav-cursor';
 import { Picker } from './picker';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
-import type { Config, Global } from './types';
+import type { CaptureOptions, Config, Global } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
 
 // String.replace wrapper that warns when the source substring is missing, so
@@ -195,6 +196,13 @@ class Viewer {
 
     private capture: Capture | null = null;
 
+    // captures are serialised: they share the viewer camera, so concurrent ones would
+    // interleave the redirect/restore and could leave it mis-targeted
+    private captureQueue: Promise<unknown> = Promise.resolve();
+
+    // resolves once the first complete frame has rendered
+    private ready: Promise<void>;
+
     origChunks: {
         glsl: {
             gsplatOutputVS: string;
@@ -216,6 +224,8 @@ class Viewer {
 
         const { app, settings, config, events, state, camera, renderer } = global;
         const { graphicsDevice } = app;
+
+        this.ready = new Promise((resolve) => events.once('firstFrame', () => resolve()));
 
         // render skybox as plain equirect
         const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
@@ -380,43 +390,8 @@ class Viewer {
             // expose the app for console-driven debugging (e.g. scene.gsplat tuning)
             window.app = app;
 
-            // Capture hook for the thumbnail pipeline. Renders the scene (with post
-            // effects) into an offscreen supersampled target, GPU box-downsamples it to
-            // the requested size and returns just that small buffer. Lazily created on
-            // first use — no ?capture flag and no preserveDrawingBuffer needed, and it
-            // works on both WebGL and WebGPU.
-            let captureQueue: Promise<unknown> = Promise.resolve();
-            window.captureFrame = ({ time, width = 480, height = width, supersample } = {}) => {
-                const run = () => {
-                    if (!this.capture) {
-                        this.capture = new Capture(app, camera.camera, () => this.cameraFrame ?? null);
-                    }
-                    return this.capture.grab({
-                        time,
-                        width,
-                        height,
-                        supersample,
-                        scrub: (t) => {
-                            if (state.hasAnimation) {
-                                state.animationPaused = true;
-                                events.fire('scrubAnim', t);
-                            }
-                        }
-                    });
-                };
-                // serialize calls: they share the viewer camera, so concurrent captures
-                // would interleave the redirect/restore and could leave it mis-targeted
-                const result = captureQueue.then(run, run);
-                captureQueue = result.then(
-                    () => {
-                        // intentionally ignored
-                    },
-                    () => {
-                        // intentionally ignored
-                    }
-                );
-                return result;
-            };
+            // capture hook for the thumbnail pipeline
+            window.captureFrame = (options) => this.captureFrame(options);
         });
 
         const { gsplat } = app.scene;
@@ -607,6 +582,47 @@ class Viewer {
      *
      * @param fn - Cleanup to run.
      */
+    /**
+     * Render the scene, with post effects, into an offscreen supersampled target, GPU
+     * box-downsample it to the requested size and return just that small buffer. Waits for
+     * the first frame. The capture target is created lazily on first use — no flag and no
+     * preserveDrawingBuffer needed, and it works on both WebGL and WebGPU.
+     */
+    captureFrame({ time, width = 480, height = width, supersample }: CaptureOptions = {}): Promise<CaptureResult> {
+        const run = async () => {
+            await this.ready;
+            if (this.destroyed) {
+                throw new Error('captureFrame: the viewer has been destroyed');
+            }
+            const { app, camera, state, events } = this.global;
+            if (!this.capture) {
+                this.capture = new Capture(app, camera.camera, () => this.cameraFrame ?? null);
+            }
+            return this.capture.grab({
+                time,
+                width,
+                height,
+                supersample,
+                scrub: (t) => {
+                    if (state.hasAnimation) {
+                        state.animationPaused = true;
+                        events.fire('scrubAnim', t);
+                    }
+                }
+            });
+        };
+        const result = this.captureQueue.then(run, run);
+        this.captureQueue = result.then(
+            () => {
+                // intentionally ignored
+            },
+            () => {
+                // intentionally ignored
+            }
+        );
+        return result;
+    }
+
     onDestroy(fn: () => void) {
         if (this.destroyed) {
             fn();

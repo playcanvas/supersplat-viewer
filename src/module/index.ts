@@ -17,6 +17,7 @@ const css: string = cssSource;
 /** The viewer's module bundle, for serving alongside a rendered document. */
 const js: string = jsSource;
 
+export type { ViewerAssets } from '../options';
 export type { RenderViewerHtmlOptions, ViewerBootstrap } from './render-html';
 export { renderViewerHtml } from './render-html';
 
