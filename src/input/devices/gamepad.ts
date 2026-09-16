@@ -28,6 +28,10 @@ class GamepadDevice implements InputDevice {
     }
 
     update(ctx: UpdateContext, frame: CameraInputFrame): void {
+        // the gamepad belongs to the page, not to an element; the host says which instance
+        // it drives
+        if (!this._global?.state.inputEnabled) return;
+
         const { dt, cameraComponent, isFly, isFirstPerson } = ctx;
         const { leftStick, rightStick } = this._source.read();
         const orbitFactor = isFirstPerson ? cameraComponent.fov / 120 : 1;

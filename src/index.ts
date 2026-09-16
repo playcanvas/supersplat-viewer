@@ -297,7 +297,8 @@ const createViewer = async ({ container, settings: settingsJson, config }: Creat
         isFullscreen: false,
         controlsHidden: false,
         showAnnotations: localStorage.getItem('showAnnotations') !== 'false',
-        gamingControls: localStorage.getItem('gamingControls') === 'true'
+        gamingControls: localStorage.getItem('gamingControls') === 'true',
+        inputEnabled: true
     });
 
     const global: Global = {

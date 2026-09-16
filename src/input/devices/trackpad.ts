@@ -35,7 +35,7 @@ class TrackpadDevice implements InputDevice {
     private _ctrlDown = false;
 
     private _onKeyDown = (event: KeyboardEvent) => {
-        if (event.key === 'Control') {
+        if (event.key === 'Control' && this._global?.state.inputEnabled) {
             this._ctrlDown = true;
         }
     };

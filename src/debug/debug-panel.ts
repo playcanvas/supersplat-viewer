@@ -130,6 +130,7 @@ class DebugPanel {
 
     private _onKeyDown = (event: KeyboardEvent) => {
         // Ctrl+Shift+D — also accept Meta+Shift+D on macOS for parity
+        if (!this._global.state.inputEnabled) return;
         if (event.code === 'KeyD' && event.shiftKey && (event.ctrlKey || event.metaKey)) {
             event.preventDefault();
             this.toggle();

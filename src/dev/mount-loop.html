@@ -197,6 +197,41 @@
                             !hostEls[1].querySelector('.sse-flyCamera').classList.contains('sse-active')
                     );
 
+                    // the keyboard listens on window, so the host says which instance it drives
+                    const pressOne = () =>
+                        window.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', bubbles: true }));
+                    viewers.forEach((v) => (v.global.state.cameraMode = 'fly'));
+                    viewers[0].global.state.inputEnabled = false;
+                    pressOne();
+                    check(
+                        'an instance with input disabled ignores the keyboard',
+                        viewers[0].global.state.cameraMode === 'fly' && viewers[1].global.state.cameraMode === 'orbit'
+                    );
+                    viewers[0].global.state.inputEnabled = true;
+                    pressOne();
+                    check('and takes it again once re-enabled', viewers[0].global.state.cameraMode === 'orbit');
+
+                    // the same for the engine's own key source: a held arrow key flies only the
+                    // enabled instance. An arrow rather than W, which is also the shortcut that
+                    // turns on gaming controls and with them pointer lock
+                    const arrow = (type) =>
+                        window.dispatchEvent(
+                            new KeyboardEvent(type, { key: 'ArrowUp', code: 'ArrowUp', bubbles: true })
+                        );
+                    viewers.forEach((v) => (v.global.state.cameraMode = 'fly'));
+                    viewers[0].global.state.inputEnabled = false;
+                    const before = viewers.map((v) => v.global.camera.getPosition().clone());
+                    arrow('keydown');
+                    await timeout(400);
+                    arrow('keyup');
+                    const moved = viewers.map((v, i) => v.global.camera.getPosition().distance(before[i]));
+                    check(
+                        'a held arrow key moves only the enabled instance',
+                        moved[0] < 1e-6 && moved[1] > 0.01,
+                        `moved ${moved.map((m) => m.toFixed(3)).join(', ')}`
+                    );
+                    viewers[0].global.state.inputEnabled = true;
+
                     // the first goes away, the second must keep rendering
                     viewers[0].destroy();
                     check('first subtree removed', hostEls[0].childElementCount === 0);

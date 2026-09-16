@@ -56,6 +56,12 @@ type State = {
     controlsHidden: boolean;
     showAnnotations: boolean;
     gamingControls: boolean;
+    // host-writable. Gates the inputs the dom cannot route by hit-testing because their
+    // listeners sit on window: the keyboard (the engine's source and the viewer's shortcuts)
+    // and the gamepad. Pointer input on the canvas is unaffected. A host clears it while its
+    // own controls have focus or a modal is open, and decides which of several viewers on a
+    // page the keyboard drives
+    inputEnabled: boolean;
 };
 
 type Global = {
