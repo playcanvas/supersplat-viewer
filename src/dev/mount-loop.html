@@ -87,6 +87,22 @@
                 console.log(`[mount-loop] ${line}`);
             };
 
+            // A promise the viewer drops on teardown shows up here rather than in the console
+            // only, so teardown paths that reject without a handler fail the run.
+            const unhandled = [];
+            window.addEventListener('unhandledrejection', (event) => {
+                unhandled.push(event.reason?.message ?? String(event.reason));
+            });
+            const reportUnhandled = () => {
+                // a rejection is reported a task after it happens, so let the queue drain first
+                return timeout(50).then(() => {
+                    if (unhandled.length) {
+                        log(`FAIL ${unhandled.length} unhandled rejection(s): ${unhandled.join(' | ')}`, true);
+                    }
+                    return unhandled.length;
+                });
+            };
+
             const settings = await (await fetch(settingsUrl)).json();
 
             // Every other option at its default; an embedded instance publishes no window.* hooks,
@@ -120,6 +136,32 @@
             const released = async ({ gl, lost }) =>
                 gl ? gl.isContextLost() : await Promise.race([lost, timeout(1000, false)]);
 
+            // Teardown during a metadata load. `meta.json` content is read with an await before
+            // the asset is registered, so a destroy can land inside it and the continuation must
+            // not touch the app it just lost. Driven with a `contents` promise this page
+            // controls, so the timing is exact rather than a race with the network; the url is
+            // never fetched, since supplying `contents` is what the document does too.
+            const metaTeardown = async () => {
+                const host = addHost();
+                const before = unhandled.length;
+                let deliver;
+                const contents = new Promise((resolve) => {
+                    deliver = () => resolve(new Response('{}'));
+                });
+                const viewer = await createViewer({
+                    container: host,
+                    settings,
+                    ...createOptions(),
+                    contentUrl: './meta.json',
+                    contents
+                });
+                viewer.destroy();
+                deliver();
+                await timeout(100);
+                host.remove();
+                return unhandled.length === before;
+            };
+
             // Several viewers at once, each in its own host so each has a distinct root.
             if (instances > 1) {
                 log(`${instances} instances, renderer=${renderer}, tab ${document.visibilityState}`);
@@ -131,6 +173,8 @@
                     log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`, !ok);
                 };
                 try {
+                    check('destroy during a metadata load stays quiet', await metaTeardown());
+
                     for (let i = 0; i < instances; i++) {
                         const h = addHost();
                         hostEls.push(h);
@@ -233,6 +277,7 @@
                     log(`failed: ${err?.message ?? err}`, true);
                     console.error(err);
                 }
+                failures += await reportUnhandled();
                 log(failures ? `done, ${failures} failed` : 'done, instances coexist', failures > 0);
             } else {
                 // A hidden tab throttles requestAnimationFrame, and the reveal needs many frames, so
@@ -240,6 +285,9 @@
                 log(`${iterations} iterations, mode=${mode}, renderer=${renderer}, tab ${document.visibilityState}`);
 
                 let failures = 0;
+                const metaClean = await metaTeardown();
+                if (!metaClean) failures++;
+                log(`destroy during a metadata load stays quiet: ${metaClean ? 'ok' : 'FAIL'}`, !metaClean);
                 for (let i = 1; i <= iterations; i++) {
                     const started = performance.now();
                     const host = addHost();
@@ -252,6 +300,17 @@
                     try {
                         const viewer = await createViewer({ container: host, settings, ...createOptions() });
                         const handles = handlesOf(viewer);
+
+                        // In immediate mode the destroy below lands before the first frame, so
+                        // this capture is still waiting on it. It must settle rather than hang on
+                        // an event that is never going to fire.
+                        const capture =
+                            mode === 'immediate'
+                                ? viewer.captureFrame({ width: 64 }).then(
+                                      () => 'resolved',
+                                      () => 'rejected'
+                                  )
+                                : null;
 
                         if (mode === 'loaded') {
                             const rendered = await Promise.race([firstFrame, timeout(120000, false)]);
@@ -269,10 +328,11 @@
                         const removed = host.childElementCount === 0;
 
                         const freed = await released(handles);
-                        const ok = freed && removed && (mode !== 'loaded' || loaded);
+                        const captured = capture ? await Promise.race([capture, timeout(2000, 'hung')]) : 'n/a';
+                        const ok = freed && removed && captured !== 'hung' && (mode !== 'loaded' || loaded);
                         if (!ok) failures++;
                         log(
-                            `#${i} ${handles.device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed} removed=${removed}`,
+                            `#${i} ${handles.device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed} removed=${removed} capture=${captured}`,
                             !ok
                         );
                     } catch (err) {
@@ -284,6 +344,7 @@
                 }
 
                 delete window.firstFrame;
+                failures += await reportUnhandled();
                 log(failures ? `done, ${failures} failed` : 'done, no leaks detected', failures > 0);
             }
         </script>

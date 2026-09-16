@@ -203,6 +203,13 @@ class Viewer {
     // resolves once the first complete frame has rendered
     private ready: Promise<void>;
 
+    // rejects when the viewer is destroyed. A capture waits on engine events — the first frame,
+    // then a frame callback — and destroy removes every handler, so without this the wait (and
+    // the promise handed to the caller) would never settle
+    private aborted: Promise<never>;
+
+    private abort!: (reason: Error) => void;
+
     origChunks: {
         glsl: {
             gsplatOutputVS: string;
@@ -226,6 +233,13 @@ class Viewer {
         const { graphicsDevice } = app;
 
         this.ready = new Promise((resolve) => events.once('firstFrame', () => resolve()));
+        this.aborted = new Promise((_resolve, reject) => {
+            this.abort = reject;
+        });
+        // destroying a viewer that never captured anything must not report an unhandled rejection
+        this.aborted.catch(() => {
+            // intentionally ignored
+        });
 
         // render skybox as plain equirect
         const glsl = ShaderChunks.get(graphicsDevice, 'glsl');
@@ -422,6 +436,14 @@ class Viewer {
         // on skybox/collision here would let a full-detail burst queue up and block the reveal
         // until it has all downloaded. The handler runs as a microtask of the asset's load event,
         // so no frame renders unclamped.
+        // Both chains below are started and never awaited, so each needs a rejection handler or
+        // a failed load is reported as unhandled. Nothing is logged here: `loadGsplat` already
+        // logs its own asset errors, the skybox and collision loads resolve to null on failure,
+        // and a destroy mid-load rejects deliberately.
+        const ignoreLoadFailure = () => {
+            // intentionally ignored
+        };
+
         if (!config.fullload) {
             gsplatLoad.then((entity) => {
                 if (this.destroyed) return;
@@ -431,7 +453,7 @@ class Viewer {
                 if (lodLevels) {
                     gsplatComponent.lodRangeMax = gsplatComponent.lodRangeMin = lodLevels - 1;
                 }
-            });
+            }, ignoreLoadFailure);
         }
 
         // wait for the model to load
@@ -572,7 +594,7 @@ class Viewer {
             };
 
             eventHandler.on('frame:ready', readyHandler);
-        });
+        }, ignoreLoadFailure);
     }
 
     /**
@@ -590,7 +612,7 @@ class Viewer {
      */
     captureFrame({ time, width = 480, height = width, supersample }: CaptureOptions = {}): Promise<CaptureResult> {
         const run = async () => {
-            await this.ready;
+            await Promise.race([this.ready, this.aborted]);
             if (this.destroyed) {
                 throw new Error('captureFrame: the viewer has been destroyed');
             }
@@ -598,7 +620,7 @@ class Viewer {
             if (!this.capture) {
                 this.capture = new Capture(app, camera.camera, () => this.cameraFrame ?? null);
             }
-            return this.capture.grab({
+            const grab = this.capture.grab({
                 time,
                 width,
                 height,
@@ -610,6 +632,12 @@ class Viewer {
                     }
                 }
             });
+            // a destroy mid-capture settles the race first, which would leave the grab's own
+            // failure — the torn-down device — unhandled
+            grab.catch(() => {
+                // intentionally ignored
+            });
+            return Promise.race([grab, this.aborted]);
         };
         const result = this.captureQueue.then(run, run);
         this.captureQueue = result.then(
@@ -642,6 +670,9 @@ class Viewer {
     destroy() {
         if (this.destroyed) return;
         this.destroyed = true;
+
+        // settle anything waiting on an engine event, before the handlers go
+        this.abort(new Error('captureFrame: the viewer has been destroyed'));
 
         const { app } = this.global;
 

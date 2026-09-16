@@ -1,10 +1,10 @@
 /* eslint-disable no-unused-vars */
 interface Window {
-    // Handoff from the document's inline bootstrap to the module. `settings` is a plain
-    // object when the embedder inlined one into the #sse-bootstrap block, and a promise of
-    // the fetched json otherwise.
+    // Handoff from the document's inline bootstrap to the module: createViewer's options minus
+    // the container and the settings. `settings` is a plain object when the embedder inlined
+    // one into the #sse-bootstrap block, and a promise of the fetched json otherwise.
     sse: {
-        config: import('./src/types').Config,
+        options: Omit<import('./src/options').CreateViewerOptions, 'container' | 'settings'>,
         settings: object | Promise<object>
     }
 

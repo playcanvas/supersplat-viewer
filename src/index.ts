@@ -27,7 +27,12 @@ import { Viewer } from './viewer';
 import { initXr } from './xr';
 import { version as appVersion } from '../package.json';
 
-const loadGsplat = async (app: AppBase, config: Config, progressCallback: (progress: number) => void) => {
+const loadGsplat = async (
+    app: AppBase,
+    config: Config,
+    progressCallback: (progress: number) => void,
+    cancelled: () => boolean
+) => {
     const { contents, contentUrl, contentFilename } = config;
     const c = contents as unknown as ArrayBuffer;
     // the filename's extension selects the gsplat parser, so a url with no usable name (a
@@ -35,6 +40,14 @@ const loadGsplat = async (app: AppBase, config: Config, progressCallback: (progr
     // back to the url-derived name
     const filename = contentFilename || new URL(contentUrl, location.href).pathname.split('/').pop();
     const data = filename.toLowerCase() === 'meta.json' ? await (await contents).json() : undefined;
+
+    // Reading that metadata spans a network round trip, so a destroy can land in the middle of
+    // it. `app.destroy()` nulls the asset registry, so registering the asset now would throw
+    // from the engine's internals; reject instead, which the viewer's load chains expect.
+    if (cancelled()) {
+        throw new Error('loadGsplat: the viewer was destroyed while loading');
+    }
+
     const asset = new Asset(filename, 'gsplat', { url: contentUrl, filename, contents: c }, data);
 
     return new Promise<Entity>((resolve, reject) => {
@@ -358,10 +371,19 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     // Initialize user interface
     const disposeUI = initUI(global);
 
+    // a load continuation can outlive a destroy, so anything that resumes after an await checks
+    // this before touching the app
+    let destroyed = false;
+
     // Load model
-    const gsplatLoad = loadGsplat(app, config, (progress: number) => {
-        state.progress = progress;
-    });
+    const gsplatLoad = loadGsplat(
+        app,
+        config,
+        (progress: number) => {
+            state.progress = progress;
+        },
+        () => destroyed
+    );
 
     // Load skybox (continue without if it fails — e.g. CORS, 404)
     const skyboxLoad =
@@ -413,6 +435,9 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
 
     // Create the viewer
     const viewer = new Viewer(global, gsplatLoad, skyboxLoad, collisionLoad);
+    viewer.onDestroy(() => {
+        destroyed = true;
+    });
     viewer.onDestroy(disposeCanvas);
     viewer.onDestroy(disposeUI);
     if (disposeAudio) {

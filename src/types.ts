@@ -47,14 +47,16 @@ type State = {
     inputEnabled: boolean;
 };
 
-// the keys a host may set; every other key reports what the viewer found or is doing
+// The keys a host may set; every other key reports what the viewer found or is doing.
+// `animationTime` is not among them: the camera manager writes it from the animation cursor
+// every update, so a host's value would be ignored and then overwritten. Seeking goes through
+// the cursor, and exposing it is a separate addition.
 type WritableStateKey =
     | 'cameraMode'
     | 'performanceMode'
     | 'showAnnotations'
     | 'gamingControls'
     | 'animationPaused'
-    | 'animationTime'
     | 'collisionOverlayEnabled'
     | 'controlsHidden'
     | 'inputEnabled';
