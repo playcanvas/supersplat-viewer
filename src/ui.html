@@ -1,17 +1,17 @@
 <!--
     The viewer's own markup: one canvas, the ui overlay and the svg icon sheet. createViewer
     parses this into a <div class="sse-viewer"> per instance, so nothing here carries an id —
-    a document can hold the template many times over. Element lookups in ui.ts use the class
-    of the same name under the instance root. The <symbol> ids are the exception: <use> resolves
+    a document can hold the template many times over. Every class carries the sse- prefix so host page styles cannot
+    collide with it; ui.ts looks elements up by `sse-` + name under the instance root. The <symbol> ids are the exception: <use> resolves
     them document-wide, and duplicates resolve to whichever copy is first.
 -->
 <canvas></canvas>
 
-<div class="ui">
-    <div class="poster"></div>
+<div class="sse-ui">
+    <div class="sse-poster"></div>
 
     <!-- SuperSplat Branding -->
-    <a class="viewerBranding hidden" target="_blank" rel="noopener noreferrer">
+    <a class="sse-viewerBranding sse-hidden" target="_blank" rel="noopener noreferrer">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="64 64 384 384" role="img" aria-label="SuperSplat">
             <path
                 fill="#F26722"
@@ -38,432 +38,436 @@
     </a>
 
     <!-- Loading Indicator -->
-    <div class="loadingWrap">
-        <div class="loadingText"></div>
-        <div class="loadingBar"></div>
+    <div class="sse-loadingWrap">
+        <div class="sse-loadingText"></div>
+        <div class="sse-loadingBar"></div>
     </div>
 
-    <div class="controlsWrap hidden">
+    <div class="sse-controlsWrap sse-hidden">
         <!-- Timeline Panel -->
-        <div class="timelineContainer hidden">
-            <div class="line"></div>
-            <div class="handle"></div>
-            <div class="time hidden">0:00</div>
+        <div class="sse-timelineContainer sse-hidden">
+            <div class="sse-line"></div>
+            <div class="sse-handle"></div>
+            <div class="sse-time sse-hidden">0:00</div>
         </div>
 
         <!-- Buttons Panel -->
-        <div class="buttonsContainer">
-            <div class="buttonGroup">
-                <button class="play controlButton hidden">
+        <div class="sse-buttonsContainer">
+            <div class="sse-buttonGroup">
+                <button class="sse-play sse-controlButton sse-hidden">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="stroke"><use href="#playIcon" /></g>
-                        <g class="fill"><use href="#playIcon" /></g>
+                        <g class="sse-stroke"><use href="#playIcon" /></g>
+                        <g class="sse-fill"><use href="#playIcon" /></g>
                     </svg>
                 </button>
-                <button class="pause controlButton hidden">
+                <button class="sse-pause sse-controlButton sse-hidden">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24px" height="24px">
-                        <g class="stroke"><use href="#pauseIcon" /></g>
-                        <g class="fill"><use href="#pauseIcon" /></g>
+                        <g class="sse-stroke"><use href="#pauseIcon" /></g>
+                        <g class="sse-fill"><use href="#pauseIcon" /></g>
                     </svg>
                 </button>
             </div>
 
-            <div class="spacer"></div>
+            <div class="sse-spacer"></div>
 
-            <div class="buttonGroup">
-                <button class="orbitCamera controlButton toggle left">
+            <div class="sse-buttonGroup">
+                <button class="sse-orbitCamera sse-controlButton sse-toggle sse-left">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="stroke"><use href="#orbitIcon" /></g>
-                        <g class="fill"><use href="#orbitIcon" /></g>
+                        <g class="sse-stroke"><use href="#orbitIcon" /></g>
+                        <g class="sse-fill"><use href="#orbitIcon" /></g>
                     </svg>
                 </button>
-                <button class="flyCamera controlButton toggle right">
+                <button class="sse-flyCamera sse-controlButton sse-toggle sse-right">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="stroke"><use href="#flyIcon" /></g>
-                        <g class="fill"><use href="#flyIcon" /></g>
+                        <g class="sse-stroke"><use href="#flyIcon" /></g>
+                        <g class="sse-fill"><use href="#flyIcon" /></g>
                     </svg>
                 </button>
-                <button class="fpsCamera controlButton toggle right hidden">
+                <button class="sse-fpsCamera sse-controlButton sse-toggle sse-right sse-hidden">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="stroke"><use href="#walkIcon" /></g>
-                        <g class="fill"><use href="#walkIcon" /></g>
+                        <g class="sse-stroke"><use href="#walkIcon" /></g>
+                        <g class="sse-fill"><use href="#walkIcon" /></g>
                     </svg>
                 </button>
             </div>
 
-            <div class="buttonGroup">
-                <button class="arMode controlButton hidden">
+            <div class="sse-buttonGroup">
+                <button class="sse-arMode sse-controlButton sse-hidden">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="stroke"><use href="#arIcon" /></g>
-                        <g class="fill"><use href="#arIcon" /></g>
+                        <g class="sse-stroke"><use href="#arIcon" /></g>
+                        <g class="sse-fill"><use href="#arIcon" /></g>
                     </svg>
                 </button>
-                <button class="vrMode controlButton hidden">
+                <button class="sse-vrMode sse-controlButton sse-hidden">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="stroke"><use href="#vrIcon" /></g>
-                        <g class="fill"><use href="#vrIcon" /></g>
-                    </svg>
-                </button>
-
-                <button class="showCollision controlButton hidden">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="stroke"><use href="#voxelIcon" /></g>
-                        <g class="fill"><use href="#voxelIcon" /></g>
+                        <g class="sse-stroke"><use href="#vrIcon" /></g>
+                        <g class="sse-fill"><use href="#vrIcon" /></g>
                     </svg>
                 </button>
 
-                <button class="info controlButton">
+                <button class="sse-showCollision sse-controlButton sse-hidden">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="stroke"><use href="#infoIcon" /></g>
-                        <g class="fill"><use href="#infoIcon" /></g>
-                    </svg>
-                </button>
-                <button class="settings controlButton">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="stroke"><use href="#settingsIcon" /></g>
-                        <g class="fill"><use href="#settingsIcon" /></g>
+                        <g class="sse-stroke"><use href="#voxelIcon" /></g>
+                        <g class="sse-fill"><use href="#voxelIcon" /></g>
                     </svg>
                 </button>
 
-                <button class="enterFullscreen controlButton">
+                <button class="sse-info sse-controlButton">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="stroke"><use href="#enterFullscreenIcon" /></g>
-                        <g class="fill"><use href="#enterFullscreenIcon" /></g>
+                        <g class="sse-stroke"><use href="#infoIcon" /></g>
+                        <g class="sse-fill"><use href="#infoIcon" /></g>
                     </svg>
                 </button>
-                <button class="exitFullscreen controlButton hidden">
+                <button class="sse-settings sse-controlButton">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="stroke"><use href="#exitFullscreenIcon" /></g>
-                        <g class="fill"><use href="#exitFullscreenIcon" /></g>
+                        <g class="sse-stroke"><use href="#settingsIcon" /></g>
+                        <g class="sse-fill"><use href="#settingsIcon" /></g>
+                    </svg>
+                </button>
+
+                <button class="sse-enterFullscreen sse-controlButton">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                        <g class="sse-stroke"><use href="#enterFullscreenIcon" /></g>
+                        <g class="sse-fill"><use href="#enterFullscreenIcon" /></g>
+                    </svg>
+                </button>
+                <button class="sse-exitFullscreen sse-controlButton sse-hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                        <g class="sse-stroke"><use href="#exitFullscreenIcon" /></g>
+                        <g class="sse-fill"><use href="#exitFullscreenIcon" /></g>
                     </svg>
                 </button>
             </div>
         </div>
     </div>
 
-    <div class="walkHint walkHint hidden"></div>
+    <div class="sse-walkHint sse-walkHint sse-hidden"></div>
 
     <!-- Settings Panel -->
-    <div class="settingsPanel hidden">
-        <div class="performanceModeRow settingsRow">
-            <div class="performanceModeOption" data-i18n="settings.performance-mode">Performance Mode</div>
-            <div class="performanceModeCheck toggleSwitch">
-                <div class="toggleTrack"><div class="toggleThumb"></div></div>
+    <div class="sse-settingsPanel sse-hidden">
+        <div class="sse-performanceModeRow sse-settingsRow">
+            <div class="sse-performanceModeOption" data-i18n="settings.performance-mode">Performance Mode</div>
+            <div class="sse-performanceModeCheck sse-toggleSwitch">
+                <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
             </div>
         </div>
-        <div class="gamingControlsDivider divider"></div>
-        <div class="gamingControlsRow settingsRow">
-            <div class="gamingControlsOption" data-i18n="settings.gaming-controls">Gaming Controls</div>
-            <div class="gamingControlsCheck toggleSwitch">
-                <div class="toggleTrack"><div class="toggleThumb"></div></div>
+        <div class="sse-gamingControlsDivider sse-divider"></div>
+        <div class="sse-gamingControlsRow sse-settingsRow">
+            <div class="sse-gamingControlsOption" data-i18n="settings.gaming-controls">Gaming Controls</div>
+            <div class="sse-gamingControlsCheck sse-toggleSwitch">
+                <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
             </div>
         </div>
-        <div class="annotationsRow settingsRow">
-            <div class="annotationsOption" data-i18n="settings.show-annotations">Show Annotations</div>
-            <div class="annotationsCheck toggleSwitch active">
-                <div class="toggleTrack"><div class="toggleThumb"></div></div>
+        <div class="sse-annotationsRow sse-settingsRow">
+            <div class="sse-annotationsOption" data-i18n="settings.show-annotations">Show Annotations</div>
+            <div class="sse-annotationsCheck sse-toggleSwitch sse-active">
+                <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
             </div>
         </div>
-        <div class="divider"></div>
-        <div class="settingsRow">
-            <button class="frame" data-i18n="settings.frame">Frame</button>
-            <button class="reset" data-i18n="settings.reset">Reset</button>
+        <div class="sse-divider"></div>
+        <div class="sse-settingsRow">
+            <button class="sse-frame" data-i18n="settings.frame">Frame</button>
+            <button class="sse-reset" data-i18n="settings.reset">Reset</button>
         </div>
     </div>
 
     <!-- Info Panel -->
-    <div class="infoPanel hidden">
-        <div class="infoPanelContent" onpointerdown="event.stopPropagation()" onwheel="event.stopPropagation()">
-            <a class="viewerTitle" target="_blank" rel="noopener noreferrer">
+    <div class="sse-infoPanel sse-hidden">
+        <div class="sse-infoPanelContent" onpointerdown="event.stopPropagation()" onwheel="event.stopPropagation()">
+            <a class="sse-viewerTitle" target="_blank" rel="noopener noreferrer">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 32 32">
-                    <g class="stroke"><use href="#supersplatIcon" /></g>
-                    <g class="fill"><use href="#supersplatIcon" /></g>
+                    <g class="sse-stroke"><use href="#supersplatIcon" /></g>
+                    <g class="sse-fill"><use href="#supersplatIcon" /></g>
                 </svg>
-                <span class="title-name">SuperSplat Viewer</span>
-                <span class="title-version">v<span class="appVersionLabel"></span></span>
+                <span class="sse-title-name">SuperSplat Viewer</span>
+                <span class="sse-title-version">v<span class="sse-appVersionLabel"></span></span>
             </a>
-            <div class="infoPanels">
-                <div class="desktopInfoPanel">
-                    <div class="control-spacer"></div>
+            <div class="sse-infoPanels">
+                <div class="sse-desktopInfoPanel">
+                    <div class="sse-control-spacer"></div>
                     <h1 data-i18n="help.section.orbit">Orbit Mode</h1>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.orbit">Orbit</span>
-                        <span class="control-key" data-i18n="help.key.left-click-drag">Left Click + Drag</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.orbit">Orbit</span>
+                        <span class="sse-control-key" data-i18n="help.key.left-click-drag">Left Click + Drag</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.pan">Pan</span>
-                        <span class="control-key" data-i18n="help.key.right-click-drag">Right Click + Drag</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.pan">Pan</span>
+                        <span class="sse-control-key" data-i18n="help.key.right-click-drag">Right Click + Drag</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.zoom">Zoom</span>
-                        <span class="control-key" data-i18n="help.key.mouse-wheel">Mouse Wheel</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.zoom">Zoom</span>
+                        <span class="sse-control-key" data-i18n="help.key.mouse-wheel">Mouse Wheel</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.set-focus">Set Focus</span>
-                        <span class="control-key" data-i18n="help.key.left-click">Left Click</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.set-focus">Set Focus</span>
+                        <span class="sse-control-key" data-i18n="help.key.left-click">Left Click</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.fly-to-point">Fly to Point</span>
-                        <span class="control-key" data-i18n="help.key.double-click">Double-click</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.fly-to-point">Fly to Point</span>
+                        <span class="sse-control-key" data-i18n="help.key.double-click">Double-click</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.frame-scene">Frame Scene</span>
-                        <span class="control-key">F</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.frame-scene">Frame Scene</span>
+                        <span class="sse-control-key">F</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.reset-camera">Reset Camera</span>
-                        <span class="control-key">R</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.reset-camera">Reset Camera</span>
+                        <span class="sse-control-key">R</span>
                     </div>
-                    <div class="control-spacer"></div>
+                    <div class="sse-control-spacer"></div>
                     <h1 data-i18n="help.section.fly">Fly Mode</h1>
-                    <div class="desktopFlyClickToFly">
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.fly-to">Fly To</span>
-                            <span class="control-key" data-i18n="help.key.left-click">Left Click</span>
+                    <div class="sse-desktopFlyClickToFly">
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.fly-to">Fly To</span>
+                            <span class="sse-control-key" data-i18n="help.key.left-click">Left Click</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.look-around">Look Around</span>
-                            <span class="control-key" data-i18n="help.key.left-click-drag">Left Click + Drag</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.look-around">Look Around</span>
+                            <span class="sse-control-key" data-i18n="help.key.left-click-drag">Left Click + Drag</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.pan">Pan</span>
-                            <span class="control-key" data-i18n="help.key.right-click-drag">Right Click + Drag</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.pan">Pan</span>
+                            <span class="sse-control-key" data-i18n="help.key.right-click-drag"
+                                >Right Click + Drag</span
+                            >
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.move">Move</span>
-                            <span class="control-key">W,S,A,D</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.move">Move</span>
+                            <span class="sse-control-key">W,S,A,D</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.run-slow">Run / Slow</span>
-                            <span class="control-key" data-i18n="help.key.shift-ctrl">Shift / Ctrl</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.run-slow">Run / Slow</span>
+                            <span class="sse-control-key" data-i18n="help.key.shift-ctrl">Shift / Ctrl</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.focus-point">Focus Point</span>
-                            <span class="control-key" data-i18n="help.key.double-click">Double-click</span>
-                        </div>
-                    </div>
-                    <div class="desktopFlyGamingControls hidden">
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.look-around">Look Around</span>
-                            <span class="control-key" data-i18n="help.key.mouse">Mouse</span>
-                        </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.move">Move</span>
-                            <span class="control-key">W,S,A,D</span>
-                        </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.vertical">Vertical</span>
-                            <span class="control-key">Q,E</span>
-                        </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.run-slow">Run / Slow</span>
-                            <span class="control-key" data-i18n="help.key.shift-ctrl">Shift / Ctrl</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.focus-point">Focus Point</span>
+                            <span class="sse-control-key" data-i18n="help.key.double-click">Double-click</span>
                         </div>
                     </div>
-                    <div class="control-spacer"></div>
+                    <div class="sse-desktopFlyGamingControls sse-hidden">
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.look-around">Look Around</span>
+                            <span class="sse-control-key" data-i18n="help.key.mouse">Mouse</span>
+                        </div>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.move">Move</span>
+                            <span class="sse-control-key">W,S,A,D</span>
+                        </div>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.vertical">Vertical</span>
+                            <span class="sse-control-key">Q,E</span>
+                        </div>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.run-slow">Run / Slow</span>
+                            <span class="sse-control-key" data-i18n="help.key.shift-ctrl">Shift / Ctrl</span>
+                        </div>
+                    </div>
+                    <div class="sse-control-spacer"></div>
                     <h1 data-i18n="help.section.walk">Walk Mode</h1>
-                    <div class="desktopClickToWalk">
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.walk-to">Walk To</span>
-                            <span class="control-key" data-i18n="help.key.left-click">Left Click</span>
+                    <div class="sse-desktopClickToWalk">
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.walk-to">Walk To</span>
+                            <span class="sse-control-key" data-i18n="help.key.left-click">Left Click</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.look-around">Look Around</span>
-                            <span class="control-key" data-i18n="help.key.left-click-drag">Left Click + Drag</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.look-around">Look Around</span>
+                            <span class="sse-control-key" data-i18n="help.key.left-click-drag">Left Click + Drag</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.run-slow">Run / Slow</span>
-                            <span class="control-key" data-i18n="help.key.shift-ctrl">Shift / Ctrl</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.run-slow">Run / Slow</span>
+                            <span class="sse-control-key" data-i18n="help.key.shift-ctrl">Shift / Ctrl</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.fly-to-point">Fly to Point</span>
-                            <span class="control-key" data-i18n="help.key.double-click">Double-click</span>
-                        </div>
-                    </div>
-                    <div class="desktopGamingControls">
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.look-around">Look Around</span>
-                            <span class="control-key" data-i18n="help.key.mouse">Mouse</span>
-                        </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.move">Move</span>
-                            <span class="control-key">W,S,A,D</span>
-                        </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.jump">Jump</span>
-                            <span class="control-key" data-i18n="help.key.space">Space</span>
-                        </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.run-slow">Run / Slow</span>
-                            <span class="control-key" data-i18n="help.key.shift-ctrl">Shift / Ctrl</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.fly-to-point">Fly to Point</span>
+                            <span class="sse-control-key" data-i18n="help.key.double-click">Double-click</span>
                         </div>
                     </div>
-                    <div class="control-spacer"></div>
+                    <div class="sse-desktopGamingControls">
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.look-around">Look Around</span>
+                            <span class="sse-control-key" data-i18n="help.key.mouse">Mouse</span>
+                        </div>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.move">Move</span>
+                            <span class="sse-control-key">W,S,A,D</span>
+                        </div>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.jump">Jump</span>
+                            <span class="sse-control-key" data-i18n="help.key.space">Space</span>
+                        </div>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.run-slow">Run / Slow</span>
+                            <span class="sse-control-key" data-i18n="help.key.shift-ctrl">Shift / Ctrl</span>
+                        </div>
+                    </div>
+                    <div class="sse-control-spacer"></div>
                     <h1 data-i18n="help.section.modes">Mode Switching</h1>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.orbit-mode">Orbit Mode</span>
-                        <span class="control-key">1</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.orbit-mode">Orbit Mode</span>
+                        <span class="sse-control-key">1</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.fly-mode">Fly Mode</span>
-                        <span class="control-key">2</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.fly-mode">Fly Mode</span>
+                        <span class="sse-control-key">2</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.toggle-walk">Toggle Walk</span>
-                        <span class="control-key">3</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.toggle-walk">Toggle Walk</span>
+                        <span class="sse-control-key">3</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.toggle-gaming">Toggle Gaming Controls</span>
-                        <span class="control-key">G</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.toggle-gaming"
+                            >Toggle Gaming Controls</span
+                        >
+                        <span class="sse-control-key">G</span>
                     </div>
-                    <div class="desktopShowCollisionHelp control-item hidden">
-                        <span class="control-action" data-i18n="help.action.show-collision">Show Collision</span>
-                        <span class="control-key">V</span>
+                    <div class="sse-desktopShowCollisionHelp sse-control-item sse-hidden">
+                        <span class="sse-control-action" data-i18n="help.action.show-collision">Show Collision</span>
+                        <span class="sse-control-key">V</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.play-pause">Play / Pause</span>
-                        <span class="control-key" data-i18n="help.key.space">Space</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.play-pause">Play / Pause</span>
+                        <span class="sse-control-key" data-i18n="help.key.space">Space</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.toggle-help">Toggle Help</span>
-                        <span class="control-key">H</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.toggle-help">Toggle Help</span>
+                        <span class="sse-control-key">H</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.exit-cancel">Exit / Cancel</span>
-                        <span class="control-key" data-i18n="help.key.esc">Esc</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.exit-cancel">Exit / Cancel</span>
+                        <span class="sse-control-key" data-i18n="help.key.esc">Esc</span>
                     </div>
                 </div>
-                <div class="touchInfoPanel hidden">
-                    <div class="control-spacer"></div>
+                <div class="sse-touchInfoPanel sse-hidden">
+                    <div class="sse-control-spacer"></div>
                     <h1 data-i18n="help.section.orbit">Orbit Mode</h1>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.orbit">Orbit</span>
-                        <span class="control-key" data-i18n="help.key.one-finger-drag">One Finger Drag</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.orbit">Orbit</span>
+                        <span class="sse-control-key" data-i18n="help.key.one-finger-drag">One Finger Drag</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.pan">Pan</span>
-                        <span class="control-key" data-i18n="help.key.two-finger-drag">Two Finger Drag</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.pan">Pan</span>
+                        <span class="sse-control-key" data-i18n="help.key.two-finger-drag">Two Finger Drag</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.zoom">Zoom</span>
-                        <span class="control-key" data-i18n="help.key.pinch">Pinch</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.zoom">Zoom</span>
+                        <span class="sse-control-key" data-i18n="help.key.pinch">Pinch</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.set-focus">Set Focus</span>
-                        <span class="control-key" data-i18n="help.key.tap">Tap</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.set-focus">Set Focus</span>
+                        <span class="sse-control-key" data-i18n="help.key.tap">Tap</span>
                     </div>
-                    <div class="control-item">
-                        <span class="control-action" data-i18n="help.action.fly-to-point">Fly to Point</span>
-                        <span class="control-key" data-i18n="help.key.double-tap">Double-tap</span>
+                    <div class="sse-control-item">
+                        <span class="sse-control-action" data-i18n="help.action.fly-to-point">Fly to Point</span>
+                        <span class="sse-control-key" data-i18n="help.key.double-tap">Double-tap</span>
                     </div>
-                    <div class="control-spacer"></div>
+                    <div class="sse-control-spacer"></div>
                     <h1 data-i18n="help.section.fly">Fly Mode</h1>
-                    <div class="touchFlyClickToWalk">
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.fly-to">Fly To</span>
-                            <span class="control-key" data-i18n="help.key.tap">Tap</span>
+                    <div class="sse-touchFlyClickToWalk">
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.fly-to">Fly To</span>
+                            <span class="sse-control-key" data-i18n="help.key.tap">Tap</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.look-around">Look Around</span>
-                            <span class="control-key" data-i18n="help.key.touch-drag">Touch + Drag</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.look-around">Look Around</span>
+                            <span class="sse-control-key" data-i18n="help.key.touch-drag">Touch + Drag</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.move">Move</span>
-                            <span class="control-key" data-i18n="help.key.pinch-two-finger"
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.move">Move</span>
+                            <span class="sse-control-key" data-i18n="help.key.pinch-two-finger"
                                 >Pinch / Two Finger Drag</span
                             >
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.focus-point">Focus Point</span>
-                            <span class="control-key" data-i18n="help.key.double-tap">Double-tap</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.focus-point">Focus Point</span>
+                            <span class="sse-control-key" data-i18n="help.key.double-tap">Double-tap</span>
                         </div>
                     </div>
-                    <div class="touchFlyGamingControls hidden">
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.look-around">Look Around</span>
-                            <span class="control-key" data-i18n="help.key.touch-drag">Touch + Drag</span>
+                    <div class="sse-touchFlyGamingControls sse-hidden">
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.look-around">Look Around</span>
+                            <span class="sse-control-key" data-i18n="help.key.touch-drag">Touch + Drag</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.move">Move</span>
-                            <span class="control-key" data-i18n="help.key.joystick">Joystick</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.move">Move</span>
+                            <span class="sse-control-key" data-i18n="help.key.joystick">Joystick</span>
                         </div>
                     </div>
-                    <div class="control-spacer"></div>
+                    <div class="sse-control-spacer"></div>
                     <h1 data-i18n="help.section.walk">Walk Mode</h1>
-                    <div class="touchClickToWalk">
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.walk-to">Walk To</span>
-                            <span class="control-key" data-i18n="help.key.tap">Tap</span>
+                    <div class="sse-touchClickToWalk">
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.walk-to">Walk To</span>
+                            <span class="sse-control-key" data-i18n="help.key.tap">Tap</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.look-around">Look Around</span>
-                            <span class="control-key" data-i18n="help.key.touch-drag">Touch + Drag</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.look-around">Look Around</span>
+                            <span class="sse-control-key" data-i18n="help.key.touch-drag">Touch + Drag</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.fly-to-point">Fly to Point</span>
-                            <span class="control-key" data-i18n="help.key.double-tap">Double-tap</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.fly-to-point">Fly to Point</span>
+                            <span class="sse-control-key" data-i18n="help.key.double-tap">Double-tap</span>
                         </div>
                     </div>
-                    <div class="touchGamingControls hidden">
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.look-around">Look Around</span>
-                            <span class="control-key" data-i18n="help.key.touch-drag">Touch + Drag</span>
+                    <div class="sse-touchGamingControls sse-hidden">
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.look-around">Look Around</span>
+                            <span class="sse-control-key" data-i18n="help.key.touch-drag">Touch + Drag</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.move">Move</span>
-                            <span class="control-key" data-i18n="help.key.joystick">Joystick</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.move">Move</span>
+                            <span class="sse-control-key" data-i18n="help.key.joystick">Joystick</span>
                         </div>
-                        <div class="control-item">
-                            <span class="control-action" data-i18n="help.action.jump">Jump</span>
-                            <span class="control-key" data-i18n="help.key.tap">Tap</span>
+                        <div class="sse-control-item">
+                            <span class="sse-control-action" data-i18n="help.action.jump">Jump</span>
+                            <span class="sse-control-key" data-i18n="help.key.tap">Tap</span>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="tabs">
-                <div class="desktopTab tab active" data-i18n="help.tab.desktop">Desktop</div>
-                <div class="touchTab tab" data-i18n="help.tab.touch">Touch</div>
+            <div class="sse-tabs">
+                <div class="sse-desktopTab sse-tab sse-active" data-i18n="help.tab.desktop">Desktop</div>
+                <div class="sse-touchTab sse-tab" data-i18n="help.tab.touch">Touch</div>
             </div>
         </div>
     </div>
 
     <!-- Touch Joystick -->
-    <div class="joystickBase hidden">
-        <div class="joystick"></div>
+    <div class="sse-joystickBase sse-hidden">
+        <div class="sse-joystick"></div>
     </div>
 
     <!-- Annotation Navigator -->
-    <div class="annotationNav hidden">
-        <button class="annotationPrev">
+    <div class="sse-annotationNav sse-hidden">
+        <button class="sse-annotationPrev">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
-                <g class="stroke"><use href="#chevronLeftIcon" /></g>
-                <g class="fill"><use href="#chevronLeftIcon" /></g>
+                <g class="sse-stroke"><use href="#chevronLeftIcon" /></g>
+                <g class="sse-fill"><use href="#chevronLeftIcon" /></g>
             </svg>
         </button>
-        <div class="annotationInfo">
-            <span class="annotationNavTitle"></span>
+        <div class="sse-annotationInfo">
+            <span class="sse-annotationNavTitle"></span>
         </div>
-        <button class="annotationNext">
+        <button class="sse-annotationNext">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
-                <g class="stroke"><use href="#chevronRightIcon" /></g>
-                <g class="fill"><use href="#chevronRightIcon" /></g>
+                <g class="sse-stroke"><use href="#chevronRightIcon" /></g>
+                <g class="sse-fill"><use href="#chevronRightIcon" /></g>
             </svg>
         </button>
     </div>
 
     <!-- Tooltip -->
-    <div class="tooltip"></div>
+    <div class="sse-tooltip"></div>
 
     <!-- XR WebGL-required modal -->
-    <div class="xrModal hidden" onwheel="event.stopPropagation()">
-        <div class="xrModalContent" onpointerdown="event.stopPropagation()">
+    <div class="sse-xrModal sse-hidden" onwheel="event.stopPropagation()">
+        <div class="sse-xrModalContent" onpointerdown="event.stopPropagation()">
             <h2 data-i18n="xr-modal.title">WebGL Required</h2>
             <p data-i18n="xr-modal.message">
                 AR and VR are not supported on the WebGPU renderer. Pressing OK will reload the viewer with WebGL.
             </p>
-            <div class="xrModalButtons">
-                <button class="xrModalCancel" data-i18n="xr-modal.cancel">Cancel</button>
-                <button class="xrModalOk" data-i18n="xr-modal.ok">OK</button>
+            <div class="sse-xrModalButtons">
+                <button class="sse-xrModalCancel" data-i18n="xr-modal.cancel">Cancel</button>
+                <button class="sse-xrModalOk" data-i18n="xr-modal.ok">OK</button>
             </div>
         </div>
     </div>

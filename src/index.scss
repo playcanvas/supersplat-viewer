@@ -65,31 +65,31 @@ $clr-bkg-light: #444;
         appearance: none;
     }
 
-    .hidden {
+    .sse-hidden {
         display: none !important;
     }
 
-    .spacer {
+    .sse-spacer {
         flex-grow: 1;
     }
 
-    .ui {
+    .sse-ui {
         position: absolute;
         top: 0;
         left: 0;
         width: 100%;
         height: 100%;
         pointer-events: none;
-        // a stacking context of its own, so .annotations at z-index -1 sits behind the rest
+        // a stacking context of its own, so .sse-annotations at z-index -1 sits behind the rest
         // of the ui but still in front of the canvas
         z-index: 0;
     }
 
-    .ui * {
+    .sse-ui * {
         pointer-events: auto;
     }
 
-    .walkHint {
+    .sse-walkHint {
         position: absolute;
         top: max(60px, env(safe-area-inset-top));
         left: 50%;
@@ -106,7 +106,7 @@ $clr-bkg-light: #444;
 
     /* branding link for third-party embeds */
 
-    .viewerBranding {
+    .sse-viewerBranding {
         position: absolute;
         top: max(16px, env(safe-area-inset-top));
         left: max(16px, env(safe-area-inset-left));
@@ -146,7 +146,7 @@ $clr-bkg-light: #444;
 
     /* poster */
 
-    .poster {
+    .sse-poster {
         display: none;
         position: absolute;
         top: 0;
@@ -161,7 +161,7 @@ $clr-bkg-light: #444;
 
     /* loadingWrap */
 
-    .loadingWrap {
+    .sse-loadingWrap {
         position: absolute;
         bottom: 120px;
         left: 50%;
@@ -173,14 +173,14 @@ $clr-bkg-light: #444;
 
         padding: 16px;
 
-        > .loadingText {
+        > .sse-loadingText {
             font-size: 18px;
             color: $clr-text-light;
             text-align: center;
             text-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
         }
 
-        > .loadingBar {
+        > .sse-loadingBar {
             width: 100%;
             height: 10px;
             margin-top: 8px;
@@ -191,7 +191,7 @@ $clr-bkg-light: #444;
 
     /* controlsWrap */
 
-    .controlsWrap {
+    .sse-controlsWrap {
         position: absolute;
         left: max(16px, env(safe-area-inset-left));
         right: max(16px, env(safe-area-inset-right));
@@ -200,13 +200,13 @@ $clr-bkg-light: #444;
         display: flex;
         flex-direction: column;
 
-        &.faded-in {
+        &.sse-faded-in {
             visibility: visible;
             opacity: 1;
             transition: opacity 0.5s ease-out;
         }
 
-        &.faded-out {
+        &.sse-faded-out {
             visibility: hidden;
             opacity: 0;
             transition:
@@ -214,17 +214,17 @@ $clr-bkg-light: #444;
                 opacity 0.5s ease-out;
         }
 
-        > .timelineContainer {
+        > .sse-timelineContainer {
             height: 30px;
             cursor: pointer;
 
-            > .line {
+            > .sse-line {
                 width: 100%;
                 height: 50%;
                 border-bottom: 4px solid #d9d9d9;
             }
 
-            > .handle {
+            > .sse-handle {
                 position: absolute;
                 top: 16.5px;
                 width: 12px;
@@ -235,7 +235,7 @@ $clr-bkg-light: #444;
                 background-color: $clr-grip;
             }
 
-            > .time {
+            > .sse-time {
                 position: absolute;
                 top: 0;
                 padding: 2px 4px;
@@ -248,23 +248,23 @@ $clr-bkg-light: #444;
             }
         }
 
-        > .buttonsContainer {
+        > .sse-buttonsContainer {
             display: flex;
             gap: 8px;
 
-            .buttonGroup {
+            .sse-buttonGroup {
                 display: flex;
                 background-color: rgba(black, 0.3);
                 border-radius: 6px;
 
-                &:not(:has(> :not(.hidden))) {
+                &:not(:has(> :not(.sse-hidden))) {
                     display: none;
                 }
             }
 
             /* controlButton */
 
-            .controlButton {
+            .sse-controlButton {
                 width: 34px;
                 height: 34px;
                 padding: 0;
@@ -285,7 +285,7 @@ $clr-bkg-light: #444;
                     margin: auto;
 
                     > g {
-                        &.stroke {
+                        &.sse-stroke {
                             fill: none;
                             stroke: black;
                             stroke-width: 2;
@@ -293,7 +293,7 @@ $clr-bkg-light: #444;
                             opacity: 0.4;
                         }
 
-                        &.fill {
+                        &.sse-fill {
                             fill: currentColor;
                             stroke: none;
                         }
@@ -301,12 +301,12 @@ $clr-bkg-light: #444;
                 }
 
                 /* active highlight for simple toggle buttons (e.g. voxel overlay) */
-                &.active:not(.toggle) {
+                &.sse-active:not(.sse-toggle) {
                     color: $clr-accent;
                 }
 
                 /* camera toggle styling */
-                &.toggle {
+                &.sse-toggle {
                     background: linear-gradient(
                         90deg,
                         transparent 0%,
@@ -319,26 +319,26 @@ $clr-bkg-light: #444;
                     background-repeat: no-repeat;
                     transition: background-position 0.1s ease-in-out;
 
-                    &.left {
+                    &.sse-left {
                         border-radius: 4px 0px 0px 4px;
 
-                        &:not(.active) {
+                        &:not(.sse-active) {
                             background-position: 0% 0%;
                         }
                     }
 
-                    &.middle {
+                    &.sse-middle {
                         border-radius: 0;
 
-                        &:not(.active) {
+                        &:not(.sse-active) {
                             background-position: 0% 0%;
                         }
                     }
 
-                    &.right {
+                    &.sse-right {
                         border-radius: 0px 4px 4px 0px;
 
-                        &:not(.active) {
+                        &:not(.sse-active) {
                             background-position: 200% 0%;
                         }
                     }
@@ -349,7 +349,7 @@ $clr-bkg-light: #444;
 
     /* settingsPanel */
 
-    .settingsPanel {
+    .sse-settingsPanel {
         position: absolute;
         right: max(16px, env(safe-area-inset-right));
         bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
@@ -369,7 +369,7 @@ $clr-bkg-light: #444;
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
 
-        > .settingsRow {
+        > .sse-settingsRow {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -406,10 +406,10 @@ $clr-bkg-light: #444;
 
                 color: $clr-text-dark;
 
-                &.toggleSwitch {
+                &.sse-toggleSwitch {
                     padding: 0 4px;
 
-                    .toggleTrack {
+                    .sse-toggleTrack {
                         width: 36px;
                         height: 20px;
                         border-radius: 10px;
@@ -417,7 +417,7 @@ $clr-bkg-light: #444;
                         position: relative;
                         transition: background-color 200ms ease;
 
-                        .toggleThumb {
+                        .sse-toggleThumb {
                             width: 16px;
                             height: 16px;
                             border-radius: 50%;
@@ -431,10 +431,10 @@ $clr-bkg-light: #444;
                         }
                     }
 
-                    &.active .toggleTrack {
+                    &.sse-active .sse-toggleTrack {
                         background-color: rgba($clr-accent, 0.35);
 
-                        .toggleThumb {
+                        .sse-toggleThumb {
                             transform: translateX(16px);
                             background-color: $clr-accent;
                         }
@@ -447,7 +447,7 @@ $clr-bkg-light: #444;
             }
         }
 
-        > .divider {
+        > .sse-divider {
             width: 100%;
             height: 1px;
             margin: 8px 0;
@@ -458,7 +458,7 @@ $clr-bkg-light: #444;
 
     /* infoPanel */
 
-    .infoPanel {
+    .sse-infoPanel {
         position: absolute;
         top: 0;
         left: 0;
@@ -467,7 +467,7 @@ $clr-bkg-light: #444;
         background-color: rgba(black, 0.4);
         backdrop-filter: blur(2px);
 
-        > .infoPanelContent {
+        > .sse-infoPanelContent {
             position: absolute;
             top: 50%;
             left: 50%;
@@ -485,7 +485,7 @@ $clr-bkg-light: #444;
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
 
-            > .viewerTitle {
+            > .sse-viewerTitle {
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -504,7 +504,7 @@ $clr-bkg-light: #444;
                     flex-shrink: 0;
 
                     > g {
-                        &.stroke {
+                        &.sse-stroke {
                             fill: black;
                             stroke: black;
                             stroke-width: 2;
@@ -512,19 +512,19 @@ $clr-bkg-light: #444;
                             opacity: 0.4;
                         }
 
-                        &.fill {
+                        &.sse-fill {
                             fill: $clr-accent;
                             stroke: none;
                         }
                     }
                 }
 
-                > .title-name {
+                > .sse-title-name {
                     font-size: 14px;
                     font-weight: bold;
                 }
 
-                > .title-version {
+                > .sse-title-version {
                     font-size: 12px;
                     font-weight: normal;
                     color: $clr-text-dark;
@@ -541,7 +541,7 @@ $clr-bkg-light: #444;
                 }
             }
 
-            > .infoPanels {
+            > .sse-infoPanels {
                 padding: 16px;
                 flex: 1 1 auto;
                 min-height: 0;
@@ -569,7 +569,7 @@ $clr-bkg-light: #444;
                     color: $clr-accent;
                 }
 
-                .control-item {
+                .sse-control-item {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
@@ -579,11 +579,11 @@ $clr-bkg-light: #444;
                     border-radius: 6px;
                     font-size: 13px;
 
-                    > .control-action {
+                    > .sse-control-action {
                         text-align: left;
                     }
 
-                    > .control-key {
+                    > .sse-control-key {
                         text-align: right;
                         color: $clr-text-dark;
                         font-size: 12px;
@@ -594,12 +594,12 @@ $clr-bkg-light: #444;
                     }
                 }
 
-                .control-spacer {
+                .sse-control-spacer {
                     margin: 14px 0;
                 }
             }
 
-            > .tabs {
+            > .sse-tabs {
                 display: flex;
                 gap: 24px;
                 padding: 8px 16px;
@@ -607,7 +607,7 @@ $clr-bkg-light: #444;
                 flex-shrink: 0;
                 border-top: 1px solid rgba(white, 0.06);
 
-                > .tab {
+                > .sse-tab {
                     padding: 8px 4px;
                     border-bottom: 2px solid transparent;
                     cursor: pointer;
@@ -619,11 +619,11 @@ $clr-bkg-light: #444;
                         border-color 150ms ease;
                 }
 
-                > .tab:hover {
+                > .sse-tab:hover {
                     color: $clr-text-light;
                 }
 
-                > .tab.active {
+                > .sse-tab.sse-active {
                     color: $clr-text-light;
                     border-bottom-color: $clr-accent;
                 }
@@ -631,7 +631,7 @@ $clr-bkg-light: #444;
         }
     }
 
-    .joystickBase {
+    .sse-joystickBase {
         // centred 70px from the left and 140px from the bottom of the instance
         position: absolute;
         left: 70px;
@@ -651,7 +651,7 @@ $clr-bkg-light: #444;
             height 0.2s ease,
             border-radius 0.2s ease;
 
-        > .joystick {
+        > .sse-joystick {
             position: absolute;
             left: 8px; // (56 - 40) / 2 = 8px to center horizontally
             width: 40px;
@@ -666,14 +666,14 @@ $clr-bkg-light: #444;
         }
 
         // 2D mode: square joystick with full directional movement
-        &.mode-2d {
+        &.sse-mode-2d {
             width: 100px;
             height: 100px;
             border-radius: 50px;
             background: radial-gradient(circle, #0000 40%, #0004 100%);
             background-color: #0003;
 
-            > .joystick {
+            > .sse-joystick {
                 left: 30px; // (100 - 40) / 2 = 30px to center horizontally
             }
         }
@@ -681,7 +681,7 @@ $clr-bkg-light: #444;
 
     /* xr WebGL-required modal */
 
-    .xrModal {
+    .sse-xrModal {
         position: absolute;
         top: 0;
         left: 0;
@@ -693,7 +693,7 @@ $clr-bkg-light: #444;
         align-items: center;
         justify-content: center;
 
-        > .xrModalContent {
+        > .sse-xrModalContent {
             width: min(360px, calc(100% - 32px));
             padding: 20px;
             border-radius: 16px;
@@ -718,7 +718,7 @@ $clr-bkg-light: #444;
                 margin-bottom: 16px;
             }
 
-            > .xrModalButtons {
+            > .sse-xrModalButtons {
                 display: flex;
                 justify-content: flex-end;
                 gap: 8px;
@@ -741,7 +741,7 @@ $clr-bkg-light: #444;
                         background-color: rgba(white, 0.1);
                     }
 
-                    &.xrModalOk {
+                    &.sse-xrModalOk {
                         color: $clr-text-light;
                         background-color: rgba($clr-accent, 0.7);
                         border-color: rgba($clr-accent, 0.8);
@@ -755,7 +755,7 @@ $clr-bkg-light: #444;
         }
     }
 
-    .tooltip {
+    .sse-tooltip {
         display: none;
         position: absolute;
         border-radius: 4px;
@@ -766,7 +766,7 @@ $clr-bkg-light: #444;
         background-color: $clr-bkg-dark;
     }
 
-    .annotations {
+    .sse-annotations {
         position: absolute;
         top: 0;
         left: 0;
@@ -776,22 +776,22 @@ $clr-bkg-light: #444;
         z-index: -1;
     }
 
-    .annotations * {
+    .sse-annotations * {
         pointer-events: auto;
     }
 
     /* annotationNav */
 
-    .annotationNav {
+    .sse-annotationNav {
         pointer-events: none;
 
-        &.faded-in {
+        &.sse-faded-in {
             visibility: visible;
             opacity: 1;
             transition: opacity 0.5s ease-out;
         }
 
-        &.faded-out {
+        &.sse-faded-out {
             visibility: hidden;
             opacity: 0;
             transition:
@@ -822,7 +822,7 @@ $clr-bkg-light: #444;
                 display: block;
 
                 > g {
-                    &.stroke {
+                    &.sse-stroke {
                         fill: none;
                         stroke: black;
                         stroke-width: 3;
@@ -831,7 +831,7 @@ $clr-bkg-light: #444;
                         opacity: 0.4;
                     }
 
-                    &.fill {
+                    &.sse-fill {
                         fill: none;
                         stroke: currentColor;
                         stroke-width: 2;
@@ -843,7 +843,7 @@ $clr-bkg-light: #444;
         }
 
         // Desktop mode: horizontal bar at top center
-        &.desktop {
+        &.sse-desktop {
             position: absolute;
             top: max(16px, env(safe-area-inset-top));
             left: 50%;
@@ -867,7 +867,7 @@ $clr-bkg-light: #444;
                 }
             }
 
-            > .annotationInfo {
+            > .sse-annotationInfo {
                 pointer-events: none;
                 display: flex;
                 align-items: center;
@@ -876,7 +876,7 @@ $clr-bkg-light: #444;
                 white-space: nowrap;
                 width: 240px;
 
-                > .annotationNavTitle {
+                > .sse-annotationNavTitle {
                     font-size: 14px;
                     color: $clr-text-light;
                     overflow: hidden;
@@ -886,14 +886,14 @@ $clr-bkg-light: #444;
         }
 
         // Touch mode: buttons at left/right screen edges
-        &.touch {
+        &.sse-touch {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
 
-            > .annotationInfo {
+            > .sse-annotationInfo {
                 display: none;
             }
 
@@ -910,12 +910,12 @@ $clr-bkg-light: #444;
                 }
             }
 
-            > .annotationPrev {
+            > .sse-annotationPrev {
                 left: max(0px, env(safe-area-inset-left));
                 border-radius: 0 6px 6px 0;
             }
 
-            > .annotationNext {
+            > .sse-annotationNext {
                 right: max(0px, env(safe-area-inset-right));
                 border-radius: 6px 0 0 6px;
             }

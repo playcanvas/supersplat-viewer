@@ -11,10 +11,10 @@ import type { CameraStateSnapshot } from './camera-state';
 // lazily on first show so there's no footprint on production URLs.
 
 const STYLE_ID = 'sse-debug-panel-style';
-const PANEL_ID = 'sse-debug-panel';
+const PANEL_CLASS = 'sse-debug-panel';
 
 const STYLES = `
-#${PANEL_ID} {
+.${PANEL_CLASS} {
     position: absolute;
     top: max(8px, env(safe-area-inset-top));
     left: max(8px, env(safe-area-inset-left));
@@ -29,16 +29,16 @@ const STYLES = `
     user-select: none;
     min-width: 220px;
 }
-#${PANEL_ID} .row {
+.${PANEL_CLASS} .sse-debug-row {
     display: flex;
     justify-content: space-between;
     gap: 12px;
     white-space: nowrap;
 }
-#${PANEL_ID} .row .label {
+.${PANEL_CLASS} .sse-debug-row .sse-debug-label {
     color: #888;
 }
-#${PANEL_ID} .row .value {
+.${PANEL_CLASS} .sse-debug-row .sse-debug-value {
     color: #eee;
     font-variant-numeric: tabular-nums;
     cursor: text;
@@ -48,25 +48,25 @@ const STYLES = `
     transition: background-color 0.15s ease;
     outline: none;
 }
-#${PANEL_ID} .row .value:hover {
+.${PANEL_CLASS} .sse-debug-row .sse-debug-value:hover {
     background: rgba(255, 255, 255, 0.08);
 }
-#${PANEL_ID} .row .value:focus {
+.${PANEL_CLASS} .sse-debug-row .sse-debug-value:focus {
     background: rgba(255, 255, 255, 0.12);
     box-shadow: inset 0 0 0 1px rgba(120, 180, 255, 0.45);
 }
-#${PANEL_ID} .row .value.flash-ok {
+.${PANEL_CLASS} .sse-debug-row .sse-debug-value.sse-flash-ok {
     background: rgba(120, 220, 140, 0.35);
 }
-#${PANEL_ID} .row .value.flash-bad {
+.${PANEL_CLASS} .sse-debug-row .sse-debug-value.sse-flash-bad {
     background: rgba(220, 100, 100, 0.45);
 }
-#${PANEL_ID} .buttons {
+.${PANEL_CLASS} .sse-debug-buttons {
     display: flex;
     gap: 6px;
     margin-top: 6px;
 }
-#${PANEL_ID} button {
+.${PANEL_CLASS} button {
     flex: 1;
     background: rgba(255, 255, 255, 0.08);
     color: #eee;
@@ -77,10 +77,10 @@ const STYLES = `
     cursor: pointer;
     transition: background-color 0.15s ease;
 }
-#${PANEL_ID} button:hover {
+.${PANEL_CLASS} button:hover {
     background: rgba(255, 255, 255, 0.16);
 }
-#${PANEL_ID} button.flash {
+.${PANEL_CLASS} button.sse-flash {
     background: rgba(120, 220, 140, 0.35);
 }
 `;
@@ -202,15 +202,15 @@ class DebugPanel {
         }
 
         const root = document.createElement('div');
-        root.id = PANEL_ID;
+        root.className = PANEL_CLASS;
         root.innerHTML = `
-            <div class="row"><span class="label">camera</span><span class="value" data-id="position" contenteditable="plaintext-only" spellcheck="false" title="Edit to set camera position">—</span></div>
-            <div class="row"><span class="label">focus</span><span class="value" data-id="focus" contenteditable="plaintext-only" spellcheck="false" title="Edit to look at this point">—</span></div>
-            <div class="buttons">
+            <div class="sse-debug-row"><span class="sse-debug-label">camera</span><span class="sse-debug-value" data-id="position" contenteditable="plaintext-only" spellcheck="false" title="Edit to set camera position">—</span></div>
+            <div class="sse-debug-row"><span class="sse-debug-label">focus</span><span class="sse-debug-value" data-id="focus" contenteditable="plaintext-only" spellcheck="false" title="Edit to look at this point">—</span></div>
+            <div class="sse-debug-buttons">
                 <button data-id="copy">Copy</button>
                 <button data-id="paste">Paste</button>
             </div>
-            <div class="buttons">
+            <div class="sse-debug-buttons">
                 <button data-id="screenshot">Screenshot</button>
             </div>
         `;
@@ -370,18 +370,18 @@ class DebugPanel {
 
     private _flash(el: HTMLElement | null) {
         if (!el) return;
-        el.classList.add('flash');
-        setTimeout(() => el.classList.remove('flash'), 250);
+        el.classList.add('sse-flash');
+        setTimeout(() => el.classList.remove('sse-flash'), 250);
     }
 
     private _flashOk(el: HTMLElement) {
-        el.classList.add('flash-ok');
-        setTimeout(() => el.classList.remove('flash-ok'), 250);
+        el.classList.add('sse-flash-ok');
+        setTimeout(() => el.classList.remove('sse-flash-ok'), 250);
     }
 
     private _flashBad(el: HTMLElement) {
-        el.classList.add('flash-bad');
-        setTimeout(() => el.classList.remove('flash-bad'), 400);
+        el.classList.add('sse-flash-bad');
+        setTimeout(() => el.classList.remove('sse-flash-bad'), 400);
     }
 }
 

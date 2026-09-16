@@ -176,7 +176,7 @@
                         })
                     );
                     log(
-                        `hotspots per instance: ${hostEls.map((h) => h.querySelectorAll('.pc-annotation-hotspot').length).join(', ')}`
+                        `hotspots per instance: ${hostEls.map((h) => h.querySelectorAll('.sse-annotation-hotspot').length).join(', ')}`
                     );
                     check('distinct apps', new Set(viewers.map((v) => v.global.app)).size === instances);
                     check(
@@ -193,8 +193,8 @@
                     );
                     check(
                         'ui follows its own instance',
-                        hostEls[0].querySelector('.flyCamera').classList.contains('active') &&
-                            !hostEls[1].querySelector('.flyCamera').classList.contains('active')
+                        hostEls[0].querySelector('.sse-flyCamera').classList.contains('sse-active') &&
+                            !hostEls[1].querySelector('.sse-flyCamera').classList.contains('sse-active')
                     );
 
                     // the first goes away, the second must keep rendering
@@ -208,7 +208,7 @@
                         timeout(5000, false)
                     ]);
                     check('second still renders after the first is destroyed', rendered);
-                    check('second still has its ui', hostEls[1].querySelectorAll('.ui').length === 1);
+                    check('second still has its ui', hostEls[1].querySelectorAll('.sse-ui').length === 1);
 
                     for (let i = 1; i < instances; i++) {
                         viewers[i].destroy();

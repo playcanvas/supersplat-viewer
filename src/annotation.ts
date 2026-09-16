@@ -107,7 +107,7 @@ export class Annotation extends Script {
      */
     static _createStyleSheet(size: number) {
         const css = `
-            .pc-annotation {
+            .sse-annotation {
                 display: block;
                 position: absolute;
                 background-color: rgba(0, 0, 0, 0.8);
@@ -127,14 +127,14 @@ export class Annotation extends Script {
                 visibility: hidden;
             }
 
-            .pc-annotation-title {
+            .sse-annotation-title {
                 font-weight: bold;
                 margin-bottom: 4px;
             }
 
             /* Tooltip arrow */
-            .pc-annotation.arrow-right::before,
-            .pc-annotation.arrow-left::before {
+            .sse-annotation.sse-arrow-right::before,
+            .sse-annotation.sse-arrow-left::before {
                 content: "";
                 position: absolute;
                 top: var(--arrow-top, 50%);
@@ -143,17 +143,17 @@ export class Annotation extends Script {
                 border-bottom: 8px solid transparent;
             }
 
-            .pc-annotation.arrow-right::before {
+            .sse-annotation.sse-arrow-right::before {
                 left: -8px;
                 border-right: 8px solid rgba(0, 0, 0, 0.8);
             }
 
-            .pc-annotation.arrow-left::before {
+            .sse-annotation.sse-arrow-left::before {
                 right: -8px;
                 border-left: 8px solid rgba(0, 0, 0, 0.8);
             }
 
-            .pc-annotation-hotspot {
+            .sse-annotation-hotspot {
                 display: none;
                 position: absolute;
                 width: ${size + 5}px;
@@ -341,7 +341,7 @@ export class Annotation extends Script {
 
         // Create hotspot dom
         this.hotspotDom = document.createElement('div');
-        this.hotspotDom.className = 'pc-annotation-hotspot';
+        this.hotspotDom.className = 'sse-annotation-hotspot';
 
         // Add click handlers
         this.hotspotDom.addEventListener('click', (e) => {
@@ -541,8 +541,8 @@ export class Annotation extends Script {
             const arrowY = Math.max(16, Math.min(screenPos.y - top, th - 16));
             tooltip.style.setProperty('--arrow-top', `${arrowY}px`);
 
-            tooltip.classList.toggle('arrow-right', !flipped);
-            tooltip.classList.toggle('arrow-left', flipped);
+            tooltip.classList.toggle('sse-arrow-right', !flipped);
+            tooltip.classList.toggle('sse-arrow-left', flipped);
             tooltip.style.transform = 'none';
             tooltip.style.left = `${left}px`;
             tooltip.style.top = `${top}px`;
@@ -660,14 +660,14 @@ class AnnotationContext {
 
         // Initialize tooltip dom
         this.tooltipDom = document.createElement('div');
-        this.tooltipDom.className = 'pc-annotation';
+        this.tooltipDom.className = 'sse-annotation';
 
         this.titleDom = document.createElement('div');
-        this.titleDom.className = 'pc-annotation-title';
+        this.titleDom.className = 'sse-annotation-title';
         this.tooltipDom.appendChild(this.titleDom);
 
         this.textDom = document.createElement('div');
-        this.textDom.className = 'pc-annotation-text';
+        this.textDom.className = 'sse-annotation-text';
         this.tooltipDom.appendChild(this.textDom);
 
         parentDom.appendChild(this.tooltipDom);
