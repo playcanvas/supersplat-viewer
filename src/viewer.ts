@@ -200,15 +200,19 @@ class Viewer {
     // interleave the redirect/restore and could leave it mis-targeted
     private captureQueue: Promise<unknown> = Promise.resolve();
 
-    // resolves once the first complete frame has rendered
+    // Resolves once the first complete frame has rendered, and rejects if the viewer is
+    // destroyed before that — the frame event it waits on is gone by then, so a capture
+    // waiting here would never settle. One shared promise, so its waiters are released when it
+    // settles either way.
     private ready: Promise<void>;
 
-    // rejects when the viewer is destroyed. A capture waits on engine events — the first frame,
-    // then a frame callback — and destroy removes every handler, so without this the wait (and
-    // the promise handed to the caller) would never settle
-    private aborted: Promise<never>;
+    private failReady!: (reason: Error) => void;
 
-    private abort!: (reason: Error) => void;
+    // Abort signals for the captures in flight. A capture's later waits are inside the engine,
+    // so they are raced against one of these rather than handled individually — and each is
+    // removed as its capture settles, since a signal that outlived it would keep the race, and
+    // with it the captured image, reachable until the viewer went away.
+    private abortHandlers = new Set<(reason: Error) => void>();
 
     origChunks: {
         glsl: {
@@ -232,12 +236,12 @@ class Viewer {
         const { app, settings, config, events, state, camera, renderer } = global;
         const { graphicsDevice } = app;
 
-        this.ready = new Promise((resolve) => events.once('firstFrame', () => resolve()));
-        this.aborted = new Promise((_resolve, reject) => {
-            this.abort = reject;
+        this.ready = new Promise((resolve, reject) => {
+            events.once('firstFrame', () => resolve());
+            this.failReady = reject;
         });
         // destroying a viewer that never captured anything must not report an unhandled rejection
-        this.aborted.catch(() => {
+        this.ready.catch(() => {
             // intentionally ignored
         });
 
@@ -598,13 +602,6 @@ class Viewer {
     }
 
     /**
-     * Register cleanup to run from {@link destroy}, for things the caller set up around the
-     * viewer (the canvas resize observer, document-level listeners). Runs immediately if the
-     * viewer is already destroyed.
-     *
-     * @param fn - Cleanup to run.
-     */
-    /**
      * Render the scene, with post effects, into an offscreen supersampled target, GPU
      * box-downsample it to the requested size and return just that small buffer. Waits for
      * the first frame. The capture target is created lazily on first use — no flag and no
@@ -612,7 +609,7 @@ class Viewer {
      */
     captureFrame({ time, width = 480, height = width, supersample }: CaptureOptions = {}): Promise<CaptureResult> {
         const run = async () => {
-            await Promise.race([this.ready, this.aborted]);
+            await this.ready;
             if (this.destroyed) {
                 throw new Error('captureFrame: the viewer has been destroyed');
             }
@@ -632,12 +629,7 @@ class Viewer {
                     }
                 }
             });
-            // a destroy mid-capture settles the race first, which would leave the grab's own
-            // failure — the torn-down device — unhandled
-            grab.catch(() => {
-                // intentionally ignored
-            });
-            return Promise.race([grab, this.aborted]);
+            return this.untilDestroyed(grab);
         };
         const result = this.captureQueue.then(run, run);
         this.captureQueue = result.then(
@@ -651,6 +643,30 @@ class Viewer {
         return result;
     }
 
+    /**
+     * Settle `work` when the viewer is destroyed, whatever it is waiting on. Racing rather than
+     * cancelling, because the waits are the engine's; `work` runs on to completion unobserved,
+     * and the race counts as its handler, so a late failure is not reported as unhandled.
+     */
+    private untilDestroyed<T>(work: Promise<T>): Promise<T> {
+        let onAbort!: (reason: Error) => void;
+        const aborted = new Promise<never>((_resolve, reject) => {
+            onAbort = reject;
+        });
+        this.abortHandlers.add(onAbort);
+        return Promise.race([work, aborted]).finally(() => {
+            // releases the signal, and with it this race and its result
+            this.abortHandlers.delete(onAbort);
+        });
+    }
+
+    /**
+     * Register cleanup to run from {@link destroy}, for things the caller set up around the
+     * viewer (the canvas resize observer, document-level listeners). Runs immediately if the
+     * viewer is already destroyed.
+     *
+     * @param fn - Cleanup to run.
+     */
     onDestroy(fn: () => void) {
         if (this.destroyed) {
             fn();
@@ -672,7 +688,12 @@ class Viewer {
         this.destroyed = true;
 
         // settle anything waiting on an engine event, before the handlers go
-        this.abort(new Error('captureFrame: the viewer has been destroyed'));
+        const gone = () => new Error('captureFrame: the viewer has been destroyed');
+        this.failReady(gone());
+        for (const onAbort of this.abortHandlers) {
+            onAbort(gone());
+        }
+        this.abortHandlers.clear();
 
         const { app } = this.global;
 

@@ -255,6 +255,13 @@
                     );
                     viewers[0].state.inputEnabled = true;
 
+                    // a capture still waiting on a frame when its viewer goes away must settle
+                    // rather than hang on an event that is never going to arrive
+                    const midCapture = viewers[0].captureFrame({ width: 64 }).then(
+                        () => 'resolved',
+                        () => 'rejected'
+                    );
+
                     // the first goes away, the second must keep rendering
                     viewers[0].destroy();
                     check('first subtree removed', hostEls[0].childElementCount === 0);
@@ -267,6 +274,9 @@
                     ]);
                     check('second still renders after the first is destroyed', rendered);
                     check('second still has its ui', hostEls[1].querySelectorAll('.sse-ui').length === 1);
+
+                    const midResult = await Promise.race([midCapture, timeout(5000, 'hung')]);
+                    check(`a capture in flight at destroy settles (${midResult})`, midResult !== 'hung');
 
                     for (let i = 1; i < instances; i++) {
                         viewers[i].destroy();

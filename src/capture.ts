@@ -113,6 +113,8 @@ class Capture {
 
     private dstRT: RenderTarget | null = null;
 
+    private destroyed = false;
+
     constructor(app: AppBase, camera: CameraComponent, getCameraFrame: () => CaptureFrame | null) {
         this.app = app;
         this.device = app.graphicsDevice;
@@ -154,6 +156,7 @@ class Capture {
 
     /** Release the render targets and shader. The instance is unusable afterwards. */
     destroy() {
+        this.destroyed = true;
         for (const target of ['srcRT', 'dstRT'] as const) {
             this[target]?.colorBuffer.destroy();
             this[target]?.destroy();
@@ -248,11 +251,16 @@ class Capture {
             }
             return { width: outW, height: outH, data: btoa(chunks.join('')) };
         } finally {
-            camera.aspectRatioMode = saved.aspectRatioMode;
-            camera.aspectRatio = saved.aspectRatio;
-            camera.horizontalFov = saved.horizontalFov;
-            this.setCameraTarget(saved.renderTarget);
-            this.app.renderNextFrame = true;
+            // A capture still in flight when the viewer is torn down resumes here with the
+            // camera, and the app behind it, already destroyed. There is nothing left to put
+            // back, and writing to either would reach into released engine state.
+            if (!this.destroyed) {
+                camera.aspectRatioMode = saved.aspectRatioMode;
+                camera.aspectRatio = saved.aspectRatio;
+                camera.horizontalFov = saved.horizontalFov;
+                this.setCameraTarget(saved.renderTarget);
+                this.app.renderNextFrame = true;
+            }
         }
     }
 }
