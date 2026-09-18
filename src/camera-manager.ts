@@ -51,6 +51,8 @@ class CameraManager {
 
     seek: (time: number) => void;
 
+    selectAnnotation: (annotation: Annotation) => void;
+
     // Re-seed the active controller from the current camera pose and
     // cancel any in-progress transition lerp. Use after externally
     // mutating `camera` and/or `state.cameraMode` to make the change
@@ -318,7 +320,7 @@ class CameraManager {
             clearOrbitTargetOnTransitionEnd = true;
         });
 
-        events.on('annotation.activate', (annotation: Annotation) => {
+        this.selectAnnotation = (annotation: Annotation) => {
             events.fire('orbitTarget:clear');
 
             // switch to orbit camera on pick
@@ -332,7 +334,7 @@ class CameraManager {
 
             controllers.orbit.goto(tmpCamera);
             startTransition();
-        });
+        };
 
         // tap-to-navigate: start auto-driving the active mode toward a picked position
         events.on('navigateTo', (position: Vec3, normal: Vec3, speedMul = 1) => {

@@ -80,6 +80,12 @@ describe('the /viewer entry', () => {
         assert.match(types, /\/\*\*\s*\* Seek the animation in seconds[\s\S]*?\*\/\s*seek\(time: number\): void;/);
         assert.match(types, /\/\*\*\s*\* Reset the active camera[\s\S]*?\*\/\s*resetCamera\(\): void;/);
         assert.match(types, /\/\*\*\s*\* Enter walk mode[\s\S]*?\*\/\s*toggleWalk\(\): void;/);
+        assert.match(types, /readonly annotations: readonly Readonly<Annotation>\[\];/);
+        assert.match(types, /selectedAnnotation: number \| null;/);
+        assert.match(
+            types,
+            /\/\*\*\s*\* Select an annotation[\s\S]*?\*\/\s*selectAnnotation\(index: number \| null\): void;/
+        );
     });
 
     it('scopes every stylesheet rule to the instance root', () => {

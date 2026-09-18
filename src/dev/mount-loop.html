@@ -53,6 +53,16 @@
                 color: #222;
                 font: 13px sans-serif;
             }
+            #annotation-controls {
+                position: fixed;
+                bottom: 56px;
+                left: 8px;
+                z-index: 1000;
+                padding: 8px;
+                background: #fff;
+                color: #222;
+                font: 13px sans-serif;
+            }
         </style>
     </head>
     <body>
@@ -78,11 +88,20 @@
             legacy scrub settles and its frame listener is removed.
 
             Add &collision=<url> with a scene at least 5m across to exercise walk mode.
+            Annotation mode supplies two annotations and host selection controls. &annotations=N
+            overrides the count in any mode, including teardown and two-instance checks.
 
-            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera  ?instances=2  ?webgl  ?content=  ?settings=
+            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations  ?instances=2  ?webgl  ?content=  ?settings=
         -->
         <div id="hosts"></div>
         <pre id="harness"></pre>
+        <div id="annotation-controls" hidden>
+            <span id="annotation-buttons"></span>
+            <button id="clear-annotation">Clear selection</button>
+            <button id="hide-annotations">Toggle annotations</button>
+            <button id="destroy-annotations">Destroy annotations</button>
+            <div id="annotation-state"></div>
+        </div>
         <div id="playback" hidden>
             <button id="host-play">Host play</button>
             <button id="host-pause">Host pause</button>
@@ -126,17 +145,29 @@
             window.addEventListener('unhandledrejection', (event) => {
                 unhandled.push(event.reason?.message ?? String(event.reason));
             });
+            window.addEventListener('error', (event) => {
+                unhandled.push(event.message);
+            });
             const reportUnhandled = () => {
                 // a rejection is reported a task after it happens, so let the queue drain first
                 return timeout(50).then(() => {
                     if (unhandled.length) {
-                        log(`FAIL ${unhandled.length} unhandled rejection(s): ${unhandled.join(' | ')}`, true);
+                        log(`FAIL ${unhandled.length} unhandled error(s): ${unhandled.join(' | ')}`, true);
                     }
                     return unhandled.length;
                 });
             };
 
             const settings = await (await fetch(settingsUrl)).json();
+            if (mode === 'annotations' || url.searchParams.has('annotations')) {
+                const count = Number(url.searchParams.get('annotations') ?? 2);
+                settings.annotations = Array.from({ length: count }, (_, i) => ({
+                    position: [i * 0.6 - 0.3, 0, 0],
+                    title: `Annotation ${i + 1}`,
+                    text: `Details for annotation ${i + 1}`,
+                    camera: { initial: { position: [1.5 - i * 3, 1, 1.5], target: [0, 0, 0], fov: 85 } }
+                }));
+            }
             const loopMode = url.searchParams.get('loop');
             if (loopMode) {
                 settings.startMode = 'animTrack';
@@ -223,7 +254,115 @@
                 return unhandled.length === before;
             };
 
-            if (mode === 'playback' || mode === 'camera') {
+            if (mode === 'annotations') {
+                const host = addHost();
+                const viewer = await createViewer({ container: host, settings, ...createOptions() });
+                const { state, events, annotations } = viewer;
+                const check = (name, ok) => log(`${ok ? 'ok  ' : 'FAIL'} ${name}`, !ok);
+                const rejectsSelection = (index) => {
+                    try {
+                        viewer.selectAnnotation(index);
+                        return false;
+                    } catch {
+                        return true;
+                    }
+                };
+                check('annotation data is available before load', annotations.length === settings.annotations.length);
+                check('initial selection is null', state.selectedAnnotation === null);
+                check('selection before load throws', !state.loaded && rejectsSelection(null));
+                check('loaded', await until(() => state.loaded, 120000));
+                state.gamingControls = false;
+                state.showAnnotations = true;
+                const changes = [];
+                events.on('selectedAnnotation:changed', (value, previous) => changes.push([value, previous]));
+                check(
+                    'invalid indices throw without selecting',
+                    [-1, 0.5, NaN, Infinity, annotations.length].every(rejectsSelection) &&
+                        state.selectedAnnotation === null &&
+                        changes.length === 0
+                );
+                if (annotations.length) {
+                    const paused = state.animationPaused;
+                    const atAnnotation = () => {
+                        const p = cameraOf(viewer).getPosition();
+                        const target = annotations[0].camera.initial.position;
+                        return Math.hypot(p.x - target[0], p.y - target[1], p.z - target[2]) < 0.01;
+                    };
+                    viewer.selectAnnotation(0);
+                    check(
+                        'selection uses orbit and preserves pause',
+                        state.cameraMode === 'orbit' && state.animationPaused === paused
+                    );
+                    check('camera reaches annotation pose', await until(atAnnotation, 5000));
+                    viewer.frameScene();
+                    viewer.selectAnnotation(0);
+                    check('reselecting navigates again', await until(atAnnotation, 5000));
+                    const position = cameraOf(viewer).getPosition().clone();
+                    viewer.selectAnnotation(null);
+                    check(
+                        'clear preserves camera',
+                        state.selectedAnnotation === null && cameraOf(viewer).getPosition().equals(position)
+                    );
+                    check(
+                        'selection events report index and previous',
+                        JSON.stringify(changes) === '[[0,null],[null,0]]'
+                    );
+                    state.showAnnotations = false;
+                    viewer.selectAnnotation(0);
+                    check(
+                        'hidden annotations can still be selected',
+                        state.selectedAnnotation === 0 && !state.showAnnotations
+                    );
+                    state.showAnnotations = true;
+                } else {
+                    viewer.selectAnnotation(null);
+                    check('clearing an empty list is safe', state.selectedAnnotation === null);
+                }
+                const ui = !url.searchParams.has('noui');
+                check(
+                    'hotspots follow the UI option',
+                    host.querySelectorAll('.sse-annotation-hotspot').length === (ui ? annotations.length : 0)
+                );
+                const status = document.getElementById('annotation-state');
+                const update = () => {
+                    status.textContent = `selected=${state.selectedAnnotation} mode=${state.cameraMode} visible=${state.showAnnotations}`;
+                };
+                ['selectedAnnotation', 'cameraMode', 'showAnnotations'].forEach((key) =>
+                    events.on(`${key}:changed`, update)
+                );
+                update();
+                document.getElementById('annotation-controls').hidden = false;
+                annotations.forEach((annotation, index) => {
+                    const button = document.createElement('button');
+                    button.textContent = `Select ${annotation.title}`;
+                    button.onclick = () => viewer.selectAnnotation(index);
+                    document.getElementById('annotation-buttons').appendChild(button);
+                });
+                document.getElementById('clear-annotation').onclick = () => viewer.selectAnnotation(null);
+                document.getElementById('hide-annotations').onclick = () => {
+                    state.showAnnotations = !state.showAnnotations;
+                };
+                document.getElementById('destroy-annotations').onclick = async () => {
+                    const handles = handlesOf(viewer);
+                    const root = host.querySelector('.sse-viewer');
+                    const hotspot = host.querySelector('.sse-annotation-hotspot');
+                    if (annotations.length) viewer.selectAnnotation(0);
+                    state.controlsHidden = true; // leave a tooltip fade pending during destruction
+                    const selected = state.selectedAnnotation;
+                    viewer.destroy();
+                    check('selection after destroy throws', rejectsSelection(0) && rejectsSelection(null));
+                    root.click();
+                    hotspot?.click();
+                    await timeout(250);
+                    check('detached annotation controls stay inert', state.selectedAnnotation === selected);
+                    check(
+                        'annotation teardown releases context and subtree',
+                        (await released(handles)) && host.childElementCount === 0
+                    );
+                    document.getElementById('annotation-controls').hidden = true;
+                    await reportUnhandled();
+                };
+            } else if (mode === 'playback' || mode === 'camera') {
                 const host = addHost();
                 const viewer = await createViewer({
                     container: host,
@@ -419,6 +558,17 @@
                         `hotspots per instance: ${hostEls.map((h) => h.querySelectorAll('.sse-annotation-hotspot').length).join(', ')}`
                     );
                     check('distinct apps', new Set(viewers.map((v) => v.app)).size === instances);
+                    if (viewers[0].annotations.length) {
+                        viewers[0].selectAnnotation(0);
+                        check('annotation selection is independent', viewers[1].state.selectedAnnotation === null);
+                        viewers[1].selectAnnotation(0);
+                        hostEls[1].querySelector('.sse-viewer').click();
+                        check(
+                            'click-away is scoped to its viewer',
+                            viewers[0].state.selectedAnnotation === 0 && viewers[1].state.selectedAnnotation === null
+                        );
+                        viewers[0].selectAnnotation(null);
+                    }
                     viewers.forEach((v) => {
                         v.state.animationPaused = true;
                     });

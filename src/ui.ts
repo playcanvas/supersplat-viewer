@@ -2,9 +2,10 @@ import type { EventHandler } from 'playcanvas';
 
 import { version as appVersion } from '../package.json';
 
-import type { Annotation } from './settings';
 import { Tooltip } from './tooltip';
 import type { Global, ViewerHandle } from './types';
+import { initAnnotationControls } from './ui/annotation-controls';
+import { Annotations } from './ui/annotations';
 import { initCameraControls } from './ui/camera-controls';
 import { initPlayback } from './ui/playback';
 
@@ -140,80 +141,6 @@ const initJoystick = (
     dom.joystickBase.addEventListener('pointercancel', endJoystickTouch);
 };
 
-// Initialize the annotation navigator for stepping between annotations
-const initAnnotationNav = (
-    dom: Record<string, HTMLElement>,
-    events: EventHandler,
-    state: { loaded: boolean; inputMode: string; controlsHidden: boolean; showAnnotations: boolean },
-    annotations: Annotation[]
-) => {
-    // Only show navigator when there are at least 2 annotations
-    if (annotations.length < 2) return;
-
-    let currentIndex = 0;
-
-    const updateDisplay = () => {
-        dom.annotationNavTitle.textContent = annotations[currentIndex].title || '';
-    };
-
-    const updateMode = () => {
-        if (!state.loaded) return;
-        if (!state.showAnnotations) {
-            dom.annotationNav.classList.add('sse-hidden');
-            return;
-        }
-        dom.annotationNav.classList.remove('sse-desktop', 'sse-touch', 'sse-hidden');
-        dom.annotationNav.classList.add(`sse-${state.inputMode}`);
-    };
-
-    const updateFade = () => {
-        if (!state.loaded) return;
-        dom.annotationNav.classList.toggle('sse-faded-in', !state.controlsHidden);
-        dom.annotationNav.classList.toggle('sse-faded-out', state.controlsHidden);
-    };
-
-    const goTo = (index: number) => {
-        currentIndex = index;
-        updateDisplay();
-        events.fire('annotation.navigate', annotations[currentIndex]);
-    };
-
-    // Prev / Next
-    dom.annotationPrev.addEventListener('click', (e) => {
-        e.stopPropagation();
-        goTo((currentIndex - 1 + annotations.length) % annotations.length);
-    });
-
-    dom.annotationNext.addEventListener('click', (e) => {
-        e.stopPropagation();
-        goTo((currentIndex + 1) % annotations.length);
-    });
-
-    // Sync when an annotation is activated externally (e.g. hotspot click)
-    events.on('annotation.activate', (annotation: Annotation) => {
-        const idx = annotations.indexOf(annotation);
-        if (idx !== -1) {
-            currentIndex = idx;
-            updateDisplay();
-        }
-    });
-
-    // React to state changes
-    events.on('loaded:changed', () => {
-        updateMode();
-        updateFade();
-    });
-    events.on('inputMode:changed', updateMode);
-    events.on('controlsHidden:changed', updateFade);
-    events.on('showAnnotations:changed', () => {
-        updateMode();
-        updateFade();
-    });
-
-    // Initial state
-    updateDisplay();
-};
-
 // show the poster image over the hidden canvas, blurry at first and sharpening as loading
 // progresses, until the first frame renders
 const initPoster = (root: HTMLElement, image: HTMLImageElement, events: EventHandler) => {
@@ -240,7 +167,7 @@ const initPoster = (root: HTMLElement, image: HTMLImageElement, events: EventHan
 // Returns a function that removes the listeners added outside the ui subtree (window,
 // document, screen) and cancels pending timers. Listeners on the subtree's own elements are
 // released with the elements.
-const initUI = (global: Global, viewer: ViewerHandle) => {
+const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) => {
     const { events, state, root, localize } = global;
     const disposers: (() => void)[] = [];
 
@@ -263,9 +190,6 @@ const initUI = (global: Global, viewer: ViewerHandle) => {
         'pause',
         'settings',
         'settingsPanel',
-        'annotationsRow',
-        'annotationsOption',
-        'annotationsCheck',
         'orbitCamera',
         'flyCamera',
         'fpsCamera',
@@ -295,11 +219,6 @@ const initUI = (global: Global, viewer: ViewerHandle) => {
         'showCollision',
         'desktopShowCollisionHelp',
         'tooltip',
-        'annotationNav',
-        'annotationPrev',
-        'annotationNext',
-        'annotationInfo',
-        'annotationNavTitle',
         'viewerBranding',
         'viewerTitle',
         'appVersionLabel',
@@ -459,20 +378,6 @@ const initUI = (global: Global, viewer: ViewerHandle) => {
     events.on('inputMode:changed', updateGamingControls);
     updateGamingControls();
 
-    // Annotation visibility toggle
-    const updateAnnotationsVisibility = () => {
-        dom.annotationsRow.classList.toggle('sse-hidden', global.settings.annotations.length === 0);
-        dom.annotationsCheck.classList.toggle('sse-active', state.showAnnotations);
-        global.app.renderNextFrame = true;
-    };
-
-    dom.annotationsRow.addEventListener('click', () => {
-        state.showAnnotations = !state.showAnnotations;
-    });
-
-    events.on('showAnnotations:changed', updateAnnotationsVisibility);
-    updateAnnotationsVisibility();
-
     // persist user preferences on change (never at startup, so defaults are not written into storage)
     events.on('performanceMode:changed', (value: boolean) => localStorage.setItem('performanceMode', String(value)));
     events.on('gamingControls:changed', (value: boolean) => localStorage.setItem('gamingControls', String(value)));
@@ -579,7 +484,6 @@ const initUI = (global: Global, viewer: ViewerHandle) => {
 
     // show the ui and start a timer to hide it again
     let uiTimeout: ReturnType<typeof setTimeout> | null = null;
-    let annotationVisible = false;
 
     disposers.push(() => {
         if (uiTimeout) {
@@ -615,7 +519,7 @@ const initUI = (global: Global, viewer: ViewerHandle) => {
         state.controlsHidden = false;
         uiTimeout = setTimeout(() => {
             uiTimeout = null;
-            if (!annotationVisible) {
+            if (state.selectedAnnotation === null || !state.showAnnotations) {
                 state.controlsHidden = true;
             }
         }, 4000);
@@ -641,16 +545,9 @@ const initUI = (global: Global, viewer: ViewerHandle) => {
     events.on('inputMode:changed', updateCapturedUI);
     events.on('gamingControls:changed', updateCapturedUI);
 
-    // keep UI visible while an annotation tooltip is shown
-    events.on('annotation.activate', () => {
-        annotationVisible = true;
-        showUI();
-    });
-
-    events.on('annotation.deactivate', () => {
-        annotationVisible = false;
-        showUI();
-    });
+    // Keep controls visible while the selected annotation's panel is shown.
+    const selectionChanged = events.on('selectedAnnotation:changed', showUI);
+    disposers.push(() => selectionChanged.off());
 
     disposers.push(initPlayback(viewer, root, showUI));
     disposers.push(initCameraControls(viewer, root));
@@ -703,8 +600,11 @@ const initUI = (global: Global, viewer: ViewerHandle) => {
     // Initialize touch joystick for fly mode
     initJoystick(dom, events, state);
 
-    // Initialize annotation navigator
-    initAnnotationNav(dom, events, state, global.settings.annotations);
+    disposers.push(initAnnotationControls(viewer, root));
+    if (viewer.annotations.length > 0) {
+        const annotations = new Annotations(viewer, root, global.camera, hasCameraFrame);
+        disposers.push(() => annotations.destroy());
+    }
 
     // tooltips
     const tooltip = new Tooltip(dom.tooltip);

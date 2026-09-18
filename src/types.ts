@@ -8,7 +8,7 @@ import type { Entity, EventHandler, AppBase } from 'playcanvas';
 import type { CaptureResult } from './capture';
 import type { Localize } from './localization';
 import type { ViewerAssets, ViewerFlags } from './options';
-import type { ExperienceSettings } from './settings';
+import type { Annotation, ExperienceSettings } from './settings';
 
 type CameraMode = 'orbit' | 'anim' | 'fly' | 'walk';
 
@@ -61,6 +61,8 @@ type State = {
     controlsHidden: boolean;
     /** Shows the annotation hotspots. Persisted in local storage. */
     showAnnotations: boolean;
+    /** Selected annotation's zero-based index in `annotations`, or null. Read-only: use `selectAnnotation`. */
+    selectedAnnotation: number | null;
     /** Mouse-look and joystick movement rather than click-to-navigate. Persisted. */
     gamingControls: boolean;
     /**
@@ -112,6 +114,8 @@ type ViewerHandle = {
     readonly state: ViewerState;
     /** Fires `<key>:changed` with `(value, previous)` for every key of {@link ViewerState}. */
     readonly events: EventHandler;
+    /** Annotation data in settings order, available on creation. Editing entries is unsupported. */
+    readonly annotations: readonly Readonly<Annotation>[];
     /**
      * Render the scene, with post effects, into an offscreen supersampled target and return it
      * downsampled to the requested size, as base64. Waits for the first frame, and rejects if
@@ -143,6 +147,14 @@ type ViewerHandle = {
      * after destruction. Pointer lock for gaming controls still requires a user gesture.
      */
     toggleWalk(): void;
+    /**
+     * Select an annotation by its zero-based index and transition to its camera in orbit mode.
+     * Pass null to clear selection without moving the camera. Selecting the same index again
+     * navigates again. Works without the built-in UI and preserves annotation visibility and
+     * animation pause state. Requires `state.loaded`; throws before readiness, after destruction
+     * or for an index that is not an integer in range. Returns without waiting for rendering.
+     */
+    selectAnnotation(index: number | null): void;
     /**
      * Release everything: the engine application, the graphics context, every listener, and the
      * subtree built inside the container. Idempotent, and safe before loading finishes.

@@ -347,6 +347,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         isFullscreen: false,
         controlsHidden: false,
         showAnnotations: localStorage.getItem('showAnnotations') !== 'false',
+        selectedAnnotation: null,
         gamingControls: localStorage.getItem('gamingControls') === 'true',
         inputEnabled: true
     });
@@ -442,16 +443,18 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         app,
         state,
         events,
+        annotations: global.settings.annotations,
         captureFrame: (captureOptions) => viewer.captureFrame(captureOptions),
         seek: (time) => viewer.seek(time),
         frameScene: () => viewer.frameScene(),
         resetCamera: () => viewer.resetCamera(),
         toggleWalk: () => viewer.toggleWalk(),
+        selectAnnotation: (index) => viewer.selectAnnotation(index),
         destroy: () => viewer.destroy()
     };
 
     // The built-in controls use the same handle returned to an embedding host.
-    const disposeUI = config.ui ? initUI(global, handle) : null;
+    const disposeUI = config.ui ? initUI(global, handle, !!viewer.cameraFrame) : null;
     viewer.onDestroy(() => {
         destroyed = true;
     });

@@ -70,11 +70,13 @@ scene is visible. It returns:
 | --- | --- |
 | `state` | Observable state. Writable keys (`cameraMode`, `performanceMode`, `showAnnotations`, `gamingControls`, `animationPaused`, `collisionOverlayEnabled`, `controlsHidden`, `inputEnabled`) apply at once; the rest are the viewer's to report and are `readonly` in the types |
 | `events` | Fires `<key>:changed` with `(value, previous)` for every key of `state` |
+| `annotations` | Annotation data in settings order, available as soon as creation resolves. Editing entries is unsupported |
 | `captureFrame(options?)` | Renders offscreen, supersampled, and resolves to `{ width, height, data }` with `data` base64. Waits for the first frame |
 | `seek(time)` | Selects the animation camera and seeks in seconds, preserving pause state. Requires a loaded viewer with an animation; throws for non-finite time or after destruction. Requests rendering without waiting for a frame |
 | `frameScene()` | Frames the whole scene, in orbit mode; requires `state.loaded` |
 | `resetCamera()` | Restores the fly/walk entry spawn, or the authored initial view in orbit mode; requires `state.loaded` |
 | `toggleWalk()` | Enters walk mode or restores the previous mode. Does nothing if `walkAllowed` is false; requires `state.loaded` |
+| `selectAnnotation(index)` | Selects a zero-based annotation index and transitions to its orbit camera. Pass `null` to clear selection without starting another camera movement; requires `state.loaded` |
 | `destroy()` | Releases the engine application, the graphics context, every listener and the subtree. Idempotent |
 | `app` | The underlying PlayCanvas application, for anything this API doesn't cover |
 
@@ -130,6 +132,29 @@ After loading, set `viewer.state.cameraMode` to select orbit, fly or animation m
 
 Camera commands throw before `state.loaded` or after destruction, matching `seek()`. In particular, `frameScene()` now reports those invalid calls instead of silently doing nothing. Desktop gaming controls still depend on the browser's pointer-lock rules; enter them from a user gesture.
 
+### Controlling annotations
+
+`viewer.annotations` contains each annotation's title, text, position, camera and optional extras. Indices follow settings order and stay fixed for the instance. Treat the data as read-only; runtime annotation editing is not supported.
+
+`state.selectedAnnotation` is the selected index, or `null` when nothing is selected. Observe `selectedAnnotation:changed` to update custom controls or panels; it fires when the index changes. The built-in hotspots and previous/next buttons use the same `selectAnnotation(index)` command as the host:
+
+```ts
+viewer.events.on('selectedAnnotation:changed', (index, previous) => {
+    const annotation = index === null ? null : viewer.annotations[index];
+    console.log('Selected annotation', annotation, 'previous index', previous);
+});
+
+const selectFirst = () => {
+    if (viewer.annotations.length) viewer.selectAnnotation(0);
+};
+if (viewer.state.loaded) selectFirst();
+else viewer.events.once('loaded:changed', selectFirst);
+```
+
+Selection switches to orbit and transitions to the annotation's authored camera without changing the animation pause flag. Selecting the same index again navigates again. `selectAnnotation(null)` clears selection while leaving the camera and any transition alone. Commands return immediately and throw before readiness, after destruction, or for an index that is not an integer in range. Clearing an empty annotation list is valid.
+
+With `ui: false`, the same data, selection and camera navigation are available; the host supplies presentation. `state.showAnnotations` controls built-in visibility and does not clear selection, so showing annotations again restores the selected panel. The built-in navigator retains its last title and navigation position after dismissal. Clicking elsewhere inside this viewer clears selection; clicking host controls or another viewer does not.
+
 ### Restyling
 
 The colours the UI is built from are CSS custom properties on the instance root, so you can
@@ -147,9 +172,7 @@ The full set is `--sse-text`, `--sse-text-light`, `--sse-text-dark`, `--sse-text
 `--sse-accent`, `--sse-grip`, `--sse-bkg`, `--sse-bkg-dark`, `--sse-bkg-darkest` and
 `--sse-bkg-light`.
 
-For more than a retheme, pass `ui: false`. The viewer then creates the canvas and nothing
-else — no overlay, no markup and nothing listening outside the canvas — and you render your own
-controls against `state` and `events`. Note that the touch joystick, the fullscreen button and
+For more than a retheme, pass `ui: false`. The viewer creates the canvas and retains core input handling, including keyboard/gamepad input gated by `state.inputEnabled`. It omits the overlay, annotation presentation and built-in controls; render your own controls through the viewer handle. Note that the touch joystick, the fullscreen button and
 the AR/VR fallback prompt are part of the UI you are replacing, so those affordances become
 yours too. Everything between the two, replacing some of the UI but keeping the rest, is not
 supported yet; the class names inside the viewer are not API and do change.

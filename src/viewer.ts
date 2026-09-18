@@ -25,7 +25,6 @@ import {
 } from 'playcanvas';
 import type { CameraComponent, Entity, GraphicsDevice, GSplatComponent, Layer } from 'playcanvas';
 
-import { Annotations } from './annotations';
 import { CameraManager, isWalkAllowed } from './camera-manager';
 import type { Camera } from './cameras/camera';
 import { Capture } from './capture';
@@ -178,8 +177,6 @@ class Viewer {
     cameraManager: CameraManager;
 
     picker: Picker;
-
-    annotations: Annotations;
 
     voxelOverlay: VoxelDebugOverlay | null = null;
 
@@ -476,10 +473,6 @@ class Viewer {
                 sceneBound.setFromTransformedAabb(gsplatBbox, results[0].getWorldTransform());
             }
 
-            if (config.ui) {
-                this.annotations = new Annotations(global, this.cameraFrame != null);
-            }
-
             this.picker = new Picker(app, camera);
             this.inputController = new InputController(global, this.picker);
             this.inputController.collision = collision ?? null;
@@ -625,6 +618,19 @@ class Viewer {
     toggleWalk(): void {
         this.requireLoaded('toggleWalk');
         this.global.events.fire('inputEvent', 'toggleWalk');
+    }
+
+    selectAnnotation(index: number | null): void {
+        this.requireLoaded('selectAnnotation');
+        const { settings, state, app } = this.global;
+        if (index !== null) {
+            if (!Number.isInteger(index) || index < 0 || index >= settings.annotations.length) {
+                throw new RangeError('selectAnnotation: index must be an integer in range or null');
+            }
+            this.cameraManager.selectAnnotation(settings.annotations[index]);
+        }
+        state.selectedAnnotation = index;
+        app.renderNextFrame = true;
     }
 
     seek(time: number): void {
@@ -783,10 +789,6 @@ class Viewer {
         // entities (including the annotation scripts), input, assets, xr, the device and every
         // app event handler
         app.destroy();
-
-        // after the annotation entities are gone, so their destroy handlers still see the
-        // shared dom
-        this.annotations?.destroy();
 
         gl?.getExtension('WEBGL_lose_context')?.loseContext();
         wgpu?.destroy();
