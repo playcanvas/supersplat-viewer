@@ -444,7 +444,9 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         events,
         captureFrame: (captureOptions) => viewer.captureFrame(captureOptions),
         seek: (time) => viewer.seek(time),
-        frameScene: () => events.fire('inputEvent', 'frame'),
+        frameScene: () => viewer.frameScene(),
+        resetCamera: () => viewer.resetCamera(),
+        toggleWalk: () => viewer.toggleWalk(),
         destroy: () => viewer.destroy()
     };
 

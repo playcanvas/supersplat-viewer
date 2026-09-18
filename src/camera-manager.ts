@@ -238,7 +238,6 @@ class CameraManager {
                         if (state.cameraMode === 'walk') {
                             state.cameraMode = preWalkMode;
                         } else {
-                            preWalkMode = state.cameraMode;
                             state.cameraMode = 'walk';
                         }
                     }
@@ -263,6 +262,10 @@ class CameraManager {
 
         // handle camera mode switching
         events.on('cameraMode:changed', (value: CameraMode, prev: CameraMode) => {
+            // Host state writes and the walk toggle must remember the same return mode.
+            if (value === 'walk') {
+                preWalkMode = prev;
+            }
             sourcesByMode[prev]?.cancel();
 
             // snapshot the current pose before any controller mutation

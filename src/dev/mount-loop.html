@@ -72,12 +72,14 @@
             side by side, checks they do not share dom, state or window globals, destroys the
             first while the second keeps rendering, then destroys the rest.
 
-            Playback mode keeps one viewer mounted with host controls alongside its own UI.
+            Playback/camera mode keeps one viewer mounted with host controls alongside its own UI.
             Add &noui to check those controls without the overlay; &loop=none|repeat|pingpong
             supplies a short camera track for endpoint checks. Destroy also checks a pending
             legacy scrub settles and its frame listener is removed.
 
-            Params: ?iterations=20  ?mode=loaded|immediate|playback  ?instances=2  ?webgl  ?content=  ?settings=
+            Add &collision=<url> with a scene at least 5m across to exercise walk mode.
+
+            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera  ?instances=2  ?webgl  ?content=  ?settings=
         -->
         <div id="hosts"></div>
         <pre id="harness"></pre>
@@ -88,6 +90,13 @@
             <button id="host-end">Host seek end</button>
             <button id="host-auto-pause">Pause on next seek</button>
             <button id="host-destroy">Destroy during scrub</button>
+            <div>
+                <button id="host-orbit">Host orbit</button>
+                <button id="host-fly">Host fly</button>
+                <button id="host-walk">Host toggle walk</button>
+                <button id="host-frame">Host frame scene</button>
+                <button id="host-reset">Host reset camera</button>
+            </div>
             <div id="playback-state"></div>
         </div>
 
@@ -157,6 +166,7 @@
                 contentUrl,
                 renderer,
                 exposeGlobals: false,
+                collisionUrl: url.searchParams.get('collision') ?? undefined,
                 ui: !url.searchParams.has('noui')
             });
             const cameraOf = (viewer) => viewer.app.root.findByName('camera');
@@ -213,7 +223,7 @@
                 return unhandled.length === before;
             };
 
-            if (mode === 'playback') {
+            if (mode === 'playback' || mode === 'camera') {
                 const host = addHost();
                 const viewer = await createViewer({
                     container: host,
@@ -231,7 +241,18 @@
                         return true;
                     }
                 };
+                const cameraCommands = ['frameScene', 'resetCamera', 'toggleWalk'];
+                const cameraCommandsThrow = () =>
+                    cameraCommands.every((command) => {
+                        try {
+                            viewer[command]();
+                            return false;
+                        } catch {
+                            return true;
+                        }
+                    });
                 check('seek before load throws', !state.loaded && rejectsSeek(0));
+                check('camera commands before load throw', !state.loaded && cameraCommandsThrow());
                 events.once('loaded:changed', () => {
                     state.animationPaused = true;
                 });
@@ -252,15 +273,80 @@
                 await window.scrubTo(0);
                 check('legacy scrub pauses and settles', state.animationPaused && state.animationTime === 0);
 
+                state.gamingControls = false;
+                viewer.frameScene();
+                check('frame selects orbit', state.cameraMode === 'orbit');
+                viewer.resetCamera();
+                const initial = settings.cameras[0]?.initial;
+                if (initial) {
+                    check(
+                        'reset restores authored position',
+                        await until(() => {
+                            const p = cameraOf(viewer).getPosition();
+                            return (
+                                Math.hypot(
+                                    p.x - initial.position[0],
+                                    p.y - initial.position[1],
+                                    p.z - initial.position[2]
+                                ) < 0.01
+                            );
+                        }, 5000)
+                    );
+                }
+                state.cameraMode = 'fly';
+                // Let the entry transition (including any collision adjustment) finish.
+                await timeout(1200);
+                const spawn = cameraOf(viewer).getPosition().clone();
+                const arrow = (type) =>
+                    window.dispatchEvent(new KeyboardEvent(type, { key: 'ArrowUp', code: 'ArrowUp', bubbles: true }));
+                arrow('keydown');
+                check(
+                    'fly camera moves',
+                    await until(() => cameraOf(viewer).getPosition().distance(spawn) > 0.1, 5000)
+                );
+                arrow('keyup');
+                // Keyboard movement decelerates after release; reset once that input has settled.
+                await timeout(2000);
+                viewer.resetCamera();
+                check(
+                    'fly reset returns to entry spawn',
+                    await until(() => cameraOf(viewer).getPosition().distance(spawn) < 0.01, 5000)
+                );
+                check('reset preserves fly mode', state.cameraMode === 'fly');
+                viewer.toggleWalk();
+                if (state.walkAllowed) {
+                    check('walk toggle enters walk', state.cameraMode === 'walk');
+                    viewer.resetCamera();
+                    check('reset preserves walk mode', state.cameraMode === 'walk');
+                    viewer.toggleWalk();
+                    check('walk toggle restores fly', state.cameraMode === 'fly');
+                    state.cameraMode = 'orbit';
+                    state.cameraMode = 'walk';
+                    viewer.toggleWalk();
+                    check('walk toggle restores a host-selected return mode', state.cameraMode === 'orbit');
+                } else {
+                    check('unavailable walk leaves mode unchanged', state.cameraMode === 'fly');
+                }
+                viewer.seek(0);
+
                 const status = document.getElementById('playback-state');
                 const update = () => {
-                    status.textContent = `paused=${state.animationPaused} time=${state.animationTime.toFixed(2)}/${state.animationDuration} mode=${state.cameraMode}`;
+                    status.textContent = `paused=${state.animationPaused} time=${state.animationTime.toFixed(2)}/${state.animationDuration} mode=${state.cameraMode} walkAllowed=${state.walkAllowed}`;
                 };
                 ['animationPaused', 'animationTime', 'cameraMode'].forEach((key) =>
                     events.on(`${key}:changed`, update)
                 );
                 update();
                 document.getElementById('playback').hidden = false;
+                document.getElementById('host-orbit').onclick = () => {
+                    state.cameraMode = 'orbit';
+                };
+                document.getElementById('host-fly').onclick = () => {
+                    state.cameraMode = 'fly';
+                };
+                document.getElementById('host-walk').onclick = () => viewer.toggleWalk();
+                document.getElementById('host-frame').onclick = () => viewer.frameScene();
+                document.getElementById('host-reset').onclick = () => viewer.resetCamera();
                 document.getElementById('host-play').onclick = () => {
                     state.cameraMode = 'anim';
                     state.animationPaused = false;
@@ -287,6 +373,7 @@
                     check('pending legacy scrub rejects on destroy', settled === 'rejected');
                     check('frame listener removed', !app.hasEvent('frameend'));
                     check('seek after destroy throws', rejectsSeek(0));
+                    check('camera commands after destroy throw', cameraCommandsThrow());
                     check(
                         'context released and subtree removed',
                         (await released(handles)) && host.childElementCount === 0

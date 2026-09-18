@@ -603,14 +603,33 @@ class Viewer {
         }, ignoreLoadFailure);
     }
 
-    seek(time: number): void {
+    private requireLoaded(method: string): void {
         if (this.destroyed) {
-            throw new Error('seek: the viewer has been destroyed');
+            throw new Error(`${method}: the viewer has been destroyed`);
         }
+        if (!this.global.state.loaded) {
+            throw new Error(`${method}: the viewer is not loaded`);
+        }
+    }
+
+    frameScene(): void {
+        this.requireLoaded('frameScene');
+        this.global.events.fire('inputEvent', 'frame');
+    }
+
+    resetCamera(): void {
+        this.requireLoaded('resetCamera');
+        this.global.events.fire('inputEvent', 'reset');
+    }
+
+    toggleWalk(): void {
+        this.requireLoaded('toggleWalk');
+        this.global.events.fire('inputEvent', 'toggleWalk');
+    }
+
+    seek(time: number): void {
+        this.requireLoaded('seek');
         const { state, app } = this.global;
-        if (!state.loaded) {
-            throw new Error('seek: the viewer is not loaded');
-        }
         if (!state.hasAnimation) {
             throw new Error('seek: no animation track');
         }

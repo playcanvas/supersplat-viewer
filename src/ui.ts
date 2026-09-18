@@ -5,6 +5,7 @@ import { version as appVersion } from '../package.json';
 import type { Annotation } from './settings';
 import { Tooltip } from './tooltip';
 import type { Global, ViewerHandle } from './types';
+import { initCameraControls } from './ui/camera-controls';
 import { initPlayback } from './ui/playback';
 
 // Initialize the touch joystick for fly mode camera control
@@ -652,15 +653,7 @@ const initUI = (global: Global, viewer: ViewerHandle) => {
     });
 
     disposers.push(initPlayback(viewer, root, showUI));
-
-    // Camera mode UI
-    const updateCameraModeUI = () => {
-        dom.orbitCamera.classList.toggle('sse-active', state.cameraMode === 'orbit');
-        dom.flyCamera.classList.toggle('sse-active', state.cameraMode === 'fly');
-        dom.fpsCamera.classList.toggle('sse-active', state.cameraMode === 'walk');
-    };
-
-    events.on('cameraMode:changed', updateCameraModeUI);
+    disposers.push(initCameraControls(viewer, root));
 
     // Walk mode hint banner (shown once per session on first FPS entry)
     let walkHintShown = false;
@@ -689,15 +682,6 @@ const initUI = (global: Global, viewer: ViewerHandle) => {
         if (type === 'interrupt') dismissWalkHint();
     });
 
-    // show/hide the FPS button based on whether walk mode is offered
-    // (collision data exists AND scene is large enough to walk around in)
-    events.on('walkAllowed:changed', (value: boolean) => {
-        dom.fpsCamera.classList.toggle('sse-hidden', !value);
-        // adjust fly button shape: middle when FPS is visible, right when hidden
-        dom.flyCamera.classList.toggle('sse-middle', value);
-        dom.flyCamera.classList.toggle('sse-right', !value);
-    });
-
     // Collision overlay toggle + matching help-panel row (only visible when overlay is available)
     events.on('hasCollisionOverlay:changed', (value: boolean) => {
         dom.showCollision.classList.toggle('sse-hidden', !value);
@@ -714,26 +698,6 @@ const initUI = (global: Global, viewer: ViewerHandle) => {
 
     dom.settings.addEventListener('click', () => {
         dom.settingsPanel.classList.toggle('sse-hidden');
-    });
-
-    dom.orbitCamera.addEventListener('click', () => {
-        state.cameraMode = 'orbit';
-    });
-
-    dom.flyCamera.addEventListener('click', () => {
-        state.cameraMode = 'fly';
-    });
-
-    dom.fpsCamera.addEventListener('click', () => {
-        events.fire('inputEvent', 'toggleWalk');
-    });
-
-    dom.reset.addEventListener('click', (event) => {
-        events.fire('inputEvent', 'reset', event);
-    });
-
-    dom.frame.addEventListener('click', (event) => {
-        events.fire('inputEvent', 'frame', event);
     });
 
     // Initialize touch joystick for fly mode

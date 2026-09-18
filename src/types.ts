@@ -126,8 +126,23 @@ type ViewerHandle = {
      * non-finite time. Requests a frame but does not wait for rendering to complete.
      */
     seek(time: number): void;
-    /** Frame the whole scene, switching to orbit mode. */
+    /**
+     * Frame the whole scene, switching to orbit mode. Requires `state.loaded` and throws
+     * before readiness or after destruction. Starts a transition without waiting for it.
+     */
     frameScene(): void;
+    /**
+     * Reset the active camera: restore the entry spawn in fly/walk mode, or switch to orbit
+     * and restore the authored initial view (scene framing if absent). Requires `state.loaded`
+     * and throws before readiness or after destruction. Starts a transition without waiting.
+     */
+    resetCamera(): void;
+    /**
+     * Enter walk mode, or return to the mode active before entering it. Does nothing when
+     * `state.walkAllowed` is false. Requires `state.loaded` and throws before readiness or
+     * after destruction. Pointer lock for gaming controls still requires a user gesture.
+     */
+    toggleWalk(): void;
     /**
      * Release everything: the engine application, the graphics context, every listener, and the
      * subtree built inside the container. Idempotent, and safe before loading finishes.

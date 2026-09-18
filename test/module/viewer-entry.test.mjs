@@ -78,6 +78,8 @@ describe('the /viewer entry', () => {
         assert.match(types, /\/\*\*[\s\S]*?The element the viewer builds its subtree in/);
         assert.match(types, /\/\*\*[\s\S]*?Observable state/);
         assert.match(types, /\/\*\*\s*\* Seek the animation in seconds[\s\S]*?\*\/\s*seek\(time: number\): void;/);
+        assert.match(types, /\/\*\*\s*\* Reset the active camera[\s\S]*?\*\/\s*resetCamera\(\): void;/);
+        assert.match(types, /\/\*\*\s*\* Enter walk mode[\s\S]*?\*\/\s*toggleWalk\(\): void;/);
     });
 
     it('scopes every stylesheet rule to the instance root', () => {
