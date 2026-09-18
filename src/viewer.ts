@@ -208,7 +208,7 @@ class Viewer {
 
     private failReady!: (reason: Error) => void;
 
-    // Abort signals for the captures in flight. A capture's later waits are inside the engine,
+    // Abort signals for frame waits and captures in flight. A capture's later waits are inside the engine,
     // so they are raced against one of these rather than handled individually — and each is
     // removed as its capture settles, since a signal that outlived it would keep the race, and
     // with it the captured image, reachable until the viewer went away.
@@ -382,25 +382,27 @@ class Viewer {
 
         // update state on first frame
         events.on('firstFrame', () => {
-            state.loaded = true;
             state.animationPaused = !!config.noanim;
+            state.loaded = true;
 
             // the window.* hooks below are the standalone document's api for the thumbnail
             // pipeline and console debugging; an embedded instance keeps them off, since two
             // viewers would overwrite each other's
             if (!config.exposeGlobals) return;
 
-            window.scrubTo = (time: number) => {
-                if (!state.hasAnimation) {
-                    return Promise.reject(new Error('No animation track'));
-                }
-
+            window.scrubTo = async (time: number) => {
+                this.seek(time);
                 state.animationPaused = true;
-                return new Promise<void>((resolve) => {
-                    events.fire('scrubAnim', time);
-                    app.renderNextFrame = true;
-                    app.once('frameend', () => resolve());
+                let onFrame!: () => void;
+                const rendered = new Promise<void>((resolve) => {
+                    onFrame = resolve;
+                    app.once('frameend', onFrame);
                 });
+                try {
+                    await this.untilDestroyed(rendered);
+                } finally {
+                    app.off('frameend', onFrame);
+                }
             };
 
             window.animationDuration = state.animationDuration;
@@ -601,6 +603,24 @@ class Viewer {
         }, ignoreLoadFailure);
     }
 
+    seek(time: number): void {
+        if (this.destroyed) {
+            throw new Error('seek: the viewer has been destroyed');
+        }
+        const { state, app } = this.global;
+        if (!state.loaded) {
+            throw new Error('seek: the viewer is not loaded');
+        }
+        if (!state.hasAnimation) {
+            throw new Error('seek: no animation track');
+        }
+        if (!Number.isFinite(time)) {
+            throw new Error('seek: time must be finite');
+        }
+        this.cameraManager.seek(time);
+        app.renderNextFrame = true;
+    }
+
     /**
      * Render the scene, with post effects, into an offscreen supersampled target, GPU
      * box-downsample it to the requested size and return just that small buffer. Waits for
@@ -613,7 +633,7 @@ class Viewer {
             if (this.destroyed) {
                 throw new Error('captureFrame: the viewer has been destroyed');
             }
-            const { app, camera, state, events } = this.global;
+            const { app, camera, state } = this.global;
             if (!this.capture) {
                 this.capture = new Capture(app, camera.camera, () => this.cameraFrame ?? null);
             }
@@ -625,7 +645,7 @@ class Viewer {
                 scrub: (t) => {
                     if (state.hasAnimation) {
                         state.animationPaused = true;
-                        events.fire('scrubAnim', t);
+                        this.seek(t);
                     }
                 }
             });
@@ -688,7 +708,7 @@ class Viewer {
         this.destroyed = true;
 
         // settle anything waiting on an engine event, before the handlers go
-        const gone = () => new Error('captureFrame: the viewer has been destroyed');
+        const gone = () => new Error('the viewer has been destroyed');
         this.failReady(gone());
         for (const onAbort of this.abortHandlers) {
             onAbort(gone());

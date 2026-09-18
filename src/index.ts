@@ -374,9 +374,6 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     // session the UI can offer a reload into WebGL instead)
     initXr(global);
 
-    // Initialize user interface
-    const disposeUI = config.ui ? initUI(global) : null;
-
     // a load continuation can outlive a destroy, so anything that resumes after an await checks
     // this before touching the app
     let destroyed = false;
@@ -441,6 +438,18 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
 
     // Create the viewer
     const viewer = new Viewer(global, gsplatLoad, skyboxLoad, collisionLoad);
+    const handle: ViewerHandle = {
+        app,
+        state,
+        events,
+        captureFrame: (captureOptions) => viewer.captureFrame(captureOptions),
+        seek: (time) => viewer.seek(time),
+        frameScene: () => events.fire('inputEvent', 'frame'),
+        destroy: () => viewer.destroy()
+    };
+
+    // The built-in controls use the same handle returned to an embedding host.
+    const disposeUI = config.ui ? initUI(global, handle) : null;
     viewer.onDestroy(() => {
         destroyed = true;
     });
@@ -452,14 +461,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         viewer.onDestroy(disposeAudio);
     }
 
-    return {
-        app,
-        state,
-        events,
-        captureFrame: (captureOptions) => viewer.captureFrame(captureOptions),
-        frameScene: () => events.fire('inputEvent', 'frame'),
-        destroy: () => viewer.destroy()
-    };
+    return handle;
 };
 
 console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engineRevision})`);

@@ -49,6 +49,8 @@ const createFrameCamera = (bbox: BoundingBox, fov: number) => {
 class CameraManager {
     update: (deltaTime: number, cameraFrame: CameraFrame) => void;
 
+    seek: (time: number) => void;
+
     // Re-seed the active controller from the current camera pose and
     // cancel any in-progress transition lerp. Use after externally
     // mutating `camera` and/or `state.cameraMode` to make the change
@@ -290,14 +292,14 @@ class CameraManager {
             }
         });
 
-        // handle user scrubbing the animation timeline
-        events.on('scrubAnim', (time) => {
+        this.seek = (time) => {
             // switch to animation camera if we're not already there
             state.cameraMode = 'anim';
 
             // set time
             controllers.anim.animState.cursor.value = time;
-        });
+            state.animationTime = controllers.anim.animState.cursor.value;
+        };
 
         // handle user picking in the scene
         events.on('pick', (position: Vec3) => {

@@ -125,6 +125,7 @@ scene is visible. It returns:
 | `state` | Observable state. Writable keys (`cameraMode`, `performanceMode`, `showAnnotations`, `gamingControls`, `animationPaused`, `collisionOverlayEnabled`, `controlsHidden`, `inputEnabled`) apply at once; the rest are the viewer's to report and are `readonly` in the types |
 | `events` | Fires `<key>:changed` with `(value, previous)` for every key of `state` |
 | `captureFrame(options?)` | Renders offscreen, supersampled, and resolves to `{ width, height, data }` with `data` base64. Waits for the first frame |
+| `seek(time)` | Selects the animation camera and seeks in seconds, preserving pause state. Requires a loaded viewer with an animation; throws for non-finite time or after destruction. Requests rendering without waiting for a frame |
 | `frameScene()` | Frames the whole scene, in orbit mode |
 | `destroy()` | Releases the engine application, the graphics context, every listener and the subtree. Idempotent |
 | `app` | The underlying PlayCanvas application, for anything this API doesn't cover |
@@ -144,6 +145,34 @@ focus.
 
 Always `destroy()` a viewer you are finished with. Browsers cap live WebGL contexts at around
 16, so a component that mounts and unmounts without tearing down will stop rendering.
+
+#### Controlling playback
+
+The host and built-in playback controls use the same API. Host changes update the buttons and timeline automatically; the same calls work with `ui: false` and custom controls. Read the current state when attaching controls, then subscribe to its change events.
+
+```ts
+const stopAt = (seconds: number) => {
+    viewer.state.animationPaused = true;
+    viewer.seek(seconds);
+};
+
+// Seek requires the first complete frame, unlike createViewer's creation promise.
+if (viewer.state.loaded) {
+    stopAt(3);
+} else {
+    viewer.events.once('loaded:changed', () => stopAt(3));
+}
+
+// Resume, including when another camera mode is active.
+const play = () => {
+    viewer.state.cameraMode = 'anim';
+    viewer.state.animationPaused = false;
+};
+```
+
+`animationTime`, `animationDuration` and `hasAnimation` are read-only observations. Seeking wraps repeat tracks and clamps once and ping-pong tracks to their duration. It preserves pause state; pause first to stop at the requested time. Hosts can pause from `animationTime:changed` to respond to a playback threshold, at the viewer's update cadence.
+
+Dragging the built-in timeline pauses playback. Releasing or cancelling the drag does not restore an earlier pause flag, so it cannot undo a host command issued during scrubbing. Use Play to resume. The standalone `window.scrubTo` hook retains its pause-and-wait-for-frame behavior; `seek()` itself is synchronous.
 
 #### Restyling
 

@@ -77,6 +77,7 @@ describe('the /viewer entry', () => {
         // documentation a consumer never sees. These two are the ones worth having in an editor.
         assert.match(types, /\/\*\*[\s\S]*?The element the viewer builds its subtree in/);
         assert.match(types, /\/\*\*[\s\S]*?Observable state/);
+        assert.match(types, /\/\*\*\s*\* Seek the animation in seconds[\s\S]*?\*\/\s*seek\(time: number\): void;/);
     });
 
     it('scopes every stylesheet rule to the instance root', () => {

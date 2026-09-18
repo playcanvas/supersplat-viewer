@@ -4,7 +4,8 @@ import { version as appVersion } from '../package.json';
 
 import type { Annotation } from './settings';
 import { Tooltip } from './tooltip';
-import type { Global } from './types';
+import type { Global, ViewerHandle } from './types';
+import { initPlayback } from './ui/playback';
 
 // Initialize the touch joystick for fly mode camera control
 const initJoystick = (
@@ -238,7 +239,7 @@ const initPoster = (root: HTMLElement, image: HTMLImageElement, events: EventHan
 // Returns a function that removes the listeners added outside the ui subtree (window,
 // document, screen) and cancels pending timers. Listeners on the subtree's own elements are
 // released with the elements.
-const initUI = (global: Global) => {
+const initUI = (global: Global, viewer: ViewerHandle) => {
     const { events, state, root, localize } = global;
     const disposers: (() => void)[] = [];
 
@@ -256,9 +257,6 @@ const initUI = (global: Global) => {
         'touchTab',
         'desktopInfoPanel',
         'touchInfoPanel',
-        'timelineContainer',
-        'handle',
-        'time',
         'buttonContainer',
         'play',
         'pause',
@@ -653,84 +651,7 @@ const initUI = (global: Global) => {
         showUI();
     });
 
-    // Animation controls
-    events.on('hasAnimation:changed', (_value, _prev) => {
-        // Start and Stop animation
-        dom.play.addEventListener('click', () => {
-            state.cameraMode = 'anim';
-            state.animationPaused = false;
-        });
-
-        dom.pause.addEventListener('click', () => {
-            state.cameraMode = 'anim';
-            state.animationPaused = true;
-        });
-
-        const updatePlayPause = () => {
-            if (state.cameraMode !== 'anim' || state.animationPaused) {
-                dom.play.classList.remove('sse-hidden');
-                dom.pause.classList.add('sse-hidden');
-            } else {
-                dom.play.classList.add('sse-hidden');
-                dom.pause.classList.remove('sse-hidden');
-            }
-
-            if (state.cameraMode === 'anim') {
-                dom.timelineContainer.classList.remove('sse-hidden');
-            } else {
-                dom.timelineContainer.classList.add('sse-hidden');
-            }
-        };
-
-        // Update UI on animation changes
-        events.on('cameraMode:changed', updatePlayPause);
-        events.on('animationPaused:changed', updatePlayPause);
-
-        const updateSlider = () => {
-            dom.handle.style.left = `${(state.animationTime / state.animationDuration) * 100}%`;
-            dom.time.style.left = `${(state.animationTime / state.animationDuration) * 100}%`;
-            dom.time.innerText = `${state.animationTime.toFixed(1)}s`;
-        };
-
-        events.on('animationTime:changed', updateSlider);
-        events.on('animationLength:changed', updateSlider);
-
-        const handleScrub = (event: PointerEvent) => {
-            const rect = dom.timelineContainer.getBoundingClientRect();
-            const t = Math.max(0, Math.min(rect.width, event.clientX - rect.left)) / rect.width;
-            events.fire('scrubAnim', state.animationDuration * t);
-            showUI();
-        };
-
-        let paused = false;
-        let captured = false;
-
-        dom.timelineContainer.addEventListener('pointerdown', (event: PointerEvent) => {
-            if (!captured) {
-                handleScrub(event);
-                dom.timelineContainer.setPointerCapture(event.pointerId);
-                dom.time.classList.remove('sse-hidden');
-                paused = state.animationPaused;
-                state.animationPaused = true;
-                captured = true;
-            }
-        });
-
-        dom.timelineContainer.addEventListener('pointermove', (event: PointerEvent) => {
-            if (captured) {
-                handleScrub(event);
-            }
-        });
-
-        dom.timelineContainer.addEventListener('pointerup', (event) => {
-            if (captured) {
-                dom.timelineContainer.releasePointerCapture(event.pointerId);
-                dom.time.classList.add('sse-hidden');
-                state.animationPaused = paused;
-                captured = false;
-            }
-        });
-    });
+    disposers.push(initPlayback(viewer, root, showUI));
 
     // Camera mode UI
     const updateCameraModeUI = () => {

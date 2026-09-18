@@ -74,8 +74,8 @@ type State = {
 
 // The keys a host may set; every other key reports what the viewer found or is doing.
 // `animationTime` is not among them: the camera manager writes it from the animation cursor
-// every update, so a host's value would be ignored and then overwritten. Seeking goes through
-// the cursor, and exposing it is a separate addition.
+// every update, so a host's value would be ignored and then overwritten. ViewerHandle.seek()
+// sets the cursor instead.
 type WritableStateKey =
     | 'cameraMode'
     | 'performanceMode'
@@ -119,6 +119,13 @@ type ViewerHandle = {
      * since they share the one camera.
      */
     captureFrame(options?: CaptureOptions): Promise<CaptureResult>;
+    /**
+     * Seek the animation in seconds, selecting the animation camera without changing its pause
+     * state. Repeat tracks wrap; once and ping-pong tracks clamp to their duration. Requires
+     * `state.loaded` and `state.hasAnimation`; throws before readiness, after destruction or for
+     * non-finite time. Requests a frame but does not wait for rendering to complete.
+     */
+    seek(time: number): void;
     /** Frame the whole scene, switching to orbit mode. */
     frameScene(): void;
     /**

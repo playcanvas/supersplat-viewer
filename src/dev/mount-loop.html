@@ -43,6 +43,16 @@
             #harness .fail {
                 color: #f66;
             }
+            #playback {
+                position: fixed;
+                top: 8px;
+                left: 8px;
+                z-index: 1000;
+                padding: 8px;
+                background: #fff;
+                color: #222;
+                font: 13px sans-serif;
+            }
         </style>
     </head>
     <body>
@@ -62,10 +72,24 @@
             side by side, checks they do not share dom, state or window globals, destroys the
             first while the second keeps rendering, then destroys the rest.
 
-            Params: ?iterations=20  ?mode=loaded|immediate  ?instances=2  ?webgl  ?content=  ?settings=
+            Playback mode keeps one viewer mounted with host controls alongside its own UI.
+            Add &noui to check those controls without the overlay; &loop=none|repeat|pingpong
+            supplies a short camera track for endpoint checks. Destroy also checks a pending
+            legacy scrub settles and its frame listener is removed.
+
+            Params: ?iterations=20  ?mode=loaded|immediate|playback  ?instances=2  ?webgl  ?content=  ?settings=
         -->
         <div id="hosts"></div>
         <pre id="harness"></pre>
+        <div id="playback" hidden>
+            <button id="host-play">Host play</button>
+            <button id="host-pause">Host pause</button>
+            <button id="host-seek">Host seek halfway</button>
+            <button id="host-end">Host seek end</button>
+            <button id="host-auto-pause">Pause on next seek</button>
+            <button id="host-destroy">Destroy during scrub</button>
+            <div id="playback-state"></div>
+        </div>
 
         <script type="module">
             import { createViewer } from './index.js';
@@ -104,10 +128,37 @@
             };
 
             const settings = await (await fetch(settingsUrl)).json();
+            const loopMode = url.searchParams.get('loop');
+            if (loopMode) {
+                settings.startMode = 'animTrack';
+                settings.animTracks = [
+                    {
+                        name: 'playback check',
+                        duration: 4,
+                        frameRate: 1,
+                        loopMode,
+                        interpolation: 'spline',
+                        smoothness: 1,
+                        keyframes: {
+                            times: [0, 2, 4],
+                            values: {
+                                position: [1.5, 1, 1.5, -1.5, 1, 1.5, 1.5, 1, 1.5],
+                                target: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                                fov: [85, 85, 85]
+                            }
+                        }
+                    }
+                ];
+            }
 
             // Every other option at its default; an embedded instance publishes no window.* hooks,
             // so two viewers cannot collide on them.
-            const createOptions = () => ({ contentUrl, renderer, exposeGlobals: false });
+            const createOptions = () => ({
+                contentUrl,
+                renderer,
+                exposeGlobals: false,
+                ui: !url.searchParams.has('noui')
+            });
             const cameraOf = (viewer) => viewer.app.root.findByName('camera');
 
             const hosts = document.getElementById('hosts');
@@ -162,8 +213,89 @@
                 return unhandled.length === before;
             };
 
-            // Several viewers at once, each in its own host so each has a distinct root.
-            if (instances > 1) {
+            if (mode === 'playback') {
+                const host = addHost();
+                const viewer = await createViewer({
+                    container: host,
+                    settings,
+                    ...createOptions(),
+                    exposeGlobals: true
+                });
+                const { state, events } = viewer;
+                const check = (name, ok) => log(`${ok ? 'ok  ' : 'FAIL'} ${name}`, !ok);
+                const rejectsSeek = (time) => {
+                    try {
+                        viewer.seek(time);
+                        return false;
+                    } catch {
+                        return true;
+                    }
+                };
+                check('seek before load throws', !state.loaded && rejectsSeek(0));
+                events.once('loaded:changed', () => {
+                    state.animationPaused = true;
+                });
+                check('loaded', await until(() => state.loaded, 120000));
+                check('host pause on loaded is retained', state.animationPaused);
+                check('non-finite seeks throw', [NaN, Infinity, -Infinity].every(rejectsSeek));
+                viewer.seek(state.animationDuration / 2);
+                check(
+                    'seek updates time and preserves pause',
+                    state.animationPaused && state.animationTime === state.animationDuration / 2
+                );
+                state.animationPaused = false;
+                viewer.seek(0);
+                check('seek preserves playing state', !state.animationPaused);
+                state.animationPaused = true;
+                const captured = await viewer.captureFrame({ time: 1, width: 64 });
+                check('capture at a time succeeds', captured.width === 64 && state.animationTime === 1);
+                await window.scrubTo(0);
+                check('legacy scrub pauses and settles', state.animationPaused && state.animationTime === 0);
+
+                const status = document.getElementById('playback-state');
+                const update = () => {
+                    status.textContent = `paused=${state.animationPaused} time=${state.animationTime.toFixed(2)}/${state.animationDuration} mode=${state.cameraMode}`;
+                };
+                ['animationPaused', 'animationTime', 'cameraMode'].forEach((key) =>
+                    events.on(`${key}:changed`, update)
+                );
+                update();
+                document.getElementById('playback').hidden = false;
+                document.getElementById('host-play').onclick = () => {
+                    state.cameraMode = 'anim';
+                    state.animationPaused = false;
+                };
+                document.getElementById('host-pause').onclick = () => {
+                    state.animationPaused = true;
+                };
+                document.getElementById('host-seek').onclick = () => viewer.seek(state.animationDuration / 2);
+                document.getElementById('host-end').onclick = () => viewer.seek(state.animationDuration);
+                document.getElementById('host-auto-pause').onclick = () => {
+                    events.once('animationTime:changed', () => {
+                        state.animationPaused = true;
+                    });
+                };
+                document.getElementById('host-destroy').onclick = async () => {
+                    const app = viewer.app;
+                    const handles = handlesOf(viewer);
+                    const scrub = window.scrubTo(0).then(
+                        () => 'resolved',
+                        () => 'rejected'
+                    );
+                    viewer.destroy();
+                    const settled = await Promise.race([scrub, timeout(2000, 'hung')]);
+                    check('pending legacy scrub rejects on destroy', settled === 'rejected');
+                    check('frame listener removed', !app.hasEvent('frameend'));
+                    check('seek after destroy throws', rejectsSeek(0));
+                    check(
+                        'context released and subtree removed',
+                        (await released(handles)) && host.childElementCount === 0
+                    );
+                    document.getElementById('playback').hidden = true;
+                    await reportUnhandled();
+                };
+                // Several viewers at once, each in its own host so each has a distinct root.
+            } else if (instances > 1) {
                 log(`${instances} instances, renderer=${renderer}, tab ${document.visibilityState}`);
                 const hostEls = [];
                 const viewers = [];
@@ -200,6 +332,15 @@
                         `hotspots per instance: ${hostEls.map((h) => h.querySelectorAll('.sse-annotation-hotspot').length).join(', ')}`
                     );
                     check('distinct apps', new Set(viewers.map((v) => v.app)).size === instances);
+                    viewers.forEach((v) => {
+                        v.state.animationPaused = true;
+                    });
+                    const secondTime = viewers[1].state.animationTime;
+                    viewers[0].seek(viewers[0].state.animationDuration / 2);
+                    check(
+                        'seeking one instance leaves the other unchanged',
+                        viewers[1].state.animationTime === secondTime
+                    );
                     check(
                         'entities belong to their own app',
                         viewers.every((v) => v.app.root.children.every((e) => e._app === v.app))
