@@ -24,7 +24,6 @@ import type { Config, Global, State, ViewerHandle } from './types';
 import { initPoster, initUI } from './ui';
 import uiHtml from './ui.html';
 import { Viewer } from './viewer';
-import { initXr } from './xr';
 import { version as appVersion } from '../package.json';
 
 const loadGsplat = async (
@@ -340,6 +339,9 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         animationPaused: true,
         hasAR: false,
         hasVR: false,
+        canStartAR: false,
+        canStartVR: false,
+        xrMode: null,
         hasCollision: false,
         hasCollisionOverlay: false,
         walkAllowed: false,
@@ -370,10 +372,6 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     app.start();
 
     camera.addComponent('camera');
-
-    // Initialize XR support (any backend; when the current device can't host a
-    // session the UI can offer a reload into WebGL instead)
-    initXr(global);
 
     // a load continuation can outlive a destroy, so anything that resumes after an await checks
     // this before touching the app
@@ -450,6 +448,10 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         resetCamera: () => viewer.resetCamera(),
         toggleWalk: () => viewer.toggleWalk(),
         selectAnnotation: (index) => viewer.selectAnnotation(index),
+        requestFullscreen: () => viewer.requestFullscreen(),
+        exitFullscreen: () => viewer.exitFullscreen(),
+        startXR: (mode) => viewer.startXR(mode),
+        endXR: () => viewer.endXR(),
         destroy: () => viewer.destroy()
     };
 
@@ -473,5 +475,5 @@ console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engi
 
 export type { CaptureResult } from './capture';
 export type { CreateViewerOptions, ViewerAssets, ViewerFlags } from './options';
-export type { CaptureOptions, ViewerHandle, ViewerState } from './types';
+export type { CaptureOptions, ViewerHandle, ViewerState, XrMode } from './types';
 export { createViewer };

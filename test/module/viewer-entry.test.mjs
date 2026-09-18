@@ -64,6 +64,7 @@ describe('the /viewer entry', () => {
             'ViewerFlags',
             'ViewerHandle',
             'ViewerState',
+            'XrMode',
             'CaptureOptions',
             'CaptureResult'
         ]) {
@@ -82,6 +83,13 @@ describe('the /viewer entry', () => {
         assert.match(types, /\/\*\*\s*\* Enter walk mode[\s\S]*?\*\/\s*toggleWalk\(\): void;/);
         assert.match(types, /readonly annotations: readonly Readonly<Annotation>\[\];/);
         assert.match(types, /selectedAnnotation: number \| null;/);
+        assert.match(types, /requestFullscreen\(\): Promise<void>;/);
+        assert.match(types, /exitFullscreen\(\): Promise<void>;/);
+        assert.match(types, /startXR\(mode: XrMode\): Promise<void>;/);
+        assert.match(types, /endXR\(\): Promise<void>;/);
+        assert.match(types, /canStartAR: boolean;/);
+        assert.match(types, /canStartVR: boolean;/);
+        assert.match(types, /xrMode: XrMode \| null;/);
         assert.match(
             types,
             /\/\*\*\s*\* Select an annotation[\s\S]*?\*\/\s*selectAnnotation\(index: number \| null\): void;/

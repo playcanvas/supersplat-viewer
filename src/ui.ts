@@ -7,7 +7,9 @@ import type { Global, ViewerHandle } from './types';
 import { initAnnotationControls } from './ui/annotation-controls';
 import { Annotations } from './ui/annotations';
 import { initCameraControls } from './ui/camera-controls';
+import { initFullscreenControls } from './ui/fullscreen-controls';
 import { initPlayback } from './ui/playback';
+import { initXrControls } from './ui/xr-controls';
 
 // Initialize the touch joystick for fly mode camera control
 const initJoystick = (
@@ -221,10 +223,7 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         'tooltip',
         'viewerBranding',
         'viewerTitle',
-        'appVersionLabel',
-        'xrModal',
-        'xrModalOk',
-        'xrModalCancel'
+        'appVersionLabel'
     ].reduce((acc: Record<string, HTMLElement>, name) => {
         acc[name] = root.querySelector<HTMLElement>(`.sse-${name}`);
         return acc;
@@ -282,62 +281,6 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         dom.loadingWrap.classList.add('sse-hidden');
     });
 
-    // Fullscreen support. The root goes fullscreen rather than the document, so an embedded
-    // instance fills the screen on its own; the standalone document's root is <body>.
-    const hasFullscreenAPI = root.requestFullscreen && document.exitFullscreen;
-
-    const requestFullscreen = () => {
-        if (hasFullscreenAPI) {
-            root.requestFullscreen();
-        } else {
-            window.parent.postMessage('requestFullscreen', '*');
-            state.isFullscreen = true;
-        }
-    };
-
-    const exitFullscreen = () => {
-        if (hasFullscreenAPI) {
-            if (document.fullscreenElement) {
-                document.exitFullscreen().catch(() => {
-                    // intentionally ignored
-                });
-            }
-        } else {
-            window.parent.postMessage('exitFullscreen', '*');
-            state.isFullscreen = false;
-        }
-    };
-
-    if (hasFullscreenAPI) {
-        const onFullscreenChange = () => {
-            // ours, not another instance's on the same page
-            state.isFullscreen = document.fullscreenElement === root;
-        };
-        document.addEventListener('fullscreenchange', onFullscreenChange);
-        disposers.push(() => document.removeEventListener('fullscreenchange', onFullscreenChange));
-    }
-
-    dom.enterFullscreen.addEventListener('click', requestFullscreen);
-    dom.exitFullscreen.addEventListener('click', exitFullscreen);
-
-    // toggle fullscreen when user switches between landscape portrait
-    // orientation
-    const onOrientationChange = () => {
-        if (['landscape-primary', 'landscape-secondary'].includes(screen.orientation.type)) {
-            requestFullscreen();
-        } else {
-            exitFullscreen();
-        }
-    };
-    screen?.orientation?.addEventListener('change', onOrientationChange);
-    disposers.push(() => screen?.orientation?.removeEventListener('change', onOrientationChange));
-
-    // update UI when fullscreen state changes
-    events.on('isFullscreen:changed', (value) => {
-        dom.enterFullscreen.classList[value ? 'add' : 'remove']('sse-hidden');
-        dom.exitFullscreen.classList[value ? 'remove' : 'add']('sse-hidden');
-    });
-
     // Performance mode toggle
     dom.performanceModeRow.addEventListener('click', () => {
         state.performanceMode = !state.performanceMode;
@@ -383,48 +326,6 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     events.on('gamingControls:changed', (value: boolean) => localStorage.setItem('gamingControls', String(value)));
     events.on('showAnnotations:changed', (value: boolean) => localStorage.setItem('showAnnotations', String(value)));
 
-    // AR/VR
-    const arChanged = () => dom.arMode.classList[state.hasAR ? 'remove' : 'add']('sse-hidden');
-    const vrChanged = () => dom.vrMode.classList[state.hasVR ? 'remove' : 'add']('sse-hidden');
-
-    // When a session can't start on the current (WebGPU) device but would work on
-    // WebGL, prompt the user to reload the viewer with the WebGL renderer before
-    // starting AR/VR. Use replace() so the renderer-switch reload doesn't add a
-    // back-button entry — important because the viewer often runs inside an
-    // iframe (e.g. superspl.at /scene).
-    const reloadWithWebgl = () => {
-        const reloadUrl = new URL(location.href);
-        reloadUrl.searchParams.set('webgl', '');
-        location.replace(reloadUrl.toString());
-    };
-
-    const showXrModal = () => dom.xrModal.classList.remove('sse-hidden');
-    const hideXrModal = () => dom.xrModal.classList.add('sse-hidden');
-
-    dom.xrModalOk.addEventListener('click', reloadWithWebgl);
-    dom.xrModalCancel.addEventListener('click', hideXrModal);
-    dom.xrModal.addEventListener('pointerdown', hideXrModal);
-
-    const handleXrClick = (type: 'AR' | 'VR') => {
-        // Availability is backend-aware: when the session can start on the current
-        // device (WebGPU included), start it directly. Otherwise the button is only
-        // visible because the session would work on WebGL, so offer the reload.
-        if (global.app.xr.isAvailable(type === 'AR' ? 'immersive-ar' : 'immersive-vr')) {
-            events.fire(type === 'AR' ? 'startAR' : 'startVR');
-        } else {
-            showXrModal();
-        }
-    };
-
-    dom.arMode.addEventListener('click', () => handleXrClick('AR'));
-    dom.vrMode.addEventListener('click', () => handleXrClick('VR'));
-
-    events.on('hasAR:changed', arChanged);
-    events.on('hasVR:changed', vrChanged);
-
-    arChanged();
-    vrChanged();
-
     // Info panel
     const updateInfoTab = (tab: 'desktop' | 'touch') => {
         if (tab === 'desktop') {
@@ -466,11 +367,6 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
             // close info panel on cancel
             dom.infoPanel.classList.add('sse-hidden');
             dom.settingsPanel.classList.add('sse-hidden');
-
-            // close fullscreen on cancel
-            if (state.isFullscreen) {
-                exitFullscreen();
-            }
         } else if (event === 'interrupt') {
             dom.settingsPanel.classList.add('sse-hidden');
         }
@@ -551,6 +447,8 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
 
     disposers.push(initPlayback(viewer, root, showUI));
     disposers.push(initCameraControls(viewer, root));
+    disposers.push(initFullscreenControls(viewer, root));
+    disposers.push(initXrControls(viewer, root));
 
     // Walk mode hint banner (shown once per session on first FPS entry)
     let walkHintShown = false;

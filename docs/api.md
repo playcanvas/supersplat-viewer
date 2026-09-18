@@ -77,6 +77,8 @@ scene is visible. It returns:
 | `resetCamera()` | Restores the fly/walk entry spawn, or the authored initial view in orbit mode; requires `state.loaded` |
 | `toggleWalk()` | Enters walk mode or restores the previous mode. Does nothing if `walkAllowed` is false; requires `state.loaded` |
 | `selectAnnotation(index)` | Selects a zero-based annotation index and transitions to its orbit camera. Pass `null` to clear selection without starting another camera movement; requires `state.loaded` |
+| `requestFullscreen()` / `exitFullscreen()` | Enter or leave fullscreen for this viewer. Return promises; available before scene readiness |
+| `startXR('ar' \| 'vr')` / `endXR()` | Start or end an immersive session. Return promises; starting requires `state.loaded` |
 | `destroy()` | Releases the engine application, the graphics context, every listener and the subtree. Idempotent |
 | `app` | The underlying PlayCanvas application, for anything this API doesn't cover |
 
@@ -154,6 +156,27 @@ else viewer.events.once('loaded:changed', selectFirst);
 Selection switches to orbit and transitions to the annotation's authored camera without changing the animation pause flag. Selecting the same index again navigates again. `selectAnnotation(null)` clears selection while leaving the camera and any transition alone. Commands return immediately and throw before readiness, after destruction, or for an index that is not an integer in range. Clearing an empty annotation list is valid.
 
 With `ui: false`, the same data, selection and camera navigation are available; the host supplies presentation. `state.showAnnotations` controls built-in visibility and does not clear selection, so showing annotations again restores the selected panel. The built-in navigator retains its last title and navigation position after dismissal. Clicking elsewhere inside this viewer clears selection; clicking host controls or another viewer does not.
+
+### Fullscreen and XR
+
+Fullscreen and XR commands work with the built-in controls or `ui: false`. Call entry commands directly from a user gesture, such as a button click, and handle their rejected promises when the browser refuses permission. Fullscreen does not require scene readiness; XR entry requires `state.loaded`.
+
+```ts
+fullscreenButton.addEventListener('click', () => {
+    viewer.requestFullscreen().catch(showError);
+});
+vrButton.addEventListener('click', () => {
+    viewer.startXR('vr').catch(showError);
+});
+viewer.events.on('isFullscreen:changed', updateControls);
+viewer.events.on('xrMode:changed', updateControls);
+```
+
+Native fullscreen targets this viewer's root. Read-only `state.isFullscreen` follows browser entry and exit, including Escape, and the built-in buttons follow host commands. `exitFullscreen()` is a no-op when another element owns fullscreen. Without native fullscreen support, an iframe retains the legacy `requestFullscreen` / `exitFullscreen` parent messages: the promise resolves when sent and `isFullscreen` reports the requested state, because that bridge has no acknowledgement. An unsupported top-level page rejects entry. Automatic entry/exit on orientation changes remains a built-in UI policy; replacement controls choose their own policy.
+
+`state.canStartAR` and `state.canStartVR` report availability on the current renderer. `hasAR` and `hasVR` also include sessions that could work after a WebGL reload. Subscribe to their change events because capability checks can finish after creation. The built-in UI offers the reload prompt; `startXR()` itself never reloads the page and rejects when the current renderer cannot host the session. Browser permission and device availability can still prevent entry.
+
+Read-only `state.xrMode` is `'ar'`, `'vr'` or `null` and follows both API and browser-initiated session exit. `startXR()` resolves when the session starts; it rejects invalid modes and attempts while a session is active, starting or ending. `endXR()` resolves on session exit, is a no-op while idle, and rejects during startup or another pending exit. All four methods reject after destruction; destruction also rejects outstanding API waits. Browser session requests themselves cannot be cancelled, so native XR teardown while a permission request is open still needs device testing.
 
 ### Restyling
 

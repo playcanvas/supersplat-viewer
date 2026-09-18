@@ -14,6 +14,9 @@ type CameraMode = 'orbit' | 'anim' | 'fly' | 'walk';
 
 type InputMode = 'desktop' | 'touch';
 
+/** Immersive session kind accepted by {@link ViewerHandle.startXR}. */
+type XrMode = 'ar' | 'vr';
+
 // the createViewer options with every default applied: what the viewer reads at runtime, and
 // immutable once it starts. The flags are documented on ViewerFlags
 type Config = ViewerAssets &
@@ -47,6 +50,12 @@ type State = {
     hasAR: boolean;
     /** Whether a VR session can start, or could after reloading into WebGL. */
     hasVR: boolean;
+    /** Whether AR can start on the current renderer, without a WebGL reload. */
+    canStartAR: boolean;
+    /** Whether VR can start on the current renderer, without a WebGL reload. */
+    canStartVR: boolean;
+    /** Active immersive session kind, or null. Read-only: use `startXR` / `endXR`. */
+    xrMode: XrMode | null;
     /** Whether the experience ships collision data, which walk mode needs. */
     hasCollision: boolean;
     /** Whether that collision data can be drawn as a debug overlay. */
@@ -55,7 +64,7 @@ type State = {
     walkAllowed: boolean;
     /** Draws the collision debug overlay. */
     collisionOverlayEnabled: boolean;
-    /** Whether this instance is the fullscreen element. Read-only: the viewer observes it. */
+    /** Native fullscreen ownership, or the requested state of the legacy iframe parent bridge. */
     isFullscreen: boolean;
     /** Fades the controls out. The viewer also sets this on an idle timer. */
     controlsHidden: boolean;
@@ -156,6 +165,22 @@ type ViewerHandle = {
      */
     selectAnnotation(index: number | null): void;
     /**
+     * Request fullscreen for this viewer's root. Call from a user gesture; rejects on browser
+     * refusal or destruction. Available before scene loading finishes. Without native support,
+     * an iframe sends the legacy parent message and resolves without acknowledgement.
+     */
+    requestFullscreen(): Promise<void>;
+    /** Leave this viewer's fullscreen, leaving other fullscreen elements alone. Rejects after destruction. */
+    exitFullscreen(): Promise<void>;
+    /**
+     * Start AR or VR from a user gesture after `state.loaded`. Requires `canStartAR` / `canStartVR`
+     * on the current renderer; the host owns any reload UI. Resolves on session start and rejects
+     * on refusal, unavailable XR, an existing/pending session or destruction.
+     */
+    startXR(mode: XrMode): Promise<void>;
+    /** End the active XR session. Idle is a no-op; rejects during startup or after destruction. */
+    endXR(): Promise<void>;
+    /**
      * Release everything: the engine application, the graphics context, every listener, and the
      * subtree built inside the container. Idempotent, and safe before loading finishes.
      */
@@ -178,4 +203,4 @@ type Global = {
     localize: Localize;
 };
 
-export { CameraMode, InputMode, Config, State, Global, ViewerState, CaptureOptions, ViewerHandle };
+export { CameraMode, InputMode, XrMode, Config, State, Global, ViewerState, CaptureOptions, ViewerHandle };

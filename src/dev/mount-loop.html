@@ -91,7 +91,10 @@
             Annotation mode supplies two annotations and host selection controls. &annotations=N
             overrides the count in any mode, including teardown and two-instance checks.
 
-            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations  ?instances=2  ?webgl  ?content=  ?settings=
+            Browser mode supplies fullscreen/XR host controls and delayed-request teardown checks.
+            XR callback simulations check cancellation without claiming to test a native session.
+
+            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser  ?instances=2  ?webgl  ?content=  ?settings=
         -->
         <div id="hosts"></div>
         <pre id="harness"></pre>
@@ -254,7 +257,152 @@
                 return unhandled.length === before;
             };
 
-            if (mode === 'annotations') {
+            if (mode === 'browser') {
+                const check = (name, ok) => log(`${ok ? 'ok  ' : 'FAIL'} ${name}`, !ok);
+                const rejects = async (work) => {
+                    try {
+                        await work;
+                        return false;
+                    } catch {
+                        return true;
+                    }
+                };
+                const viewers = [];
+                for (let i = 0; i < 2; i++) {
+                    const host = addHost();
+                    const viewer = await createViewer({ container: host, settings, ...createOptions() });
+                    viewers.push(viewer);
+                    check(`viewer ${i + 1}: XR rejects before readiness`, await rejects(viewer.startXR('vr')));
+                    await viewer.endXR();
+                    check(`viewer ${i + 1}: loaded`, await until(() => viewer.state.loaded, 30000));
+                }
+                const [viewer, other] = viewers;
+                const root = viewer.app.graphicsDevice.canvas.parentElement;
+                const panel = document.createElement('div');
+                panel.style.cssText =
+                    'position:absolute;top:8px;left:8px;z-index:1000;background:white;color:black;padding:8px';
+                root.appendChild(panel);
+                const status = document.createElement('div');
+                const update = () => {
+                    status.textContent = `Fullscreen ${viewer.state.isFullscreen}; XR ${viewer.state.xrMode}; AR ${viewer.state.canStartAR}/${viewer.state.hasAR}; VR ${viewer.state.canStartVR}/${viewer.state.hasVR}`;
+                };
+                const subscriptions = ['isFullscreen', 'xrMode', 'canStartAR', 'canStartVR', 'hasAR', 'hasVR'].map(
+                    (key) => viewer.events.on(`${key}:changed`, update)
+                );
+                const button = (title, run) => {
+                    const button = document.createElement('button');
+                    button.textContent = title;
+                    button.onclick = () => {
+                        Promise.resolve(run()).catch((error) => log(`FAIL ${title}: ${error.message}`, true));
+                    };
+                    panel.appendChild(button);
+                };
+                button('Host fullscreen', async () => {
+                    await viewer.requestFullscreen();
+                    check(
+                        'native fullscreen owns this root',
+                        document.fullscreenElement === root && viewer.state.isFullscreen
+                    );
+                    check('other viewer stays out of fullscreen', !other.state.isFullscreen);
+                    await other.exitFullscreen();
+                    check('other viewer cannot exit this fullscreen', document.fullscreenElement === root);
+                    if (!url.searchParams.has('noui')) {
+                        check(
+                            'built-in buttons follow host fullscreen',
+                            root.querySelector('.sse-enterFullscreen').classList.contains('sse-hidden') &&
+                                !root.querySelector('.sse-exitFullscreen').classList.contains('sse-hidden')
+                        );
+                    }
+                });
+                button('Host exit fullscreen', async () => {
+                    await viewer.exitFullscreen();
+                    check('host exits fullscreen', !viewer.state.isFullscreen && document.fullscreenElement !== root);
+                });
+                for (const mode of ['ar', 'vr']) {
+                    button(`Host ${mode.toUpperCase()}`, async () => {
+                        try {
+                            await viewer.startXR(mode);
+                            log(`XR ${mode} started`);
+                        } catch (error) {
+                            log(`XR ${mode} refused: ${error.message}`);
+                        }
+                    });
+                    if (!(mode === 'ar' ? viewer.state.canStartAR : viewer.state.canStartVR)) {
+                        check(`unavailable ${mode} rejects`, await rejects(viewer.startXR(mode)));
+                    }
+                }
+                button('Host end XR', async () => {
+                    await viewer.endXR();
+                    check('XR ended or idle', viewer.state.xrMode === null);
+                });
+                check('invalid XR mode rejects', await rejects(viewer.startXR('invalid')));
+
+                // Simulate a refusal and a delayed engine callback, without asking for hardware.
+                const xr = other.app.xr;
+                const originalStart = xr.start;
+                const originalAvailable = xr.isAvailable;
+                const camera = cameraOf(other).camera;
+                const { nearClip, farClip } = camera;
+                xr.isAvailable = () => true;
+                xr.start = (camera, type, space, options) => options.callback(new Error('simulated refusal'));
+                check('XR refusal rejects', await rejects(other.startXR('vr')));
+                check('XR refusal restores clipping', camera.nearClip === nearClip && camera.farClip === farClip);
+                xr.start = originalStart;
+                xr.isAvailable = originalAvailable;
+
+                button('Destroy pending XR', async () => {
+                    let callback;
+                    xr.isAvailable = () => true;
+                    xr.start = (camera, type, space, options) => {
+                        callback = options.callback;
+                    };
+                    const pending = rejects(other.startXR('vr'));
+                    check('duplicate XR start rejects', await rejects(other.startXR('vr')));
+                    check('XR end during startup rejects', await rejects(other.endXR()));
+                    xr.start = originalStart;
+                    xr.isAvailable = originalAvailable;
+                    const gpu = handlesOf(other);
+                    other.destroy();
+                    check('pending XR rejects on destruction', await Promise.race([pending, timeout(1000, false)]));
+                    callback(null);
+                    check('XR callback after destruction leaves state idle', other.state.xrMode === null);
+                    check('XR destruction releases context', await released(gpu));
+                    check(
+                        'XR commands reject after destruction',
+                        (await rejects(other.startXR('vr'))) && (await rejects(other.endXR()))
+                    );
+                    await reportUnhandled();
+                });
+                button('Destroy pending fullscreen', async () => {
+                    const pending = rejects(viewer.requestFullscreen());
+                    const gpu = handlesOf(viewer);
+                    subscriptions.forEach((subscription) => subscription.off());
+                    viewer.destroy();
+                    check(
+                        'pending fullscreen rejects on destruction',
+                        await Promise.race([pending, timeout(1000, false)])
+                    );
+                    await timeout(200);
+                    check(
+                        'destroy removes fullscreen and subtree',
+                        !viewer.state.isFullscreen && document.fullscreenElement !== root && !root.isConnected
+                    );
+                    check('fullscreen destruction releases context', await released(gpu));
+                    check(
+                        'fullscreen commands reject after destruction',
+                        (await rejects(viewer.requestFullscreen())) && (await rejects(viewer.exitFullscreen()))
+                    );
+                    // Retained controls and browser events must not re-enter the dead viewer.
+                    root.querySelector('.sse-enterFullscreen')?.click();
+                    screen.orientation?.dispatchEvent(new Event('change'));
+                    document.dispatchEvent(new Event('fullscreenchange'));
+                    await reportUnhandled();
+                });
+                panel.appendChild(status);
+                update();
+                await reportUnhandled();
+                log('Browser controls ready; use real clicks for fullscreen and XR permission checks.');
+            } else if (mode === 'annotations') {
                 const host = addHost();
                 const viewer = await createViewer({ container: host, settings, ...createOptions() });
                 const { state, events, annotations } = viewer;

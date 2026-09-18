@@ -33,13 +33,15 @@ import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
 import { DebugPanel } from './debug';
+import { initFullscreen } from './fullscreen';
 import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
 import { NavCursor } from './nav-cursor';
 import { Picker } from './picker';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
-import type { CaptureOptions, Config, Global } from './types';
+import type { CaptureOptions, Config, Global, XrMode } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
+import { initXr } from './xr';
 
 // String.replace wrapper that warns when the source substring is missing, so
 // shader chunk patches against the engine fail loudly instead of silently
@@ -191,6 +193,10 @@ class Viewer {
 
     private disposers: (() => void)[] = [];
 
+    private fullscreen: ReturnType<typeof initFullscreen>;
+
+    private xr: ReturnType<typeof initXr>;
+
     private capture: Capture | null = null;
 
     // captures are serialised: they share the viewer camera, so concurrent ones would
@@ -232,6 +238,9 @@ class Viewer {
 
         const { app, settings, config, events, state, camera, renderer } = global;
         const { graphicsDevice } = app;
+
+        this.fullscreen = initFullscreen(global);
+        this.xr = initXr(global);
 
         this.ready = new Promise((resolve, reject) => {
             events.once('firstFrame', () => resolve());
@@ -275,8 +284,15 @@ class Viewer {
         this.configureCamera(settings);
 
         // reconfigure camera when entering/exiting XR
-        app.xr.on('start', () => this.configureCamera(settings));
-        app.xr.on('end', () => this.configureCamera(settings));
+        const configureXrCamera = () => {
+            if (!this.destroyed) this.configureCamera(settings);
+        };
+        const xrStart = app.xr.on('start', configureXrCamera);
+        const xrEnd = app.xr.on('end', configureXrCamera);
+        this.onDestroy(() => {
+            xrStart.off();
+            xrEnd.off();
+        });
 
         // construct debug ministats
         if (config.ministats) {
@@ -596,10 +612,14 @@ class Viewer {
         }, ignoreLoadFailure);
     }
 
-    private requireLoaded(method: string): void {
+    private requireAlive(method: string): void {
         if (this.destroyed) {
             throw new Error(`${method}: the viewer has been destroyed`);
         }
+    }
+
+    private requireLoaded(method: string): void {
+        this.requireAlive(method);
         if (!this.global.state.loaded) {
             throw new Error(`${method}: the viewer is not loaded`);
         }
@@ -631,6 +651,26 @@ class Viewer {
         }
         state.selectedAnnotation = index;
         app.renderNextFrame = true;
+    }
+
+    async requestFullscreen(): Promise<void> {
+        this.requireAlive('requestFullscreen');
+        return this.untilDestroyed(this.fullscreen.request());
+    }
+
+    async exitFullscreen(): Promise<void> {
+        this.requireAlive('exitFullscreen');
+        return this.untilDestroyed(this.fullscreen.exit());
+    }
+
+    async startXR(mode: XrMode): Promise<void> {
+        this.requireLoaded('startXR');
+        return this.xr.start(mode);
+    }
+
+    async endXR(): Promise<void> {
+        this.requireAlive('endXR');
+        return this.xr.end();
     }
 
     seek(time: number): void {
@@ -741,6 +781,9 @@ class Viewer {
         this.abortHandlers.clear();
 
         const { app } = this.global;
+
+        this.fullscreen.destroy();
+        this.xr.destroy();
 
         // subsystems holding listeners on the canvas, window or document, or gpu resources
         // outside the entity hierarchy
