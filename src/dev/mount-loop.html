@@ -420,6 +420,43 @@
                     check('movement teardown releases context and subtree', (await released(gpu)) && !root.isConnected);
                     other.destroy();
 
+                    // Reads can remain available when migration writes fail. Preserve every
+                    // saved preference, including the in-memory legacy performance value.
+                    for (const legacyRetina of ['true', 'false']) {
+                        for (const operation of ['setItem', 'removeItem']) {
+                            localStorage.removeItem('performanceMode');
+                            localStorage.setItem('retinaDisplay', legacyRetina);
+                            localStorage.setItem('gamingControls', 'true');
+                            localStorage.setItem('showAnnotations', 'false');
+                            const original = Storage.prototype[operation];
+                            try {
+                                Storage.prototype[operation] = () => {
+                                    throw new Error(`simulated migration ${operation} failure`);
+                                };
+                                const migrated = await createViewer({
+                                    container: addHost(),
+                                    settings,
+                                    ...createOptions(),
+                                    ui: false
+                                });
+                                viewers.push(migrated);
+                                check(
+                                    `failed ${operation} preserves preferences (retinaDisplay=${legacyRetina})`,
+                                    migrated.state.performanceMode === (legacyRetina === 'false') &&
+                                        migrated.state.gamingControls &&
+                                        !migrated.state.showAnnotations
+                                );
+                                check(
+                                    `failed ${operation} retains the legacy storage key`,
+                                    localStorage.getItem('retinaDisplay') === legacyRetina
+                                );
+                                migrated.destroy();
+                            } finally {
+                                Storage.prototype[operation] = original;
+                            }
+                        }
+                    }
+
                     const originalGet = Storage.prototype.getItem;
                     try {
                         Storage.prototype.getItem = () => {

@@ -20,6 +20,8 @@ import type { Global } from './types';
  * resulting per-frame `InputFrame` for the camera manager to consume.
  */
 class InputController {
+    moveSpeed = 4;
+
     frame = new InputFrame({
         move: [0, 0, 0],
         rotate: [0, 0, 0]
@@ -166,7 +168,8 @@ class InputController {
 
         if (isFirstPerson && (this._moveInput[0] !== 0 || this._moveInput[1] !== 0)) {
             this._global.events.fire('navigateCancel');
-            this.frame.deltas.move.append([this._moveInput[0] * 4 * dt, 0, this._moveInput[1] * 4 * dt]);
+            const speed = this.moveSpeed * dt;
+            this.frame.deltas.move.append([this._moveInput[0] * speed, 0, this._moveInput[1] * speed]);
         }
     }
 }

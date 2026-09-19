@@ -9,11 +9,16 @@ const readPreferences = (mobile: boolean): Preferences => {
     try {
         // Preserve the legacy preference migration and origin-wide keys.
         const legacyRetina = localStorage.getItem('retinaDisplay');
-        if (legacyRetina !== null && localStorage.getItem('performanceMode') === null) {
-            localStorage.setItem('performanceMode', String(legacyRetina === 'false'));
-            localStorage.removeItem('retinaDisplay');
+        let performanceMode = localStorage.getItem('performanceMode');
+        if (legacyRetina !== null && performanceMode === null) {
+            performanceMode = String(legacyRetina === 'false');
+            try {
+                localStorage.setItem('performanceMode', performanceMode);
+                localStorage.removeItem('retinaDisplay');
+            } catch {
+                // Keep the migrated runtime value even if storage cannot be updated.
+            }
         }
-        const performanceMode = localStorage.getItem('performanceMode');
         return {
             performanceMode: performanceMode === null ? mobile : performanceMode === 'true',
             gamingControls: localStorage.getItem('gamingControls') === 'true',

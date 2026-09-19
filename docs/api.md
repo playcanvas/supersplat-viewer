@@ -220,7 +220,7 @@ the AR/VR fallback prompt are part of the UI you are replacing, so those afforda
 yours too. Everything between the two, replacing some of the UI but keeping the rest, is not
 supported yet; the class names inside the viewer are not API and do change.
 
-[The custom UI example](../src/dev/custom-ui.html) demonstrates loading, playback, camera modes, directional movement, annotations, preferences and fullscreen/XR using only the handle and documented state events. Run it locally at `/custom-ui?content=./scene.ply&settings=./settings.json` (`&webgl` selects WebGL). It is a development example, not a React package or a published UI component. Its controls live outside the fullscreen viewer root, so use Escape or the browser's exit affordance to leave fullscreen.
+[The custom UI example](https://github.com/playcanvas/supersplat-viewer/blob/main/src/dev/custom-ui.html) demonstrates loading, playback, camera modes, directional movement, annotations, preferences and fullscreen/XR using only the handle and documented state events. Run it locally at `/custom-ui?content=./scene.ply&settings=./settings.json` (`&webgl` selects WebGL). It is a development example, not a React package or a published UI component. Its controls live outside the fullscreen viewer root, so use Escape or the browser's exit affordance to leave fullscreen.
 
 ## Settings
 
