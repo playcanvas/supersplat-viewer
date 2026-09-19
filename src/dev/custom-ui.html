@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>SuperSplat — custom controls</title>
+        <link rel="stylesheet" href="./index.css" />
+        <style>
+            body {
+                margin: 0;
+                background: #17191d;
+                color: #eee;
+                font: 15px system-ui;
+            }
+            main {
+                display: grid;
+                grid-template-columns: 1fr 320px;
+                height: 100dvh;
+            }
+            #scene {
+                min-width: 0;
+                min-height: 0;
+            }
+            aside {
+                overflow: auto;
+                padding: 20px;
+                background: #24272e;
+            }
+            h1 {
+                font-size: 20px;
+                margin-top: 0;
+            }
+            fieldset {
+                border: 0;
+                padding: 0;
+                margin: 18px 0;
+            }
+            legend {
+                font-weight: 600;
+                margin-bottom: 8px;
+            }
+            button,
+            select {
+                padding: 8px;
+                margin: 3px;
+            }
+            label {
+                display: block;
+                margin: 6px 0;
+            }
+            input[type='range'],
+            progress {
+                width: 100%;
+            }
+            #movement {
+                touch-action: none;
+            }
+            #error {
+                color: #ffb9b9;
+            }
+            #details {
+                white-space: pre-wrap;
+            }
+            @media (max-width: 700px) {
+                main {
+                    grid-template-columns: 1fr;
+                    grid-template-rows: 55dvh 1fr;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <div id="scene"></div>
+            <aside id="controls">
+                <h1>Custom controls</h1>
+                <p>This page uses <code>ui: false</code> and the public viewer handle.</p>
+                <progress id="progress" max="100"></progress>
+                <p id="status" role="status">Creating viewer…</p>
+                <p id="error" role="alert"></p>
+                <fieldset id="actions" disabled>
+                    <legend>Camera</legend>
+                    <label
+                        >Mode
+                        <select id="camera">
+                            <option value="orbit">Orbit</option>
+                            <option value="fly">Fly</option>
+                            <option value="walk">Walk</option>
+                            <option value="anim">Animation</option>
+                        </select></label
+                    >
+                    <button id="frame">Frame scene</button><button id="reset">Reset camera</button>
+                    <fieldset id="movement">
+                        <legend>Hold to move in fly or walk mode</legend>
+                        <button data-x="0" data-z="1">Forward</button><button data-x="-1" data-z="0">Left</button
+                        ><button data-x="1" data-z="0">Right</button><button data-x="0" data-z="-1">Back</button>
+                    </fieldset>
+                    <fieldset id="playback">
+                        <legend>Playback</legend>
+                        <button id="play">Play</button><button id="pause">Pause</button>
+                        <label>Timeline <input id="timeline" type="range" min="0" step="0.01" /></label>
+                    </fieldset>
+                    <fieldset>
+                        <legend>Annotations</legend>
+                        <select id="annotations" aria-label="Annotation">
+                            <option value="">No selection</option>
+                        </select>
+                        <p id="details"></p>
+                    </fieldset>
+                    <fieldset>
+                        <legend>Preferences</legend>
+                        <label><input id="performanceMode" type="checkbox" /> Performance mode</label>
+                        <label><input id="gamingControls" type="checkbox" /> Gaming controls</label>
+                        <label><input id="showAnnotations" type="checkbox" /> Show built-in annotations</label>
+                        <small>Saved for this origin. This custom panel always shows the selected annotation.</small>
+                    </fieldset>
+                    <button id="fullscreen">Fullscreen</button><button id="ar">Enter AR</button
+                    ><button id="vr">Enter VR</button><button id="end-xr">End XR</button>
+                    <p id="xr-hint"></p>
+                </fieldset>
+                <button id="destroy" disabled>Destroy viewer</button>
+            </aside>
+        </main>
+        <script type="module">
+            import { createViewer } from './index.js';
+
+            // No engine access, private events or queries into the viewer's markup.
+            const $ = (id) => document.getElementById(id);
+            const params = new URL(location.href).searchParams;
+            const showError = (error) => {
+                $('error').textContent = error.message;
+            };
+            let viewer;
+            try {
+                viewer = await createViewer({
+                    container: $('scene'),
+                    ui: false,
+                    contentUrl: params.get('content') ?? './scene.compressed.ply',
+                    settings: params.get('settings') ?? './settings.json',
+                    collisionUrl: params.get('collision') ?? undefined,
+                    renderer: params.has('webgl') ? 'webgl' : 'webgpu'
+                });
+            } catch (error) {
+                showError(error);
+            }
+            if (viewer) {
+                const { state, events } = viewer;
+                let destroyed = false;
+                const run = (action) => {
+                    if (destroyed) return;
+                    $('error').textContent = '';
+                    try {
+                        Promise.resolve(action()).catch(showError);
+                    } catch (error) {
+                        showError(error);
+                    }
+                };
+                const click = (id, action) => $(id).addEventListener('click', () => run(action));
+                click('frame', () => viewer.frameScene());
+                click('reset', () => viewer.resetCamera());
+                click('play', () => {
+                    state.cameraMode = 'anim';
+                    state.animationPaused = false;
+                });
+                click('pause', () => {
+                    state.animationPaused = true;
+                });
+                click('fullscreen', () => viewer.requestFullscreen());
+                click('ar', () => viewer.startXR('ar'));
+                click('vr', () => viewer.startXR('vr'));
+                click('end-xr', () => viewer.endXR());
+                $('camera').onchange = () =>
+                    run(() => {
+                        state.cameraMode = $('camera').value;
+                    });
+                $('timeline').oninput = () =>
+                    run(() => {
+                        state.animationPaused = true;
+                        viewer.seek(Number($('timeline').value));
+                    });
+                for (const key of ['performanceMode', 'gamingControls', 'showAnnotations']) {
+                    $(key).onchange = () =>
+                        run(() => {
+                            state[key] = $(key).checked;
+                        });
+                }
+                viewer.annotations.forEach((annotation, index) => {
+                    $('annotations').add(new Option(annotation.title, String(index)));
+                });
+                $('annotations').onchange = () =>
+                    run(() =>
+                        viewer.selectAnnotation($('annotations').value === '' ? null : Number($('annotations').value))
+                    );
+
+                let held = null;
+                const stop = () => {
+                    if (!held) return;
+                    const { button, pointerId } = held;
+                    held = null;
+                    if (!destroyed) viewer.setMoveInput(0, 0);
+                    if (button.hasPointerCapture(pointerId)) button.releasePointerCapture(pointerId);
+                };
+                for (const button of $('movement').querySelectorAll('button')) {
+                    button.onpointerdown = (event) =>
+                        run(() => {
+                            if (held) return;
+                            if (state.cameraMode !== 'walk' && state.cameraMode !== 'fly') state.cameraMode = 'fly';
+                            held = { button, pointerId: event.pointerId };
+                            button.setPointerCapture(event.pointerId);
+                            viewer.setMoveInput(Number(button.dataset.x), Number(button.dataset.z));
+                            event.preventDefault();
+                        });
+                    for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+                        button.addEventListener(name, (event) => {
+                            if (event.pointerId === held?.pointerId) stop();
+                        });
+                    }
+                }
+                window.addEventListener('blur', stop);
+                document.addEventListener('visibilitychange', stop);
+                // The host chooses keyboard/gamepad ownership while its form has focus.
+                $('controls').onfocusin = () => {
+                    state.inputEnabled = false;
+                };
+                $('controls').onfocusout = (event) => {
+                    if (!$('controls').contains(event.relatedTarget)) state.inputEnabled = true;
+                };
+                const update = () => {
+                    $('progress').value = state.progress;
+                    $('status').textContent =
+                        `${state.loaded ? 'Ready' : 'Loading'} · ${state.cameraMode} · ${state.cameraMode === 'anim' && !state.animationPaused ? 'playing' : 'paused'} · ${state.animationTime.toFixed(2)}s · XR ${state.xrMode ?? 'off'}`;
+                    $('actions').disabled = !state.loaded;
+                    $('camera').value = state.cameraMode;
+                    $('camera').querySelector('[value="walk"]').disabled = !state.walkAllowed;
+                    $('camera').querySelector('[value="anim"]').disabled = !state.hasAnimation;
+                    $('playback').disabled = !state.hasAnimation;
+                    $('timeline').max = state.animationDuration;
+                    $('timeline').value = state.animationTime;
+                    $('annotations').value = state.selectedAnnotation ?? '';
+                    $('details').textContent =
+                        state.selectedAnnotation === null ? '' : viewer.annotations[state.selectedAnnotation].text;
+                    for (const key of ['performanceMode', 'gamingControls', 'showAnnotations'])
+                        $(key).checked = state[key];
+                    $('ar').disabled = !state.canStartAR || state.xrMode !== null;
+                    $('vr').disabled = !state.canStartVR || state.xrMode !== null;
+                    $('end-xr').disabled = state.xrMode === null;
+                    $('xr-hint').textContent =
+                        (state.hasAR && !state.canStartAR) || (state.hasVR && !state.canStartVR)
+                            ? 'XR needs a WebGL viewer. Add &webgl to this page URL and reload.'
+                            : '';
+                };
+                const subscriptions = [
+                    'loaded',
+                    'progress',
+                    'cameraMode',
+                    'walkAllowed',
+                    'hasAnimation',
+                    'animationPaused',
+                    'animationTime',
+                    'selectedAnnotation',
+                    'performanceMode',
+                    'gamingControls',
+                    'showAnnotations',
+                    'canStartAR',
+                    'canStartVR',
+                    'hasAR',
+                    'hasVR',
+                    'xrMode'
+                ].map((key) => events.on(`${key}:changed`, update));
+                subscriptions.push(events.on('cameraMode:changed', stop), events.on('xrMode:changed', stop));
+                const destroy = () => {
+                    if (destroyed) return;
+                    stop();
+                    destroyed = true;
+                    for (const subscription of subscriptions) subscription.off();
+                    window.removeEventListener('blur', stop);
+                    document.removeEventListener('visibilitychange', stop);
+                    window.removeEventListener('pagehide', destroy);
+                    $('controls').onfocusin = $('controls').onfocusout = null;
+                    viewer.destroy();
+                    $('actions').disabled = $('destroy').disabled = true;
+                    $('status').textContent = 'Destroyed';
+                };
+                $('destroy').disabled = false;
+                $('destroy').onclick = destroy;
+                window.addEventListener('pagehide', destroy);
+                update();
+            }
+        </script>
+    </body>
+</html>

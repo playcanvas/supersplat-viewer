@@ -64,6 +64,7 @@ describe('the /viewer entry', () => {
             'ViewerFlags',
             'ViewerHandle',
             'ViewerState',
+            'XrMode',
             'CaptureOptions',
             'CaptureResult'
         ]) {
@@ -77,6 +78,23 @@ describe('the /viewer entry', () => {
         // documentation a consumer never sees. These two are the ones worth having in an editor.
         assert.match(types, /\/\*\*[\s\S]*?The element the viewer builds its subtree in/);
         assert.match(types, /\/\*\*[\s\S]*?Observable state/);
+        assert.match(types, /\/\*\*\s*\* Seek the animation in seconds[\s\S]*?\*\/\s*seek\(time: number\): void;/);
+        assert.match(types, /\/\*\*\s*\* Reset the active camera[\s\S]*?\*\/\s*resetCamera\(\): void;/);
+        assert.match(types, /\/\*\*\s*\* Enter walk mode[\s\S]*?\*\/\s*toggleWalk\(\): void;/);
+        assert.match(types, /readonly annotations: readonly Readonly<Annotation>\[\];/);
+        assert.match(types, /selectedAnnotation: number \| null;/);
+        assert.match(types, /setMoveInput\(x: number, z: number\): void;/);
+        assert.match(types, /requestFullscreen\(\): Promise<void>;/);
+        assert.match(types, /exitFullscreen\(\): Promise<void>;/);
+        assert.match(types, /startXR\(mode: XrMode\): Promise<void>;/);
+        assert.match(types, /endXR\(\): Promise<void>;/);
+        assert.match(types, /canStartAR: boolean;/);
+        assert.match(types, /canStartVR: boolean;/);
+        assert.match(types, /xrMode: XrMode \| null;/);
+        assert.match(
+            types,
+            /\/\*\*\s*\* Select an annotation[\s\S]*?\*\/\s*selectAnnotation\(index: number \| null\): void;/
+        );
     });
 
     it('scopes every stylesheet rule to the instance root', () => {

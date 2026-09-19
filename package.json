@@ -45,6 +45,7 @@
     "public/index.css",
     "public/index.js",
     "public/index.js.map",
+    "docs/api.md",
     "LICENSE",
     "package.json",
     "README.md"

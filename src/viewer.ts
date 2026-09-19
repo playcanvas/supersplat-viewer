@@ -25,7 +25,6 @@ import {
 } from 'playcanvas';
 import type { CameraComponent, Entity, GraphicsDevice, GSplatComponent, Layer } from 'playcanvas';
 
-import { Annotations } from './annotations';
 import { CameraManager, isWalkAllowed } from './camera-manager';
 import type { Camera } from './cameras/camera';
 import { Capture } from './capture';
@@ -34,13 +33,15 @@ import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
 import { DebugPanel } from './debug';
+import { initFullscreen } from './fullscreen';
 import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
 import { NavCursor } from './nav-cursor';
 import { Picker } from './picker';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
-import type { CaptureOptions, Config, Global } from './types';
+import type { CaptureOptions, Config, Global, XrMode } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
+import { initXr } from './xr';
 
 // String.replace wrapper that warns when the source substring is missing, so
 // shader chunk patches against the engine fail loudly instead of silently
@@ -179,8 +180,6 @@ class Viewer {
 
     picker: Picker;
 
-    annotations: Annotations;
-
     voxelOverlay: VoxelDebugOverlay | null = null;
 
     meshOverlay: MeshDebugOverlay | null = null;
@@ -193,6 +192,10 @@ class Viewer {
     destroyed = false;
 
     private disposers: (() => void)[] = [];
+
+    private fullscreen: ReturnType<typeof initFullscreen>;
+
+    private xr: ReturnType<typeof initXr>;
 
     private capture: Capture | null = null;
 
@@ -208,7 +211,7 @@ class Viewer {
 
     private failReady!: (reason: Error) => void;
 
-    // Abort signals for the captures in flight. A capture's later waits are inside the engine,
+    // Abort signals for frame waits and captures in flight. A capture's later waits are inside the engine,
     // so they are raced against one of these rather than handled individually — and each is
     // removed as its capture settles, since a signal that outlived it would keep the race, and
     // with it the captured image, reachable until the viewer went away.
@@ -235,6 +238,9 @@ class Viewer {
 
         const { app, settings, config, events, state, camera, renderer } = global;
         const { graphicsDevice } = app;
+
+        this.fullscreen = initFullscreen(global);
+        this.xr = initXr(global);
 
         this.ready = new Promise((resolve, reject) => {
             events.once('firstFrame', () => resolve());
@@ -278,8 +284,15 @@ class Viewer {
         this.configureCamera(settings);
 
         // reconfigure camera when entering/exiting XR
-        app.xr.on('start', () => this.configureCamera(settings));
-        app.xr.on('end', () => this.configureCamera(settings));
+        const configureXrCamera = () => {
+            if (!this.destroyed) this.configureCamera(settings);
+        };
+        const xrStart = app.xr.on('start', configureXrCamera);
+        const xrEnd = app.xr.on('end', configureXrCamera);
+        this.onDestroy(() => {
+            xrStart.off();
+            xrEnd.off();
+        });
 
         // construct debug ministats
         if (config.ministats) {
@@ -382,25 +395,27 @@ class Viewer {
 
         // update state on first frame
         events.on('firstFrame', () => {
-            state.loaded = true;
             state.animationPaused = !!config.noanim;
+            state.loaded = true;
 
             // the window.* hooks below are the standalone document's api for the thumbnail
             // pipeline and console debugging; an embedded instance keeps them off, since two
             // viewers would overwrite each other's
             if (!config.exposeGlobals) return;
 
-            window.scrubTo = (time: number) => {
-                if (!state.hasAnimation) {
-                    return Promise.reject(new Error('No animation track'));
-                }
-
+            window.scrubTo = async (time: number) => {
+                this.seek(time);
                 state.animationPaused = true;
-                return new Promise<void>((resolve) => {
-                    events.fire('scrubAnim', time);
-                    app.renderNextFrame = true;
-                    app.once('frameend', () => resolve());
+                let onFrame!: () => void;
+                const rendered = new Promise<void>((resolve) => {
+                    onFrame = resolve;
+                    app.once('frameend', onFrame);
                 });
+                try {
+                    await this.untilDestroyed(rendered);
+                } finally {
+                    app.off('frameend', onFrame);
+                }
             };
 
             window.animationDuration = state.animationDuration;
@@ -472,10 +487,6 @@ class Viewer {
             const gsplatBbox = gsplatComponent.customAabb;
             if (gsplatBbox) {
                 sceneBound.setFromTransformedAabb(gsplatBbox, results[0].getWorldTransform());
-            }
-
-            if (config.ui) {
-                this.annotations = new Annotations(global, this.cameraFrame != null);
             }
 
             this.picker = new Picker(app, camera);
@@ -601,6 +612,88 @@ class Viewer {
         }, ignoreLoadFailure);
     }
 
+    private requireAlive(method: string): void {
+        if (this.destroyed) {
+            throw new Error(`${method}: the viewer has been destroyed`);
+        }
+    }
+
+    private requireLoaded(method: string): void {
+        this.requireAlive(method);
+        if (!this.global.state.loaded) {
+            throw new Error(`${method}: the viewer is not loaded`);
+        }
+    }
+
+    frameScene(): void {
+        this.requireLoaded('frameScene');
+        this.global.events.fire('inputEvent', 'frame');
+    }
+
+    resetCamera(): void {
+        this.requireLoaded('resetCamera');
+        this.global.events.fire('inputEvent', 'reset');
+    }
+
+    toggleWalk(): void {
+        this.requireLoaded('toggleWalk');
+        this.global.events.fire('inputEvent', 'toggleWalk');
+    }
+
+    selectAnnotation(index: number | null): void {
+        this.requireLoaded('selectAnnotation');
+        const { settings, state, app } = this.global;
+        if (index !== null) {
+            if (!Number.isInteger(index) || index < 0 || index >= settings.annotations.length) {
+                throw new RangeError('selectAnnotation: index must be an integer in range or null');
+            }
+            this.cameraManager.selectAnnotation(settings.annotations[index]);
+        }
+        state.selectedAnnotation = index;
+        app.renderNextFrame = true;
+    }
+
+    setMoveInput(x: number, z: number): void {
+        this.requireLoaded('setMoveInput');
+        if (!Number.isFinite(x) || !Number.isFinite(z)) {
+            throw new Error('setMoveInput: axes must be finite numbers');
+        }
+        this.inputController.setMoveInput(Math.max(-1, Math.min(1, x)), Math.max(-1, Math.min(1, z)));
+    }
+
+    async requestFullscreen(): Promise<void> {
+        this.requireAlive('requestFullscreen');
+        return this.untilDestroyed(this.fullscreen.request());
+    }
+
+    async exitFullscreen(): Promise<void> {
+        this.requireAlive('exitFullscreen');
+        return this.untilDestroyed(this.fullscreen.exit());
+    }
+
+    async startXR(mode: XrMode): Promise<void> {
+        this.requireLoaded('startXR');
+        return this.xr.start(mode);
+    }
+
+    async endXR(): Promise<void> {
+        this.requireAlive('endXR');
+        return this.xr.end();
+    }
+
+    seek(time: number): void {
+        this.requireLoaded('seek');
+        const { state, app } = this.global;
+        if (!state.hasAnimation) {
+            throw new Error('seek: no animation track');
+        }
+        if (!Number.isFinite(time)) {
+            throw new Error('seek: time must be finite');
+        }
+        this.cameraManager.seek(time);
+        app.renderNextFrame = true;
+    }
+
     /**
      * Render the scene, with post effects, into an offscreen supersampled target, GPU
      * box-downsample it to the requested size and return just that small buffer. Waits for
@@ -613,7 +706,7 @@ class Viewer {
             if (this.destroyed) {
                 throw new Error('captureFrame: the viewer has been destroyed');
             }
-            const { app, camera, state, events } = this.global;
+            const { app, camera, state } = this.global;
             if (!this.capture) {
                 this.capture = new Capture(app, camera.camera, () => this.cameraFrame ?? null);
             }
@@ -625,7 +718,7 @@ class Viewer {
                 scrub: (t) => {
                     if (state.hasAnimation) {
                         state.animationPaused = true;
-                        events.fire('scrubAnim', t);
+                        this.seek(t);
                     }
                 }
             });
@@ -688,7 +781,7 @@ class Viewer {
         this.destroyed = true;
 
         // settle anything waiting on an engine event, before the handlers go
-        const gone = () => new Error('captureFrame: the viewer has been destroyed');
+        const gone = () => new Error('the viewer has been destroyed');
         this.failReady(gone());
         for (const onAbort of this.abortHandlers) {
             onAbort(gone());
@@ -696,6 +789,9 @@ class Viewer {
         this.abortHandlers.clear();
 
         const { app } = this.global;
+
+        this.fullscreen.destroy();
+        this.xr.destroy();
 
         // subsystems holding listeners on the canvas, window or document, or gpu resources
         // outside the entity hierarchy
@@ -744,10 +840,6 @@ class Viewer {
         // entities (including the annotation scripts), input, assets, xr, the device and every
         // app event handler
         app.destroy();
-
-        // after the annotation entities are gone, so their destroy handlers still see the
-        // shared dom
-        this.annotations?.destroy();
 
         gl?.getExtension('WEBGL_lose_context')?.loseContext();
         wgpu?.destroy();

@@ -2,215 +2,15 @@ import type { EventHandler } from 'playcanvas';
 
 import { version as appVersion } from '../package.json';
 
-import type { Annotation } from './settings';
 import { Tooltip } from './tooltip';
-import type { Global } from './types';
-
-// Initialize the touch joystick for fly mode camera control
-const initJoystick = (
-    dom: Record<string, HTMLElement>,
-    events: EventHandler,
-    state: { cameraMode: string; inputMode: string; gamingControls: boolean }
-) => {
-    // Joystick dimensions (matches SCSS: base height=100, stick size=40)
-    const joystickHeight = 100;
-    const stickSize = 40;
-    const stickCenterY = (joystickHeight - stickSize) / 2; // 30px - top position when centered
-    const stickCenterX = (joystickHeight - stickSize) / 2; // 30px - left position when centered (for 2D mode)
-    const maxStickTravel = stickCenterY; // can travel 30px up or down from center
-
-    // Joystick touch state
-    let joystickPointerId: number | null = null;
-    let joystickValueX = 0; // -1 to 1, negative = left, positive = right
-    let joystickValueY = 0; // -1 to 1, negative = forward, positive = backward
-
-    // Joystick mode: '1d' for vertical only, '2d' for full directional
-    let joystickMode: '1d' | '2d' = '2d';
-
-    // Double-tap detection for mode toggle
-    let lastTapTime = 0;
-
-    // Update joystick visibility based on camera mode and input mode
-    const updateJoystickVisibility = () => {
-        if (
-            (state.cameraMode === 'fly' || state.cameraMode === 'walk') &&
-            state.inputMode === 'touch' &&
-            state.gamingControls
-        ) {
-            dom.joystickBase.classList.remove('sse-hidden');
-            dom.joystickBase.classList.toggle('sse-mode-2d', joystickMode === '2d');
-            // Center the stick
-            dom.joystick.style.top = `${stickCenterY}px`;
-            if (joystickMode === '2d') {
-                dom.joystick.style.left = `${stickCenterX}px`;
-            } else {
-                dom.joystick.style.left = '8px'; // Reset to 1D centered position
-            }
-        } else {
-            dom.joystickBase.classList.add('sse-hidden');
-        }
-    };
-
-    events.on('cameraMode:changed', updateJoystickVisibility);
-    events.on('inputMode:changed', updateJoystickVisibility);
-    events.on('gamingControls:changed', updateJoystickVisibility);
-
-    // Handle joystick touch input directly on the joystick element
-    const updateJoystickStick = (clientX: number, clientY: number) => {
-        // the stylesheet places the base within the instance, so measure its centre rather
-        // than assuming where the viewport put it
-        const base = dom.joystickBase.getBoundingClientRect();
-        const baseY = base.top + base.height / 2;
-        // Calculate Y offset from joystick center (positive = down/backward)
-        const offsetY = clientY - baseY;
-        // Clamp to max travel and normalize to -1 to 1
-        const clampedOffsetY = Math.max(-maxStickTravel, Math.min(maxStickTravel, offsetY));
-        joystickValueY = clampedOffsetY / maxStickTravel;
-
-        // Update stick visual Y position
-        dom.joystick.style.top = `${stickCenterY + clampedOffsetY}px`;
-
-        // Handle X axis in 2D mode
-        if (joystickMode === '2d') {
-            const baseX = base.left + base.width / 2;
-            const offsetX = clientX - baseX;
-            const clampedOffsetX = Math.max(-maxStickTravel, Math.min(maxStickTravel, offsetX));
-            joystickValueX = clampedOffsetX / maxStickTravel;
-
-            // Update stick visual X position
-            dom.joystick.style.left = `${stickCenterX + clampedOffsetX}px`;
-        } else {
-            joystickValueX = 0;
-        }
-
-        // Fire input event for the input controller
-        events.fire('joystickInput', { x: joystickValueX, y: joystickValueY });
-    };
-
-    dom.joystickBase.addEventListener('pointerdown', (event: PointerEvent) => {
-        // Double-tap detection for mode toggle
-        const now = Date.now();
-        if (now - lastTapTime < 300) {
-            joystickMode = joystickMode === '1d' ? '2d' : '1d';
-            updateJoystickVisibility();
-            lastTapTime = 0;
-        } else {
-            lastTapTime = now;
-        }
-
-        if (joystickPointerId !== null) return; // Already tracking a touch
-
-        joystickPointerId = event.pointerId;
-        dom.joystickBase.setPointerCapture(event.pointerId);
-
-        updateJoystickStick(event.clientX, event.clientY);
-        event.preventDefault();
-        event.stopPropagation();
-    });
-
-    dom.joystickBase.addEventListener('pointermove', (event: PointerEvent) => {
-        if (event.pointerId !== joystickPointerId) return;
-
-        updateJoystickStick(event.clientX, event.clientY);
-        event.preventDefault();
-    });
-
-    const endJoystickTouch = (event: PointerEvent) => {
-        if (event.pointerId !== joystickPointerId) return;
-
-        joystickPointerId = null;
-        joystickValueX = 0;
-        joystickValueY = 0;
-
-        // Reset stick to center
-        dom.joystick.style.top = `${stickCenterY}px`;
-        if (joystickMode === '2d') {
-            dom.joystick.style.left = `${stickCenterX}px`;
-        }
-
-        // Fire input event with zero values
-        events.fire('joystickInput', { x: 0, y: 0 });
-
-        dom.joystickBase.releasePointerCapture(event.pointerId);
-    };
-
-    dom.joystickBase.addEventListener('pointerup', endJoystickTouch);
-    dom.joystickBase.addEventListener('pointercancel', endJoystickTouch);
-};
-
-// Initialize the annotation navigator for stepping between annotations
-const initAnnotationNav = (
-    dom: Record<string, HTMLElement>,
-    events: EventHandler,
-    state: { loaded: boolean; inputMode: string; controlsHidden: boolean; showAnnotations: boolean },
-    annotations: Annotation[]
-) => {
-    // Only show navigator when there are at least 2 annotations
-    if (annotations.length < 2) return;
-
-    let currentIndex = 0;
-
-    const updateDisplay = () => {
-        dom.annotationNavTitle.textContent = annotations[currentIndex].title || '';
-    };
-
-    const updateMode = () => {
-        if (!state.loaded) return;
-        if (!state.showAnnotations) {
-            dom.annotationNav.classList.add('sse-hidden');
-            return;
-        }
-        dom.annotationNav.classList.remove('sse-desktop', 'sse-touch', 'sse-hidden');
-        dom.annotationNav.classList.add(`sse-${state.inputMode}`);
-    };
-
-    const updateFade = () => {
-        if (!state.loaded) return;
-        dom.annotationNav.classList.toggle('sse-faded-in', !state.controlsHidden);
-        dom.annotationNav.classList.toggle('sse-faded-out', state.controlsHidden);
-    };
-
-    const goTo = (index: number) => {
-        currentIndex = index;
-        updateDisplay();
-        events.fire('annotation.navigate', annotations[currentIndex]);
-    };
-
-    // Prev / Next
-    dom.annotationPrev.addEventListener('click', (e) => {
-        e.stopPropagation();
-        goTo((currentIndex - 1 + annotations.length) % annotations.length);
-    });
-
-    dom.annotationNext.addEventListener('click', (e) => {
-        e.stopPropagation();
-        goTo((currentIndex + 1) % annotations.length);
-    });
-
-    // Sync when an annotation is activated externally (e.g. hotspot click)
-    events.on('annotation.activate', (annotation: Annotation) => {
-        const idx = annotations.indexOf(annotation);
-        if (idx !== -1) {
-            currentIndex = idx;
-            updateDisplay();
-        }
-    });
-
-    // React to state changes
-    events.on('loaded:changed', () => {
-        updateMode();
-        updateFade();
-    });
-    events.on('inputMode:changed', updateMode);
-    events.on('controlsHidden:changed', updateFade);
-    events.on('showAnnotations:changed', () => {
-        updateMode();
-        updateFade();
-    });
-
-    // Initial state
-    updateDisplay();
-};
+import type { Global, ViewerHandle } from './types';
+import { initAnnotationControls } from './ui/annotation-controls';
+import { Annotations } from './ui/annotations';
+import { initCameraControls } from './ui/camera-controls';
+import { initFullscreenControls } from './ui/fullscreen-controls';
+import { initJoystick } from './ui/joystick';
+import { initPlayback } from './ui/playback';
+import { initXrControls } from './ui/xr-controls';
 
 // show the poster image over the hidden canvas, blurry at first and sharpening as loading
 // progresses, until the first frame renders
@@ -238,9 +38,14 @@ const initPoster = (root: HTMLElement, image: HTMLImageElement, events: EventHan
 // Returns a function that removes the listeners added outside the ui subtree (window,
 // document, screen) and cancels pending timers. Listeners on the subtree's own elements are
 // released with the elements.
-const initUI = (global: Global) => {
-    const { events, state, root, localize } = global;
+const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) => {
+    const { root, localize } = global;
+    const { events, state } = viewer;
     const disposers: (() => void)[] = [];
+    const on = (name: string, callback: Parameters<EventHandler['on']>[1]) => {
+        const subscription = events.on(name, callback);
+        disposers.push(() => subscription.off());
+    };
 
     // Acquire Elements
     const dom = [
@@ -256,17 +61,11 @@ const initUI = (global: Global) => {
         'touchTab',
         'desktopInfoPanel',
         'touchInfoPanel',
-        'timelineContainer',
-        'handle',
-        'time',
         'buttonContainer',
         'play',
         'pause',
         'settings',
         'settingsPanel',
-        'annotationsRow',
-        'annotationsOption',
-        'annotationsCheck',
         'orbitCamera',
         'flyCamera',
         'fpsCamera',
@@ -291,22 +90,12 @@ const initUI = (global: Global) => {
         'loadingWrap',
         'loadingText',
         'loadingBar',
-        'joystickBase',
-        'joystick',
         'showCollision',
         'desktopShowCollisionHelp',
         'tooltip',
-        'annotationNav',
-        'annotationPrev',
-        'annotationNext',
-        'annotationInfo',
-        'annotationNavTitle',
         'viewerBranding',
         'viewerTitle',
-        'appVersionLabel',
-        'xrModal',
-        'xrModalOk',
-        'xrModalCancel'
+        'appVersionLabel'
     ].reduce((acc: Record<string, HTMLElement>, name) => {
         acc[name] = root.querySelector<HTMLElement>(`.sse-${name}`);
         return acc;
@@ -356,68 +145,12 @@ const initUI = (global: Global) => {
             dom.loadingBar.style.backgroundImage = 'linear-gradient(90deg, #F60 0%, #F60 100%)';
         }
     };
-    events.on('progress:changed', updateLoadingProgress);
+    on('progress:changed', updateLoadingProgress);
     updateLoadingProgress(state.progress);
 
     // Hide loading bar once loaded
-    events.on('loaded:changed', () => {
+    on('loaded:changed', () => {
         dom.loadingWrap.classList.add('sse-hidden');
-    });
-
-    // Fullscreen support. The root goes fullscreen rather than the document, so an embedded
-    // instance fills the screen on its own; the standalone document's root is <body>.
-    const hasFullscreenAPI = root.requestFullscreen && document.exitFullscreen;
-
-    const requestFullscreen = () => {
-        if (hasFullscreenAPI) {
-            root.requestFullscreen();
-        } else {
-            window.parent.postMessage('requestFullscreen', '*');
-            state.isFullscreen = true;
-        }
-    };
-
-    const exitFullscreen = () => {
-        if (hasFullscreenAPI) {
-            if (document.fullscreenElement) {
-                document.exitFullscreen().catch(() => {
-                    // intentionally ignored
-                });
-            }
-        } else {
-            window.parent.postMessage('exitFullscreen', '*');
-            state.isFullscreen = false;
-        }
-    };
-
-    if (hasFullscreenAPI) {
-        const onFullscreenChange = () => {
-            // ours, not another instance's on the same page
-            state.isFullscreen = document.fullscreenElement === root;
-        };
-        document.addEventListener('fullscreenchange', onFullscreenChange);
-        disposers.push(() => document.removeEventListener('fullscreenchange', onFullscreenChange));
-    }
-
-    dom.enterFullscreen.addEventListener('click', requestFullscreen);
-    dom.exitFullscreen.addEventListener('click', exitFullscreen);
-
-    // toggle fullscreen when user switches between landscape portrait
-    // orientation
-    const onOrientationChange = () => {
-        if (['landscape-primary', 'landscape-secondary'].includes(screen.orientation.type)) {
-            requestFullscreen();
-        } else {
-            exitFullscreen();
-        }
-    };
-    screen?.orientation?.addEventListener('change', onOrientationChange);
-    disposers.push(() => screen?.orientation?.removeEventListener('change', onOrientationChange));
-
-    // update UI when fullscreen state changes
-    events.on('isFullscreen:changed', (value) => {
-        dom.enterFullscreen.classList[value ? 'add' : 'remove']('sse-hidden');
-        dom.exitFullscreen.classList[value ? 'remove' : 'add']('sse-hidden');
     });
 
     // Performance mode toggle
@@ -428,7 +161,7 @@ const initUI = (global: Global) => {
     const updatePerformanceMode = () => {
         dom.performanceModeCheck.classList.toggle('sse-active', state.performanceMode);
     };
-    events.on('performanceMode:changed', updatePerformanceMode);
+    on('performanceMode:changed', updatePerformanceMode);
     updatePerformanceMode();
 
     // Gaming mode toggle (settings row visible on mobile only)
@@ -441,7 +174,7 @@ const initUI = (global: Global) => {
         dom.gamingControlsDivider.classList.toggle('sse-hidden', isDesktop);
         dom.gamingControlsRow.classList.toggle('sse-hidden', isDesktop);
     };
-    events.on('inputMode:changed', updateGamingSettingsVisibility);
+    on('inputMode:changed', updateGamingSettingsVisibility);
     updateGamingSettingsVisibility();
 
     const updateGamingControls = () => {
@@ -456,70 +189,9 @@ const initUI = (global: Global) => {
         dom.touchGamingControls.classList.toggle('sse-hidden', !state.gamingControls);
     };
 
-    events.on('gamingControls:changed', updateGamingControls);
-    events.on('inputMode:changed', updateGamingControls);
+    on('gamingControls:changed', updateGamingControls);
+    on('inputMode:changed', updateGamingControls);
     updateGamingControls();
-
-    // Annotation visibility toggle
-    const updateAnnotationsVisibility = () => {
-        dom.annotationsRow.classList.toggle('sse-hidden', global.settings.annotations.length === 0);
-        dom.annotationsCheck.classList.toggle('sse-active', state.showAnnotations);
-        global.app.renderNextFrame = true;
-    };
-
-    dom.annotationsRow.addEventListener('click', () => {
-        state.showAnnotations = !state.showAnnotations;
-    });
-
-    events.on('showAnnotations:changed', updateAnnotationsVisibility);
-    updateAnnotationsVisibility();
-
-    // persist user preferences on change (never at startup, so defaults are not written into storage)
-    events.on('performanceMode:changed', (value: boolean) => localStorage.setItem('performanceMode', String(value)));
-    events.on('gamingControls:changed', (value: boolean) => localStorage.setItem('gamingControls', String(value)));
-    events.on('showAnnotations:changed', (value: boolean) => localStorage.setItem('showAnnotations', String(value)));
-
-    // AR/VR
-    const arChanged = () => dom.arMode.classList[state.hasAR ? 'remove' : 'add']('sse-hidden');
-    const vrChanged = () => dom.vrMode.classList[state.hasVR ? 'remove' : 'add']('sse-hidden');
-
-    // When a session can't start on the current (WebGPU) device but would work on
-    // WebGL, prompt the user to reload the viewer with the WebGL renderer before
-    // starting AR/VR. Use replace() so the renderer-switch reload doesn't add a
-    // back-button entry — important because the viewer often runs inside an
-    // iframe (e.g. superspl.at /scene).
-    const reloadWithWebgl = () => {
-        const reloadUrl = new URL(location.href);
-        reloadUrl.searchParams.set('webgl', '');
-        location.replace(reloadUrl.toString());
-    };
-
-    const showXrModal = () => dom.xrModal.classList.remove('sse-hidden');
-    const hideXrModal = () => dom.xrModal.classList.add('sse-hidden');
-
-    dom.xrModalOk.addEventListener('click', reloadWithWebgl);
-    dom.xrModalCancel.addEventListener('click', hideXrModal);
-    dom.xrModal.addEventListener('pointerdown', hideXrModal);
-
-    const handleXrClick = (type: 'AR' | 'VR') => {
-        // Availability is backend-aware: when the session can start on the current
-        // device (WebGPU included), start it directly. Otherwise the button is only
-        // visible because the session would work on WebGL, so offer the reload.
-        if (global.app.xr.isAvailable(type === 'AR' ? 'immersive-ar' : 'immersive-vr')) {
-            events.fire(type === 'AR' ? 'startAR' : 'startVR');
-        } else {
-            showXrModal();
-        }
-    };
-
-    dom.arMode.addEventListener('click', () => handleXrClick('AR'));
-    dom.vrMode.addEventListener('click', () => handleXrClick('VR'));
-
-    events.on('hasAR:changed', arChanged);
-    events.on('hasVR:changed', vrChanged);
-
-    arChanged();
-    vrChanged();
 
     // Info panel
     const updateInfoTab = (tab: 'desktop' | 'touch') => {
@@ -555,32 +227,26 @@ const initUI = (global: Global) => {
         dom.infoPanel.classList.add('sse-hidden');
     });
 
-    events.on('inputEvent', (event) => {
+    on('inputEvent', (event) => {
         if (event === 'toggleHelp') {
             toggleHelp();
         } else if (event === 'cancel') {
             // close info panel on cancel
             dom.infoPanel.classList.add('sse-hidden');
             dom.settingsPanel.classList.add('sse-hidden');
-
-            // close fullscreen on cancel
-            if (state.isFullscreen) {
-                exitFullscreen();
-            }
         } else if (event === 'interrupt') {
             dom.settingsPanel.classList.add('sse-hidden');
         }
     });
 
     // fade ui controls after 5 seconds of inactivity
-    events.on('controlsHidden:changed', (value) => {
+    on('controlsHidden:changed', (value) => {
         dom.controlsWrap.classList.toggle('sse-faded-out', value);
         dom.controlsWrap.classList.toggle('sse-faded-in', !value);
     });
 
     // show the ui and start a timer to hide it again
     let uiTimeout: ReturnType<typeof setTimeout> | null = null;
-    let annotationVisible = false;
 
     disposers.push(() => {
         if (uiTimeout) {
@@ -616,19 +282,19 @@ const initUI = (global: Global) => {
         state.controlsHidden = false;
         uiTimeout = setTimeout(() => {
             uiTimeout = null;
-            if (!annotationVisible) {
+            if (state.selectedAnnotation === null || !state.showAnnotations) {
                 state.controlsHidden = true;
             }
         }, 4000);
     };
 
     // Show controls once loaded
-    events.on('loaded:changed', () => {
+    on('loaded:changed', () => {
         dom.controlsWrap.classList.remove('sse-hidden');
         showUI();
     });
 
-    events.on('inputEvent', showUI);
+    on('inputEvent', showUI);
 
     const updateCapturedUI = () => {
         if (isPointerCapturedMode()) {
@@ -638,108 +304,17 @@ const initUI = (global: Global) => {
         }
     };
 
-    events.on('cameraMode:changed', updateCapturedUI);
-    events.on('inputMode:changed', updateCapturedUI);
-    events.on('gamingControls:changed', updateCapturedUI);
+    on('cameraMode:changed', updateCapturedUI);
+    on('inputMode:changed', updateCapturedUI);
+    on('gamingControls:changed', updateCapturedUI);
 
-    // keep UI visible while an annotation tooltip is shown
-    events.on('annotation.activate', () => {
-        annotationVisible = true;
-        showUI();
-    });
+    // Keep controls visible while the selected annotation's panel is shown.
+    on('selectedAnnotation:changed', showUI);
 
-    events.on('annotation.deactivate', () => {
-        annotationVisible = false;
-        showUI();
-    });
-
-    // Animation controls
-    events.on('hasAnimation:changed', (_value, _prev) => {
-        // Start and Stop animation
-        dom.play.addEventListener('click', () => {
-            state.cameraMode = 'anim';
-            state.animationPaused = false;
-        });
-
-        dom.pause.addEventListener('click', () => {
-            state.cameraMode = 'anim';
-            state.animationPaused = true;
-        });
-
-        const updatePlayPause = () => {
-            if (state.cameraMode !== 'anim' || state.animationPaused) {
-                dom.play.classList.remove('sse-hidden');
-                dom.pause.classList.add('sse-hidden');
-            } else {
-                dom.play.classList.add('sse-hidden');
-                dom.pause.classList.remove('sse-hidden');
-            }
-
-            if (state.cameraMode === 'anim') {
-                dom.timelineContainer.classList.remove('sse-hidden');
-            } else {
-                dom.timelineContainer.classList.add('sse-hidden');
-            }
-        };
-
-        // Update UI on animation changes
-        events.on('cameraMode:changed', updatePlayPause);
-        events.on('animationPaused:changed', updatePlayPause);
-
-        const updateSlider = () => {
-            dom.handle.style.left = `${(state.animationTime / state.animationDuration) * 100}%`;
-            dom.time.style.left = `${(state.animationTime / state.animationDuration) * 100}%`;
-            dom.time.innerText = `${state.animationTime.toFixed(1)}s`;
-        };
-
-        events.on('animationTime:changed', updateSlider);
-        events.on('animationLength:changed', updateSlider);
-
-        const handleScrub = (event: PointerEvent) => {
-            const rect = dom.timelineContainer.getBoundingClientRect();
-            const t = Math.max(0, Math.min(rect.width, event.clientX - rect.left)) / rect.width;
-            events.fire('scrubAnim', state.animationDuration * t);
-            showUI();
-        };
-
-        let paused = false;
-        let captured = false;
-
-        dom.timelineContainer.addEventListener('pointerdown', (event: PointerEvent) => {
-            if (!captured) {
-                handleScrub(event);
-                dom.timelineContainer.setPointerCapture(event.pointerId);
-                dom.time.classList.remove('sse-hidden');
-                paused = state.animationPaused;
-                state.animationPaused = true;
-                captured = true;
-            }
-        });
-
-        dom.timelineContainer.addEventListener('pointermove', (event: PointerEvent) => {
-            if (captured) {
-                handleScrub(event);
-            }
-        });
-
-        dom.timelineContainer.addEventListener('pointerup', (event) => {
-            if (captured) {
-                dom.timelineContainer.releasePointerCapture(event.pointerId);
-                dom.time.classList.add('sse-hidden');
-                state.animationPaused = paused;
-                captured = false;
-            }
-        });
-    });
-
-    // Camera mode UI
-    const updateCameraModeUI = () => {
-        dom.orbitCamera.classList.toggle('sse-active', state.cameraMode === 'orbit');
-        dom.flyCamera.classList.toggle('sse-active', state.cameraMode === 'fly');
-        dom.fpsCamera.classList.toggle('sse-active', state.cameraMode === 'walk');
-    };
-
-    events.on('cameraMode:changed', updateCameraModeUI);
+    disposers.push(initPlayback(viewer, root, showUI));
+    disposers.push(initCameraControls(viewer, root));
+    disposers.push(initFullscreenControls(viewer, root));
+    disposers.push(initXrControls(viewer, root));
 
     // Walk mode hint banner (shown once per session on first FPS entry)
     let walkHintShown = false;
@@ -751,7 +326,7 @@ const initUI = (global: Global) => {
         return localize(state.gamingControls ? 'walk-hint.touch-gaming' : 'walk-hint.touch-tap');
     };
 
-    events.on('cameraMode:changed', (value: string) => {
+    on('cameraMode:changed', (value: string) => {
         if (value === 'walk' && !walkHintShown && !isPointerCapturedMode()) {
             walkHintShown = true;
             dom.walkHint.textContent = getWalkHintText();
@@ -764,21 +339,12 @@ const initUI = (global: Global) => {
     const dismissWalkHint = () => dom.walkHint.classList.add('sse-hidden');
 
     dom.walkHint.addEventListener('click', dismissWalkHint);
-    events.on('inputEvent', (type: string) => {
+    on('inputEvent', (type: string) => {
         if (type === 'interrupt') dismissWalkHint();
     });
 
-    // show/hide the FPS button based on whether walk mode is offered
-    // (collision data exists AND scene is large enough to walk around in)
-    events.on('walkAllowed:changed', (value: boolean) => {
-        dom.fpsCamera.classList.toggle('sse-hidden', !value);
-        // adjust fly button shape: middle when FPS is visible, right when hidden
-        dom.flyCamera.classList.toggle('sse-middle', value);
-        dom.flyCamera.classList.toggle('sse-right', !value);
-    });
-
     // Collision overlay toggle + matching help-panel row (only visible when overlay is available)
-    events.on('hasCollisionOverlay:changed', (value: boolean) => {
+    on('hasCollisionOverlay:changed', (value: boolean) => {
         dom.showCollision.classList.toggle('sse-hidden', !value);
         dom.desktopShowCollisionHelp.classList.toggle('sse-hidden', !value);
     });
@@ -787,7 +353,7 @@ const initUI = (global: Global) => {
         state.collisionOverlayEnabled = !state.collisionOverlayEnabled;
     });
 
-    events.on('collisionOverlayEnabled:changed', (value: boolean) => {
+    on('collisionOverlayEnabled:changed', (value: boolean) => {
         dom.showCollision.classList.toggle('sse-active', value);
     });
 
@@ -795,31 +361,14 @@ const initUI = (global: Global) => {
         dom.settingsPanel.classList.toggle('sse-hidden');
     });
 
-    dom.orbitCamera.addEventListener('click', () => {
-        state.cameraMode = 'orbit';
-    });
-
-    dom.flyCamera.addEventListener('click', () => {
-        state.cameraMode = 'fly';
-    });
-
-    dom.fpsCamera.addEventListener('click', () => {
-        events.fire('inputEvent', 'toggleWalk');
-    });
-
-    dom.reset.addEventListener('click', (event) => {
-        events.fire('inputEvent', 'reset', event);
-    });
-
-    dom.frame.addEventListener('click', (event) => {
-        events.fire('inputEvent', 'frame', event);
-    });
-
     // Initialize touch joystick for fly mode
-    initJoystick(dom, events, state);
+    disposers.push(initJoystick(viewer, root));
 
-    // Initialize annotation navigator
-    initAnnotationNav(dom, events, state, global.settings.annotations);
+    disposers.push(initAnnotationControls(viewer, root));
+    if (viewer.annotations.length > 0) {
+        const annotations = new Annotations(viewer, root, global.camera, hasCameraFrame);
+        disposers.push(() => annotations.destroy());
+    }
 
     // tooltips
     const tooltip = new Tooltip(dom.tooltip);

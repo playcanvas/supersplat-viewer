@@ -49,6 +49,10 @@ const createFrameCamera = (bbox: BoundingBox, fov: number) => {
 class CameraManager {
     update: (deltaTime: number, cameraFrame: CameraFrame) => void;
 
+    seek: (time: number) => void;
+
+    selectAnnotation: (annotation: Annotation) => void;
+
     // Re-seed the active controller from the current camera pose and
     // cancel any in-progress transition lerp. Use after externally
     // mutating `camera` and/or `state.cameraMode` to make the change
@@ -236,7 +240,6 @@ class CameraManager {
                         if (state.cameraMode === 'walk') {
                             state.cameraMode = preWalkMode;
                         } else {
-                            preWalkMode = state.cameraMode;
                             state.cameraMode = 'walk';
                         }
                     }
@@ -261,6 +264,10 @@ class CameraManager {
 
         // handle camera mode switching
         events.on('cameraMode:changed', (value: CameraMode, prev: CameraMode) => {
+            // Host state writes and the walk toggle must remember the same return mode.
+            if (value === 'walk') {
+                preWalkMode = prev;
+            }
             sourcesByMode[prev]?.cancel();
 
             // snapshot the current pose before any controller mutation
@@ -290,14 +297,14 @@ class CameraManager {
             }
         });
 
-        // handle user scrubbing the animation timeline
-        events.on('scrubAnim', (time) => {
+        this.seek = (time) => {
             // switch to animation camera if we're not already there
             state.cameraMode = 'anim';
 
             // set time
             controllers.anim.animState.cursor.value = time;
-        });
+            state.animationTime = controllers.anim.animState.cursor.value;
+        };
 
         // handle user picking in the scene
         events.on('pick', (position: Vec3) => {
@@ -313,7 +320,7 @@ class CameraManager {
             clearOrbitTargetOnTransitionEnd = true;
         });
 
-        events.on('annotation.activate', (annotation: Annotation) => {
+        this.selectAnnotation = (annotation: Annotation) => {
             events.fire('orbitTarget:clear');
 
             // switch to orbit camera on pick
@@ -327,7 +334,7 @@ class CameraManager {
 
             controllers.orbit.goto(tmpCamera);
             startTransition();
-        });
+        };
 
         // tap-to-navigate: start auto-driving the active mode toward a picked position
         events.on('navigateTo', (position: Vec3, normal: Vec3, speedMul = 1) => {

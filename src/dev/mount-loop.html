@@ -43,6 +43,26 @@
             #harness .fail {
                 color: #f66;
             }
+            #playback {
+                position: fixed;
+                top: 8px;
+                left: 8px;
+                z-index: 1000;
+                padding: 8px;
+                background: #fff;
+                color: #222;
+                font: 13px sans-serif;
+            }
+            #annotation-controls {
+                position: fixed;
+                bottom: 56px;
+                left: 8px;
+                z-index: 1000;
+                padding: 8px;
+                background: #fff;
+                color: #222;
+                font: 13px sans-serif;
+            }
         </style>
     </head>
     <body>
@@ -62,10 +82,45 @@
             side by side, checks they do not share dom, state or window globals, destroys the
             first while the second keeps rendering, then destroys the rest.
 
-            Params: ?iterations=20  ?mode=loaded|immediate  ?instances=2  ?webgl  ?content=  ?settings=
+            Playback/camera mode keeps one viewer mounted with host controls alongside its own UI.
+            Add &noui to check those controls without the overlay; &loop=none|repeat|pingpong
+            supplies a short camera track for endpoint checks. Destroy also checks a pending
+            legacy scrub settles and its frame listener is removed.
+
+            Add &collision=<url> with a scene at least 5m across to exercise walk mode.
+            Annotation mode supplies two annotations and host selection controls. &annotations=N
+            overrides the count in any mode, including teardown and two-instance checks.
+
+            Browser mode supplies fullscreen/XR host controls and delayed-request teardown checks.
+            XR callback simulations check cancellation without claiming to test a native session.
+
+            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser|input  ?instances=2  ?webgl  ?content=  ?settings=
         -->
         <div id="hosts"></div>
         <pre id="harness"></pre>
+        <div id="annotation-controls" hidden>
+            <span id="annotation-buttons"></span>
+            <button id="clear-annotation">Clear selection</button>
+            <button id="hide-annotations">Toggle annotations</button>
+            <button id="destroy-annotations">Destroy annotations</button>
+            <div id="annotation-state"></div>
+        </div>
+        <div id="playback" hidden>
+            <button id="host-play">Host play</button>
+            <button id="host-pause">Host pause</button>
+            <button id="host-seek">Host seek halfway</button>
+            <button id="host-end">Host seek end</button>
+            <button id="host-auto-pause">Pause on next seek</button>
+            <button id="host-destroy">Destroy during scrub</button>
+            <div>
+                <button id="host-orbit">Host orbit</button>
+                <button id="host-fly">Host fly</button>
+                <button id="host-walk">Host toggle walk</button>
+                <button id="host-frame">Host frame scene</button>
+                <button id="host-reset">Host reset camera</button>
+            </div>
+            <div id="playback-state"></div>
+        </div>
 
         <script type="module">
             import { createViewer } from './index.js';
@@ -93,21 +148,61 @@
             window.addEventListener('unhandledrejection', (event) => {
                 unhandled.push(event.reason?.message ?? String(event.reason));
             });
+            window.addEventListener('error', (event) => {
+                unhandled.push(event.message);
+            });
             const reportUnhandled = () => {
                 // a rejection is reported a task after it happens, so let the queue drain first
                 return timeout(50).then(() => {
                     if (unhandled.length) {
-                        log(`FAIL ${unhandled.length} unhandled rejection(s): ${unhandled.join(' | ')}`, true);
+                        log(`FAIL ${unhandled.length} unhandled error(s): ${unhandled.join(' | ')}`, true);
                     }
                     return unhandled.length;
                 });
             };
 
             const settings = await (await fetch(settingsUrl)).json();
+            if (mode === 'annotations' || url.searchParams.has('annotations')) {
+                const count = Number(url.searchParams.get('annotations') ?? 2);
+                settings.annotations = Array.from({ length: count }, (_, i) => ({
+                    position: [i * 0.6 - 0.3, 0, 0],
+                    title: `Annotation ${i + 1}`,
+                    text: `Details for annotation ${i + 1}`,
+                    camera: { initial: { position: [1.5 - i * 3, 1, 1.5], target: [0, 0, 0], fov: 85 } }
+                }));
+            }
+            const loopMode = url.searchParams.get('loop');
+            if (loopMode) {
+                settings.startMode = 'animTrack';
+                settings.animTracks = [
+                    {
+                        name: 'playback check',
+                        duration: 4,
+                        frameRate: 1,
+                        loopMode,
+                        interpolation: 'spline',
+                        smoothness: 1,
+                        keyframes: {
+                            times: [0, 2, 4],
+                            values: {
+                                position: [1.5, 1, 1.5, -1.5, 1, 1.5, 1.5, 1, 1.5],
+                                target: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                                fov: [85, 85, 85]
+                            }
+                        }
+                    }
+                ];
+            }
 
             // Every other option at its default; an embedded instance publishes no window.* hooks,
             // so two viewers cannot collide on them.
-            const createOptions = () => ({ contentUrl, renderer, exposeGlobals: false });
+            const createOptions = () => ({
+                contentUrl,
+                renderer,
+                exposeGlobals: false,
+                collisionUrl: url.searchParams.get('collision') ?? undefined,
+                ui: !url.searchParams.has('noui')
+            });
             const cameraOf = (viewer) => viewer.app.root.findByName('camera');
 
             const hosts = document.getElementById('hosts');
@@ -162,8 +257,646 @@
                 return unhandled.length === before;
             };
 
-            // Several viewers at once, each in its own host so each has a distinct root.
-            if (instances > 1) {
+            if (mode === 'input') {
+                const check = (name, ok) => log(`${ok ? 'ok  ' : 'FAIL'} ${name}`, !ok);
+                const rejects = (action) => {
+                    try {
+                        action();
+                        return false;
+                    } catch {
+                        return true;
+                    }
+                };
+                const keys = ['performanceMode', 'gamingControls', 'showAnnotations', 'retinaDisplay'];
+                const saved = keys.map((key) => localStorage.getItem(key));
+                const viewers = [];
+                try {
+                    keys.forEach((key) => localStorage.removeItem(key));
+                    localStorage.setItem('retinaDisplay', 'false');
+                    const host = addHost();
+                    const viewer = await createViewer({ container: host, settings, ...createOptions() });
+                    viewers.push(viewer);
+                    check(
+                        'movement rejects before readiness',
+                        rejects(() => viewer.setMoveInput(0, 1))
+                    );
+                    check(
+                        'legacy performance preference migrated',
+                        viewer.state.performanceMode &&
+                            localStorage.getItem('performanceMode') === 'true' &&
+                            localStorage.getItem('retinaDisplay') === null
+                    );
+                    check(
+                        'creation does not persist defaults',
+                        localStorage.getItem('gamingControls') === null &&
+                            localStorage.getItem('showAnnotations') === null
+                    );
+                    viewer.state.performanceMode = false;
+                    viewer.state.gamingControls = true;
+                    viewer.state.showAnnotations = false;
+                    check(
+                        'all preference writes persist',
+                        keys.slice(0, 3).every((key) => localStorage.getItem(key) === String(viewer.state[key]))
+                    );
+                    const otherHost = addHost();
+                    const other = await createViewer({ container: otherHost, settings, ...createOptions(), ui: false });
+                    viewers.push(other);
+                    check(
+                        'headless instance restores all preferences',
+                        !other.state.performanceMode && other.state.gamingControls && !other.state.showAnnotations
+                    );
+                    // Avoid desktop pointer lock while the first-person camera initializes.
+                    viewer.state.gamingControls = other.state.gamingControls = false;
+                    other.state.showAnnotations = true;
+                    check(
+                        'headless writes persist without changing a live sibling',
+                        localStorage.getItem('showAnnotations') === 'true' && !viewer.state.showAnnotations
+                    );
+                    check('both loaded', await until(() => viewer.state.loaded && other.state.loaded, 30000));
+                    check(
+                        'invalid movement axes reject',
+                        rejects(() => viewer.setMoveInput(NaN, 0)) && rejects(() => viewer.setMoveInput(0, Infinity))
+                    );
+                    viewer.state.cameraMode = other.state.cameraMode = 'fly';
+                    viewer.state.inputEnabled = false;
+                    await timeout(1000);
+                    const position = (v) => cameraOf(v).getPosition().clone();
+                    const stationary = async (v) => {
+                        const before = position(v);
+                        await timeout(150);
+                        return position(v).distance(before) < 0.001;
+                    };
+                    const before = position(viewer);
+                    const otherBefore = position(other);
+                    viewer.setMoveInput(0, 100);
+                    await timeout(200);
+                    viewer.setMoveInput(0, 0);
+                    const travel = position(viewer).distance(before);
+                    check(
+                        'movement works without gaming controls or keyboard ownership and clamps axes',
+                        travel > 0.1 && travel < 1.5
+                    );
+                    check('movement stays in its instance', position(other).distance(otherBefore) < 0.001);
+                    check('zero input stops movement', await stationary(viewer));
+                    viewer.setMoveInput(1, 0);
+                    window.dispatchEvent(new Event('blur'));
+                    check('blur clears held movement', await stationary(viewer));
+                    viewer.setMoveInput(1, 0);
+                    document.dispatchEvent(new Event('visibilitychange'));
+                    check('visibility change clears held movement', await stationary(viewer));
+                    viewer.setMoveInput(0, 1);
+                    viewer.state.cameraMode = 'orbit';
+                    viewer.setMoveInput(0, 1); // ignored, rather than queued for the next fly session
+                    viewer.state.cameraMode = 'fly';
+                    await timeout(1000);
+                    check('mode changes clear movement and orbit input is not queued', await stationary(viewer));
+
+                    const root = host.firstElementChild;
+                    const joystick = root.querySelector('.sse-joystickBase');
+                    if (joystick) {
+                        // Simulate touch UI input; native pointer capture still needs a touch-device check.
+                        root.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+                        viewer.state.gamingControls = true;
+                        check('joystick visible in touch gaming mode', !joystick.classList.contains('sse-hidden'));
+                        const rect = joystick.getBoundingClientRect();
+                        const pointer = (name) =>
+                            joystick.dispatchEvent(
+                                new PointerEvent(name, {
+                                    pointerId: 99,
+                                    pointerType: 'touch',
+                                    clientX: rect.left + rect.width / 2,
+                                    clientY: rect.top + 5,
+                                    bubbles: true
+                                })
+                            );
+                        joystick.setPointerCapture = () => {};
+                        const beforeStick = position(viewer);
+                        pointer('pointerdown');
+                        await timeout(150);
+                        pointer('pointercancel');
+                        check(
+                            'built-in joystick drives the shared movement command',
+                            position(viewer).distance(beforeStick) > 0.05
+                        );
+                        check('pointer cancel stops the joystick', await stationary(viewer));
+                        pointer('pointerdown');
+                        pointer('lostpointercapture');
+                        check('lost capture stops the joystick', await stationary(viewer));
+                        pointer('pointerdown');
+                        viewer.state.gamingControls = false;
+                        check(
+                            'hiding joystick stops movement',
+                            joystick.classList.contains('sse-hidden') && (await stationary(viewer))
+                        );
+                        delete joystick.setPointerCapture;
+                    }
+                    const originalSet = Storage.prototype.setItem;
+                    try {
+                        Storage.prototype.setItem = () => {
+                            throw new Error('simulated blocked storage');
+                        };
+                        viewer.state.performanceMode = !viewer.state.performanceMode;
+                        check('blocked storage does not prevent state changes', viewer.state.performanceMode);
+                    } finally {
+                        Storage.prototype.setItem = originalSet;
+                    }
+
+                    viewer.setMoveInput(0, 1);
+                    const gpu = handlesOf(viewer);
+                    viewer.destroy();
+                    const stored = localStorage.getItem('performanceMode');
+                    viewer.state.performanceMode = !viewer.state.performanceMode;
+                    check(
+                        'destroy removes preference subscriptions',
+                        localStorage.getItem('performanceMode') === stored
+                    );
+                    check(
+                        'movement rejects after destruction',
+                        rejects(() => viewer.setMoveInput(0, 0))
+                    );
+                    window.dispatchEvent(new Event('blur'));
+                    document.dispatchEvent(new Event('visibilitychange'));
+                    joystick?.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99 }));
+                    check('movement teardown releases context and subtree', (await released(gpu)) && !root.isConnected);
+                    other.destroy();
+
+                    // Reads can remain available when migration writes fail. Preserve every
+                    // saved preference, including the in-memory legacy performance value.
+                    for (const legacyRetina of ['true', 'false']) {
+                        for (const operation of ['setItem', 'removeItem']) {
+                            localStorage.removeItem('performanceMode');
+                            localStorage.setItem('retinaDisplay', legacyRetina);
+                            localStorage.setItem('gamingControls', 'true');
+                            localStorage.setItem('showAnnotations', 'false');
+                            const original = Storage.prototype[operation];
+                            try {
+                                Storage.prototype[operation] = () => {
+                                    throw new Error(`simulated migration ${operation} failure`);
+                                };
+                                const migrated = await createViewer({
+                                    container: addHost(),
+                                    settings,
+                                    ...createOptions(),
+                                    ui: false
+                                });
+                                viewers.push(migrated);
+                                check(
+                                    `failed ${operation} preserves preferences (retinaDisplay=${legacyRetina})`,
+                                    migrated.state.performanceMode === (legacyRetina === 'false') &&
+                                        migrated.state.gamingControls &&
+                                        !migrated.state.showAnnotations
+                                );
+                                check(
+                                    `failed ${operation} retains the legacy storage key`,
+                                    localStorage.getItem('retinaDisplay') === legacyRetina
+                                );
+                                migrated.destroy();
+                            } finally {
+                                Storage.prototype[operation] = original;
+                            }
+                        }
+                    }
+
+                    const originalGet = Storage.prototype.getItem;
+                    try {
+                        Storage.prototype.getItem = () => {
+                            throw new Error('simulated blocked storage');
+                        };
+                        const noStorage = await createViewer({
+                            container: addHost(),
+                            settings,
+                            ...createOptions(),
+                            ui: false
+                        });
+                        viewers.push(noStorage);
+                        check(
+                            'blocked storage still permits creation',
+                            !noStorage.state.gamingControls && noStorage.state.showAnnotations
+                        );
+                        noStorage.destroy();
+                    } finally {
+                        Storage.prototype.getItem = originalGet;
+                    }
+                    if (!(await reportUnhandled())) log('done, movement and preferences verified');
+                } finally {
+                    viewers.forEach((viewer) => viewer.destroy());
+                    keys.forEach((key, index) =>
+                        saved[index] === null ? localStorage.removeItem(key) : localStorage.setItem(key, saved[index])
+                    );
+                }
+            } else if (mode === 'browser') {
+                const check = (name, ok) => log(`${ok ? 'ok  ' : 'FAIL'} ${name}`, !ok);
+                const rejects = async (work) => {
+                    try {
+                        await work;
+                        return false;
+                    } catch {
+                        return true;
+                    }
+                };
+                const viewers = [];
+                for (let i = 0; i < 2; i++) {
+                    const host = addHost();
+                    const viewer = await createViewer({ container: host, settings, ...createOptions() });
+                    viewers.push(viewer);
+                    check(`viewer ${i + 1}: XR rejects before readiness`, await rejects(viewer.startXR('vr')));
+                    await viewer.endXR();
+                    check(`viewer ${i + 1}: loaded`, await until(() => viewer.state.loaded, 30000));
+                }
+                const [viewer, other] = viewers;
+                const root = viewer.app.graphicsDevice.canvas.parentElement;
+                const panel = document.createElement('div');
+                panel.style.cssText =
+                    'position:absolute;top:8px;left:8px;z-index:1000;background:white;color:black;padding:8px';
+                root.appendChild(panel);
+                const status = document.createElement('div');
+                const update = () => {
+                    status.textContent = `Fullscreen ${viewer.state.isFullscreen}; XR ${viewer.state.xrMode}; AR ${viewer.state.canStartAR}/${viewer.state.hasAR}; VR ${viewer.state.canStartVR}/${viewer.state.hasVR}`;
+                };
+                const subscriptions = ['isFullscreen', 'xrMode', 'canStartAR', 'canStartVR', 'hasAR', 'hasVR'].map(
+                    (key) => viewer.events.on(`${key}:changed`, update)
+                );
+                const button = (title, run) => {
+                    const button = document.createElement('button');
+                    button.textContent = title;
+                    button.onclick = () => {
+                        Promise.resolve(run()).catch((error) => log(`FAIL ${title}: ${error.message}`, true));
+                    };
+                    panel.appendChild(button);
+                };
+                button('Host fullscreen', async () => {
+                    await viewer.requestFullscreen();
+                    check(
+                        'native fullscreen owns this root',
+                        document.fullscreenElement === root && viewer.state.isFullscreen
+                    );
+                    check('other viewer stays out of fullscreen', !other.state.isFullscreen);
+                    await other.exitFullscreen();
+                    check('other viewer cannot exit this fullscreen', document.fullscreenElement === root);
+                    if (!url.searchParams.has('noui')) {
+                        check(
+                            'built-in buttons follow host fullscreen',
+                            root.querySelector('.sse-enterFullscreen').classList.contains('sse-hidden') &&
+                                !root.querySelector('.sse-exitFullscreen').classList.contains('sse-hidden')
+                        );
+                    }
+                });
+                button('Host exit fullscreen', async () => {
+                    await viewer.exitFullscreen();
+                    check('host exits fullscreen', !viewer.state.isFullscreen && document.fullscreenElement !== root);
+                });
+                for (const mode of ['ar', 'vr']) {
+                    button(`Host ${mode.toUpperCase()}`, async () => {
+                        try {
+                            await viewer.startXR(mode);
+                            log(`XR ${mode} started`);
+                        } catch (error) {
+                            log(`XR ${mode} refused: ${error.message}`);
+                        }
+                    });
+                    if (!(mode === 'ar' ? viewer.state.canStartAR : viewer.state.canStartVR)) {
+                        check(`unavailable ${mode} rejects`, await rejects(viewer.startXR(mode)));
+                    }
+                }
+                button('Host end XR', async () => {
+                    await viewer.endXR();
+                    check('XR ended or idle', viewer.state.xrMode === null);
+                });
+                check('invalid XR mode rejects', await rejects(viewer.startXR('invalid')));
+
+                // Simulate a refusal and a delayed engine callback, without asking for hardware.
+                const xr = other.app.xr;
+                const originalStart = xr.start;
+                const originalAvailable = xr.isAvailable;
+                const camera = cameraOf(other).camera;
+                const { nearClip, farClip } = camera;
+                xr.isAvailable = () => true;
+                xr.start = (camera, type, space, options) => options.callback(new Error('simulated refusal'));
+                check('XR refusal rejects', await rejects(other.startXR('vr')));
+                check('XR refusal restores clipping', camera.nearClip === nearClip && camera.farClip === farClip);
+                xr.start = originalStart;
+                xr.isAvailable = originalAvailable;
+
+                button('Destroy pending XR', async () => {
+                    let callback;
+                    xr.isAvailable = () => true;
+                    xr.start = (camera, type, space, options) => {
+                        callback = options.callback;
+                    };
+                    const pending = rejects(other.startXR('vr'));
+                    check('duplicate XR start rejects', await rejects(other.startXR('vr')));
+                    check('XR end during startup rejects', await rejects(other.endXR()));
+                    xr.start = originalStart;
+                    xr.isAvailable = originalAvailable;
+                    const gpu = handlesOf(other);
+                    other.destroy();
+                    check('pending XR rejects on destruction', await Promise.race([pending, timeout(1000, false)]));
+                    callback(null);
+                    check('XR callback after destruction leaves state idle', other.state.xrMode === null);
+                    check('XR destruction releases context', await released(gpu));
+                    check(
+                        'XR commands reject after destruction',
+                        (await rejects(other.startXR('vr'))) && (await rejects(other.endXR()))
+                    );
+                    await reportUnhandled();
+                });
+                button('Destroy pending fullscreen', async () => {
+                    const pending = rejects(viewer.requestFullscreen());
+                    const gpu = handlesOf(viewer);
+                    subscriptions.forEach((subscription) => subscription.off());
+                    viewer.destroy();
+                    check(
+                        'pending fullscreen rejects on destruction',
+                        await Promise.race([pending, timeout(1000, false)])
+                    );
+                    await timeout(200);
+                    check(
+                        'destroy removes fullscreen and subtree',
+                        !viewer.state.isFullscreen && document.fullscreenElement !== root && !root.isConnected
+                    );
+                    check('fullscreen destruction releases context', await released(gpu));
+                    check(
+                        'fullscreen commands reject after destruction',
+                        (await rejects(viewer.requestFullscreen())) && (await rejects(viewer.exitFullscreen()))
+                    );
+                    // Retained controls and browser events must not re-enter the dead viewer.
+                    root.querySelector('.sse-enterFullscreen')?.click();
+                    screen.orientation?.dispatchEvent(new Event('change'));
+                    document.dispatchEvent(new Event('fullscreenchange'));
+                    await reportUnhandled();
+                });
+                panel.appendChild(status);
+                update();
+                await reportUnhandled();
+                log('Browser controls ready; use real clicks for fullscreen and XR permission checks.');
+            } else if (mode === 'annotations') {
+                const host = addHost();
+                const viewer = await createViewer({ container: host, settings, ...createOptions() });
+                const { state, events, annotations } = viewer;
+                const check = (name, ok) => log(`${ok ? 'ok  ' : 'FAIL'} ${name}`, !ok);
+                const rejectsSelection = (index) => {
+                    try {
+                        viewer.selectAnnotation(index);
+                        return false;
+                    } catch {
+                        return true;
+                    }
+                };
+                check('annotation data is available before load', annotations.length === settings.annotations.length);
+                check('initial selection is null', state.selectedAnnotation === null);
+                check('selection before load throws', !state.loaded && rejectsSelection(null));
+                check('loaded', await until(() => state.loaded, 120000));
+                state.gamingControls = false;
+                state.showAnnotations = true;
+                const changes = [];
+                events.on('selectedAnnotation:changed', (value, previous) => changes.push([value, previous]));
+                check(
+                    'invalid indices throw without selecting',
+                    [-1, 0.5, NaN, Infinity, annotations.length].every(rejectsSelection) &&
+                        state.selectedAnnotation === null &&
+                        changes.length === 0
+                );
+                if (annotations.length) {
+                    const paused = state.animationPaused;
+                    const atAnnotation = () => {
+                        const p = cameraOf(viewer).getPosition();
+                        const target = annotations[0].camera.initial.position;
+                        return Math.hypot(p.x - target[0], p.y - target[1], p.z - target[2]) < 0.01;
+                    };
+                    viewer.selectAnnotation(0);
+                    check(
+                        'selection uses orbit and preserves pause',
+                        state.cameraMode === 'orbit' && state.animationPaused === paused
+                    );
+                    check('camera reaches annotation pose', await until(atAnnotation, 5000));
+                    viewer.frameScene();
+                    viewer.selectAnnotation(0);
+                    check('reselecting navigates again', await until(atAnnotation, 5000));
+                    const position = cameraOf(viewer).getPosition().clone();
+                    viewer.selectAnnotation(null);
+                    check(
+                        'clear preserves camera',
+                        state.selectedAnnotation === null && cameraOf(viewer).getPosition().equals(position)
+                    );
+                    check(
+                        'selection events report index and previous',
+                        JSON.stringify(changes) === '[[0,null],[null,0]]'
+                    );
+                    state.showAnnotations = false;
+                    viewer.selectAnnotation(0);
+                    check(
+                        'hidden annotations can still be selected',
+                        state.selectedAnnotation === 0 && !state.showAnnotations
+                    );
+                    state.showAnnotations = true;
+                } else {
+                    viewer.selectAnnotation(null);
+                    check('clearing an empty list is safe', state.selectedAnnotation === null);
+                }
+                const ui = !url.searchParams.has('noui');
+                check(
+                    'hotspots follow the UI option',
+                    host.querySelectorAll('.sse-annotation-hotspot').length === (ui ? annotations.length : 0)
+                );
+                const status = document.getElementById('annotation-state');
+                const update = () => {
+                    status.textContent = `selected=${state.selectedAnnotation} mode=${state.cameraMode} visible=${state.showAnnotations}`;
+                };
+                ['selectedAnnotation', 'cameraMode', 'showAnnotations'].forEach((key) =>
+                    events.on(`${key}:changed`, update)
+                );
+                update();
+                document.getElementById('annotation-controls').hidden = false;
+                annotations.forEach((annotation, index) => {
+                    const button = document.createElement('button');
+                    button.textContent = `Select ${annotation.title}`;
+                    button.onclick = () => viewer.selectAnnotation(index);
+                    document.getElementById('annotation-buttons').appendChild(button);
+                });
+                document.getElementById('clear-annotation').onclick = () => viewer.selectAnnotation(null);
+                document.getElementById('hide-annotations').onclick = () => {
+                    state.showAnnotations = !state.showAnnotations;
+                };
+                document.getElementById('destroy-annotations').onclick = async () => {
+                    const handles = handlesOf(viewer);
+                    const root = host.querySelector('.sse-viewer');
+                    const hotspot = host.querySelector('.sse-annotation-hotspot');
+                    if (annotations.length) viewer.selectAnnotation(0);
+                    state.controlsHidden = true; // leave a tooltip fade pending during destruction
+                    const selected = state.selectedAnnotation;
+                    viewer.destroy();
+                    check('selection after destroy throws', rejectsSelection(0) && rejectsSelection(null));
+                    root.click();
+                    hotspot?.click();
+                    await timeout(250);
+                    check('detached annotation controls stay inert', state.selectedAnnotation === selected);
+                    check(
+                        'annotation teardown releases context and subtree',
+                        (await released(handles)) && host.childElementCount === 0
+                    );
+                    document.getElementById('annotation-controls').hidden = true;
+                    await reportUnhandled();
+                };
+            } else if (mode === 'playback' || mode === 'camera') {
+                const host = addHost();
+                const viewer = await createViewer({
+                    container: host,
+                    settings,
+                    ...createOptions(),
+                    exposeGlobals: true
+                });
+                const { state, events } = viewer;
+                const check = (name, ok) => log(`${ok ? 'ok  ' : 'FAIL'} ${name}`, !ok);
+                const rejectsSeek = (time) => {
+                    try {
+                        viewer.seek(time);
+                        return false;
+                    } catch {
+                        return true;
+                    }
+                };
+                const cameraCommands = ['frameScene', 'resetCamera', 'toggleWalk'];
+                const cameraCommandsThrow = () =>
+                    cameraCommands.every((command) => {
+                        try {
+                            viewer[command]();
+                            return false;
+                        } catch {
+                            return true;
+                        }
+                    });
+                check('seek before load throws', !state.loaded && rejectsSeek(0));
+                check('camera commands before load throw', !state.loaded && cameraCommandsThrow());
+                events.once('loaded:changed', () => {
+                    state.animationPaused = true;
+                });
+                check('loaded', await until(() => state.loaded, 120000));
+                check('host pause on loaded is retained', state.animationPaused);
+                check('non-finite seeks throw', [NaN, Infinity, -Infinity].every(rejectsSeek));
+                viewer.seek(state.animationDuration / 2);
+                check(
+                    'seek updates time and preserves pause',
+                    state.animationPaused && state.animationTime === state.animationDuration / 2
+                );
+                state.animationPaused = false;
+                viewer.seek(0);
+                check('seek preserves playing state', !state.animationPaused);
+                state.animationPaused = true;
+                const captured = await viewer.captureFrame({ time: 1, width: 64 });
+                check('capture at a time succeeds', captured.width === 64 && state.animationTime === 1);
+                await window.scrubTo(0);
+                check('legacy scrub pauses and settles', state.animationPaused && state.animationTime === 0);
+
+                state.gamingControls = false;
+                viewer.frameScene();
+                check('frame selects orbit', state.cameraMode === 'orbit');
+                viewer.resetCamera();
+                const initial = settings.cameras[0]?.initial;
+                if (initial) {
+                    check(
+                        'reset restores authored position',
+                        await until(() => {
+                            const p = cameraOf(viewer).getPosition();
+                            return (
+                                Math.hypot(
+                                    p.x - initial.position[0],
+                                    p.y - initial.position[1],
+                                    p.z - initial.position[2]
+                                ) < 0.01
+                            );
+                        }, 5000)
+                    );
+                }
+                state.cameraMode = 'fly';
+                // Let the entry transition (including any collision adjustment) finish.
+                await timeout(1200);
+                const spawn = cameraOf(viewer).getPosition().clone();
+                const arrow = (type) =>
+                    window.dispatchEvent(new KeyboardEvent(type, { key: 'ArrowUp', code: 'ArrowUp', bubbles: true }));
+                arrow('keydown');
+                check(
+                    'fly camera moves',
+                    await until(() => cameraOf(viewer).getPosition().distance(spawn) > 0.1, 5000)
+                );
+                arrow('keyup');
+                // Keyboard movement decelerates after release; reset once that input has settled.
+                await timeout(2000);
+                viewer.resetCamera();
+                check(
+                    'fly reset returns to entry spawn',
+                    await until(() => cameraOf(viewer).getPosition().distance(spawn) < 0.01, 5000)
+                );
+                check('reset preserves fly mode', state.cameraMode === 'fly');
+                viewer.toggleWalk();
+                if (state.walkAllowed) {
+                    check('walk toggle enters walk', state.cameraMode === 'walk');
+                    viewer.resetCamera();
+                    check('reset preserves walk mode', state.cameraMode === 'walk');
+                    viewer.toggleWalk();
+                    check('walk toggle restores fly', state.cameraMode === 'fly');
+                    state.cameraMode = 'orbit';
+                    state.cameraMode = 'walk';
+                    viewer.toggleWalk();
+                    check('walk toggle restores a host-selected return mode', state.cameraMode === 'orbit');
+                } else {
+                    check('unavailable walk leaves mode unchanged', state.cameraMode === 'fly');
+                }
+                viewer.seek(0);
+
+                const status = document.getElementById('playback-state');
+                const update = () => {
+                    status.textContent = `paused=${state.animationPaused} time=${state.animationTime.toFixed(2)}/${state.animationDuration} mode=${state.cameraMode} walkAllowed=${state.walkAllowed}`;
+                };
+                ['animationPaused', 'animationTime', 'cameraMode'].forEach((key) =>
+                    events.on(`${key}:changed`, update)
+                );
+                update();
+                document.getElementById('playback').hidden = false;
+                document.getElementById('host-orbit').onclick = () => {
+                    state.cameraMode = 'orbit';
+                };
+                document.getElementById('host-fly').onclick = () => {
+                    state.cameraMode = 'fly';
+                };
+                document.getElementById('host-walk').onclick = () => viewer.toggleWalk();
+                document.getElementById('host-frame').onclick = () => viewer.frameScene();
+                document.getElementById('host-reset').onclick = () => viewer.resetCamera();
+                document.getElementById('host-play').onclick = () => {
+                    state.cameraMode = 'anim';
+                    state.animationPaused = false;
+                };
+                document.getElementById('host-pause').onclick = () => {
+                    state.animationPaused = true;
+                };
+                document.getElementById('host-seek').onclick = () => viewer.seek(state.animationDuration / 2);
+                document.getElementById('host-end').onclick = () => viewer.seek(state.animationDuration);
+                document.getElementById('host-auto-pause').onclick = () => {
+                    events.once('animationTime:changed', () => {
+                        state.animationPaused = true;
+                    });
+                };
+                document.getElementById('host-destroy').onclick = async () => {
+                    const app = viewer.app;
+                    const handles = handlesOf(viewer);
+                    const scrub = window.scrubTo(0).then(
+                        () => 'resolved',
+                        () => 'rejected'
+                    );
+                    viewer.destroy();
+                    const settled = await Promise.race([scrub, timeout(2000, 'hung')]);
+                    check('pending legacy scrub rejects on destroy', settled === 'rejected');
+                    check('frame listener removed', !app.hasEvent('frameend'));
+                    check('seek after destroy throws', rejectsSeek(0));
+                    check('camera commands after destroy throw', cameraCommandsThrow());
+                    check(
+                        'context released and subtree removed',
+                        (await released(handles)) && host.childElementCount === 0
+                    );
+                    document.getElementById('playback').hidden = true;
+                    await reportUnhandled();
+                };
+                // Several viewers at once, each in its own host so each has a distinct root.
+            } else if (instances > 1) {
                 log(`${instances} instances, renderer=${renderer}, tab ${document.visibilityState}`);
                 const hostEls = [];
                 const viewers = [];
@@ -200,6 +933,26 @@
                         `hotspots per instance: ${hostEls.map((h) => h.querySelectorAll('.sse-annotation-hotspot').length).join(', ')}`
                     );
                     check('distinct apps', new Set(viewers.map((v) => v.app)).size === instances);
+                    if (viewers[0].annotations.length) {
+                        viewers[0].selectAnnotation(0);
+                        check('annotation selection is independent', viewers[1].state.selectedAnnotation === null);
+                        viewers[1].selectAnnotation(0);
+                        hostEls[1].querySelector('.sse-viewer').click();
+                        check(
+                            'click-away is scoped to its viewer',
+                            viewers[0].state.selectedAnnotation === 0 && viewers[1].state.selectedAnnotation === null
+                        );
+                        viewers[0].selectAnnotation(null);
+                    }
+                    viewers.forEach((v) => {
+                        v.state.animationPaused = true;
+                    });
+                    const secondTime = viewers[1].state.animationTime;
+                    viewers[0].seek(viewers[0].state.animationDuration / 2);
+                    check(
+                        'seeking one instance leaves the other unchanged',
+                        viewers[1].state.animationTime === secondTime
+                    );
                     check(
                         'entities belong to their own app',
                         viewers.every((v) => v.app.root.children.every((e) => e._app === v.app))

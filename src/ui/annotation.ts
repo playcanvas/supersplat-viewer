@@ -344,10 +344,11 @@ export class Annotation extends Script {
         this.hotspotDom.className = 'sse-annotation-hotspot';
 
         // Add click handlers
-        this.hotspotDom.addEventListener('click', (e) => {
+        const onClick = (e: MouseEvent) => {
             e.stopPropagation();
-            this.showTooltip();
-        });
+            this.fire('select');
+        };
+        this.hotspotDom.addEventListener('click', onClick);
 
         const leave = () => {
             if (ctx.hoverAnnotation === this) {
@@ -367,19 +368,18 @@ export class Annotation extends Script {
         this.hotspotDom.addEventListener('pointerenter', enter);
         this.hotspotDom.addEventListener('pointerleave', leave);
 
-        const onDocumentClick = () => {
-            if (ctx.activeAnnotation === this) {
-                this.hideTooltip();
-            }
-        };
-        document.addEventListener('click', onDocumentClick);
-
         ctx.parentDom.appendChild(this.hotspotDom);
+
+        const onPrerender = () => this._update();
+        this.app.on('prerender', onPrerender);
 
         // Clean up on entity destruction
         this.on('destroy', () => {
             this.destroyed = true;
-            document.removeEventListener('click', onDocumentClick);
+            this.app.off('prerender', onPrerender);
+            this.hotspotDom.removeEventListener('click', onClick);
+            this.hotspotDom.removeEventListener('pointerenter', enter);
+            this.hotspotDom.removeEventListener('pointerleave', leave);
             this.hotspotDom.remove();
             if (ctx.hoverAnnotation === this) {
                 ctx.hoverAnnotation = null;
@@ -393,10 +393,6 @@ export class Annotation extends Script {
 
             this.texture.destroy();
             this.texture = null;
-        });
-
-        this.app.on('prerender', () => {
-            this._update();
         });
     }
 
@@ -450,6 +446,8 @@ export class Annotation extends Script {
      */
     showTooltip() {
         const ctx = this.context;
+        clearTimeout(ctx.hideTimeout);
+        ctx.hideTimeout = null;
         ctx.activeAnnotation = this;
         ctx.tooltipDom.style.visibility = 'visible';
         ctx.tooltipDom.style.opacity = '1';
@@ -458,23 +456,23 @@ export class Annotation extends Script {
 
         // Immediately update incase the camera doesn't move
         this._update();
-
-        this.fire('show', this);
     }
 
     /**
      * @private
      */
     hideTooltip() {
-        const { tooltipDom } = this.context;
-        this.context.activeAnnotation = null;
+        const ctx = this.context;
+        const { tooltipDom } = ctx;
+        ctx.activeAnnotation = null;
         tooltipDom.style.opacity = '0';
 
         // Wait for fade out before hiding
-        setTimeout(() => {
+        clearTimeout(ctx.hideTimeout);
+        ctx.hideTimeout = setTimeout(() => {
+            ctx.hideTimeout = null;
             if (tooltipDom.style.opacity === '0') {
                 tooltipDom.style.visibility = 'hidden';
-                this.fire('hide');
             }
         }, 200); // Match the transition duration
     }
@@ -628,6 +626,8 @@ class AnnotationContext {
     hoverAnnotation: Annotation | null = null;
 
     opacity = 1.0;
+
+    hideTimeout: ReturnType<typeof setTimeout> | null = null;
 
     constructor(app: AppBase, camera: Entity, parentDom: HTMLElement) {
         this.parentDom = parentDom;

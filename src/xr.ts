@@ -1,13 +1,19 @@
 import { Color, DEVICETYPE_WEBGL2, Quat, Vec3, XrManager } from 'playcanvas';
-import type { CameraComponent, Entity } from 'playcanvas';
+import type { Entity } from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 
-import type { Global } from './types';
+import type { Global, XrMode } from './types';
 
 // On entering/exiting AR, we need to set the camera clear color to transparent black
 const initXr = (global: Global) => {
     const { app, events, state, camera, renderer, root } = global;
+    const { xr } = app;
+    let destroyed = false;
+    let restoreFrame: number | null = null;
+    let rejectStart: ((error: Error) => void) | null = null;
+    let rejectEnd: ((error: Error) => void) | null = null;
+    const gone = () => new Error('the viewer has been destroyed');
 
     // Engine availability is backend-aware (2.20+): under WebGPU a session is only
     // reported available when it can start on the current device (browser exposes
@@ -18,18 +24,22 @@ const initXr = (global: Global) => {
     let webglVR = false;
 
     const updateAvailable = () => {
-        state.hasAR = app.xr.isAvailable('immersive-ar') || webglAR;
-        state.hasVR = app.xr.isAvailable('immersive-vr') || webglVR;
+        if (destroyed) return;
+        state.canStartAR = xr.isAvailable('immersive-ar');
+        state.canStartVR = xr.isAvailable('immersive-vr');
+        state.hasAR = state.canStartAR || webglAR;
+        state.hasVR = state.canStartVR || webglVR;
     };
 
     updateAvailable();
-    app.xr.on('available', updateAvailable);
+    const availability = xr.on('available', updateAvailable);
 
     if (renderer === 'webgpu') {
         Promise.all([
             XrManager.isDeviceSupported(DEVICETYPE_WEBGL2, 'immersive-ar'),
             XrManager.isDeviceSupported(DEVICETYPE_WEBGL2, 'immersive-vr')
         ]).then(([ar, vr]) => {
+            if (destroyed) return;
             webglAR = ar;
             webglVR = vr;
             updateAvailable();
@@ -49,7 +59,8 @@ const initXr = (global: Global) => {
     parent.script.create(XrControllers);
     parent.script.create(XrNavigation);
 
-    app.xr.on('start', () => {
+    const started = xr.on('start', () => {
+        if (destroyed) return;
         app.autoRender = true;
 
         // cache original camera rig positions and rotations
@@ -64,13 +75,15 @@ const initXr = (global: Global) => {
         parent.setPosition(cameraPosition.x, 0, cameraPosition.z);
         parent.setEulerAngles(0, angles.y, 0);
 
-        if (app.xr.type === 'immersive-ar') {
+        if (xr.type === 'immersive-ar') {
             clearColor.copy(camera.camera.clearColor);
             camera.camera.clearColor = new Color(0, 0, 0, 0);
         }
+        state.xrMode = xr.type === 'immersive-ar' ? 'ar' : 'vr';
     });
 
-    app.xr.on('end', () => {
+    const ended = xr.on('end', () => {
+        if (destroyed) return;
         app.autoRender = false;
 
         // restore camera to pre-XR state
@@ -79,33 +92,114 @@ const initXr = (global: Global) => {
         camera.setPosition(cameraPosition);
         camera.setRotation(cameraRotation);
 
-        if (app.xr.type === 'immersive-ar') {
+        if (state.xrMode === 'ar') {
             camera.camera.clearColor = clearColor;
         }
+        state.xrMode = null;
 
         // Restore the canvas to the correct position in the DOM after exiting XR. In
         // some browsers (e.g. Chrome on Android) the canvas is moved to a new root
         // during XR, and needs to be moved back on exit.
-        requestAnimationFrame(() => {
+        if (restoreFrame !== null) cancelAnimationFrame(restoreFrame);
+        restoreFrame = requestAnimationFrame(() => {
+            restoreFrame = null;
+            if (destroyed) return;
             root.prepend(app.graphicsDevice.canvas);
             app.renderNextFrame = true;
         });
     });
 
-    const start = (type: string) => {
+    const start = async (mode: XrMode) => {
+        if (destroyed) throw gone();
+        if (mode !== 'ar' && mode !== 'vr') throw new Error('startXR: mode must be ar or vr');
+        if (rejectStart || rejectEnd || xr.active) throw new Error('startXR: a session is active or pending');
+        const type = mode === 'ar' ? 'immersive-ar' : 'immersive-vr';
+        if (!xr.isAvailable(type)) {
+            const offered = mode === 'ar' ? state.hasAR : state.hasVR;
+            throw new Error(
+                offered ? 'startXR: reload with WebGL to start this session' : 'startXR: XR is not available'
+            );
+        }
+        const { nearClip, farClip } = camera.camera;
         camera.camera.nearClip = 0.01;
         camera.camera.farClip = 1000;
-        app.xr.start(app.root.findComponent('camera') as CameraComponent, type, 'local-floor');
+        try {
+            await new Promise<void>((resolve, reject) => {
+                rejectStart = reject;
+                xr.start(camera.camera, type, 'local-floor', {
+                    callback: (error) => {
+                        if (destroyed) {
+                            // Browser session requests cannot be cancelled. Close a late result.
+                            void xr.session?.end().catch(() => {
+                                /* already ended */
+                            });
+                            reject(gone());
+                        } else if (error) {
+                            reject(error);
+                        } else {
+                            resolve();
+                        }
+                    }
+                });
+            });
+            if (destroyed) throw gone();
+        } catch (error) {
+            if (!destroyed) {
+                camera.camera.nearClip = nearClip;
+                camera.camera.farClip = farClip;
+            }
+            throw error;
+        } finally {
+            rejectStart = null;
+        }
     };
 
-    events.on('startAR', () => start('immersive-ar'));
-    events.on('startVR', () => start('immersive-vr'));
+    const end = async () => {
+        if (destroyed) throw gone();
+        if (rejectStart) throw new Error('endXR: a session is still starting');
+        if (rejectEnd) throw new Error('endXR: a session is already ending');
+        const { session } = xr;
+        if (!session) return;
+        let onEnd!: () => void;
+        try {
+            await new Promise<void>((resolve, reject) => {
+                rejectEnd = reject;
+                onEnd = resolve;
+                xr.once('end', onEnd);
+                // Use the native promise too: XrManager.end's callback does not report a
+                // rejected session.end() promise. The engine handles browser-initiated ends.
+                session.end().catch(reject);
+            });
+            if (destroyed) throw gone();
+        } finally {
+            xr.off('end', onEnd);
+            rejectEnd = null;
+        }
+    };
 
-    events.on('inputEvent', (event) => {
-        if (event === 'cancel' && app.xr.active) {
-            app.xr.end();
+    const cancel = events.on('inputEvent', (event) => {
+        if (event === 'cancel' && xr.active) {
+            void end().catch(() => {
+                /* the browser may already be ending the session */
+            });
         }
     });
+
+    return {
+        start,
+        end,
+        destroy: () => {
+            destroyed = true;
+            availability.off();
+            started.off();
+            ended.off();
+            cancel.off();
+            if (restoreFrame !== null) cancelAnimationFrame(restoreFrame);
+            rejectStart?.(gone());
+            rejectEnd?.(gone());
+            state.xrMode = null;
+        }
+    };
 };
 
 export { initXr };
