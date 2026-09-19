@@ -40,8 +40,9 @@ type ViewerFlags = {
     /**
      * Build the viewer's ui: the controls, panels, poster, loading bar, annotation hotspots
      * and their navigator. Defaults to `true`. `false` is the headless level: the canvas and
-     * the api, with no markup but the canvas and nothing listening outside it, for a host that
-     * renders its own controls against `state`. Note that the touch joystick and the AR/VR
+     * the api, with no overlay markup. Core camera input, browser integration and preference
+     * persistence remain active. The host renders controls against the public handle;
+     * `setMoveInput` supports a replacement joystick. Note that the touch joystick and the AR/VR
      * fallback prompt live in that ui, so a headless host owns those affordances too.
      */
     ui?: boolean;

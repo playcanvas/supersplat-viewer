@@ -16,6 +16,7 @@ function htmlPlugin() {
         buildStart() {
             this.addWatchFile('src/index.html');
             this.addWatchFile('src/dev/mount-loop.html');
+            this.addWatchFile('src/dev/custom-ui.html');
         },
         generateBundle() {
             const contents = readFileSync('src/index.html', 'utf-8');
@@ -39,6 +40,11 @@ function htmlPlugin() {
                 type: 'asset',
                 fileName: 'mount-loop.html',
                 source: readFileSync('src/dev/mount-loop.html', 'utf-8')
+            });
+            this.emitFile({
+                type: 'asset',
+                fileName: 'custom-ui.html',
+                source: readFileSync('src/dev/custom-ui.html', 'utf-8')
             });
         }
     };

@@ -165,6 +165,14 @@ type ViewerHandle = {
      */
     selectAnnotation(index: number | null): void;
     /**
+     * Hold camera-relative movement in fly/walk: x is right, z is forward. Finite axes are
+     * clamped to -1..1; (0, 0) stops. Input persists until replaced, a camera/XR mode change,
+     * window blur, document visibility change or destruction. Ignored in other modes and XR.
+     * Requires `state.loaded`; throws before readiness, after destruction or for non-finite
+     * axes. Independent of `gamingControls`, `inputMode` and the keyboard/gamepad input gate.
+     */
+    setMoveInput(x: number, z: number): void;
+    /**
      * Request fullscreen for this viewer's root. Call from a user gesture; rejects on browser
      * refusal or destruction. Available before scene loading finishes. Without native support,
      * an iframe sends the legacy parent message and resolves without acknowledgement.

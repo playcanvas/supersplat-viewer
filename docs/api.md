@@ -77,6 +77,7 @@ scene is visible. It returns:
 | `resetCamera()` | Restores the fly/walk entry spawn, or the authored initial view in orbit mode; requires `state.loaded` |
 | `toggleWalk()` | Enters walk mode or restores the previous mode. Does nothing if `walkAllowed` is false; requires `state.loaded` |
 | `selectAnnotation(index)` | Selects a zero-based annotation index and transitions to its orbit camera. Pass `null` to clear selection without starting another camera movement; requires `state.loaded` |
+| `setMoveInput(x, z)` | Holds normalized camera-relative movement in fly/walk, with positive x right and positive z forward. Send `(0, 0)` to stop; requires `state.loaded` |
 | `requestFullscreen()` / `exitFullscreen()` | Enter or leave fullscreen for this viewer. Return promises; available before scene readiness |
 | `startXR('ar' \| 'vr')` / `endXR()` | Start or end an immersive session. Return promises; starting requires `state.loaded` |
 | `destroy()` | Releases the engine application, the graphics context, every listener and the subtree. Idempotent |
@@ -133,6 +134,25 @@ After loading, set `viewer.state.cameraMode` to select orbit, fly or animation m
 `frameScene()` switches to orbit and frames the full scene. `resetCamera()` preserves fly/walk mode and restores the spawn recorded when that mode was entered; from orbit or animation it restores the authored initial view in orbit mode, falling back to scene framing when no initial view exists. Both start a camera transition and return immediately. These commands work with the built-in UI or with `ui: false`.
 
 Camera commands throw before `state.loaded` or after destruction, matching `seek()`. In particular, `frameScene()` now reports those invalid calls instead of silently doing nothing. Desktop gaming controls still depend on the browser's pointer-lock rules; enter them from a user gesture.
+
+### Replacement movement controls
+
+`setMoveInput(x, z)` supplies held movement for a custom joystick or directional buttons. Values must be finite and are clamped independently to `[-1, 1]`. Positive x strafes right; positive z moves forward in the camera's basis, along the ground in walk mode. Movement uses the normal camera/collision path and cancels target navigation. It does not select a camera mode, so select fly or walk first; calls in other modes or XR are ignored and are not queued.
+
+```ts
+// After loading, when a directional control is pressed:
+viewer.state.cameraMode = 'fly';
+viewer.setMoveInput(0, 1);
+
+// On release, pointercancel, lostpointercapture or control unmount:
+viewer.setMoveInput(0, 0);
+```
+
+The value stays active until replaced. The viewer clears it on camera/XR mode changes, window blur, document visibility changes and destruction. This explicit command works independently of `gamingControls`, `inputMode` and `inputEnabled`; the latter continues to gate keyboard/gamepad input. The built-in touch joystick uses the same command and clears its held input when hidden or cancelled. Canvas touch gestures remain part of the core input system with or without the overlay. Real touch-device gesture and capture checks remain necessary alongside the simulated harness checks.
+
+### Saved preferences
+
+`performanceMode`, `gamingControls` and `showAnnotations` load from and write changes to the existing origin-wide local-storage keys, with or without the built-in UI. Creation does not write defaults; the legacy `retinaDisplay` migration is preserved. A new viewer reads the saved values; already-mounted viewers keep their own state rather than synchronizing through storage. The host can change these preferences through the corresponding writable state fields. Storage denial or quota errors leave the viewer usable, and destruction removes its persistence subscriptions.
 
 ### Controlling annotations
 
@@ -199,6 +219,8 @@ For more than a retheme, pass `ui: false`. The viewer creates the canvas and ret
 the AR/VR fallback prompt are part of the UI you are replacing, so those affordances become
 yours too. Everything between the two, replacing some of the UI but keeping the rest, is not
 supported yet; the class names inside the viewer are not API and do change.
+
+[The custom UI example](../src/dev/custom-ui.html) demonstrates loading, playback, camera modes, directional movement, annotations, preferences and fullscreen/XR using only the handle and documented state events. Run it locally at `/custom-ui?content=./scene.ply&settings=./settings.json` (`&webgl` selects WebGL). It is a development example, not a React package or a published UI component. Its controls live outside the fullscreen viewer root, so use Escape or the browser's exit affordance to leave fullscreen.
 
 ## Settings
 

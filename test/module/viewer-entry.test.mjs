@@ -83,6 +83,7 @@ describe('the /viewer entry', () => {
         assert.match(types, /\/\*\*\s*\* Enter walk mode[\s\S]*?\*\/\s*toggleWalk\(\): void;/);
         assert.match(types, /readonly annotations: readonly Readonly<Annotation>\[\];/);
         assert.match(types, /selectedAnnotation: number \| null;/);
+        assert.match(types, /setMoveInput\(x: number, z: number\): void;/);
         assert.match(types, /requestFullscreen\(\): Promise<void>;/);
         assert.match(types, /exitFullscreen\(\): Promise<void>;/);
         assert.match(types, /startXR\(mode: XrMode\): Promise<void>;/);

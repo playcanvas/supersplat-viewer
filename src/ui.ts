@@ -8,140 +8,9 @@ import { initAnnotationControls } from './ui/annotation-controls';
 import { Annotations } from './ui/annotations';
 import { initCameraControls } from './ui/camera-controls';
 import { initFullscreenControls } from './ui/fullscreen-controls';
+import { initJoystick } from './ui/joystick';
 import { initPlayback } from './ui/playback';
 import { initXrControls } from './ui/xr-controls';
-
-// Initialize the touch joystick for fly mode camera control
-const initJoystick = (
-    dom: Record<string, HTMLElement>,
-    events: EventHandler,
-    state: { cameraMode: string; inputMode: string; gamingControls: boolean }
-) => {
-    // Joystick dimensions (matches SCSS: base height=100, stick size=40)
-    const joystickHeight = 100;
-    const stickSize = 40;
-    const stickCenterY = (joystickHeight - stickSize) / 2; // 30px - top position when centered
-    const stickCenterX = (joystickHeight - stickSize) / 2; // 30px - left position when centered (for 2D mode)
-    const maxStickTravel = stickCenterY; // can travel 30px up or down from center
-
-    // Joystick touch state
-    let joystickPointerId: number | null = null;
-    let joystickValueX = 0; // -1 to 1, negative = left, positive = right
-    let joystickValueY = 0; // -1 to 1, negative = forward, positive = backward
-
-    // Joystick mode: '1d' for vertical only, '2d' for full directional
-    let joystickMode: '1d' | '2d' = '2d';
-
-    // Double-tap detection for mode toggle
-    let lastTapTime = 0;
-
-    // Update joystick visibility based on camera mode and input mode
-    const updateJoystickVisibility = () => {
-        if (
-            (state.cameraMode === 'fly' || state.cameraMode === 'walk') &&
-            state.inputMode === 'touch' &&
-            state.gamingControls
-        ) {
-            dom.joystickBase.classList.remove('sse-hidden');
-            dom.joystickBase.classList.toggle('sse-mode-2d', joystickMode === '2d');
-            // Center the stick
-            dom.joystick.style.top = `${stickCenterY}px`;
-            if (joystickMode === '2d') {
-                dom.joystick.style.left = `${stickCenterX}px`;
-            } else {
-                dom.joystick.style.left = '8px'; // Reset to 1D centered position
-            }
-        } else {
-            dom.joystickBase.classList.add('sse-hidden');
-        }
-    };
-
-    events.on('cameraMode:changed', updateJoystickVisibility);
-    events.on('inputMode:changed', updateJoystickVisibility);
-    events.on('gamingControls:changed', updateJoystickVisibility);
-
-    // Handle joystick touch input directly on the joystick element
-    const updateJoystickStick = (clientX: number, clientY: number) => {
-        // the stylesheet places the base within the instance, so measure its centre rather
-        // than assuming where the viewport put it
-        const base = dom.joystickBase.getBoundingClientRect();
-        const baseY = base.top + base.height / 2;
-        // Calculate Y offset from joystick center (positive = down/backward)
-        const offsetY = clientY - baseY;
-        // Clamp to max travel and normalize to -1 to 1
-        const clampedOffsetY = Math.max(-maxStickTravel, Math.min(maxStickTravel, offsetY));
-        joystickValueY = clampedOffsetY / maxStickTravel;
-
-        // Update stick visual Y position
-        dom.joystick.style.top = `${stickCenterY + clampedOffsetY}px`;
-
-        // Handle X axis in 2D mode
-        if (joystickMode === '2d') {
-            const baseX = base.left + base.width / 2;
-            const offsetX = clientX - baseX;
-            const clampedOffsetX = Math.max(-maxStickTravel, Math.min(maxStickTravel, offsetX));
-            joystickValueX = clampedOffsetX / maxStickTravel;
-
-            // Update stick visual X position
-            dom.joystick.style.left = `${stickCenterX + clampedOffsetX}px`;
-        } else {
-            joystickValueX = 0;
-        }
-
-        // Fire input event for the input controller
-        events.fire('joystickInput', { x: joystickValueX, y: joystickValueY });
-    };
-
-    dom.joystickBase.addEventListener('pointerdown', (event: PointerEvent) => {
-        // Double-tap detection for mode toggle
-        const now = Date.now();
-        if (now - lastTapTime < 300) {
-            joystickMode = joystickMode === '1d' ? '2d' : '1d';
-            updateJoystickVisibility();
-            lastTapTime = 0;
-        } else {
-            lastTapTime = now;
-        }
-
-        if (joystickPointerId !== null) return; // Already tracking a touch
-
-        joystickPointerId = event.pointerId;
-        dom.joystickBase.setPointerCapture(event.pointerId);
-
-        updateJoystickStick(event.clientX, event.clientY);
-        event.preventDefault();
-        event.stopPropagation();
-    });
-
-    dom.joystickBase.addEventListener('pointermove', (event: PointerEvent) => {
-        if (event.pointerId !== joystickPointerId) return;
-
-        updateJoystickStick(event.clientX, event.clientY);
-        event.preventDefault();
-    });
-
-    const endJoystickTouch = (event: PointerEvent) => {
-        if (event.pointerId !== joystickPointerId) return;
-
-        joystickPointerId = null;
-        joystickValueX = 0;
-        joystickValueY = 0;
-
-        // Reset stick to center
-        dom.joystick.style.top = `${stickCenterY}px`;
-        if (joystickMode === '2d') {
-            dom.joystick.style.left = `${stickCenterX}px`;
-        }
-
-        // Fire input event with zero values
-        events.fire('joystickInput', { x: 0, y: 0 });
-
-        dom.joystickBase.releasePointerCapture(event.pointerId);
-    };
-
-    dom.joystickBase.addEventListener('pointerup', endJoystickTouch);
-    dom.joystickBase.addEventListener('pointercancel', endJoystickTouch);
-};
 
 // show the poster image over the hidden canvas, blurry at first and sharpening as loading
 // progresses, until the first frame renders
@@ -170,8 +39,13 @@ const initPoster = (root: HTMLElement, image: HTMLImageElement, events: EventHan
 // document, screen) and cancels pending timers. Listeners on the subtree's own elements are
 // released with the elements.
 const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) => {
-    const { events, state, root, localize } = global;
+    const { root, localize } = global;
+    const { events, state } = viewer;
     const disposers: (() => void)[] = [];
+    const on = (name: string, callback: Parameters<EventHandler['on']>[1]) => {
+        const subscription = events.on(name, callback);
+        disposers.push(() => subscription.off());
+    };
 
     // Acquire Elements
     const dom = [
@@ -216,8 +90,6 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         'loadingWrap',
         'loadingText',
         'loadingBar',
-        'joystickBase',
-        'joystick',
         'showCollision',
         'desktopShowCollisionHelp',
         'tooltip',
@@ -273,11 +145,11 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
             dom.loadingBar.style.backgroundImage = 'linear-gradient(90deg, #F60 0%, #F60 100%)';
         }
     };
-    events.on('progress:changed', updateLoadingProgress);
+    on('progress:changed', updateLoadingProgress);
     updateLoadingProgress(state.progress);
 
     // Hide loading bar once loaded
-    events.on('loaded:changed', () => {
+    on('loaded:changed', () => {
         dom.loadingWrap.classList.add('sse-hidden');
     });
 
@@ -289,7 +161,7 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     const updatePerformanceMode = () => {
         dom.performanceModeCheck.classList.toggle('sse-active', state.performanceMode);
     };
-    events.on('performanceMode:changed', updatePerformanceMode);
+    on('performanceMode:changed', updatePerformanceMode);
     updatePerformanceMode();
 
     // Gaming mode toggle (settings row visible on mobile only)
@@ -302,7 +174,7 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         dom.gamingControlsDivider.classList.toggle('sse-hidden', isDesktop);
         dom.gamingControlsRow.classList.toggle('sse-hidden', isDesktop);
     };
-    events.on('inputMode:changed', updateGamingSettingsVisibility);
+    on('inputMode:changed', updateGamingSettingsVisibility);
     updateGamingSettingsVisibility();
 
     const updateGamingControls = () => {
@@ -317,14 +189,9 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         dom.touchGamingControls.classList.toggle('sse-hidden', !state.gamingControls);
     };
 
-    events.on('gamingControls:changed', updateGamingControls);
-    events.on('inputMode:changed', updateGamingControls);
+    on('gamingControls:changed', updateGamingControls);
+    on('inputMode:changed', updateGamingControls);
     updateGamingControls();
-
-    // persist user preferences on change (never at startup, so defaults are not written into storage)
-    events.on('performanceMode:changed', (value: boolean) => localStorage.setItem('performanceMode', String(value)));
-    events.on('gamingControls:changed', (value: boolean) => localStorage.setItem('gamingControls', String(value)));
-    events.on('showAnnotations:changed', (value: boolean) => localStorage.setItem('showAnnotations', String(value)));
 
     // Info panel
     const updateInfoTab = (tab: 'desktop' | 'touch') => {
@@ -360,7 +227,7 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         dom.infoPanel.classList.add('sse-hidden');
     });
 
-    events.on('inputEvent', (event) => {
+    on('inputEvent', (event) => {
         if (event === 'toggleHelp') {
             toggleHelp();
         } else if (event === 'cancel') {
@@ -373,7 +240,7 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     });
 
     // fade ui controls after 5 seconds of inactivity
-    events.on('controlsHidden:changed', (value) => {
+    on('controlsHidden:changed', (value) => {
         dom.controlsWrap.classList.toggle('sse-faded-out', value);
         dom.controlsWrap.classList.toggle('sse-faded-in', !value);
     });
@@ -422,12 +289,12 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     };
 
     // Show controls once loaded
-    events.on('loaded:changed', () => {
+    on('loaded:changed', () => {
         dom.controlsWrap.classList.remove('sse-hidden');
         showUI();
     });
 
-    events.on('inputEvent', showUI);
+    on('inputEvent', showUI);
 
     const updateCapturedUI = () => {
         if (isPointerCapturedMode()) {
@@ -437,13 +304,12 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         }
     };
 
-    events.on('cameraMode:changed', updateCapturedUI);
-    events.on('inputMode:changed', updateCapturedUI);
-    events.on('gamingControls:changed', updateCapturedUI);
+    on('cameraMode:changed', updateCapturedUI);
+    on('inputMode:changed', updateCapturedUI);
+    on('gamingControls:changed', updateCapturedUI);
 
     // Keep controls visible while the selected annotation's panel is shown.
-    const selectionChanged = events.on('selectedAnnotation:changed', showUI);
-    disposers.push(() => selectionChanged.off());
+    on('selectedAnnotation:changed', showUI);
 
     disposers.push(initPlayback(viewer, root, showUI));
     disposers.push(initCameraControls(viewer, root));
@@ -460,7 +326,7 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         return localize(state.gamingControls ? 'walk-hint.touch-gaming' : 'walk-hint.touch-tap');
     };
 
-    events.on('cameraMode:changed', (value: string) => {
+    on('cameraMode:changed', (value: string) => {
         if (value === 'walk' && !walkHintShown && !isPointerCapturedMode()) {
             walkHintShown = true;
             dom.walkHint.textContent = getWalkHintText();
@@ -473,12 +339,12 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     const dismissWalkHint = () => dom.walkHint.classList.add('sse-hidden');
 
     dom.walkHint.addEventListener('click', dismissWalkHint);
-    events.on('inputEvent', (type: string) => {
+    on('inputEvent', (type: string) => {
         if (type === 'interrupt') dismissWalkHint();
     });
 
     // Collision overlay toggle + matching help-panel row (only visible when overlay is available)
-    events.on('hasCollisionOverlay:changed', (value: boolean) => {
+    on('hasCollisionOverlay:changed', (value: boolean) => {
         dom.showCollision.classList.toggle('sse-hidden', !value);
         dom.desktopShowCollisionHelp.classList.toggle('sse-hidden', !value);
     });
@@ -487,7 +353,7 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         state.collisionOverlayEnabled = !state.collisionOverlayEnabled;
     });
 
-    events.on('collisionOverlayEnabled:changed', (value: boolean) => {
+    on('collisionOverlayEnabled:changed', (value: boolean) => {
         dom.showCollision.classList.toggle('sse-active', value);
     });
 
@@ -496,7 +362,7 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     });
 
     // Initialize touch joystick for fly mode
-    initJoystick(dom, events, state);
+    disposers.push(initJoystick(viewer, root));
 
     disposers.push(initAnnotationControls(viewer, root));
     if (viewer.annotations.length > 0) {

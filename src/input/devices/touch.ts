@@ -6,15 +6,12 @@ import type { CameraInputFrame, InputDevice, UpdateContext } from '../shared';
 
 const tmpV = new Vec3();
 const orbitMove = new Vec3();
-const flyMoveTmp = new Vec3();
 const pinchMoveTmp = new Vec3();
 const orbitRotate = new Vec3();
 const flyRotate = new Vec3();
 
 class TouchDevice implements InputDevice {
     orbitSpeed = 18;
-
-    moveSpeed = 4;
 
     pinchSpeed = 0.4;
 
@@ -27,9 +24,6 @@ class TouchDevice implements InputDevice {
     /** Touches currently active (running count from .read() deltas). */
     private _touchCount = 0;
 
-    /** UI joystick value [x, y], -1..1. */
-    private _joystick: [number, number] = [0, 0];
-
     /** Tap-detection state — touch count, max touches, and accumulated movement. */
     private _tapTouches = 0;
 
@@ -40,11 +34,6 @@ class TouchDevice implements InputDevice {
     /** True for one frame after a tap is detected during gaming controls. */
     private _tapJump = false;
 
-    private _onJoystickInput = (value: { x: number; y: number }) => {
-        this._joystick[0] = value.x;
-        this._joystick[1] = value.y;
-    };
-
     get touchCount(): number {
         return this._touchCount;
     }
@@ -52,27 +41,19 @@ class TouchDevice implements InputDevice {
     attach(canvas: HTMLCanvasElement, global: Global): void {
         this._global = global;
         this._source.attach(canvas);
-        global.events.on('joystickInput', this._onJoystickInput);
     }
 
     detach(): void {
         this._source.detach();
-        if (this._global) {
-            this._global.events.off('joystickInput', this._onJoystickInput);
-            this._global = null;
-        }
+        this._global = null;
     }
 
     update(ctx: UpdateContext, frame: CameraInputFrame): void {
         const { touch, pinch, count } = this._source.read();
-        const { isFly, isWalk, isFirstPerson, isOrbit, gamingControls, dt, distance, cameraComponent } = ctx;
+        const { isFly, isWalk, isFirstPerson, isOrbit, gamingControls, distance, cameraComponent } = ctx;
 
         // running touch count
         this._touchCount += count[0];
-
-        if (isFly && gamingControls && (this._joystick[0] !== 0 || this._joystick[1] !== 0)) {
-            this._global!.events.fire('navigateCancel');
-        }
 
         // tap detection for click/tap target and focus modes
         if (isWalk || isFly || isOrbit) {
@@ -144,11 +125,6 @@ class TouchDevice implements InputDevice {
             orbitMove.y = 0;
         }
         v.add(orbitMove.mulScalar((orbit + directFirstPerson) * double));
-        if (gamingControls) {
-            // joystick UI drives strafe + forward/back in fly/walk
-            flyMoveTmp.set(this._joystick[0], 0, -this._joystick[1]);
-            v.add(flyMoveTmp.mulScalar(fly * this.moveSpeed * dt));
-        }
         // Two-finger pinch z: orbit interprets +z as "farther from target"
         // (close-pinch = +pinch[0] = zoom out). First-person modes interpret
         // +z as "forward", so spreading (pinch[0] < 0) should move forward —

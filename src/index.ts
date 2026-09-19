@@ -19,6 +19,7 @@ import type { Collision } from './collision';
 import { observe } from './core/observe';
 import { initLocalization } from './localization';
 import type { CreateViewerOptions } from './options';
+import { persistPreferences, readPreferences } from './preferences';
 import { importSettings } from './settings';
 import type { Config, Global, State, ViewerHandle } from './types';
 import { initPoster, initUI } from './ui';
@@ -307,20 +308,13 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     const settingsJson =
         typeof options.settings === 'string' ? await (await fetch(options.settings)).json() : await options.settings;
 
-    // migrate legacy `retinaDisplay` preference (inverted) to `performanceMode`
-    const legacyRetina = localStorage.getItem('retinaDisplay');
-    if (legacyRetina !== null && localStorage.getItem('performanceMode') === null) {
-        localStorage.setItem('performanceMode', String(legacyRetina === 'false'));
-        localStorage.removeItem('retinaDisplay');
-    }
-    const storedPerformanceMode = localStorage.getItem('performanceMode');
-    const performanceMode = storedPerformanceMode !== null ? storedPerformanceMode === 'true' : platform.mobile;
+    const preferences = readPreferences(platform.mobile);
 
     // size the canvas backbuffer before the graphics device is created, so the swap
     // chain and any backbuffer-sized resources start at the correct resolution instead
     // of being recreated on the first frame's resize. a hidden embed keeps the default
     // canvas size here; the resize observer sizes it on reveal
-    resizeCanvas(canvas, measureCanvas(canvas), performanceMode);
+    resizeCanvas(canvas, measureCanvas(canvas), preferences.performanceMode);
 
     const { app, camera, renderer } = await createApp(canvas, config);
 
@@ -329,7 +323,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
 
     const state = observe<State>(events, {
         loaded: false,
-        performanceMode,
+        ...preferences,
         progress: 0,
         inputMode: platform.mobile ? 'touch' : 'desktop',
         cameraMode: 'orbit',
@@ -348,9 +342,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         collisionOverlayEnabled: false,
         isFullscreen: false,
         controlsHidden: false,
-        showAnnotations: localStorage.getItem('showAnnotations') !== 'false',
         selectedAnnotation: null,
-        gamingControls: localStorage.getItem('gamingControls') === 'true',
         inputEnabled: true
     });
 
@@ -437,6 +429,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
 
     // Create the viewer
     const viewer = new Viewer(global, gsplatLoad, skyboxLoad, collisionLoad);
+    viewer.onDestroy(persistPreferences(events));
     const handle: ViewerHandle = {
         app,
         state,
@@ -448,6 +441,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         resetCamera: () => viewer.resetCamera(),
         toggleWalk: () => viewer.toggleWalk(),
         selectAnnotation: (index) => viewer.selectAnnotation(index),
+        setMoveInput: (x, z) => viewer.setMoveInput(x, z),
         requestFullscreen: () => viewer.requestFullscreen(),
         exitFullscreen: () => viewer.exitFullscreen(),
         startXR: (mode) => viewer.startXR(mode),

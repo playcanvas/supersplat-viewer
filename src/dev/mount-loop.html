@@ -94,7 +94,7 @@
             Browser mode supplies fullscreen/XR host controls and delayed-request teardown checks.
             XR callback simulations check cancellation without claiming to test a native session.
 
-            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser  ?instances=2  ?webgl  ?content=  ?settings=
+            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser|input  ?instances=2  ?webgl  ?content=  ?settings=
         -->
         <div id="hosts"></div>
         <pre id="harness"></pre>
@@ -257,7 +257,197 @@
                 return unhandled.length === before;
             };
 
-            if (mode === 'browser') {
+            if (mode === 'input') {
+                const check = (name, ok) => log(`${ok ? 'ok  ' : 'FAIL'} ${name}`, !ok);
+                const rejects = (action) => {
+                    try {
+                        action();
+                        return false;
+                    } catch {
+                        return true;
+                    }
+                };
+                const keys = ['performanceMode', 'gamingControls', 'showAnnotations', 'retinaDisplay'];
+                const saved = keys.map((key) => localStorage.getItem(key));
+                const viewers = [];
+                try {
+                    keys.forEach((key) => localStorage.removeItem(key));
+                    localStorage.setItem('retinaDisplay', 'false');
+                    const host = addHost();
+                    const viewer = await createViewer({ container: host, settings, ...createOptions() });
+                    viewers.push(viewer);
+                    check(
+                        'movement rejects before readiness',
+                        rejects(() => viewer.setMoveInput(0, 1))
+                    );
+                    check(
+                        'legacy performance preference migrated',
+                        viewer.state.performanceMode &&
+                            localStorage.getItem('performanceMode') === 'true' &&
+                            localStorage.getItem('retinaDisplay') === null
+                    );
+                    check(
+                        'creation does not persist defaults',
+                        localStorage.getItem('gamingControls') === null &&
+                            localStorage.getItem('showAnnotations') === null
+                    );
+                    viewer.state.performanceMode = false;
+                    viewer.state.gamingControls = true;
+                    viewer.state.showAnnotations = false;
+                    check(
+                        'all preference writes persist',
+                        keys.slice(0, 3).every((key) => localStorage.getItem(key) === String(viewer.state[key]))
+                    );
+                    const otherHost = addHost();
+                    const other = await createViewer({ container: otherHost, settings, ...createOptions(), ui: false });
+                    viewers.push(other);
+                    check(
+                        'headless instance restores all preferences',
+                        !other.state.performanceMode && other.state.gamingControls && !other.state.showAnnotations
+                    );
+                    // Avoid desktop pointer lock while the first-person camera initializes.
+                    viewer.state.gamingControls = other.state.gamingControls = false;
+                    other.state.showAnnotations = true;
+                    check(
+                        'headless writes persist without changing a live sibling',
+                        localStorage.getItem('showAnnotations') === 'true' && !viewer.state.showAnnotations
+                    );
+                    check('both loaded', await until(() => viewer.state.loaded && other.state.loaded, 30000));
+                    check(
+                        'invalid movement axes reject',
+                        rejects(() => viewer.setMoveInput(NaN, 0)) && rejects(() => viewer.setMoveInput(0, Infinity))
+                    );
+                    viewer.state.cameraMode = other.state.cameraMode = 'fly';
+                    viewer.state.inputEnabled = false;
+                    await timeout(1000);
+                    const position = (v) => cameraOf(v).getPosition().clone();
+                    const stationary = async (v) => {
+                        const before = position(v);
+                        await timeout(150);
+                        return position(v).distance(before) < 0.001;
+                    };
+                    const before = position(viewer);
+                    const otherBefore = position(other);
+                    viewer.setMoveInput(0, 100);
+                    await timeout(200);
+                    viewer.setMoveInput(0, 0);
+                    const travel = position(viewer).distance(before);
+                    check(
+                        'movement works without gaming controls or keyboard ownership and clamps axes',
+                        travel > 0.1 && travel < 1.5
+                    );
+                    check('movement stays in its instance', position(other).distance(otherBefore) < 0.001);
+                    check('zero input stops movement', await stationary(viewer));
+                    viewer.setMoveInput(1, 0);
+                    window.dispatchEvent(new Event('blur'));
+                    check('blur clears held movement', await stationary(viewer));
+                    viewer.setMoveInput(1, 0);
+                    document.dispatchEvent(new Event('visibilitychange'));
+                    check('visibility change clears held movement', await stationary(viewer));
+                    viewer.setMoveInput(0, 1);
+                    viewer.state.cameraMode = 'orbit';
+                    viewer.setMoveInput(0, 1); // ignored, rather than queued for the next fly session
+                    viewer.state.cameraMode = 'fly';
+                    await timeout(1000);
+                    check('mode changes clear movement and orbit input is not queued', await stationary(viewer));
+
+                    const root = host.firstElementChild;
+                    const joystick = root.querySelector('.sse-joystickBase');
+                    if (joystick) {
+                        // Simulate touch UI input; native pointer capture still needs a touch-device check.
+                        root.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+                        viewer.state.gamingControls = true;
+                        check('joystick visible in touch gaming mode', !joystick.classList.contains('sse-hidden'));
+                        const rect = joystick.getBoundingClientRect();
+                        const pointer = (name) =>
+                            joystick.dispatchEvent(
+                                new PointerEvent(name, {
+                                    pointerId: 99,
+                                    pointerType: 'touch',
+                                    clientX: rect.left + rect.width / 2,
+                                    clientY: rect.top + 5,
+                                    bubbles: true
+                                })
+                            );
+                        joystick.setPointerCapture = () => {};
+                        const beforeStick = position(viewer);
+                        pointer('pointerdown');
+                        await timeout(150);
+                        pointer('pointercancel');
+                        check(
+                            'built-in joystick drives the shared movement command',
+                            position(viewer).distance(beforeStick) > 0.05
+                        );
+                        check('pointer cancel stops the joystick', await stationary(viewer));
+                        pointer('pointerdown');
+                        pointer('lostpointercapture');
+                        check('lost capture stops the joystick', await stationary(viewer));
+                        pointer('pointerdown');
+                        viewer.state.gamingControls = false;
+                        check(
+                            'hiding joystick stops movement',
+                            joystick.classList.contains('sse-hidden') && (await stationary(viewer))
+                        );
+                        delete joystick.setPointerCapture;
+                    }
+                    const originalSet = Storage.prototype.setItem;
+                    try {
+                        Storage.prototype.setItem = () => {
+                            throw new Error('simulated blocked storage');
+                        };
+                        viewer.state.performanceMode = !viewer.state.performanceMode;
+                        check('blocked storage does not prevent state changes', viewer.state.performanceMode);
+                    } finally {
+                        Storage.prototype.setItem = originalSet;
+                    }
+
+                    viewer.setMoveInput(0, 1);
+                    const gpu = handlesOf(viewer);
+                    viewer.destroy();
+                    const stored = localStorage.getItem('performanceMode');
+                    viewer.state.performanceMode = !viewer.state.performanceMode;
+                    check(
+                        'destroy removes preference subscriptions',
+                        localStorage.getItem('performanceMode') === stored
+                    );
+                    check(
+                        'movement rejects after destruction',
+                        rejects(() => viewer.setMoveInput(0, 0))
+                    );
+                    window.dispatchEvent(new Event('blur'));
+                    document.dispatchEvent(new Event('visibilitychange'));
+                    joystick?.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 99 }));
+                    check('movement teardown releases context and subtree', (await released(gpu)) && !root.isConnected);
+                    other.destroy();
+
+                    const originalGet = Storage.prototype.getItem;
+                    try {
+                        Storage.prototype.getItem = () => {
+                            throw new Error('simulated blocked storage');
+                        };
+                        const noStorage = await createViewer({
+                            container: addHost(),
+                            settings,
+                            ...createOptions(),
+                            ui: false
+                        });
+                        viewers.push(noStorage);
+                        check(
+                            'blocked storage still permits creation',
+                            !noStorage.state.gamingControls && noStorage.state.showAnnotations
+                        );
+                        noStorage.destroy();
+                    } finally {
+                        Storage.prototype.getItem = originalGet;
+                    }
+                    if (!(await reportUnhandled())) log('done, movement and preferences verified');
+                } finally {
+                    viewers.forEach((viewer) => viewer.destroy());
+                    keys.forEach((key, index) =>
+                        saved[index] === null ? localStorage.removeItem(key) : localStorage.setItem(key, saved[index])
+                    );
+                }
+            } else if (mode === 'browser') {
                 const check = (name, ok) => log(`${ok ? 'ok  ' : 'FAIL'} ${name}`, !ok);
                 const rejects = async (work) => {
                     try {

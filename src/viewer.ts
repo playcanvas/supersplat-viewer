@@ -653,6 +653,14 @@ class Viewer {
         app.renderNextFrame = true;
     }
 
+    setMoveInput(x: number, z: number): void {
+        this.requireLoaded('setMoveInput');
+        if (!Number.isFinite(x) || !Number.isFinite(z)) {
+            throw new Error('setMoveInput: axes must be finite numbers');
+        }
+        this.inputController.setMoveInput(Math.max(-1, Math.min(1, x)), Math.max(-1, Math.min(1, z)));
+    }
+
     async requestFullscreen(): Promise<void> {
         this.requireAlive('requestFullscreen');
         return this.untilDestroyed(this.fullscreen.request());
