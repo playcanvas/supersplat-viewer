@@ -525,7 +525,7 @@ class Viewer {
             applyCamera(this.cameraManager.camera);
 
             if (config.ui) {
-                this.navCursor = new NavCursor(app, camera, collision ?? null, events, state);
+                this.navCursor = new NavCursor(app, camera, collision ?? null, events, state, config.reticle);
             }
 
             this.debugPanel = new DebugPanel(global, this.cameraManager);
