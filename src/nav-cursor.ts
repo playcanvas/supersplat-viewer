@@ -294,7 +294,14 @@ class NavCursor {
         normal: new Vec3()
     };
 
-    constructor(app: AppBase, camera: Entity, collision: Collision | null, events: EventHandler, state: State) {
+    constructor(
+        app: AppBase,
+        camera: Entity,
+        collision: Collision | null,
+        events: EventHandler,
+        state: State,
+        reticle: boolean
+    ) {
         this.camera = camera;
         this.collision = collision;
         this.canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
@@ -339,6 +346,7 @@ class NavCursor {
 
         const updateActive = () => {
             const captureActive =
+                reticle &&
                 state.inputMode === 'desktop' &&
                 state.gamingControls &&
                 (state.cameraMode === 'walk' || state.cameraMode === 'fly');
