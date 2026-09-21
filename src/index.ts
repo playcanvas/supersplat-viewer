@@ -262,6 +262,7 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     contents: options.contents ?? fetch(options.contentUrl),
     renderer: options.renderer ?? 'webgpu',
     ui: options.ui ?? true,
+    reticle: options.reticle ?? false,
     noanim: options.noanim ?? false,
     nofx: options.nofx ?? false,
     hpr: options.hpr,
