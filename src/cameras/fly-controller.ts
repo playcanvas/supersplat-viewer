@@ -64,6 +64,13 @@ class FlyController implements CameraController {
         // back to the same hold when its spawn search cannot place the camera.
         if (value && this._hasPosition && !isClear(value, this._position)) {
             this._pendingCollision = value;
+
+            // Detaching the mover is part of holding, not an optimisation. Left engaged it keeps
+            // running push-out against geometry it cannot escape; and without the reset,
+            // `SphereMover`'s last-clear position still points wherever the camera was before,
+            // so `resolve` teleports it back there on the next idle step.
+            this._mover.collision = null;
+            this._mover.reset(this._position);
             return;
         }
 
@@ -104,12 +111,11 @@ class FlyController implements CameraController {
                 this._mover.reset(this._position);
             } else {
                 // The search starts at the camera's own cell, so failing means the camera is
-                // inside geometry with no free space within `SEARCH_RADIUS` to nudge it to. The
-                // mover cannot escape that on its own, so hold collision and let `update` engage
-                // it once the camera is clear, as it does for a late attachment.
-                this._mover.collision = null;
-                this._mover.reset(this._position);
-                this._pendingCollision = collision;
+                // inside geometry with no free space within reach to nudge it to. The mover
+                // cannot escape that on its own, so hold collision and let `update` engage it
+                // once the camera is clear, as it does for a late attachment. Re-running the
+                // shared decision rather than holding inline keeps this identical to the setter.
+                this._reengage();
             }
         }
 
