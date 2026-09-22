@@ -572,14 +572,19 @@ class Viewer {
                 // Create collision debug overlay (voxel uses a compute shader, mesh
                 // uses standard line rendering). The voxel path requires WebGPU.
                 if (collision instanceof VoxelCollision && renderer !== 'webgl') {
-                    this.voxelOverlay = new VoxelDebugOverlay(app, collision, camera);
-                    this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
-                    state.hasCollisionOverlay = true;
-
-                    events.on('collisionOverlayEnabled:changed', (value: boolean) => {
-                        this.voxelOverlay.enabled = value;
+                    const setOverlayEnabled = (value: boolean) => {
+                        // Upload the voxel data and allocate the screen-sized texture only
+                        // when the debug overlay is first used.
+                        if (value && !this.voxelOverlay) {
+                            this.voxelOverlay = new VoxelDebugOverlay(app, collision, camera);
+                            this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
+                        }
+                        if (this.voxelOverlay) this.voxelOverlay.enabled = value;
                         app.renderNextFrame = true;
-                    });
+                    };
+                    events.on('collisionOverlayEnabled:changed', setOverlayEnabled);
+                    state.hasCollisionOverlay = true;
+                    setOverlayEnabled(state.collisionOverlayEnabled);
                 } else if (collision instanceof MeshCollision) {
                     this.meshOverlay = new MeshDebugOverlay(app, collision, camera, !!this.cameraFrame);
                     state.hasCollisionOverlay = true;

@@ -88,6 +88,8 @@
             legacy scrub settles and its frame listener is removed.
 
             Add &collision=<url> with a scene at least 5m across to exercise walk mode.
+            Add &overlay in loaded mode with voxel collision to check lazy allocation and
+            release of the overlay's compute resources on every teardown iteration.
             Annotation mode supplies two annotations and host selection controls. &annotations=N
             overrides the count in any mode, including teardown and two-instance checks.
 
@@ -230,6 +232,41 @@
             };
             const released = async ({ gl, lost }) =>
                 gl ? gl.isContextLost() : await Promise.race([lost, timeout(1000, false)]);
+
+            const enableVoxelOverlay = async (viewer) => {
+                const device = viewer.app.graphicsDevice;
+                if (device.deviceType !== 'webgpu' || !(await until(() => viewer.state.hasCollisionOverlay, 10000))) {
+                    throw new Error('overlay check requires WebGPU and voxel collision');
+                }
+                if (Array.from(device.textures).some((texture) => texture.name === 'VoxelOverlay-Storage')) {
+                    throw new Error('voxel overlay allocated a texture before being enabled');
+                }
+
+                let overlayCompute;
+                const dispatch = device.computeDispatch;
+                device.computeDispatch = function (computes, ...args) {
+                    overlayCompute ??= computes.find((compute) => compute.name === 'VoxelDebugOverlay');
+                    return dispatch.call(this, computes, ...args);
+                };
+                try {
+                    viewer.state.collisionOverlayEnabled = true;
+                    if (!(await until(() => !!overlayCompute, 10000))) {
+                        throw new Error('voxel overlay did not dispatch');
+                    }
+                } finally {
+                    device.computeDispatch = dispatch;
+                }
+
+                let shaderDestroyed = false;
+                const shader = overlayCompute.shader;
+                const destroy = shader.destroy;
+                shader.destroy = function () {
+                    shaderDestroyed = true;
+                    return destroy.call(this);
+                };
+                return () =>
+                    !overlayCompute.impl && shaderDestroyed && !overlayCompute.getParameter('outputTexture').device;
+            };
 
             // Teardown during a metadata load. `meta.json` content is read with an await before
             // the asset is registered, so a destroy can land inside it and the continuation must
@@ -1087,15 +1124,21 @@
                         // came from this instance rendering and not from anything stale
                         const { loaded, progress } = viewer.state;
 
+                        const overlayReleased =
+                            mode === 'loaded' && url.searchParams.has('overlay')
+                                ? await enableVoxelOverlay(viewer)
+                                : null;
                         viewer.destroy();
                         const removed = host.childElementCount === 0;
 
                         const freed = await released(handles);
                         const captured = capture ? await Promise.race([capture, timeout(2000, 'hung')]) : 'n/a';
-                        const ok = freed && removed && captured !== 'hung' && (mode !== 'loaded' || loaded);
+                        const overlayFreed = overlayReleased ? overlayReleased() : true;
+                        const ok =
+                            freed && removed && overlayFreed && captured !== 'hung' && (mode !== 'loaded' || loaded);
                         if (!ok) failures++;
                         log(
-                            `#${i} ${handles.device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed} removed=${removed} capture=${captured}`,
+                            `#${i} ${handles.device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed} removed=${removed} capture=${captured} overlay=${overlayReleased ? overlayFreed : 'n/a'}`,
                             !ok
                         );
                     } catch (err) {
