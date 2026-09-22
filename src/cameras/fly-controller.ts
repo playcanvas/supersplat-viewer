@@ -76,6 +76,15 @@ class FlyController implements CameraController {
         return this._mover.collision;
     }
 
+    /**
+     * Re-run the engage-or-hold decision at the camera's current position, whether collision is
+     * currently engaged or held. The invariant behind the setter: collision is never active while
+     * the camera is inside a collider, because the mover cannot escape one.
+     */
+    private _reengage() {
+        this.collision = this._mover.collision ?? this._pendingCollision;
+    }
+
     onEnter(camera: Camera): void {
         this.goto(camera);
 
@@ -110,7 +119,7 @@ class FlyController implements CameraController {
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
         // engage a held attachment as soon as the camera flies back into valid space
         if (this._pendingCollision && isClear(this._pendingCollision, this._position)) {
-            this.collision = this._pendingCollision;
+            this._reengage();
         }
 
         const { move, rotate } = inputFrame.read();
@@ -146,7 +155,14 @@ class FlyController implements CameraController {
 
         this._distance = this._spawn.restore(this._position, this._angles);
         this._targetAngles.copy(this._angles);
-        this._mover.reset(this._position);
+
+        // A spawn captured while collision was held is itself inside geometry — `onEnter` stores
+        // the entry pose whether or not its search could place the camera. Restoring it with
+        // collision engaged would put the camera straight back into the stuck state, so re-run
+        // the decision instead of assuming the stored pose is valid. This also covers a spawn
+        // that was valid when stored and is not now, after a collision swap. `_reengage` resets
+        // the mover, which is why the explicit reset is gone.
+        this._reengage();
 
         camera.position.copy(this._position);
         camera.angles.copy(this._angles);

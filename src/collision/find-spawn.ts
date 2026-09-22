@@ -9,23 +9,22 @@ const SEARCH_RADIUS = 5;
 const SEARCH_RADIUS_SQ = SEARCH_RADIUS * SEARCH_RADIUS;
 
 /**
- * The sphere search is sized from the sphere itself, in multiples of its radius.
+ * Reach of the sphere search, in multiples of the sphere's radius.
  *
- * Its job is to un-clip a sphere that is intersecting a surface, not to relocate one that is
- * deep inside geometry — `FlyController` holds collision until the camera is clear rather than
- * relying on a rescue — so reaching a few radii is enough. Stepping by half a radius cannot skip
- * a free region the sphere would fit in, since such a region spans at least a diameter and so
- * gets sampled at least four times across.
+ * Its job is to un-clip a sphere that is intersecting a surface, not to relocate one that is deep
+ * inside geometry — `FlyController` holds collision until the camera is clear rather than relying
+ * on a rescue — so reaching a few radii is enough. Bounding the reach is what makes the search
+ * cheap: at radius 0.2 on a 0.05 m grid the worst case, finding nothing, is 7,153 probes, where
+ * reaching `SEARCH_RADIUS` cost 8,120,601. A sphere deep inside geometry never finds a free cell
+ * to tighten `bestDistSq`, so nothing breaks the search early and it pays for every shell.
  *
- * Deriving both from the radius makes the cost independent of the grid. The step never goes below
- * half a radius, so the lattice spans about six cells either side of the origin however fine the
- * voxel grid is: at radius 0.2 on a 0.05 m grid the worst case, finding nothing, is 925 probes.
- * Sizing the search from `voxelResolution` instead cost 8,120,601 probes on that same grid,
- * because a sphere deep inside geometry never finds a free cell to tighten `bestDistSq`, so
- * nothing breaks the search early and it pays for every shell out to `SEARCH_RADIUS`.
+ * The lattice still steps by `collision.voxelResolution`, deliberately. A coarser step is not
+ * safe: the valid positions for a collider's centre are free space eroded by its radius, which
+ * can be far narrower than the free space itself. A 0.45 m passage admits a 0.2 m sphere across
+ * only a 0.05 m band of centres, so a 0.1 m lattice steps straight over it and reports no
+ * placement at all.
  */
 const SPHERE_SEARCH_REACH_RADII = 3;
-const LATTICE_STEP_RADII = 0.5;
 
 /** Ray budget when probing for ground/ceiling under or above a candidate column. */
 const RAY_MAX_DIST = 1000;
@@ -45,11 +44,10 @@ const scratchPush = { x: 0, y: 0, z: 0 };
  * fits clear of geometry. Output is the sphere centre. Used for fly-camera
  * spawn — fly cameras have no ground constraint.
  *
- * Lattice search outwards from the origin, ordered by Chebyshev shell with
- * Euclidean tie-break within a shell. Both the step and the reach are derived
- * from `radius` — see `SPHERE_SEARCH_REACH_RADII` — so the cost does not depend
- * on the voxel grid. The step never goes finer than the grid, since sampling
- * below `collision.voxelResolution` cannot find anything new.
+ * Lattice search across voxel-spaced offsets from the origin (step =
+ * `collision.voxelResolution`), ordered by Chebyshev shell with Euclidean
+ * tie-break within a shell. Reach is derived from `radius` — see
+ * `SPHERE_SEARCH_REACH_RADII`.
  *
  * @param collision - Active collision implementation.
  * @param ox - Origin X (world space).
@@ -67,7 +65,7 @@ const findSphereSpawn = (
     radius: number,
     out: SpawnOut
 ): boolean => {
-    const step = Math.max(collision.voxelResolution, radius * LATTICE_STEP_RADII);
+    const step = collision.voxelResolution;
     const reach = radius * SPHERE_SEARCH_REACH_RADII;
     const reachSq = reach * reach;
     const maxCells = Math.ceil(reach / step);
@@ -157,13 +155,7 @@ const findCylinderSpawn = (
     out: SpawnOut
 ): boolean => {
     const step = collision.voxelResolution;
-
-    // The candidate lattice does not need the grid's granularity: a placement the cylinder fits
-    // in spans at least a diameter, so sampling every half radius cannot step over one. The
-    // footprint fan below deliberately keeps the full voxel resolution — a coarser fan could
-    // step over a hole in the floor and call an unsupported placement supported.
-    const latticeStep = Math.max(step, radius * LATTICE_STEP_RADII);
-    const maxCells = Math.ceil(SEARCH_RADIUS / latticeStep);
+    const maxCells = Math.ceil(SEARCH_RADIUS / step);
 
     // Round up so float division (e.g. 0.2 / 0.05) can't accidentally drop
     // the outer ring of footprint cells; the Euclidean check below trims any
@@ -175,7 +167,7 @@ const findCylinderSpawn = (
     let found = false;
 
     for (let r = 0; r <= maxCells; r++) {
-        const shellMinDistSq = r * latticeStep * (r * latticeStep);
+        const shellMinDistSq = r * step * (r * step);
         if (shellMinDistSq >= bestDistSq) break;
 
         for (let dy = -r; dy <= r; dy++) {
@@ -189,12 +181,12 @@ const findCylinderSpawn = (
                 const dxStep = full ? 1 : 2 * r;
 
                 for (let dx = -r; dx <= r; dx += dxStep) {
-                    const distSq = (dx * dx + dy * dy + dz * dz) * latticeStep * latticeStep;
+                    const distSq = (dx * dx + dy * dy + dz * dz) * step * step;
                     if (distSq >= bestDistSq || distSq > SEARCH_RADIUS_SQ) continue;
 
-                    const cx = ox + dx * latticeStep;
-                    const cy = oy + dy * latticeStep;
-                    const cz = oz + dz * latticeStep;
+                    const cx = ox + dx * step;
+                    const cy = oy + dy * step;
+                    const cz = oz + dz * step;
 
                     // Stage 1: cheap filter — only consider free voxels.
                     // The footprint loop below will reject candidates whose

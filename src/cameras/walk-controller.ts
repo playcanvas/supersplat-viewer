@@ -146,8 +146,28 @@ class WalkController implements CameraController {
 
     private _jumpHeld = false;
 
+    /**
+     * Collision held because the capsule is inside geometry, mirroring `FlyController`. While
+     * held, `_heldFloorY` stands in for the ground probe so the camera walks on the level it
+     * entered at instead of falling, and the capsule check is skipped. `_step` engages it for
+     * real as soon as the capsule fits.
+     */
+    private _pendingCollision: Collision | null = null;
+
+    /** Synthetic ground height used while `_pendingCollision` is held. */
+    private _heldFloorY: number | null = null;
+
     onEnter(camera: Camera): void {
         this.goto(camera);
+
+        // Entry may follow a previous one that ended with collision held, so start from the
+        // collision we have either way and drop that hold. Otherwise the block below would be
+        // skipped on re-entry, leaving the spawn search unrun and a stale synthetic floor in
+        // place. Whether to hold again is decided fresh, from this entry's position.
+        this.collision = this.collision ?? this._pendingCollision;
+        this._pendingCollision = null;
+        this._heldFloorY = null;
+
         if (this.collision) {
             // Spawn is scoped to this walk-mode entry; reset so a stale spawn
             // from a previous entry can't be restored if this entry fails.
@@ -176,6 +196,17 @@ class WalkController implements CameraController {
                 this._grounded = true;
                 this._velocity.y = 0;
                 this._storeSpawn();
+            } else {
+                // No placement within reach, so the capsule is deep inside geometry. Engaged
+                // collision would strand the camera: push-out has nothing to push against and
+                // the ground probe finds no floor, so it would be clipped in place and falling.
+                // Hold collision and stand on the entry level, so the user can walk out the way
+                // they came. `_step` engages it once the capsule fits.
+                this._pendingCollision = this.collision;
+                this.collision = null;
+                this._heldFloorY = this._position.y - this.eyeHeight - this.hoverHeight;
+                this._grounded = true;
+                this._velocity.set(0, 0, 0);
             }
 
             this._prevPosition.copy(this._position);
@@ -223,6 +254,13 @@ class WalkController implements CameraController {
     }
 
     private _step(dt: number, move: number[]) {
+        // engage a held attachment as soon as the capsule reaches space it fits in
+        if (this._pendingCollision && this._capsuleClear(this._pendingCollision, this._position)) {
+            this.collision = this._pendingCollision;
+            this._pendingCollision = null;
+            this._heldFloorY = null;
+        }
+
         // ground probe: cast a ray downward to find the terrain surface
         const groundY = this._probeGround(this._position);
         const hasGround = groundY !== null;
@@ -344,6 +382,19 @@ class WalkController implements CameraController {
     }
 
     /**
+     * Whether the walk capsule fits at `pos` without intersecting collision geometry.
+     *
+     * @param collision - Collision to test against.
+     * @param pos - Eye position in PlayCanvas world space.
+     * @returns True if the capsule is clear.
+     */
+    private _capsuleClear(collision: Collision, pos: Vec3): boolean {
+        const center = pos.y - this.eyeHeight + this.capsuleHeight * 0.5;
+        const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
+        return !collision.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out);
+    }
+
+    /**
      * Cast multiple rays downward to find the average ground surface height.
      * Uses 5 rays (center + 4 cardinal at capsule radius) to spatially filter
      * noisy collision heights, giving the spring a smoother target.
@@ -352,6 +403,10 @@ class WalkController implements CameraController {
      * @returns Average ground surface Y in PlayCanvas space, or null if no ground found.
      */
     private _probeGround(pos: Vec3): number | null {
+        // While collision is held the real surface is unreachable, so stand on the level the
+        // camera entered at. Without this the camera reads as airborne and falls.
+        if (this._heldFloorY !== null) return this._heldFloorY;
+
         if (!this.collision) return null;
 
         const oy = pos.y - this.eyeHeight;
@@ -387,10 +442,12 @@ class WalkController implements CameraController {
      * @param disp - Pre-allocated vector to receive the collision push-out displacement.
      */
     private _checkCollision(pos: Vec3, disp: Vec3) {
+        if (!this.collision) return;
+
         const center = pos.y - this.eyeHeight + this.capsuleHeight * 0.5;
         const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
 
-        if (this.collision!.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out)) {
+        if (this.collision.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out)) {
             disp.set(out.x, out.y, out.z);
             pos.add(disp);
 
