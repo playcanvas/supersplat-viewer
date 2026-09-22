@@ -21,6 +21,11 @@ const right = new Vec3();
 const up = new Vec3();
 const offset = new Vec3();
 const spawnProbe = new Vec3();
+const clearProbe = { x: 0, y: 0, z: 0 };
+
+// Whether the camera sphere fits at `position` without intersecting collision geometry.
+const isClear = (collision: Collision, position: Vec3) =>
+    !collision.querySphere(position.x, position.y, position.z, CAMERA_RADIUS, clearProbe);
 
 class FlyController implements CameraController {
     fov = 90;
@@ -39,8 +44,30 @@ class FlyController implements CameraController {
 
     private _mover = new SphereMover(CAMERA_RADIUS);
 
+    // Collision that arrived while the camera was inside geometry, held until it is somewhere
+    // valid. See the `collision` setter.
+    private _pendingCollision: Collision | null = null;
+
+    // False until `goto` seeds `_position` from a real camera. Collision is normally attached
+    // before this controller has ever been entered, and testing clearance against an unseeded
+    // position would hold the attachment for no reason and skip the spawn search in `onEnter`.
+    private _hasPosition = false;
+
     /** Optional collision for sphere collision with sliding */
     set collision(value: Collision | null) {
+        // The viewer reveals the scene before the collision data has downloaded, so fly mode has
+        // no collision response until it lands and the camera may already be inside geometry by
+        // then. The mover cannot escape a solid region: push-out has nothing to push against and
+        // `_clipMove` cancels the movement every frame, so the camera sticks. Hold the
+        // attachment until the camera is somewhere valid and let `update` engage it, which keeps
+        // the flight the user is already making instead of teleporting them out. `onEnter` falls
+        // back to the same hold when its spawn search cannot place the camera.
+        if (value && this._hasPosition && !isClear(value, this._position)) {
+            this._pendingCollision = value;
+            return;
+        }
+
+        this._pendingCollision = null;
         this._mover.collision = value;
         this._mover.reset(this._position);
     }
@@ -51,24 +78,41 @@ class FlyController implements CameraController {
 
     onEnter(camera: Camera): void {
         this.goto(camera);
-        if (
-            this.collision &&
-            findSphereSpawn(
-                this.collision,
-                this._position.x,
-                this._position.y,
-                this._position.z,
-                CAMERA_RADIUS,
-                spawnProbe
-            )
-        ) {
-            this._position.copy(spawnProbe);
-            this._mover.reset(this._position);
+
+        const { collision } = this;
+        if (collision) {
+            if (
+                findSphereSpawn(
+                    collision,
+                    this._position.x,
+                    this._position.y,
+                    this._position.z,
+                    CAMERA_RADIUS,
+                    spawnProbe
+                )
+            ) {
+                this._position.copy(spawnProbe);
+                this._mover.reset(this._position);
+            } else {
+                // The search starts at the camera's own cell, so failing means the camera is
+                // inside geometry with no free space within `SEARCH_RADIUS` to nudge it to. The
+                // mover cannot escape that on its own, so hold collision and let `update` engage
+                // it once the camera is clear, as it does for a late attachment.
+                this._mover.collision = null;
+                this._mover.reset(this._position);
+                this._pendingCollision = collision;
+            }
         }
+
         this._storeSpawn();
     }
 
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
+        // engage a held attachment as soon as the camera flies back into valid space
+        if (this._pendingCollision && isClear(this._pendingCollision, this._position)) {
+            this.collision = this._pendingCollision;
+        }
+
         const { move, rotate } = inputFrame.read();
 
         applyFrameRotation(this._targetAngles, rotate);
@@ -87,6 +131,7 @@ class FlyController implements CameraController {
     }
 
     goto(camera: Camera) {
+        this._hasPosition = true;
         this._position.copy(camera.position);
         this._angles.set(camera.angles.x, camera.angles.y, 0);
         this._targetAngles.copy(this._angles);

@@ -1,8 +1,31 @@
 import type { Collision } from './collision';
 
-/** Maximum Euclidean distance (metres) from the spawn origin to search for a valid placement. */
+/**
+ * Maximum Euclidean distance (metres) from the spawn origin to search for a valid placement.
+ * Used by the cylinder search, which has to reach far enough to find a standable floor. The
+ * sphere search sizes itself from its own radius instead — see `SPHERE_SEARCH_REACH_RADII`.
+ */
 const SEARCH_RADIUS = 5;
 const SEARCH_RADIUS_SQ = SEARCH_RADIUS * SEARCH_RADIUS;
+
+/**
+ * The sphere search is sized from the sphere itself, in multiples of its radius.
+ *
+ * Its job is to un-clip a sphere that is intersecting a surface, not to relocate one that is
+ * deep inside geometry — `FlyController` holds collision until the camera is clear rather than
+ * relying on a rescue — so reaching a few radii is enough. Stepping by half a radius cannot skip
+ * a free region the sphere would fit in, since such a region spans at least a diameter and so
+ * gets sampled at least four times across.
+ *
+ * Deriving both from the radius makes the cost independent of the grid. The step never goes below
+ * half a radius, so the lattice spans about six cells either side of the origin however fine the
+ * voxel grid is: at radius 0.2 on a 0.05 m grid the worst case, finding nothing, is 925 probes.
+ * Sizing the search from `voxelResolution` instead cost 8,120,601 probes on that same grid,
+ * because a sphere deep inside geometry never finds a free cell to tighten `bestDistSq`, so
+ * nothing breaks the search early and it pays for every shell out to `SEARCH_RADIUS`.
+ */
+const SPHERE_SEARCH_REACH_RADII = 3;
+const LATTICE_STEP_RADII = 0.5;
 
 /** Ray budget when probing for ground/ceiling under or above a candidate column. */
 const RAY_MAX_DIST = 1000;
@@ -22,9 +45,11 @@ const scratchPush = { x: 0, y: 0, z: 0 };
  * fits clear of geometry. Output is the sphere centre. Used for fly-camera
  * spawn — fly cameras have no ground constraint.
  *
- * Lattice search across voxel-spaced offsets from the origin (step =
- * `collision.voxelResolution`), ordered by Chebyshev shell with Euclidean
- * tie-break within a shell. Search bounded by `SEARCH_RADIUS`.
+ * Lattice search outwards from the origin, ordered by Chebyshev shell with
+ * Euclidean tie-break within a shell. Both the step and the reach are derived
+ * from `radius` — see `SPHERE_SEARCH_REACH_RADII` — so the cost does not depend
+ * on the voxel grid. The step never goes finer than the grid, since sampling
+ * below `collision.voxelResolution` cannot find anything new.
  *
  * @param collision - Active collision implementation.
  * @param ox - Origin X (world space).
@@ -42,8 +67,10 @@ const findSphereSpawn = (
     radius: number,
     out: SpawnOut
 ): boolean => {
-    const step = collision.voxelResolution;
-    const maxCells = Math.ceil(SEARCH_RADIUS / step);
+    const step = Math.max(collision.voxelResolution, radius * LATTICE_STEP_RADII);
+    const reach = radius * SPHERE_SEARCH_REACH_RADII;
+    const reachSq = reach * reach;
+    const maxCells = Math.ceil(reach / step);
 
     let bestDistSq = Infinity;
     let found = false;
@@ -56,13 +83,18 @@ const findSphereSpawn = (
             const absDy = dy < 0 ? -dy : dy;
             for (let dz = -r; dz <= r; dz++) {
                 const absDz = dz < 0 ? -dz : dz;
-                for (let dx = -r; dx <= r; dx++) {
-                    const absDx = dx < 0 ? -dx : dx;
-                    // Only cells on the Chebyshev shell of radius r.
-                    if (absDx < r && absDy < r && absDz < r) continue;
 
+                // Enumerate the Chebyshev shell of radius r directly instead of scanning the
+                // whole cube and skipping its interior. A row is fully on the shell when dy or dz
+                // is already at the extreme; otherwise only its two end cells are, so dx jumps
+                // straight across the interior. `full` is always true at r = 0, so the stride is
+                // never zero.
+                const full = absDy === r || absDz === r;
+                const dxStep = full ? 1 : 2 * r;
+
+                for (let dx = -r; dx <= r; dx += dxStep) {
                     const distSq = (dx * dx + dy * dy + dz * dz) * step * step;
-                    if (distSq >= bestDistSq || distSq > SEARCH_RADIUS_SQ) continue;
+                    if (distSq >= bestDistSq || distSq > reachSq) continue;
 
                     const cx = ox + dx * step;
                     const cy = oy + dy * step;
@@ -125,7 +157,14 @@ const findCylinderSpawn = (
     out: SpawnOut
 ): boolean => {
     const step = collision.voxelResolution;
-    const maxCells = Math.ceil(SEARCH_RADIUS / step);
+
+    // The candidate lattice does not need the grid's granularity: a placement the cylinder fits
+    // in spans at least a diameter, so sampling every half radius cannot step over one. The
+    // footprint fan below deliberately keeps the full voxel resolution — a coarser fan could
+    // step over a hole in the floor and call an unsupported placement supported.
+    const latticeStep = Math.max(step, radius * LATTICE_STEP_RADII);
+    const maxCells = Math.ceil(SEARCH_RADIUS / latticeStep);
+
     // Round up so float division (e.g. 0.2 / 0.05) can't accidentally drop
     // the outer ring of footprint cells; the Euclidean check below trims any
     // overshoot back to the true radius.
@@ -136,23 +175,26 @@ const findCylinderSpawn = (
     let found = false;
 
     for (let r = 0; r <= maxCells; r++) {
-        const shellMinDistSq = r * step * (r * step);
+        const shellMinDistSq = r * latticeStep * (r * latticeStep);
         if (shellMinDistSq >= bestDistSq) break;
 
         for (let dy = -r; dy <= r; dy++) {
             const absDy = dy < 0 ? -dy : dy;
             for (let dz = -r; dz <= r; dz++) {
                 const absDz = dz < 0 ? -dz : dz;
-                for (let dx = -r; dx <= r; dx++) {
-                    const absDx = dx < 0 ? -dx : dx;
-                    if (absDx < r && absDy < r && absDz < r) continue;
 
-                    const distSq = (dx * dx + dy * dy + dz * dz) * step * step;
+                // Enumerate the Chebyshev shell of radius r directly rather than scanning the
+                // whole cube and skipping its interior — see `findSphereSpawn`.
+                const full = absDy === r || absDz === r;
+                const dxStep = full ? 1 : 2 * r;
+
+                for (let dx = -r; dx <= r; dx += dxStep) {
+                    const distSq = (dx * dx + dy * dy + dz * dz) * latticeStep * latticeStep;
                     if (distSq >= bestDistSq || distSq > SEARCH_RADIUS_SQ) continue;
 
-                    const cx = ox + dx * step;
-                    const cy = oy + dy * step;
-                    const cz = oz + dz * step;
+                    const cx = ox + dx * latticeStep;
+                    const cy = oy + dy * latticeStep;
+                    const cz = oz + dz * latticeStep;
 
                     // Stage 1: cheap filter — only consider free voxels.
                     // The footprint loop below will reject candidates whose

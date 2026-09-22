@@ -262,7 +262,10 @@ class NavCursor {
 
     private camera: Entity;
 
-    private collision: Collision | null;
+    // Settable after construction: the viewer reveals the scene before the collision data has
+    // downloaded, so this arrives late. Ring sizing reads `state.walkAllowed` live, so only the
+    // pick path needs updating here.
+    collision: Collision | null;
 
     private canvas: HTMLCanvasElement;
 
