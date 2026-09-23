@@ -73,6 +73,7 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         'exitFullscreen',
         'info',
         'infoPanel',
+        'infoClose',
         'infoShortcuts',
         'rendererName',
         'gpuName',
@@ -101,6 +102,8 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         'loadingBar',
         'showCollision',
         'showCollisionShortcut',
+        'walkShortcut',
+        'playShortcut',
         'tooltip',
         'viewerBranding',
         'appVersionLabel'
@@ -195,17 +198,43 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     on('gamingControls:changed', updateGamingControls);
     updateGamingControls();
 
-    // Info panel
-    const toggleHelp = () => {
-        // the shortcuts are keyboard shortcuts
-        dom.infoShortcuts.classList.toggle('sse-hidden', state.inputMode !== 'desktop');
-        dom.infoPanel.classList.toggle('sse-hidden');
+    // The settings and info buttons are toggles: each shows active while its panel is open.
+    // Every open and close goes through these so the two cannot disagree.
+    const isVisible = (panel: HTMLElement) => !panel.classList.contains('sse-hidden');
+
+    const showSettings = (visible: boolean) => {
+        dom.settingsPanel.classList.toggle('sse-hidden', !visible);
+        dom.settings.classList.toggle('sse-active', visible);
     };
 
-    dom.info.addEventListener('click', toggleHelp);
+    const showInfo = (visible: boolean) => {
+        // the shortcuts are keyboard shortcuts, and list only what this scene offers, as the
+        // toolbar does: walk needs collision, play needs an animation
+        dom.infoShortcuts.classList.toggle('sse-hidden', state.inputMode !== 'desktop');
+        dom.walkShortcut.classList.toggle('sse-hidden', !state.walkAllowed);
+        dom.playShortcut.classList.toggle('sse-hidden', !state.hasAnimation);
+        dom.infoPanel.classList.toggle('sse-hidden', !visible);
+        dom.info.classList.toggle('sse-active', visible);
+    };
 
+    // Info panel
+    const toggleHelp = () => showInfo(!isVisible(dom.infoPanel));
+
+    // these close a panel without an input event, so they restart the fade timer themselves
+    dom.info.addEventListener('click', () => {
+        toggleHelp();
+        showUI();
+    });
+
+    // the panel covers the viewer, so this is also how a second click on the button closes it
     dom.infoPanel.addEventListener('pointerdown', () => {
-        dom.infoPanel.classList.add('sse-hidden');
+        showInfo(false);
+        showUI();
+    });
+
+    dom.infoClose.addEventListener('click', () => {
+        showInfo(false);
+        showUI();
     });
 
     on('inputEvent', (event) => {
@@ -213,10 +242,10 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
             toggleHelp();
         } else if (event === 'cancel') {
             // close info panel on cancel
-            dom.infoPanel.classList.add('sse-hidden');
-            dom.settingsPanel.classList.add('sse-hidden');
+            showInfo(false);
+            showSettings(false);
         } else if (event === 'interrupt') {
-            dom.settingsPanel.classList.add('sse-hidden');
+            showSettings(false);
         }
     });
 
@@ -246,8 +275,8 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
             clearTimeout(uiTimeout);
             uiTimeout = null;
         }
-        dom.infoPanel.classList.add('sse-hidden');
-        dom.settingsPanel.classList.add('sse-hidden');
+        showInfo(false);
+        showSettings(false);
         state.controlsHidden = true;
     };
 
@@ -262,6 +291,10 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         state.controlsHidden = false;
         uiTimeout = setTimeout(() => {
             uiTimeout = null;
+            // the controls stay while a panel is open; closing it restarts this timer
+            if (isVisible(dom.settingsPanel) || isVisible(dom.infoPanel)) {
+                return;
+            }
             if (state.selectedAnnotation === null || !state.showAnnotations) {
                 state.controlsHidden = true;
             }
@@ -312,7 +345,8 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     });
 
     dom.settings.addEventListener('click', () => {
-        dom.settingsPanel.classList.toggle('sse-hidden');
+        showSettings(!isVisible(dom.settingsPanel));
+        showUI();
     });
 
     // Initialize touch joystick for fly mode

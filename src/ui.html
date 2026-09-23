@@ -151,10 +151,10 @@
                 <span class="sse-controlsHintTitle"></span>
                 <span class="sse-controlsHintSubtitle"></span>
             </div>
-            <button class="sse-controlsHintPin">
+            <button class="sse-controlsHintPin sse-panelButton">
                 <svg xmlns="http://www.w3.org/2000/svg"><use href="#pinIcon" /></svg>
             </button>
-            <button class="sse-controlsHintClose">
+            <button class="sse-controlsHintClose sse-panelButton">
                 <svg xmlns="http://www.w3.org/2000/svg"><use href="#closeIcon" /></svg>
             </button>
         </div>
@@ -198,6 +198,9 @@
     <!-- Info Panel: what is running, and the global shortcuts the controls hint does not show -->
     <div class="sse-infoPanel sse-hidden">
         <div class="sse-infoPanelContent" onpointerdown="event.stopPropagation()" onwheel="event.stopPropagation()">
+            <button class="sse-infoClose sse-panelButton">
+                <svg xmlns="http://www.w3.org/2000/svg"><use href="#closeIcon" /></svg>
+            </button>
             <a
                 class="sse-viewerTitle"
                 href="https://github.com/playcanvas/supersplat-viewer"
@@ -235,7 +238,7 @@
                     <span data-i18n="help.action.fly-mode">Fly Mode</span>
                     <kbd class="sse-key">2</kbd>
                 </div>
-                <div class="sse-infoShortcut">
+                <div class="sse-walkShortcut sse-infoShortcut">
                     <span data-i18n="help.action.toggle-walk">Toggle Walk</span>
                     <kbd class="sse-key">3</kbd>
                 </div>
@@ -247,7 +250,7 @@
                     <span data-i18n="help.action.show-collision">Show Collision</span>
                     <kbd class="sse-key">V</kbd>
                 </div>
-                <div class="sse-infoShortcut">
+                <div class="sse-playShortcut sse-infoShortcut">
                     <span data-i18n="help.action.play-pause">Play / Pause</span>
                     <kbd class="sse-key" data-i18n="help.key.space">Space</kbd>
                 </div>

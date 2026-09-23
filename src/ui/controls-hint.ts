@@ -30,8 +30,8 @@ const writePreference = (value: Preference) => {
 
 type MouseButton = 'left' | 'right' | 'wheel' | 'none';
 
-// one input shown in a row: a keycap, a mouse with its active button
-// (optionally dragged or double-clicked), a touch gesture in words, or a "/" between two inputs
+// one input shown in a row: a keycap, a mouse with its active button (optionally dragged or
+// double-clicked), a touch gesture in words, or a "/" between two inputs
 type Token =
     | { kind: 'key'; label: string }
     | { kind: 'mouse'; button: MouseButton; suffix?: 'drag' | 'double' }
@@ -83,14 +83,19 @@ const icons = {
     anim: '#playIcon'
 };
 
+// gaming controls (mouse capture on desktop, the joystick on touch) only apply to fly and walk
+const isGaming = (state: ViewerHandle['state']) =>
+    state.gamingControls && (state.cameraMode === 'fly' || state.cameraMode === 'walk');
+
 // the controls for the viewer's current camera mode, input mode and gaming controls, or null
 // where there is nothing to show. Each list keeps the mouse rows together ahead of the keys
 const describe = (state: ViewerHandle['state'], localize: Localize): Hint | null => {
-    const { cameraMode, gamingControls } = state;
-    const gaming = gamingControls && (cameraMode === 'fly' || cameraMode === 'walk');
+    const { cameraMode } = state;
+    const gaming = isGaming(state);
     const space = key(localize('help.key.space'));
     const esc = key(localize('help.key.esc'));
     const runSlow: Row = ['run-slow', key('Shift'), or, key('Ctrl')];
+    const reset: Row = ['reset-camera', key('R')];
     const gesture = (name: string): Token => ({ kind: 'gesture', label: localize(`help.key.${name}`) });
 
     let rows: Row[];
@@ -105,7 +110,7 @@ const describe = (state: ViewerHandle['state'], localize: Localize): Hint | null
                     ['set-focus', mouse('left')],
                     ['fly-to-point', mouse('left', 'double')],
                     ['frame-scene', key('F')],
-                    ['reset-camera', key('R')]
+                    reset
                 ];
                 break;
             case 'fly':
@@ -115,6 +120,7 @@ const describe = (state: ViewerHandle['state'], localize: Localize): Hint | null
                           ['move', ...wasd],
                           ['vertical', key('Q'), key('E')],
                           runSlow,
+                          reset,
                           ['release-mouse', esc]
                       ]
                     : [
@@ -123,7 +129,8 @@ const describe = (state: ViewerHandle['state'], localize: Localize): Hint | null
                           ['pan', mouse('right', 'drag')],
                           ['focus-point', mouse('left', 'double')],
                           ['move', ...wasd],
-                          runSlow
+                          runSlow,
+                          reset
                       ];
                 break;
             case 'walk':
@@ -133,6 +140,7 @@ const describe = (state: ViewerHandle['state'], localize: Localize): Hint | null
                           ['move', ...wasd],
                           ['jump', space],
                           runSlow,
+                          reset,
                           ['release-mouse', esc]
                       ]
                     : [
@@ -141,6 +149,7 @@ const describe = (state: ViewerHandle['state'], localize: Localize): Hint | null
                           ['fly-to-point', mouse('left', 'double')],
                           ['move', ...wasd],
                           runSlow,
+                          reset,
                           ['exit-walk', esc]
                       ];
                 break;
@@ -151,7 +160,10 @@ const describe = (state: ViewerHandle['state'], localize: Localize): Hint | null
                 ];
                 break;
         }
-        rows.push(null, ['toggle-help', key('H')]);
+        // not while the mouse is captured, where the ui closes the info box as soon as it opens
+        if (!gaming) {
+            rows.push(null, ['toggle-help', key('H')]);
+        }
     } else {
         switch (cameraMode) {
             case 'orbit':
@@ -222,9 +234,10 @@ const renderToken = (token: Token): HTMLElement => {
             return kbd(token.label);
         case 'mouse': {
             const element = span('sse-mouse');
-            // constant markup only: nothing localized or external reaches innerHTML
-            element.innerHTML = mouseSvg(token.button) + (token.suffix === 'drag' ? dragSvg : '');
-            if (token.suffix === 'double') element.append(span('sse-mouseCount', '×2'));
+            // the mouse comes last, so every mouse lines up in the right-hand column like the
+            // single keycaps. Constant markup only: nothing localized or external reaches innerHTML
+            element.innerHTML = (token.suffix === 'drag' ? dragSvg : '') + mouseSvg(token.button);
+            if (token.suffix === 'double') element.prepend(span('sse-mouseCount', '×2'));
             return element;
         }
         case 'gesture':
@@ -236,9 +249,9 @@ const renderToken = (token: Token): HTMLElement => {
 
 /**
  * The panel at the top right that names the camera mode and shows its controls. It pops up
- * briefly whenever the camera mode, the input mode or the gaming controls (mouse capture on
- * desktop) change. The user can pin it open or switch it off, and the settings panel switches
- * it back on; the choice persists in local storage.
+ * briefly whenever those controls change: a new camera mode, input mode, or gaming controls
+ * (mouse capture on desktop) in fly and walk. The user can pin it open or switch it off, and
+ * the settings panel switches it back on; the choice persists in local storage.
  */
 const initControlsHint = (viewer: Pick<ViewerHandle, 'state' | 'events'>, root: HTMLElement, localize: Localize) => {
     const { state, events } = viewer;
@@ -300,21 +313,23 @@ const initControlsHint = (viewer: Pick<ViewerHandle, 'state' | 'events'>, root: 
         );
     };
 
-    // re-render for the current state, and pop up when `popup` is set
-    const update = (popup: boolean) => {
+    // re-render for the current state, popping up when the page changes or when `force` is set.
+    // A state change that leaves the page as it was (G in orbit) does not pop it up
+    const update = (force: boolean) => {
         const hint = describe(state, localize);
         if (!state.loaded || state.xrMode || !hint || preference === 'off') {
             hide();
             return;
         }
 
-        const signature = `${state.cameraMode}:${state.inputMode}:${state.gamingControls}`;
-        if (signature !== rendered) {
+        const signature = `${state.cameraMode}:${state.inputMode}:${isGaming(state)}`;
+        const changed = signature !== rendered;
+        if (changed) {
             rendered = signature;
             render(hint);
         }
 
-        if (preference === 'pinned' || popup) {
+        if (preference === 'pinned' || force || changed) {
             panel.classList.add('sse-visible');
             hideAfter(SHOW_MS);
         }
@@ -355,13 +370,13 @@ const initControlsHint = (viewer: Pick<ViewerHandle, 'state' | 'events'>, root: 
 
     updateButtons();
 
-    const popup = () => update(true);
+    const onChange = () => update(false);
     const subscriptions = [
-        events.on('loaded:changed', popup),
-        events.on('cameraMode:changed', popup),
-        events.on('inputMode:changed', popup),
-        events.on('gamingControls:changed', popup),
-        events.on('xrMode:changed', popup)
+        events.on('loaded:changed', onChange),
+        events.on('cameraMode:changed', onChange),
+        events.on('inputMode:changed', onChange),
+        events.on('gamingControls:changed', onChange),
+        events.on('xrMode:changed', onChange)
     ];
     update(true);
 

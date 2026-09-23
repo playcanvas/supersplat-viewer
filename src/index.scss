@@ -12,7 +12,8 @@
     --sse-text-darkest: #666;
     --sse-accent: #f60;
     --sse-grip: #ffaf50;
-    --sse-bkg: #333;
+    // black like the toolbar and annotation bar; the panels show it at 40%
+    --sse-bkg: #000;
     --sse-bkg-dark: #282828;
     --sse-bkg-darkest: #141414;
     --sse-bkg-light: #444;
@@ -111,6 +112,43 @@
         font-weight: 500;
     }
 
+    // small icon button in a panel corner: the controls hint's pin and close, the info box's close
+    .sse-panelButton {
+        width: 26px;
+        height: 26px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 6px;
+        cursor: pointer;
+        color: var(--sse-text-dark);
+        background-color: transparent;
+        transition:
+            color 150ms ease,
+            background-color 150ms ease;
+
+        > svg {
+            width: 14px;
+            height: 14px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        &:hover {
+            color: var(--sse-text-light);
+            background-color: rgba(white, 0.1);
+        }
+
+        &.sse-active {
+            color: var(--sse-accent);
+        }
+    }
+
     /* controlsHint: the current camera mode's controls, at the top right */
 
     .sse-controlsHint {
@@ -126,7 +164,7 @@
 
         font-size: 12px;
         color: var(--sse-text);
-        background-color: color-mix(in srgb, var(--sse-bkg) 80%, transparent);
+        background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
 
@@ -188,42 +226,6 @@
                     &:empty {
                         display: none;
                     }
-                }
-            }
-
-            > button {
-                width: 26px;
-                height: 26px;
-                flex-shrink: 0;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                border: 0;
-                border-radius: 6px;
-                cursor: pointer;
-                color: var(--sse-text-dark);
-                background-color: transparent;
-                transition:
-                    color 150ms ease,
-                    background-color 150ms ease;
-
-                > svg {
-                    width: 14px;
-                    height: 14px;
-                    fill: none;
-                    stroke: currentColor;
-                    stroke-width: 2.5;
-                    stroke-linecap: round;
-                    stroke-linejoin: round;
-                }
-
-                &:hover {
-                    color: var(--sse-text-light);
-                    background-color: rgba(white, 0.1);
-                }
-
-                &.sse-active {
-                    color: var(--sse-accent);
                 }
             }
         }
@@ -578,7 +580,7 @@
         font-size: 14px;
 
         color: var(--sse-text);
-        background-color: color-mix(in srgb, var(--sse-bkg) 80%, transparent);
+        background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
 
@@ -677,8 +679,9 @@
         left: 0;
         width: 100%;
         height: 100%;
-        background-color: rgba(black, 0.4);
-        backdrop-filter: blur(2px);
+        // only catches the click that closes the box: a background or backdrop-filter here
+        // would stack with the box's own (a backdrop-filter makes this the box's backdrop, so
+        // the box would blur this layer's black, not the scene) and darken it past the others
 
         > .sse-infoPanelContent {
             position: absolute;
@@ -692,16 +695,22 @@
             overflow-y: auto;
             padding: 24px 20px 20px;
             border-radius: 16px;
-            border: 1px solid rgba(white, 0.1);
+            border: 1px solid rgba(white, 0.08);
             display: flex;
             flex-direction: column;
             gap: 16px;
 
             font-size: 13px;
             color: var(--sse-text);
-            background-color: color-mix(in srgb, var(--sse-bkg) 85%, transparent);
+            background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
+
+            > .sse-infoClose {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+            }
 
             > .sse-viewerTitle {
                 display: flex;
@@ -817,6 +826,8 @@
                     align-items: center;
                     gap: 16px;
                     min-height: 28px;
+                    // the controls hint's row size
+                    font-size: 12px;
                 }
             }
         }
@@ -878,8 +889,7 @@
         left: 0;
         width: 100%;
         height: 100%;
-        background-color: rgba(black, 0.4);
-        backdrop-filter: blur(2px);
+        // clear, like the info panel's: the box carries the panels' surface on its own
         display: flex;
         align-items: center;
         justify-content: center;
@@ -888,10 +898,10 @@
             width: min(360px, calc(100% - 32px));
             padding: 20px;
             border-radius: 16px;
-            border: 1px solid rgba(white, 0.1);
+            border: 1px solid rgba(white, 0.08);
 
             color: var(--sse-text);
-            background-color: color-mix(in srgb, var(--sse-bkg) 90%, transparent);
+            background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
 
