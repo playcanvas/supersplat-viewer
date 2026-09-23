@@ -95,7 +95,13 @@ class FlyController implements CameraController {
     onEnter(camera: Camera): void {
         this.goto(camera);
 
-        const { collision } = this;
+        // Entry may follow a previous one that ended with collision held, so start from the
+        // collision we have either way and drop that hold. Otherwise the block below would be
+        // skipped on re-entry, leaving the spawn search unrun. Whether to hold again is decided
+        // fresh, from this entry's position. Mirrors `WalkController.onEnter`.
+        const collision = this._mover.collision ?? this._pendingCollision;
+        this._pendingCollision = null;
+
         if (collision) {
             if (
                 findSphereSpawn(
@@ -108,15 +114,14 @@ class FlyController implements CameraController {
                 )
             ) {
                 this._position.copy(spawnProbe);
-                this._mover.reset(this._position);
-            } else {
-                // The search starts at the camera's own cell, so failing means the camera is
-                // inside geometry with no free space within reach to nudge it to. The mover
-                // cannot escape that on its own, so hold collision and let `update` engage it
-                // once the camera is clear, as it does for a late attachment. Re-running the
-                // shared decision rather than holding inline keeps this identical to the setter.
-                this._reengage();
             }
+
+            // Engage at the placed position. The search starts at the camera's own cell, so
+            // failing it means the camera is inside geometry with no free space within reach to
+            // nudge it to; the setter holds collision in that case and `update` engages it once
+            // the camera is clear, as it does for a late attachment. Assigning rather than
+            // resetting the mover inline keeps the engage-or-hold decision in one place.
+            this.collision = collision;
         }
 
         this._storeSpawn();
