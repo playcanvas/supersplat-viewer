@@ -21,6 +21,11 @@ const right = new Vec3();
 const up = new Vec3();
 const offset = new Vec3();
 const spawnProbe = new Vec3();
+const clearProbe = { x: 0, y: 0, z: 0 };
+
+// Whether the camera sphere fits at `position` without intersecting collision geometry.
+const isClear = (collision: Collision, position: Vec3) =>
+    !collision.querySphere(position.x, position.y, position.z, CAMERA_RADIUS, clearProbe);
 
 class FlyController implements CameraController {
     fov = 90;
@@ -39,8 +44,37 @@ class FlyController implements CameraController {
 
     private _mover = new SphereMover(CAMERA_RADIUS);
 
+    // Collision that arrived while the camera was inside geometry, held until it is somewhere
+    // valid. See the `collision` setter.
+    private _pendingCollision: Collision | null = null;
+
+    // False until `goto` seeds `_position` from a real camera. Collision is normally attached
+    // before this controller has ever been entered, and testing clearance against an unseeded
+    // position would hold the attachment for no reason and skip the spawn search in `onEnter`.
+    private _hasPosition = false;
+
     /** Optional collision for sphere collision with sliding */
     set collision(value: Collision | null) {
+        // The viewer reveals the scene before the collision data has downloaded, so fly mode has
+        // no collision response until it lands and the camera may already be inside geometry by
+        // then. The mover cannot escape a solid region: push-out has nothing to push against and
+        // `_clipMove` cancels the movement every frame, so the camera sticks. Hold the
+        // attachment until the camera is somewhere valid and let `update` engage it, which keeps
+        // the flight the user is already making instead of teleporting them out. `onEnter` falls
+        // back to the same hold when its spawn search cannot place the camera.
+        if (value && this._hasPosition && !isClear(value, this._position)) {
+            this._pendingCollision = value;
+
+            // Detaching the mover is part of holding, not an optimisation. Left engaged it keeps
+            // running push-out against geometry it cannot escape; and without the reset,
+            // `SphereMover`'s last-clear position still points wherever the camera was before,
+            // so `resolve` teleports it back there on the next idle step.
+            this._mover.collision = null;
+            this._mover.reset(this._position);
+            return;
+        }
+
+        this._pendingCollision = null;
         this._mover.collision = value;
         this._mover.reset(this._position);
     }
@@ -49,26 +83,56 @@ class FlyController implements CameraController {
         return this._mover.collision;
     }
 
+    /**
+     * Re-run the engage-or-hold decision at the camera's current position, whether collision is
+     * currently engaged or held. The invariant behind the setter: collision is never active while
+     * the camera is inside a collider, because the mover cannot escape one.
+     */
+    private _reengage() {
+        this.collision = this._mover.collision ?? this._pendingCollision;
+    }
+
     onEnter(camera: Camera): void {
         this.goto(camera);
-        if (
-            this.collision &&
-            findSphereSpawn(
-                this.collision,
-                this._position.x,
-                this._position.y,
-                this._position.z,
-                CAMERA_RADIUS,
-                spawnProbe
-            )
-        ) {
-            this._position.copy(spawnProbe);
-            this._mover.reset(this._position);
+
+        // Entry may follow a previous one that ended with collision held, so start from the
+        // collision we have either way and drop that hold. Otherwise the block below would be
+        // skipped on re-entry, leaving the spawn search unrun. Whether to hold again is decided
+        // fresh, from this entry's position. Mirrors `WalkController.onEnter`.
+        const collision = this._mover.collision ?? this._pendingCollision;
+        this._pendingCollision = null;
+
+        if (collision) {
+            if (
+                findSphereSpawn(
+                    collision,
+                    this._position.x,
+                    this._position.y,
+                    this._position.z,
+                    CAMERA_RADIUS,
+                    spawnProbe
+                )
+            ) {
+                this._position.copy(spawnProbe);
+            }
+
+            // Engage at the placed position. The search starts at the camera's own cell, so
+            // failing it means the camera is inside geometry with no free space within reach to
+            // nudge it to; the setter holds collision in that case and `update` engages it once
+            // the camera is clear, as it does for a late attachment. Assigning rather than
+            // resetting the mover inline keeps the engage-or-hold decision in one place.
+            this.collision = collision;
         }
+
         this._storeSpawn();
     }
 
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
+        // engage a held attachment as soon as the camera flies back into valid space
+        if (this._pendingCollision && isClear(this._pendingCollision, this._position)) {
+            this._reengage();
+        }
+
         const { move, rotate } = inputFrame.read();
 
         applyFrameRotation(this._targetAngles, rotate);
@@ -87,6 +151,7 @@ class FlyController implements CameraController {
     }
 
     goto(camera: Camera) {
+        this._hasPosition = true;
         this._position.copy(camera.position);
         this._angles.set(camera.angles.x, camera.angles.y, 0);
         this._targetAngles.copy(this._angles);
@@ -101,7 +166,14 @@ class FlyController implements CameraController {
 
         this._distance = this._spawn.restore(this._position, this._angles);
         this._targetAngles.copy(this._angles);
-        this._mover.reset(this._position);
+
+        // A spawn captured while collision was held is itself inside geometry — `onEnter` stores
+        // the entry pose whether or not its search could place the camera. Restoring it with
+        // collision engaged would put the camera straight back into the stuck state, so re-run
+        // the decision instead of assuming the stored pose is valid. This also covers a spawn
+        // that was valid when stored and is not now, after a collision swap. `_reengage` resets
+        // the mover, which is why the explicit reset is gone.
+        this._reengage();
 
         camera.position.copy(this._position);
         camera.angles.copy(this._angles);

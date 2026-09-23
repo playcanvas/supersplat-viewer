@@ -475,13 +475,69 @@ class Viewer {
             }, ignoreLoadFailure);
         }
 
+        // Loading progress has to start reporting as soon as the splat data starts streaming,
+        // which is well before the reveal. The reveal is wired up in the `Promise.all` below, so
+        // it also waits on the skybox and the collision data — and a collision download can take
+        // far longer than the splats themselves (ten seconds against under six, on a 4G trace of
+        // a real scene), leaving the bar frozen at 0% for the whole wait. Chaining off
+        // `gsplatLoad` alone lets the bar track the one load it can measure, from the moment
+        // that load begins. The reveal below stops it and puts the bar at 100.
+        let stopProgress: (() => void) | undefined;
+        gsplatLoad.then(() => {
+            if (this.destroyed) return;
+
+            const eventHandler = app.systems.gsplat;
+
+            // `loading` counts the node files the streamer has requested and not yet made
+            // resident. Before the reveal the LOD range is clamped to the coarsest level, so this
+            // is a single wave and completed / (completed + in-flight) tracks it directly. A drop
+            // in the count is work that finished, or was cancelled, which this cannot tell apart
+            // and counts as done. Clamped monotone and capped below 100 so only the reveal fills
+            // the bar. See docs/streaming-progress.md for the engine signal that would replace it.
+            let prevLoading = 0;
+            let completed = 0;
+            const progressHandler = (camera: CameraComponent, layer: Layer, ready: boolean, loading: number) => {
+                completed += Math.max(0, prevLoading - loading);
+                prevLoading = loading;
+
+                const total = completed + loading;
+                if (total > 0) {
+                    state.progress = Math.max(state.progress, Math.min(99, Math.trunc((completed / total) * 100)));
+                }
+            };
+
+            eventHandler.on('frame:ready', progressHandler);
+            stopProgress = () => eventHandler.off('frame:ready', progressHandler);
+            this.onDestroy(stopProgress);
+        }, ignoreLoadFailure);
+
+        // Collision data is not needed to draw the scene, and it can be larger than the splats
+        // themselves: 5.65 MB against 4.28 MB for the coarsest LOD level on a traced scene. So
+        // it is kept out of the reveal path below, which would otherwise sit on a blank poster
+        // with everything needed to render already in memory. `attachCollision` wires it up
+        // whenever it lands; the two chains can resolve in either order, so whichever is second
+        // performs the attach.
+        //
+        // Nothing in the opening view depends on it. The scene always starts in `anim` mode, so
+        // no collision-dependent controller is entered until the user takes over. Until it
+        // attaches, `walkAllowed` stays false so walk mode cannot be entered without the data it
+        // needs to place the camera, fly mode has no collision response, and nav targeting falls
+        // back to splat depth instead of collision ray hits.
+        let collisionReady: Collision | null = null;
+        let attachCollision: ((collision: Collision) => void) | undefined;
+
+        collisionLoad?.then((collision) => {
+            if (this.destroyed || !collision) return;
+            collisionReady = collision;
+            attachCollision?.(collision);
+        }, ignoreLoadFailure);
+
         // wait for the model to load
-        Promise.all([gsplatLoad, skyboxLoad, collisionLoad]).then((results) => {
+        Promise.all([gsplatLoad, skyboxLoad]).then((results) => {
             // destroyed while loading: the app is gone, so there is nothing to wire up
             if (this.destroyed) return;
 
             const gsplatComponent = results[0].gsplat as GSplatComponent;
-            const collision = results[2];
 
             // get scene bounding box
             const gsplatBbox = gsplatComponent.customAabb;
@@ -491,42 +547,59 @@ class Viewer {
 
             this.picker = new Picker(app, camera);
             this.inputController = new InputController(global, this.picker);
-            this.inputController.collision = collision ?? null;
+
+            this.cameraManager = new CameraManager(global, sceneBound);
+            applyCamera(this.cameraManager.camera);
+
+            if (config.ui) {
+                this.navCursor = new NavCursor(app, camera, null, events, state, config.reticle);
+            }
 
             // hasCollision = collision data exists (drives fly-mode collision
             // detection and the voxel/mesh debug overlay availability).
             // walkAllowed = walk mode is offered to the user; requires both
             // collision data and a scene large enough to walk around in.
-            state.hasCollision = !!collision;
-            state.walkAllowed = isWalkAllowed(sceneBound, collision ?? null);
+            attachCollision = (collision: Collision) => {
+                this.inputController.collision = collision;
+                this.cameraManager.setCollision(collision);
+                if (this.navCursor) {
+                    this.navCursor.collision = collision;
+                }
 
-            // Create collision debug overlay (voxel uses a compute shader, mesh
-            // uses standard line rendering). The voxel path requires WebGPU.
-            if (collision instanceof VoxelCollision && renderer !== 'webgl') {
-                this.voxelOverlay = new VoxelDebugOverlay(app, collision, camera);
-                this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
-                state.hasCollisionOverlay = true;
+                state.hasCollision = true;
+                state.walkAllowed = isWalkAllowed(sceneBound, collision);
 
-                events.on('collisionOverlayEnabled:changed', (value: boolean) => {
-                    this.voxelOverlay.enabled = value;
-                    app.renderNextFrame = true;
-                });
-            } else if (collision instanceof MeshCollision) {
-                this.meshOverlay = new MeshDebugOverlay(app, collision, camera, !!this.cameraFrame);
-                state.hasCollisionOverlay = true;
+                // Create collision debug overlay (voxel uses a compute shader, mesh
+                // uses standard line rendering). The voxel path requires WebGPU.
+                if (collision instanceof VoxelCollision && renderer !== 'webgl') {
+                    const setOverlayEnabled = (value: boolean) => {
+                        // Upload the voxel data and allocate the screen-sized texture only
+                        // when the debug overlay is first used.
+                        if (value && !this.voxelOverlay) {
+                            this.voxelOverlay = new VoxelDebugOverlay(app, collision, camera);
+                            this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
+                        }
+                        if (this.voxelOverlay) this.voxelOverlay.enabled = value;
+                        app.renderNextFrame = true;
+                    };
+                    events.on('collisionOverlayEnabled:changed', setOverlayEnabled);
+                    state.hasCollisionOverlay = true;
+                    setOverlayEnabled(state.collisionOverlayEnabled);
+                } else if (collision instanceof MeshCollision) {
+                    this.meshOverlay = new MeshDebugOverlay(app, collision, camera, !!this.cameraFrame);
+                    state.hasCollisionOverlay = true;
 
-                events.on('collisionOverlayEnabled:changed', (value: boolean) => {
-                    this.meshOverlay.enabled = value;
-                    app.renderNextFrame = true;
-                });
-            }
+                    events.on('collisionOverlayEnabled:changed', (value: boolean) => {
+                        this.meshOverlay.enabled = value;
+                        app.renderNextFrame = true;
+                    });
+                }
 
-            this.cameraManager = new CameraManager(global, sceneBound, collision);
-            applyCamera(this.cameraManager.camera);
+                app.renderNextFrame = true;
+            };
 
-            if (config.ui) {
-                this.navCursor = new NavCursor(app, camera, collision ?? null, events, state, config.reticle);
-            }
+            // collision may already have landed while the splats were still streaming
+            if (collisionReady) attachCollision(collisionReady);
 
             this.debugPanel = new DebugPanel(global, this.cameraManager);
 
@@ -575,12 +648,31 @@ class Viewer {
                 app.renderNextFrame = true;
             });
 
-            let current = 0;
-            let watermark = 1;
+            // `ready && loading === 0` describes the state before streaming starts just as well
+            // as the state after it finishes: on the first frame the octree instance has not run
+            // its LOD pass yet, so nothing is in flight and the world trivially reports ready.
+            // Taken at face value that revealed the scene on the first event, before a single
+            // frame had rendered, which both skipped the whole loading bar and undid the coarse
+            // LOD clamp above by running applyPerfSettings immediately. So require evidence that
+            // the streamer has left that initial state: work in flight, or splats on screen.
+            // Only octree content has a streaming phase to wait for; single-file content is fully
+            // loaded before this handler is registered, so it must not be gated.
+            const octree = (gsplatComponent.resource as GSplatOctreeResourceLike | null)?.octree ?? null;
+            let streamingStarted = !octree;
+
             const readyHandler = (camera: CameraComponent, layer: Layer, ready: boolean, loading: number) => {
-                if (ready && loading === 0) {
+                // `frame.gsplats` is the rendered splat count, the same stat the ministats panel
+                // above reads. It covers an octree that renders before it reports work in flight.
+                if (loading > 0 || app.stats.frame.gsplats > 0) {
+                    streamingStarted = true;
+                }
+
+                if (ready && loading === 0 && streamingStarted) {
                     // scene is done with initial/reveal loading
                     eventHandler.off('frame:ready', readyHandler);
+
+                    stopProgress?.();
+                    state.progress = 100;
 
                     // switch to on-demand rendering (frame:request + camera-change detection)
                     app.autoRender = false;
@@ -598,13 +690,6 @@ class Viewer {
                         // emit first frame event on window
                         window.firstFrame?.();
                     });
-                }
-
-                // update loading status
-                if (loading !== current) {
-                    watermark = Math.max(watermark, loading);
-                    current = watermark - loading;
-                    state.progress = Math.trunc((current / watermark) * 100);
                 }
             };
 

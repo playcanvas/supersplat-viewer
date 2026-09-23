@@ -27,6 +27,22 @@ import uiHtml from './ui.html';
 import { Viewer } from './viewer';
 import { version as appVersion } from '../package.json';
 
+// The filename's extension selects the gsplat parser, so a url with no usable name (a data:
+// uri) needs the config to name its content instead; falsy (an empty name) falls back to the
+// url-derived name.
+const contentName = (contentUrl: string, contentFilename?: string | null) =>
+    contentFilename || new URL(contentUrl, location.href).pathname.split('/').pop();
+
+// Whether a prefetched response for this content is worth starting. The engine's octree parser
+// fetches lod-meta.json itself and ignores `asset.file.contents`, so prefetching it downloads
+// the metadata twice — a quarter of a megabyte on a real scene, served with no cache-control
+// header, so the second request is not a cache hit. Every other splat parser consumes the
+// prefetched response, so they keep the head start. `src/index.html` applies the same rule when
+// it starts its own prefetch, and docs/streaming-progress.md covers the engine fix that would
+// let the octree path reuse the response instead of opting out of it.
+const isPrefetchable = (contentUrl: string, contentFilename?: string | null) =>
+    contentName(contentUrl, contentFilename)?.toLowerCase() !== 'lod-meta.json';
+
 const loadGsplat = async (
     app: AppBase,
     config: Config,
@@ -35,10 +51,7 @@ const loadGsplat = async (
 ) => {
     const { contents, contentUrl, contentFilename } = config;
     const c = contents as unknown as ArrayBuffer;
-    // the filename's extension selects the gsplat parser, so a url with no usable name (a
-    // data: uri) needs the config to name its content instead; falsy (an empty name) falls
-    // back to the url-derived name
-    const filename = contentFilename || new URL(contentUrl, location.href).pathname.split('/').pop();
+    const filename = contentName(contentUrl, contentFilename);
     const data = filename.toLowerCase() === 'meta.json' ? await (await contents).json() : undefined;
 
     // Reading that metadata spans a network round trip, so a destroy can land in the middle of
@@ -259,7 +272,9 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     skyboxUrl: options.skyboxUrl,
     collisionUrl: options.collisionUrl,
     poster: options.poster ?? (options.posterUrl ? createImage(options.posterUrl) : undefined),
-    contents: options.contents ?? fetch(options.contentUrl),
+    contents:
+        options.contents ??
+        (isPrefetchable(options.contentUrl, options.contentFilename) ? fetch(options.contentUrl) : undefined),
     renderer: options.renderer ?? 'webgpu',
     ui: options.ui ?? true,
     reticle: options.reticle ?? false,

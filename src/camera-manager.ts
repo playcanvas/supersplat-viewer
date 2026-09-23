@@ -59,13 +59,19 @@ class CameraManager {
     // visible instantly.
     snap: () => void;
 
+    // Attach (or clear) collision after construction. The viewer reveals the scene without
+    // waiting for collision data, which can be larger than the splats themselves, so this
+    // arrives late. It re-tests whether walk mode is allowed, which gates the walk toggle
+    // and the mode the camera falls back to when an animation is interrupted.
+    setCollision: (collision: Collision | null) => void;
+
     // holds the camera state
     camera = new Camera();
 
     constructor(global: Global, bbox: BoundingBox, collision: Collision | null = null) {
         const { events, settings, state } = global;
 
-        const walkAllowed = isWalkAllowed(bbox, collision);
+        let walkAllowed = isWalkAllowed(bbox, collision);
 
         const camera0 = settings.cameras[0]?.initial;
         const defaultFov = camera0?.fov ?? DEFAULT_CAMERA_FOV;
@@ -131,8 +137,11 @@ class CameraManager {
 
         const target = new Camera(this.camera); // the active controller updates this
         const from = new Camera(this.camera); // stores the previous camera state during transition
-        const defaultMode: CameraMode = isObjectExperience ? 'orbit' : walkAllowed ? 'walk' : 'fly';
-        let fromMode: CameraMode = defaultMode;
+        const defaultMode = (): CameraMode => (isObjectExperience ? 'orbit' : walkAllowed ? 'walk' : 'fly');
+
+        // null until the first mode change, so the fallback tracks `walkAllowed` if collision
+        // attaches before the user has moved
+        let fromMode: CameraMode | null = null;
 
         // tracks the mode to restore when exiting walk
         let preWalkMode: CameraMode = isObjectExperience ? 'orbit' : 'fly';
@@ -149,6 +158,12 @@ class CameraManager {
         const startTransition = () => {
             from.copy(this.camera);
             transitionTimer = 0;
+        };
+
+        this.setCollision = (value: Collision | null) => {
+            controllers.fly.collision = value;
+            controllers.walk.collision = value;
+            walkAllowed = isWalkAllowed(bbox, value);
         };
 
         this.snap = () => {
@@ -233,7 +248,9 @@ class CameraManager {
                     }
                     break;
                 case 'requestFirstPerson':
-                    state.cameraMode = 'fly';
+                    // movement input from a non-first-person mode: walk where the scene allows
+                    // it, fly otherwise, the same preference as the animation fallback
+                    state.cameraMode = walkAllowed ? 'walk' : 'fly';
                     break;
                 case 'toggleWalk':
                     if (walkAllowed) {
@@ -251,12 +268,12 @@ class CameraManager {
                     break;
                 case 'cancel':
                     if (state.cameraMode === 'anim') {
-                        state.cameraMode = fromMode;
+                        state.cameraMode = fromMode ?? defaultMode();
                     }
                     break;
                 case 'interrupt':
                     if (state.cameraMode === 'anim') {
-                        state.cameraMode = fromMode;
+                        state.cameraMode = fromMode ?? defaultMode();
                     }
                     break;
             }

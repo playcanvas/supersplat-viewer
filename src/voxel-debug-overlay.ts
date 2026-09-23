@@ -42,12 +42,10 @@ const MAX_STEPS: u32 = 512u;
 // Target wireframe edge width in pixels
 const EDGE_PIXELS: f32 = 1.5;
 
-// Wireframe edge alpha (1.0 = pure black opaque edges, matching the mesh
-// overlay's wireframe pass).
+// Keep edges tinted so dense grids retain the solid/free-space distinction.
 const EDGE_ALPHA: f32 = 0.8;
 
-// Interior fill alpha (matching the mesh overlay's surface alpha).
-const FILL_ALPHA: f32 = 0.30;
+const FILL_ALPHA: f32 = 0.4;
 
 struct Uniforms {
     invVP: mat4x4<f32>,
@@ -156,10 +154,9 @@ fn edgeFactor(hitPos: vec3f, voxMin: vec3f, voxSize: f32, edgeWidth: f32) -> f32
     return 1.0 - smoothstep(0.0, edgeWidth, edgeDist);
 }
 
-// Shade a voxel hit, returning premultiplied RGBA. Uses the same face-axis
-// grayscale palette as the mesh collision overlay (0.85 / 0.55 / 0.30 by
-// dominant axis), with pure black at face edges to mimic that overlay's
-// wireframe pass.
+// Shade by the camera's occupancy: gray in free space, orange inside solid
+// voxels (where the ray-march is inverted to find the exit into free space).
+// Face-axis brightness and darker edges keep the grid shape readable.
 fn shadeVoxelHit(hitPos: vec3f, voxMin: vec3f, voxelRes: f32, ro: vec3f) -> vec4f {
     let dist = length(hitPos - ro);
     let pixelWorld = 2.0 * dist / (f32(uniforms.screenHeight) * uniforms.projScaleY);
@@ -179,15 +176,12 @@ fn shadeVoxelHit(hitPos: vec3f, voxMin: vec3f, voxelRes: f32, ro: vec3f) -> vec4
         faceAxis = 2u;
     }
 
-    var baseColor: vec3f;
-    if (faceAxis == 0u) { baseColor = vec3f(0.85); }
-    else if (faceAxis == 1u) { baseColor = vec3f(0.55); }
-    else { baseColor = vec3f(0.30); }
+    var brightness = 0.85;
+    if (faceAxis == 1u) { brightness = 0.65; }
+    else if (faceAxis == 2u) { brightness = 0.45; }
 
-    // Mix the surface base color toward black as the edge factor approaches 1
-    // and ramp alpha from FILL_ALPHA up to EDGE_ALPHA so face edges read as
-    // opaque black lines while the interior stays at the surface tint.
-    let color = mix(baseColor, vec3f(0.0), ef);
+    let tint = select(vec3f(1.0), vec3f(1.0, 0.35, 0.08), uniforms.inverted != 0u);
+    let color = tint * mix(brightness, 0.2, ef);
     let alpha = mix(FILL_ALPHA, EDGE_ALPHA, ef);
 
     return vec4f(color * alpha, alpha);
@@ -241,7 +235,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let invDir = 1.0 / rd;
     let gridHit = intersectAABB(ro, invDir, gridMin, gridMax);
 
-    if (gridHit.x > gridHit.y) {
+    if (max(gridHit.x, 0.0) > gridHit.y) {
         textureStore(outputTexture, vec2i(px, py), vec4f(0.0));
         return;
     }
@@ -603,7 +597,7 @@ class VoxelDebugOverlay {
     }
 
     update(): void {
-        if (!this.enabled) return;
+        if (!this.enabled || this.collision.nodes.length === 0) return;
 
         const { app, camera, compute, collision } = this;
         const device = app.graphicsDevice;
@@ -688,6 +682,9 @@ class VoxelDebugOverlay {
     }
 
     destroy(): void {
+        this.compute.destroy();
+        this.compute.shader.destroy();
+        this.overlayMaterial.destroy();
         this.nodesBuffer?.destroy();
         this.leafDataBuffer?.destroy();
         this.storageTexture?.destroy();

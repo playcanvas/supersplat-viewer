@@ -39,11 +39,6 @@ const spawnProbe = new Vec3();
  */
 class WalkController implements CameraController {
     /**
-     * Optional collision for capsule collision with sliding
-     */
-    collision: Collision | null = null;
-
-    /**
      * Field of view in degrees for walk mode.
      */
     fov = 90;
@@ -146,12 +141,74 @@ class WalkController implements CameraController {
 
     private _jumpHeld = false;
 
+    private _collision: Collision | null = null;
+
+    /**
+     * Collision held because the capsule is inside geometry, mirroring `FlyController`. While
+     * held, `_heldFloorY` stands in for the ground probe so the camera walks on the level it
+     * entered at instead of falling, and the capsule check is skipped. `_step` engages it for
+     * real as soon as the capsule fits.
+     */
+    private _pendingCollision: Collision | null = null;
+
+    /**
+     * Synthetic ground height. Set while `_pendingCollision` is held, and while walk mode is
+     * active with no collision at all: the viewer attaches collision after the scene is
+     * interactive, so a host can enter walk before the data has arrived.
+     */
+    private _heldFloorY: number | null = null;
+
+    // False until `goto` seeds `_position` from a real camera, so an attach before this
+    // controller has ever been entered engages directly instead of testing clearance against an
+    // unseeded position.
+    private _hasPosition = false;
+
+    /**
+     * Optional collision for capsule collision with sliding. Assigning while the capsule is
+     * inside geometry holds the attachment instead: engaged collision cannot escape a solid
+     * region, so the capsule keeps the synthetic floor and `_step` engages it once it fits.
+     * Collision normally lands this way, after walk mode may already be active.
+     */
+    set collision(value: Collision | null) {
+        if (value && this._hasPosition && !this._capsuleClear(value, this._position)) {
+            this._pendingCollision = value;
+            this._collision = null;
+            this._heldFloorY = this._position.y - this.eyeHeight - this.hoverHeight;
+            return;
+        }
+
+        this._pendingCollision = null;
+        this._heldFloorY = null;
+        this._collision = value;
+    }
+
+    get collision(): Collision | null {
+        return this._collision;
+    }
+
     onEnter(camera: Camera): void {
         this.goto(camera);
-        if (this.collision) {
-            // Spawn is scoped to this walk-mode entry; reset so a stale spawn
-            // from a previous entry can't be restored if this entry fails.
-            this._spawn.clear();
+
+        // Spawn is scoped to this walk-mode entry; reset so a stale spawn from a previous entry
+        // can't be restored if this entry fails or has no collision to place against.
+        this._spawn.clear();
+
+        // Entry may follow a previous one that ended with collision held, so start from the
+        // collision we have either way. Whether to hold again is decided fresh, from this
+        // entry's position.
+        const collision = this._collision ?? this._pendingCollision;
+
+        // Stand on the entry level until collision can place the capsule. This covers collision
+        // that has not arrived yet as well as a spawn search that finds nowhere to go: engaged
+        // collision would strand the camera either way, with no floor under the ground probe and
+        // nothing for push-out to push against. Held, the user can walk out the way they came,
+        // and the setter or `_step` engages collision once the capsule fits.
+        this._pendingCollision = null;
+        this._collision = null;
+        this._heldFloorY = this._position.y - this.eyeHeight - this.hoverHeight;
+        this._grounded = true;
+
+        if (collision) {
             // Treat the walk capsule as a tight-superset cylinder for spawn.
             // The carve was produced with a separable XYZ dilation (flat ends,
             // no hemispheres), so cylinder math matches the data exactly.
@@ -161,7 +218,7 @@ class WalkController implements CameraController {
             // + capsuleHeight`.
             if (
                 findCylinderSpawn(
-                    this.collision,
+                    collision,
                     camera.position.x,
                     camera.position.y,
                     camera.position.z,
@@ -173,13 +230,21 @@ class WalkController implements CameraController {
                 // spawnProbe is the floor world position the cylinder rests
                 // on. Eye sits hoverHeight + eyeHeight above the floor.
                 this._position.set(spawnProbe.x, spawnProbe.y + this.hoverHeight + this.eyeHeight, spawnProbe.z);
-                this._grounded = true;
-                this._velocity.y = 0;
                 this._storeSpawn();
-            }
 
-            this._prevPosition.copy(this._position);
+                // The placement is known to fit, so engage directly rather than re-testing it
+                // through the setter's capsule query, which is a different test from the
+                // cylinder search and could hold on a hairline disagreement.
+                this._heldFloorY = null;
+                this._collision = collision;
+            } else {
+                // No placement within reach. The setter holds if the capsule is inside geometry
+                // and engages otherwise, which is what `_step` would do on its first step anyway.
+                this.collision = collision;
+            }
         }
+
+        this._prevPosition.copy(this._position);
     }
 
     update(deltaTime: number, inputFrame: CameraFrame, camera: Camera) {
@@ -223,6 +288,13 @@ class WalkController implements CameraController {
     }
 
     private _step(dt: number, move: number[]) {
+        // engage a held attachment as soon as the capsule reaches space it fits in
+        if (this._pendingCollision && this._capsuleClear(this._pendingCollision, this._position)) {
+            this._collision = this._pendingCollision;
+            this._pendingCollision = null;
+            this._heldFloorY = null;
+        }
+
         // ground probe: cast a ray downward to find the terrain surface
         const groundY = this._probeGround(this._position);
         const hasGround = groundY !== null;
@@ -290,6 +362,7 @@ class WalkController implements CameraController {
      */
     goto(camera: Camera) {
         // position
+        this._hasPosition = true;
         this._position.copy(camera.position);
         this._prevPosition.copy(this._position);
 
@@ -344,6 +417,19 @@ class WalkController implements CameraController {
     }
 
     /**
+     * Whether the walk capsule fits at `pos` without intersecting collision geometry.
+     *
+     * @param collision - Collision to test against.
+     * @param pos - Eye position in PlayCanvas world space.
+     * @returns True if the capsule is clear.
+     */
+    private _capsuleClear(collision: Collision, pos: Vec3): boolean {
+        const center = pos.y - this.eyeHeight + this.capsuleHeight * 0.5;
+        const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
+        return !collision.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out);
+    }
+
+    /**
      * Cast multiple rays downward to find the average ground surface height.
      * Uses 5 rays (center + 4 cardinal at capsule radius) to spatially filter
      * noisy collision heights, giving the spring a smoother target.
@@ -352,6 +438,10 @@ class WalkController implements CameraController {
      * @returns Average ground surface Y in PlayCanvas space, or null if no ground found.
      */
     private _probeGround(pos: Vec3): number | null {
+        // While collision is held the real surface is unreachable, so stand on the level the
+        // camera entered at. Without this the camera reads as airborne and falls.
+        if (this._heldFloorY !== null) return this._heldFloorY;
+
         if (!this.collision) return null;
 
         const oy = pos.y - this.eyeHeight;
@@ -387,10 +477,12 @@ class WalkController implements CameraController {
      * @param disp - Pre-allocated vector to receive the collision push-out displacement.
      */
     private _checkCollision(pos: Vec3, disp: Vec3) {
+        if (!this.collision) return;
+
         const center = pos.y - this.eyeHeight + this.capsuleHeight * 0.5;
         const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
 
-        if (this.collision!.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out)) {
+        if (this.collision.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out)) {
             disp.set(out.x, out.y, out.z);
             pos.add(disp);
 

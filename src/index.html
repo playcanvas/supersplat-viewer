@@ -66,6 +66,13 @@
             const budgetParam = url.searchParams.get('budget');
             const budget = budgetParam !== null ? Number(budgetParam) : undefined;
 
+            // The engine's octree parser fetches lod-meta.json itself and ignores a prefetched
+            // response, so starting one here would download the metadata twice. Every other splat
+            // parser consumes it, so they keep the head start. `isPrefetchable` in src/index.ts
+            // applies the same rule for embedders that do not pass `contents`.
+            const contentName = contentFilename ?? new URL(contentUrl, location.href).pathname.split('/').pop() ?? '';
+            const prefetchContent = contentName.toLowerCase() !== 'lod-meta.json';
+
             // createViewer's options, minus the container and the settings. The poster image and
             // the content fetch start here, before the module bundle has arrived.
             const sseOptions = {
@@ -75,7 +82,7 @@
                 skyboxUrl,
                 collisionUrl,
                 poster: posterUrl && createImage(posterUrl),
-                contents: fetch(contentUrl),
+                contents: prefetchContent ? fetch(contentUrl) : undefined,
                 ui: !url.searchParams.has('noui'),
                 reticle: url.searchParams.has('reticle'),
                 noanim: url.searchParams.has('noanim'),
