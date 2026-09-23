@@ -2,6 +2,7 @@
     "settings.performance-mode": "Modo rendimiento",
     "settings.gaming-controls": "Controles de juego",
     "settings.show-annotations": "Mostrar anotaciones",
+    "settings.show-hints": "Mostrar ayuda de controles",
     "settings.frame": "Encuadrar",
     "settings.reset": "Restablecer",
 
@@ -14,17 +15,17 @@
     "tooltip.frame-scene": "Encuadrar escena",
     "tooltip.show-collision": "Mostrar colisión",
     "tooltip.settings": "Ajustes",
-    "tooltip.help": "Ayuda",
+    "tooltip.help": "Información",
+    "tooltip.pin-hints": "Fijar ayuda de controles",
+    "tooltip.hide-hints": "Ocultar ayuda de controles",
     "tooltip.enter-ar": "Entrar en AR",
     "tooltip.enter-vr": "Entrar en VR",
     "tooltip.fullscreen": "Pantalla completa",
 
-    "help.tab.desktop": "Escritorio",
-    "help.tab.touch": "Táctil",
-
     "help.section.orbit": "Modo orbital",
     "help.section.fly": "Modo vuelo",
     "help.section.walk": "Modo caminar",
+    "help.section.anim": "Animación",
     "help.section.modes": "Cambio de modo",
 
     "help.action.orbit": "Orbitar",
@@ -48,15 +49,11 @@
     "help.action.toggle-gaming": "Alternar controles de juego",
     "help.action.show-collision": "Mostrar colisión",
     "help.action.play-pause": "Reproducir / Pausar",
-    "help.action.toggle-help": "Alternar ayuda",
+    "help.action.toggle-help": "Alternar información",
     "help.action.exit-cancel": "Salir / Cancelar",
+    "help.action.release-mouse": "Liberar ratón",
+    "help.action.exit-walk": "Salir de caminar",
 
-    "help.key.left-click": "Clic izquierdo",
-    "help.key.left-click-drag": "Clic izquierdo + arrastrar",
-    "help.key.right-click-drag": "Clic derecho + arrastrar",
-    "help.key.mouse-wheel": "Rueda del ratón",
-    "help.key.mouse": "Ratón",
-    "help.key.double-click": "Doble clic",
     "help.key.double-tap": "Doble toque",
     "help.key.tap": "Toque",
     "help.key.touch-drag": "Toque + arrastrar",
@@ -65,16 +62,11 @@
     "help.key.pinch": "Pellizcar",
     "help.key.pinch-two-finger": "Pellizcar / Arrastre con dos dedos",
     "help.key.joystick": "Joystick",
-    "help.key.shift-ctrl": "Mayús / Ctrl",
     "help.key.space": "Espacio",
     "help.key.esc": "Esc",
 
     "xr-modal.title": "Se requiere WebGL",
     "xr-modal.message": "AR y VR no son compatibles con el renderizador WebGPU. Al pulsar OK se recargará el visor con WebGL.",
     "xr-modal.cancel": "Cancelar",
-    "xr-modal.ok": "OK",
-
-    "walk-hint.desktop": "Haz clic para caminar. WASD para moverte libremente.",
-    "walk-hint.touch-tap": "Toca para caminar. Arrastra para mirar alrededor.",
-    "walk-hint.touch-gaming": "Usa el joystick para moverte. Arrastra para mirar. Toca para saltar."
+    "xr-modal.ok": "OK"
 }

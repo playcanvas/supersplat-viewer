@@ -2,6 +2,7 @@
     "settings.performance-mode": "Режим производительности",
     "settings.gaming-controls": "Игровое управление",
     "settings.show-annotations": "Показать аннотации",
+    "settings.show-hints": "Показывать подсказки управления",
     "settings.frame": "Кадрировать",
     "settings.reset": "Сбросить",
 
@@ -14,17 +15,17 @@
     "tooltip.frame-scene": "Кадрировать сцену",
     "tooltip.show-collision": "Показать коллизию",
     "tooltip.settings": "Настройки",
-    "tooltip.help": "Справка",
+    "tooltip.help": "Информация",
+    "tooltip.pin-hints": "Закрепить подсказки управления",
+    "tooltip.hide-hints": "Скрыть подсказки управления",
     "tooltip.enter-ar": "Войти в AR",
     "tooltip.enter-vr": "Войти в VR",
     "tooltip.fullscreen": "Полный экран",
 
-    "help.tab.desktop": "Десктоп",
-    "help.tab.touch": "Сенсор",
-
     "help.section.orbit": "Орбитальный режим",
     "help.section.fly": "Режим полёта",
     "help.section.walk": "Режим ходьбы",
+    "help.section.anim": "Анимация",
     "help.section.modes": "Смена режимов",
 
     "help.action.orbit": "Вращение",
@@ -48,15 +49,11 @@
     "help.action.toggle-gaming": "Переключить игровое управление",
     "help.action.show-collision": "Показать коллизию",
     "help.action.play-pause": "Воспроизведение / Пауза",
-    "help.action.toggle-help": "Переключить справку",
+    "help.action.toggle-help": "Переключить информацию",
     "help.action.exit-cancel": "Выход / Отмена",
+    "help.action.release-mouse": "Освободить мышь",
+    "help.action.exit-walk": "Выйти из ходьбы",
 
-    "help.key.left-click": "Левый клик",
-    "help.key.left-click-drag": "Левый клик + перетаскивание",
-    "help.key.right-click-drag": "Правый клик + перетаскивание",
-    "help.key.mouse-wheel": "Колесо мыши",
-    "help.key.mouse": "Мышь",
-    "help.key.double-click": "Двойной клик",
     "help.key.double-tap": "Двойной тап",
     "help.key.tap": "Тап",
     "help.key.touch-drag": "Касание + перетаскивание",
@@ -65,16 +62,11 @@
     "help.key.pinch": "Щипок",
     "help.key.pinch-two-finger": "Щипок / Перетаскивание двумя пальцами",
     "help.key.joystick": "Джойстик",
-    "help.key.shift-ctrl": "Shift / Ctrl",
     "help.key.space": "Пробел",
     "help.key.esc": "Esc",
 
     "xr-modal.title": "Требуется WebGL",
     "xr-modal.message": "AR и VR не поддерживаются рендером WebGPU. Нажмите OK, чтобы перезагрузить просмотрщик с WebGL.",
     "xr-modal.cancel": "Отмена",
-    "xr-modal.ok": "OK",
-
-    "walk-hint.desktop": "Кликните для ходьбы. WASD для свободного движения.",
-    "walk-hint.touch-tap": "Тапните для ходьбы. Перетаскивайте, чтобы осмотреться.",
-    "walk-hint.touch-gaming": "Используйте джойстик для движения. Перетаскивайте, чтобы осмотреться. Тапните для прыжка."
+    "xr-modal.ok": "OK"
 }

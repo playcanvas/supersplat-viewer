@@ -2,6 +2,7 @@
     "settings.performance-mode": "パフォーマンスモード",
     "settings.gaming-controls": "ゲームコントロール",
     "settings.show-annotations": "注釈を表示",
+    "settings.show-hints": "操作ヒントを表示",
     "settings.frame": "フィット",
     "settings.reset": "リセット",
 
@@ -14,17 +15,17 @@
     "tooltip.frame-scene": "シーンにフィット",
     "tooltip.show-collision": "コリジョンを表示",
     "tooltip.settings": "設定",
-    "tooltip.help": "ヘルプ",
+    "tooltip.help": "情報",
+    "tooltip.pin-hints": "操作ヒントをピン留め",
+    "tooltip.hide-hints": "操作ヒントを非表示",
     "tooltip.enter-ar": "ARを開始",
     "tooltip.enter-vr": "VRを開始",
     "tooltip.fullscreen": "全画面表示",
 
-    "help.tab.desktop": "デスクトップ",
-    "help.tab.touch": "タッチ",
-
     "help.section.orbit": "オービットモード",
     "help.section.fly": "フライモード",
     "help.section.walk": "ウォークモード",
+    "help.section.anim": "アニメーション",
     "help.section.modes": "モード切り替え",
 
     "help.action.orbit": "オービット",
@@ -48,15 +49,11 @@
     "help.action.toggle-gaming": "ゲームコントロールを切り替え",
     "help.action.show-collision": "コリジョンを表示",
     "help.action.play-pause": "再生 / 一時停止",
-    "help.action.toggle-help": "ヘルプを切り替え",
+    "help.action.toggle-help": "情報を切り替え",
     "help.action.exit-cancel": "終了 / キャンセル",
+    "help.action.release-mouse": "マウスを解放",
+    "help.action.exit-walk": "ウォークを終了",
 
-    "help.key.left-click": "左クリック",
-    "help.key.left-click-drag": "左クリック + ドラッグ",
-    "help.key.right-click-drag": "右クリック + ドラッグ",
-    "help.key.mouse-wheel": "マウスホイール",
-    "help.key.mouse": "マウス",
-    "help.key.double-click": "ダブルクリック",
     "help.key.double-tap": "ダブルタップ",
     "help.key.tap": "タップ",
     "help.key.touch-drag": "タッチ + ドラッグ",
@@ -65,16 +62,11 @@
     "help.key.pinch": "ピンチ",
     "help.key.pinch-two-finger": "ピンチ / 2本指でドラッグ",
     "help.key.joystick": "ジョイスティック",
-    "help.key.shift-ctrl": "Shift / Ctrl",
     "help.key.space": "スペース",
     "help.key.esc": "Esc",
 
     "xr-modal.title": "WebGLが必要です",
     "xr-modal.message": "ARとVRはWebGPUレンダラーでは利用できません。OKを押すとWebGLでビューアーを再読み込みします。",
     "xr-modal.cancel": "キャンセル",
-    "xr-modal.ok": "OK",
-
-    "walk-hint.desktop": "クリックで歩行。WASDで自由に移動。",
-    "walk-hint.touch-tap": "タップで歩行。ドラッグで視点移動。",
-    "walk-hint.touch-gaming": "ジョイスティックで移動。ドラッグで視点移動。タップでジャンプ。"
+    "xr-modal.ok": "OK"
 }

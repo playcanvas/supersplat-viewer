@@ -2,6 +2,7 @@
     "settings.performance-mode": "성능 모드",
     "settings.gaming-controls": "게임 컨트롤",
     "settings.show-annotations": "주석 표시",
+    "settings.show-hints": "조작 힌트 표시",
     "settings.frame": "맞춤",
     "settings.reset": "재설정",
 
@@ -14,17 +15,17 @@
     "tooltip.frame-scene": "씬에 맞춤",
     "tooltip.show-collision": "충돌 표시",
     "tooltip.settings": "설정",
-    "tooltip.help": "도움말",
+    "tooltip.help": "정보",
+    "tooltip.pin-hints": "조작 힌트 고정",
+    "tooltip.hide-hints": "조작 힌트 숨기기",
     "tooltip.enter-ar": "AR 시작",
     "tooltip.enter-vr": "VR 시작",
     "tooltip.fullscreen": "전체 화면",
 
-    "help.tab.desktop": "데스크톱",
-    "help.tab.touch": "터치",
-
     "help.section.orbit": "오빗 모드",
     "help.section.fly": "플라이 모드",
     "help.section.walk": "워크 모드",
+    "help.section.anim": "애니메이션",
     "help.section.modes": "모드 전환",
 
     "help.action.orbit": "오빗",
@@ -48,15 +49,11 @@
     "help.action.toggle-gaming": "게임 컨트롤 전환",
     "help.action.show-collision": "충돌 표시",
     "help.action.play-pause": "재생 / 일시 정지",
-    "help.action.toggle-help": "도움말 전환",
+    "help.action.toggle-help": "정보 전환",
     "help.action.exit-cancel": "나가기 / 취소",
+    "help.action.release-mouse": "마우스 해제",
+    "help.action.exit-walk": "워크 종료",
 
-    "help.key.left-click": "왼쪽 클릭",
-    "help.key.left-click-drag": "왼쪽 클릭 + 드래그",
-    "help.key.right-click-drag": "오른쪽 클릭 + 드래그",
-    "help.key.mouse-wheel": "마우스 휠",
-    "help.key.mouse": "마우스",
-    "help.key.double-click": "더블 클릭",
     "help.key.double-tap": "더블 탭",
     "help.key.tap": "탭",
     "help.key.touch-drag": "터치 + 드래그",
@@ -65,16 +62,11 @@
     "help.key.pinch": "핀치",
     "help.key.pinch-two-finger": "핀치 / 두 손가락 드래그",
     "help.key.joystick": "조이스틱",
-    "help.key.shift-ctrl": "Shift / Ctrl",
     "help.key.space": "스페이스",
     "help.key.esc": "Esc",
 
     "xr-modal.title": "WebGL 필요",
     "xr-modal.message": "AR과 VR은 WebGPU 렌더러에서 지원되지 않습니다. 확인을 누르면 WebGL로 뷰어를 다시 불러옵니다.",
     "xr-modal.cancel": "취소",
-    "xr-modal.ok": "확인",
-
-    "walk-hint.desktop": "클릭하여 걷기. WASD로 자유롭게 이동.",
-    "walk-hint.touch-tap": "탭하여 걷기. 드래그하여 둘러보기.",
-    "walk-hint.touch-gaming": "조이스틱으로 이동. 드래그하여 둘러보기. 탭하여 점프."
+    "xr-modal.ok": "확인"
 }
