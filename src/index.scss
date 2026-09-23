@@ -12,7 +12,7 @@
     --sse-text-darkest: #666;
     --sse-accent: #f60;
     --sse-grip: #ffaf50;
-    // black like the toolbar and annotation bar; the panels show it at 40%
+    // black like the toolbar and annotation bar; the panels show it at 50%
     --sse-bkg: #000;
     --sse-bkg-dark: #282828;
     --sse-bkg-darkest: #141414;
@@ -24,7 +24,7 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
-    // the viewer's own z-indices (debug panel, nav cursor) never interleave with the host's
+    // a stacking context of its own, so nothing inside the viewer interleaves with the host's
     isolation: isolate;
     font-family: 'Arial', sans-serif;
     user-select: none;
@@ -77,6 +77,16 @@
         flex-grow: 1;
     }
 
+    .sse-sceneLayer {
+        // things drawn over the scene, beneath the ui: the navigation cursor and the annotations
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+    }
+
     .sse-ui {
         position: absolute;
         top: 0;
@@ -84,9 +94,6 @@
         width: 100%;
         height: 100%;
         pointer-events: none;
-        // a stacking context of its own, so .sse-annotations at z-index -1 sits behind the rest
-        // of the ui but still in front of the canvas
-        z-index: 0;
     }
 
     .sse-ui * {
@@ -152,49 +159,30 @@
     /* controlsHint: the current camera mode's controls, at the top right */
 
     .sse-controlsHint {
+        // above the toolbar at the right, where the settings panel also opens; the two take
+        // turns, so they never show together
         position: absolute;
-        top: max(16px, env(safe-area-inset-top));
         right: max(16px, env(safe-area-inset-right));
+        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
         min-width: 200px;
         max-width: calc(100% - 32px);
         box-sizing: border-box;
-        padding: 10px 12px;
-        border-radius: 12px;
+        padding: 8px 8px 8px 12px;
+        border-radius: 16px;
         border: 1px solid rgba(white, 0.08);
 
         font-size: 12px;
         color: var(--sse-text);
-        background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
+        background-color: color-mix(in srgb, var(--sse-bkg) 50%, transparent);
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
 
-        // hidden until popped up; visibility keeps the faded panel from taking pointer input
-        visibility: hidden;
-        opacity: 0;
-        transform: translateY(-4px);
-        transition:
-            visibility 0s 0.4s,
-            opacity 0.4s ease-out,
-            transform 0.4s ease-out;
-
-        &.sse-visible {
-            visibility: visible;
-            opacity: 1;
-            transform: none;
-            transition:
-                opacity 0.2s ease-out,
-                transform 0.2s ease-out;
-        }
-
-        // the title shares a line with the icon and buttons, and the subtitle hangs below it,
-        // so the title stays put whether or not there is a subtitle
+        // the title shares a line with the icon and close button, and the subtitle hangs below
+        // it, so the title stays put whether or not there is a subtitle
         > .sse-controlsHintHeader {
             display: flex;
             align-items: flex-start;
             gap: 8px;
-            padding-bottom: 8px;
-            margin-bottom: 4px;
-            border-bottom: 1px solid rgba(white, 0.06);
 
             > .sse-controlsHintIcon {
                 width: 20px;
@@ -211,7 +199,7 @@
                 min-width: 0;
 
                 > .sse-controlsHintTitle {
-                    // the buttons' height, so the title centres on their line
+                    // the button's height, so the title centres on its line
                     line-height: 26px;
                     font-size: 13px;
                     font-weight: bold;
@@ -231,6 +219,14 @@
         }
 
         > .sse-controlsHintRows {
+            margin-top: 8px;
+            padding: 4px 4px 0 0;
+            border-top: 1px solid rgba(white, 0.06);
+
+            &:empty {
+                display: none;
+            }
+
             > .sse-controlsHintItem {
                 display: flex;
                 align-items: center;
@@ -521,7 +517,7 @@
                     }
                 }
 
-                /* active highlight for simple toggle buttons (e.g. voxel overlay) */
+                /* active highlight for simple toggle buttons (settings, controls, info) */
                 &.sse-active:not(.sse-toggle) {
                     color: var(--sse-accent);
                 }
@@ -586,94 +582,105 @@
         font-size: 14px;
 
         color: var(--sse-text);
-        background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
+        background-color: color-mix(in srgb, var(--sse-bkg) 50%, transparent);
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
 
-        > .sse-settingsRow {
+        // settings grouped by what they affect, a divider after each group but the last
+        > .sse-settingsGroup {
             display: flex;
-            align-items: center;
-            justify-content: space-between;
+            flex-direction: column;
             gap: 4px;
             width: 100%;
 
-            > button {
-                flex-grow: 1;
-                height: 34px;
-                padding: 0 20px;
-                border: 1px solid rgba(white, 0.1);
-                border-radius: 8px;
-                font-size: 13px;
-                cursor: pointer;
-
-                color: var(--sse-text-dark);
-                background-color: rgba(white, 0.04);
-                transition:
-                    background-color 250ms ease,
-                    color 250ms ease;
-
-                &:hover {
-                    color: var(--sse-text-light);
-                    background-color: rgba(white, 0.1);
-                }
+            // a group with nothing to show (no annotations or collision, say) is not shown
+            &:not(:has(> :not(.sse-hidden))) {
+                display: none;
             }
 
-            > div {
-                height: 34px;
+            &:not(:last-child) {
+                padding-bottom: 8px;
+                margin-bottom: 4px;
+                border-bottom: 1px solid rgba(white, 0.08);
+            }
+
+            > .sse-settingsRow {
                 display: flex;
                 align-items: center;
-                padding: 0 8px;
-                cursor: pointer;
+                justify-content: space-between;
+                gap: 4px;
+                width: 100%;
 
-                color: var(--sse-text-dark);
+                > button {
+                    flex-grow: 1;
+                    height: 34px;
+                    padding: 0 20px;
+                    border: 1px solid rgba(white, 0.1);
+                    border-radius: 8px;
+                    font-size: 13px;
+                    cursor: pointer;
 
-                &.sse-toggleSwitch {
-                    padding: 0 4px;
+                    color: var(--sse-text-dark);
+                    background-color: rgba(white, 0.04);
+                    transition:
+                        background-color 250ms ease,
+                        color 250ms ease;
 
-                    .sse-toggleTrack {
-                        width: 36px;
-                        height: 20px;
-                        border-radius: 10px;
-                        background-color: rgba(white, 0.15);
-                        position: relative;
-                        transition: background-color 200ms ease;
-
-                        .sse-toggleThumb {
-                            width: 16px;
-                            height: 16px;
-                            border-radius: 50%;
-                            background-color: #777;
-                            position: absolute;
-                            top: 2px;
-                            left: 2px;
-                            transition:
-                                transform 200ms ease,
-                                background-color 200ms ease;
-                        }
-                    }
-
-                    &.sse-active .sse-toggleTrack {
-                        background-color: color-mix(in srgb, var(--sse-accent) 35%, transparent);
-
-                        .sse-toggleThumb {
-                            transform: translateX(16px);
-                            background-color: var(--sse-accent);
-                        }
+                    &:hover {
+                        color: var(--sse-text-light);
+                        background-color: rgba(white, 0.1);
                     }
                 }
 
-                &:hover {
-                    color: var(--sse-text);
+                > div {
+                    height: 34px;
+                    display: flex;
+                    align-items: center;
+                    padding: 0 8px;
+                    cursor: pointer;
+
+                    color: var(--sse-text-dark);
+
+                    &.sse-toggleSwitch {
+                        padding: 0 4px;
+
+                        .sse-toggleTrack {
+                            width: 36px;
+                            height: 20px;
+                            border-radius: 10px;
+                            background-color: rgba(white, 0.15);
+                            position: relative;
+                            transition: background-color 200ms ease;
+
+                            .sse-toggleThumb {
+                                width: 16px;
+                                height: 16px;
+                                border-radius: 50%;
+                                background-color: #777;
+                                position: absolute;
+                                top: 2px;
+                                left: 2px;
+                                transition:
+                                    transform 200ms ease,
+                                    background-color 200ms ease;
+                            }
+                        }
+
+                        &.sse-active .sse-toggleTrack {
+                            background-color: color-mix(in srgb, var(--sse-accent) 35%, transparent);
+
+                            .sse-toggleThumb {
+                                transform: translateX(16px);
+                                background-color: var(--sse-accent);
+                            }
+                        }
+                    }
+
+                    &:hover {
+                        color: var(--sse-text);
+                    }
                 }
             }
-        }
-
-        > .sse-divider {
-            width: 100%;
-            height: 1px;
-            margin: 8px 0;
-
-            background-color: rgba(white, 0.08);
         }
     }
 
@@ -685,9 +692,23 @@
         left: 0;
         width: 100%;
         height: 100%;
-        // only catches the click that closes the box: a background or backdrop-filter here
-        // would stack with the box's own (a backdrop-filter makes this the box's backdrop, so
-        // the box would blur this layer's black, not the scene) and darken it past the others
+        // catches the click outside the box that closes it. No background or backdrop-filter of
+        // its own: either would stack with the box's (a backdrop-filter here would make this the
+        // box's backdrop, so the box would blur this layer, not the scene) and darken the box
+        // past the other panels
+
+        // blurs everything behind the box, without darkening it. A sibling layer rather than a
+        // filter on the panel, so the box's own blur still sees the scene through it
+        &::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            backdrop-filter: blur(3px);
+            -webkit-backdrop-filter: blur(3px);
+        }
 
         > .sse-infoPanelContent {
             position: absolute;
@@ -708,7 +729,7 @@
 
             font-size: 13px;
             color: var(--sse-text);
-            background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
+            background-color: color-mix(in srgb, var(--sse-bkg) 50%, transparent);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
 
@@ -719,6 +740,8 @@
             }
 
             > .sse-viewerTitle {
+                // as wide as the logo, name and version, so only they are the link, not the row
+                align-self: center;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
@@ -834,6 +857,12 @@
                     min-height: 28px;
                     // the controls hint's row size
                     font-size: 12px;
+
+                    // a combination such as Shift + H
+                    .sse-keys {
+                        display: flex;
+                        gap: 3px;
+                    }
                 }
             }
         }
@@ -907,7 +936,7 @@
             border: 1px solid rgba(white, 0.08);
 
             color: var(--sse-text);
-            background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
+            background-color: color-mix(in srgb, var(--sse-bkg) 50%, transparent);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
 
@@ -968,6 +997,9 @@
         border-radius: 4px;
         padding: 4px 4px;
         font-size: 12px;
+        // a short label on one line: positioned from its target's edge before it is shifted,
+        // it would otherwise wrap into whatever width is left beside a target near the right
+        white-space: nowrap;
 
         color: var(--sse-text);
         background-color: var(--sse-bkg-dark);
@@ -980,11 +1012,157 @@
         width: 100%;
         height: 100%;
         pointer-events: none;
-        z-index: -1;
     }
 
     .sse-annotations * {
         pointer-events: auto;
+    }
+
+    .sse-annotations {
+        // the hotspots' layer: a stacking context of its own, so their depth ordering cannot
+        // lift one above the tooltip that follows it. Passes clicks through between hotspots
+        > .sse-annotation-hotspots {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            isolation: isolate;
+            pointer-events: none;
+        }
+
+        // a numbered circle over the annotation's position; ui/annotation.ts moves it with a
+        // transform from the top-left corner
+        > .sse-annotation-hotspots > .sse-annotation-hotspot {
+            position: absolute;
+            left: 0;
+            top: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            border: 2px solid rgba(white, 0.9);
+            cursor: pointer;
+
+            font-size: 12px;
+            font-weight: bold;
+            color: var(--sse-text-light);
+            background-color: rgba(black, 0.7);
+            box-shadow: 0 1px 4px rgba(black, 0.4);
+            // coming back into view: a smooth ease at both ends, so the change reads as a fade
+            // rather than a blink
+            transition:
+                opacity 300ms cubic-bezier(0.45, 0, 0.55, 1),
+                border-color 150ms ease,
+                background-color 150ms ease;
+
+            &:hover {
+                border-color: var(--sse-accent);
+            }
+
+            // the selected annotation, the one whose panel is showing
+            &.sse-active {
+                border-color: var(--sse-accent);
+                background-color: var(--sse-accent);
+            }
+
+            // behind scene content: faint but still clickable. Going behind fades a little slower
+            // than coming back, so a hotspot the camera passes does not seem to flicker
+            &.sse-occluded {
+                // the dimmed toolbar's level
+                opacity: 0.4;
+                transition:
+                    opacity 450ms cubic-bezier(0.45, 0, 0.55, 1),
+                    border-color 150ms ease,
+                    background-color 150ms ease;
+
+                // pointing at a hidden hotspot, or selecting it, reveals it, with the quicker
+                // coming-back fade
+                &:hover,
+                &.sse-active {
+                    opacity: 1;
+                    transition:
+                        opacity 300ms cubic-bezier(0.45, 0, 0.55, 1),
+                        border-color 150ms ease,
+                        background-color 150ms ease;
+                }
+            }
+        }
+
+        // the selected annotation's panel. Content over the scene, so a much darker surface than
+        // the other panels, dark enough to keep its text readable over a bright scene, with their
+        // shape, border and type
+        > .sse-annotation {
+            // plain css: sass passes a custom property's value through unevaluated, so
+            // rgba(black, 0.9) would reach the browser as an invalid colour
+            --sse-annotation-bkg: rgba(0, 0, 0, 0.9);
+
+            // after the hotspots' layer, so above it
+            position: absolute;
+            width: max-content;
+            max-width: min(280px, calc(100% - 16px));
+            box-sizing: border-box;
+            padding: 10px 12px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(white, 0.08);
+            pointer-events: none;
+
+            font-size: 12px;
+            line-height: 1.45;
+            color: var(--sse-text);
+            background-color: var(--sse-annotation-bkg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            overflow-wrap: break-word;
+
+            visibility: hidden;
+            opacity: 0;
+            translate: 0 4px;
+            transition:
+                visibility 0s 0.2s,
+                opacity 0.2s ease-out,
+                translate 0.2s ease-out;
+
+            &.sse-visible {
+                visibility: visible;
+                opacity: 1;
+                translate: 0 0;
+                transition:
+                    opacity 0.2s ease-out,
+                    translate 0.2s ease-out;
+            }
+
+            > .sse-annotation-title {
+                margin-bottom: 4px;
+                font-size: 13px;
+                font-weight: bold;
+                color: var(--sse-text-light);
+            }
+
+            // the arrow pointing at the hotspot; --arrow-top is set to the hotspot's height
+            &.sse-arrow-right::before,
+            &.sse-arrow-left::before {
+                content: '';
+                position: absolute;
+                top: var(--arrow-top, 50%);
+                transform: translateY(-50%);
+                border-top: 8px solid transparent;
+                border-bottom: 8px solid transparent;
+            }
+
+            &.sse-arrow-right::before {
+                left: -8px;
+                border-right: 8px solid var(--sse-annotation-bkg);
+            }
+
+            &.sse-arrow-left::before {
+                right: -8px;
+                border-left: 8px solid var(--sse-annotation-bkg);
+            }
+        }
     }
 
     /* annotationNav */
@@ -1084,15 +1262,70 @@
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                gap: 8px;
                 padding: 0 12px;
                 white-space: nowrap;
-                width: 240px;
+                width: 300px;
+                // the bar's full height, so its hover highlight fills the space between the
+                // arrows as theirs do
+                align-self: stretch;
+
+                // the annotation's number, drawn like its hotspot in the scene. The hotspot's
+                // plain look, not its selected one: the bar keeps the last annotation after its
+                // panel closes, when nothing is selected
+                > .sse-annotationNavNumber {
+                    flex-shrink: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    box-sizing: border-box;
+                    min-width: 20px;
+                    height: 20px;
+                    padding: 0 4px;
+                    border-radius: 10px;
+                    border: 1.5px solid rgba(white, 0.9);
+                    font-size: 11px;
+                    font-weight: bold;
+                    color: var(--sse-text-light);
+                    background-color: rgba(black, 0.7);
+
+                    &:empty {
+                        display: none;
+                    }
+                }
 
                 > .sse-annotationNavTitle {
+                    min-width: 0;
                     font-size: 14px;
                     color: var(--sse-text-light);
                     overflow: hidden;
                     text-overflow: ellipsis;
+                }
+
+                > .sse-annotationNavNumber,
+                > .sse-annotationNavTitle {
+                    transition: opacity 150ms ease;
+                }
+            }
+
+            // nothing selected: the last annotation shown is greyed out, and clicking it
+            // selects it
+            &.sse-unselected > .sse-annotationInfo {
+                pointer-events: auto;
+                cursor: pointer;
+
+                > .sse-annotationNavNumber,
+                > .sse-annotationNavTitle {
+                    opacity: 0.45;
+                }
+
+                &:hover {
+                    background-color: rgba(white, 0.1);
+
+                    > .sse-annotationNavNumber,
+                    > .sse-annotationNavTitle {
+                        opacity: 1;
+                    }
                 }
             }
         }

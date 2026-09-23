@@ -1,28 +1,21 @@
 import type { Localize } from '../localization';
 import type { ViewerHandle } from '../types';
 
-// how long the panel stays up after a change, and after the pointer leaves it
-const SHOW_MS = 4000;
-const LINGER_MS = 1500;
+// Whether the panel is open. New users see it open; once they close it, it stays closed.
+const OPEN_KEY = 'controlsPanelOpen';
 
-// 'auto' pops the panel up on every change, 'pinned' keeps it up, 'off' never shows it
-type Preference = 'auto' | 'pinned' | 'off';
-
-const STORAGE_KEY = 'controlsHint';
-
-const readPreference = (): Preference => {
+const readOpen = () => {
     try {
-        const value = localStorage.getItem(STORAGE_KEY);
-        return value === 'pinned' || value === 'off' ? value : 'auto';
+        return localStorage.getItem(OPEN_KEY) !== 'false';
     } catch {
         // Embedded documents can be denied storage.
-        return 'auto';
+        return true;
     }
 };
 
-const writePreference = (value: Preference) => {
+const writeOpen = (open: boolean) => {
     try {
-        localStorage.setItem(STORAGE_KEY, value);
+        localStorage.setItem(OPEN_KEY, String(open));
     } catch {
         // Storage may be blocked or full; the choice still holds for this viewer.
     }
@@ -87,9 +80,9 @@ const icons = {
 const isGaming = (state: ViewerHandle['state']) =>
     state.gamingControls && (state.cameraMode === 'fly' || state.cameraMode === 'walk');
 
-// the controls for the viewer's current camera mode, input mode and gaming controls, or null
-// where there is nothing to show. Each list keeps the mouse rows together ahead of the keys
-const describe = (state: ViewerHandle['state'], localize: Localize): Hint | null => {
+// the controls for the viewer's current camera mode, input mode and gaming controls; no rows
+// where there is nothing to list. Each list keeps the mouse rows together ahead of the keys
+const describe = (state: ViewerHandle['state'], localize: Localize): Hint => {
     const { cameraMode } = state;
     const gaming = isGaming(state);
     const space = key(localize('help.key.space'));
@@ -162,7 +155,7 @@ const describe = (state: ViewerHandle['state'], localize: Localize): Hint | null
         }
         // not while the mouse is captured, where the ui closes the info box as soon as it opens
         if (!gaming) {
-            rows.push(null, ['toggle-help', key('H')]);
+            rows.push(null, ['toggle-controls', key('H')], ['toggle-help', key('Shift'), key('H')]);
         }
     } else {
         switch (cameraMode) {
@@ -203,7 +196,8 @@ const describe = (state: ViewerHandle['state'], localize: Localize): Hint | null
                 break;
             case 'anim':
                 // the animation has no touch controls of its own: any touch takes over
-                return null;
+                rows = [];
+                break;
         }
     }
 
@@ -248,45 +242,18 @@ const renderToken = (token: Token): HTMLElement => {
 };
 
 /**
- * The panel at the top right that names the camera mode and shows its controls. It pops up
- * briefly whenever those controls change: a new camera mode, input mode, or gaming controls
- * (mouse capture on desktop) in fly and walk. The user can pin it open or switch it off, and
- * the settings panel switches it back on; the choice persists in local storage.
+ * Fills the controls panel with the current camera mode and its controls, following the camera
+ * mode, input mode and gaming controls (mouse capture on desktop). Opening and closing belong to
+ * ui.ts, which toggles it from the toolbar like the settings and info panels.
  */
 const initControlsHint = (viewer: Pick<ViewerHandle, 'state' | 'events'>, root: HTMLElement, localize: Localize) => {
     const { state, events } = viewer;
-    const panel = root.querySelector<HTMLElement>('.sse-controlsHint');
     const icon = root.querySelector<SVGUseElement>('.sse-controlsHintIcon > use');
     const title = root.querySelector<HTMLElement>('.sse-controlsHintTitle');
     const subtitle = root.querySelector<HTMLElement>('.sse-controlsHintSubtitle');
     const rowsElement = root.querySelector<HTMLElement>('.sse-controlsHintRows');
-    const pin = root.querySelector<HTMLButtonElement>('.sse-controlsHintPin');
-    const close = root.querySelector<HTMLButtonElement>('.sse-controlsHintClose');
-    const settingsRow = root.querySelector<HTMLElement>('.sse-showHintsRow');
-    const settingsCheck = root.querySelector<HTMLElement>('.sse-showHintsCheck');
 
-    let preference = readPreference();
-    let timer: ReturnType<typeof setTimeout> | null = null;
     let rendered = '';
-
-    const clearTimer = () => {
-        if (timer) {
-            clearTimeout(timer);
-            timer = null;
-        }
-    };
-
-    const hide = () => {
-        clearTimer();
-        panel.classList.remove('sse-visible');
-    };
-
-    const hideAfter = (ms: number) => {
-        clearTimer();
-        if (preference === 'auto') {
-            timer = setTimeout(hide, ms);
-        }
-    };
 
     const render = (hint: Hint) => {
         icon.setAttribute('href', hint.icon);
@@ -313,77 +280,26 @@ const initControlsHint = (viewer: Pick<ViewerHandle, 'state' | 'events'>, root: 
         );
     };
 
-    // re-render for the current state, popping up when the page changes or when `force` is set.
-    // A state change that leaves the page as it was (G in orbit) does not pop it up
-    const update = (force: boolean) => {
-        const hint = describe(state, localize);
-        if (!state.loaded || state.xrMode || !hint || preference === 'off') {
-            hide();
-            return;
-        }
-
+    // re-render when the page changes; a state change that leaves it as it was (G in orbit)
+    // renders nothing
+    const update = () => {
         const signature = `${state.cameraMode}:${state.inputMode}:${isGaming(state)}`;
-        const changed = signature !== rendered;
-        if (changed) {
+        if (signature !== rendered) {
             rendered = signature;
-            render(hint);
-        }
-
-        if (preference === 'pinned' || force || changed) {
-            panel.classList.add('sse-visible');
-            hideAfter(SHOW_MS);
+            render(describe(state, localize));
         }
     };
 
-    const updateButtons = () => {
-        pin.classList.toggle('sse-active', preference === 'pinned');
-        settingsCheck.classList.toggle('sse-active', preference !== 'off');
-    };
-
-    // write changes only, so creating a viewer does not persist the default
-    const setPreference = (value: Preference) => {
-        preference = value;
-        writePreference(value);
-        updateButtons();
-    };
-
-    pin.addEventListener('click', () => {
-        setPreference(preference === 'pinned' ? 'auto' : 'pinned');
-        update(true);
-    });
-
-    close.addEventListener('click', () => {
-        setPreference('off');
-        hide();
-    });
-
-    settingsRow.addEventListener('click', () => {
-        setPreference(preference === 'off' ? 'auto' : 'off');
-        update(true);
-    });
-
-    // hold the panel up while the pointer is over it
-    panel.addEventListener('pointerenter', clearTimer);
-    panel.addEventListener('pointerleave', () => {
-        if (panel.classList.contains('sse-visible')) hideAfter(LINGER_MS);
-    });
-
-    updateButtons();
-
-    const onChange = () => update(false);
     const subscriptions = [
-        events.on('loaded:changed', onChange),
-        events.on('cameraMode:changed', onChange),
-        events.on('inputMode:changed', onChange),
-        events.on('gamingControls:changed', onChange),
-        events.on('xrMode:changed', onChange)
+        events.on('cameraMode:changed', update),
+        events.on('inputMode:changed', update),
+        events.on('gamingControls:changed', update)
     ];
-    update(true);
+    update();
 
     return () => {
-        clearTimer();
         for (const subscription of subscriptions) subscription.off();
     };
 };
 
-export { initControlsHint };
+export { initControlsHint, readOpen as readControlsOpen, writeOpen as writeControlsOpen };

@@ -1,11 +1,18 @@
 <!--
-    The viewer's own markup: one canvas, the ui overlay and the svg icon sheet. createViewer
+    The viewer's own markup: one canvas, the scene layer, the ui overlay and the svg icon sheet. createViewer
     parses this into a <div class="sse-viewer"> per instance, so nothing here carries an id —
     a document can hold the template many times over. Every class carries the sse- prefix so host page styles cannot
     collide with it; ui.ts looks elements up by `sse-` + name under the instance root. The <symbol> ids are the exception: <use> resolves
     them document-wide, and duplicates resolve to whichever copy is first.
 -->
 <canvas></canvas>
+
+<!--
+    Layering is by order, back to front: the canvas, then the scene layer (things drawn over the
+    scene: the navigation cursor and the annotations), then the ui. Within the ui the chrome
+    comes first and the modals last, so nothing needs a z-index to stack.
+-->
+<div class="sse-sceneLayer"></div>
 
 <div class="sse-ui">
     <div class="sse-poster"></div>
@@ -92,6 +99,25 @@
             </div>
 
             <div class="sse-buttonGroup">
+                <!-- the panels (settings, controls, info), then the ways to view: AR, VR, fullscreen -->
+                <button class="sse-settings sse-controlButton">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                        <g class="sse-stroke"><use href="#settingsIcon" /></g>
+                        <g class="sse-fill"><use href="#settingsIcon" /></g>
+                    </svg>
+                </button>
+                <button class="sse-controlsButton sse-controlButton">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                        <g class="sse-stroke"><use href="#keyboardIcon" /></g>
+                        <g class="sse-fill"><use href="#keyboardIcon" /></g>
+                    </svg>
+                </button>
+                <button class="sse-info sse-controlButton">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                        <g class="sse-stroke"><use href="#infoIcon" /></g>
+                        <g class="sse-fill"><use href="#infoIcon" /></g>
+                    </svg>
+                </button>
                 <button class="sse-arMode sse-controlButton sse-hidden">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
                         <g class="sse-stroke"><use href="#arIcon" /></g>
@@ -104,27 +130,6 @@
                         <g class="sse-fill"><use href="#vrIcon" /></g>
                     </svg>
                 </button>
-
-                <button class="sse-showCollision sse-controlButton sse-hidden">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="sse-stroke"><use href="#voxelIcon" /></g>
-                        <g class="sse-fill"><use href="#voxelIcon" /></g>
-                    </svg>
-                </button>
-
-                <button class="sse-info sse-controlButton">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="sse-stroke"><use href="#infoIcon" /></g>
-                        <g class="sse-fill"><use href="#infoIcon" /></g>
-                    </svg>
-                </button>
-                <button class="sse-settings sse-controlButton">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
-                        <g class="sse-stroke"><use href="#settingsIcon" /></g>
-                        <g class="sse-fill"><use href="#settingsIcon" /></g>
-                    </svg>
-                </button>
-
                 <button class="sse-enterFullscreen sse-controlButton">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
                         <g class="sse-stroke"><use href="#enterFullscreenIcon" /></g>
@@ -141,8 +146,33 @@
         </div>
     </div>
 
-    <!-- Controls Hint: the current camera mode and its controls, popped up on every mode change -->
-    <div class="sse-controlsHint">
+    <!-- Touch Joystick -->
+    <div class="sse-joystickBase sse-hidden">
+        <div class="sse-joystick"></div>
+    </div>
+
+    <!-- Annotation Navigator -->
+    <div class="sse-annotationNav sse-hidden">
+        <button class="sse-annotationPrev">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+                <g class="sse-stroke"><use href="#chevronLeftIcon" /></g>
+                <g class="sse-fill"><use href="#chevronLeftIcon" /></g>
+            </svg>
+        </button>
+        <div class="sse-annotationInfo">
+            <span class="sse-annotationNavNumber"></span>
+            <span class="sse-annotationNavTitle"></span>
+        </div>
+        <button class="sse-annotationNext">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+                <g class="sse-stroke"><use href="#chevronRightIcon" /></g>
+                <g class="sse-fill"><use href="#chevronRightIcon" /></g>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Controls Panel: the current camera mode and its controls, toggled from the toolbar -->
+    <div class="sse-controlsHint sse-hidden">
         <div class="sse-controlsHintHeader">
             <svg class="sse-controlsHintIcon" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                 <use href="#orbitIcon" />
@@ -151,9 +181,6 @@
                 <span class="sse-controlsHintTitle"></span>
                 <span class="sse-controlsHintSubtitle"></span>
             </div>
-            <button class="sse-controlsHintPin sse-panelButton">
-                <svg xmlns="http://www.w3.org/2000/svg"><use href="#pinIcon" /></svg>
-            </button>
             <button class="sse-controlsHintClose sse-panelButton">
                 <svg xmlns="http://www.w3.org/2000/svg"><use href="#closeIcon" /></svg>
             </button>
@@ -163,37 +190,47 @@
 
     <!-- Settings Panel -->
     <div class="sse-settingsPanel sse-hidden">
-        <div class="sse-performanceModeRow sse-settingsRow">
-            <div class="sse-performanceModeOption" data-i18n="settings.performance-mode">Performance Mode</div>
-            <div class="sse-performanceModeCheck sse-toggleSwitch">
-                <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
+        <!-- what is drawn over the scene -->
+        <div class="sse-settingsGroup">
+            <div class="sse-annotationsRow sse-settingsRow">
+                <div class="sse-annotationsOption" data-i18n="settings.show-annotations">Show Annotations</div>
+                <div class="sse-annotationsCheck sse-toggleSwitch sse-active">
+                    <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
+                </div>
+            </div>
+            <div class="sse-showCollisionRow sse-settingsRow sse-hidden">
+                <div class="sse-showCollisionOption" data-i18n="settings.show-collision">Show Collision</div>
+                <div class="sse-showCollisionCheck sse-toggleSwitch">
+                    <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
+                </div>
             </div>
         </div>
-        <div class="sse-gamingControlsDivider sse-divider"></div>
-        <div class="sse-gamingControlsRow sse-settingsRow">
-            <div class="sse-gamingControlsOption" data-i18n="settings.gaming-controls">Gaming Controls</div>
-            <div class="sse-gamingControlsCheck sse-toggleSwitch">
-                <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
+        <!-- how the viewer runs -->
+        <div class="sse-settingsGroup">
+            <div class="sse-gamingControlsRow sse-settingsRow">
+                <div class="sse-gamingControlsOption" data-i18n="settings.gaming-controls">Gaming Controls</div>
+                <div class="sse-gamingControlsCheck sse-toggleSwitch">
+                    <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
+                </div>
+            </div>
+            <div class="sse-performanceModeRow sse-settingsRow">
+                <div class="sse-performanceModeOption" data-i18n="settings.performance-mode">Performance Mode</div>
+                <div class="sse-performanceModeCheck sse-toggleSwitch">
+                    <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
+                </div>
             </div>
         </div>
-        <div class="sse-annotationsRow sse-settingsRow">
-            <div class="sse-annotationsOption" data-i18n="settings.show-annotations">Show Annotations</div>
-            <div class="sse-annotationsCheck sse-toggleSwitch sse-active">
-                <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
+        <!-- camera actions -->
+        <div class="sse-settingsGroup">
+            <div class="sse-settingsRow">
+                <button class="sse-frame" data-i18n="settings.frame">Frame</button>
+                <button class="sse-reset" data-i18n="settings.reset">Reset</button>
             </div>
-        </div>
-        <div class="sse-showHintsRow sse-settingsRow">
-            <div class="sse-showHintsOption" data-i18n="settings.show-hints">Show Control Hints</div>
-            <div class="sse-showHintsCheck sse-toggleSwitch sse-active">
-                <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
-            </div>
-        </div>
-        <div class="sse-divider"></div>
-        <div class="sse-settingsRow">
-            <button class="sse-frame" data-i18n="settings.frame">Frame</button>
-            <button class="sse-reset" data-i18n="settings.reset">Reset</button>
         </div>
     </div>
+
+    <!-- Tooltip -->
+    <div class="sse-tooltip"></div>
 
     <!-- Info Panel: what is running, and the global shortcuts the controls hint does not show -->
     <div class="sse-infoPanel sse-hidden">
@@ -255,8 +292,12 @@
                     <kbd class="sse-key" data-i18n="help.key.space">Space</kbd>
                 </div>
                 <div class="sse-infoShortcut">
-                    <span data-i18n="help.action.toggle-help">Toggle Info</span>
+                    <span data-i18n="help.action.toggle-controls">Toggle Controls</span>
                     <kbd class="sse-key">H</kbd>
+                </div>
+                <div class="sse-infoShortcut">
+                    <span data-i18n="help.action.toggle-help">Toggle Info</span>
+                    <span class="sse-keys"><kbd class="sse-key">Shift</kbd><kbd class="sse-key">H</kbd></span>
                 </div>
                 <div class="sse-infoShortcut">
                     <span data-i18n="help.action.exit-cancel">Exit / Cancel</span>
@@ -265,33 +306,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Touch Joystick -->
-    <div class="sse-joystickBase sse-hidden">
-        <div class="sse-joystick"></div>
-    </div>
-
-    <!-- Annotation Navigator -->
-    <div class="sse-annotationNav sse-hidden">
-        <button class="sse-annotationPrev">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
-                <g class="sse-stroke"><use href="#chevronLeftIcon" /></g>
-                <g class="sse-fill"><use href="#chevronLeftIcon" /></g>
-            </svg>
-        </button>
-        <div class="sse-annotationInfo">
-            <span class="sse-annotationNavTitle"></span>
-        </div>
-        <button class="sse-annotationNext">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
-                <g class="sse-stroke"><use href="#chevronRightIcon" /></g>
-                <g class="sse-fill"><use href="#chevronRightIcon" /></g>
-            </svg>
-        </button>
-    </div>
-
-    <!-- Tooltip -->
-    <div class="sse-tooltip"></div>
 
     <!-- XR WebGL-required modal -->
     <div class="sse-xrModal sse-hidden" onwheel="event.stopPropagation()">
@@ -411,8 +425,13 @@
             d="M309.78,284.71c0,7.95-6.44,14.38-14.38,14.38s-14.38-6.44-14.38-14.38v-22.95c0-7.95,6.44-14.38,14.38-14.38s14.38,6.44,14.38,14.38v22.95Z"
         />
     </symbol>
-    <symbol id="pinIcon" viewBox="0 0 24 24">
-        <path d="M9 3h6M10 3v6l-3 4h10l-3-4V3M12 13v8" />
+    <symbol id="keyboardIcon" viewBox="0 0 24 24">
+        <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            d="M4 5.5h16a2.5 2.5 0 0 1 2.5 2.5v8a2.5 2.5 0 0 1-2.5 2.5H4A2.5 2.5 0 0 1 1.5 16V8A2.5 2.5 0 0 1 4 5.5Zm0 1.8a.7.7 0 0 0-.7.7v8c0 .39.31.7.7.7h16a.7.7 0 0 0 .7-.7V8a.7.7 0 0 0-.7-.7H4Z"
+        />
+        <path d="M5 9h2v2H5zM8.5 9h2v2h-2zM12 9h2v2h-2zM15.5 9h2v2h-2zM7 13h10v2H7z" />
     </symbol>
     <symbol id="closeIcon" viewBox="0 0 24 24">
         <path d="M6 6l12 12M18 6L6 18" />
@@ -422,11 +441,6 @@
     </symbol>
     <symbol id="chevronRightIcon" viewBox="0 0 24 24">
         <path d="M9 5l7 7-7 7" />
-    </symbol>
-    <symbol id="voxelIcon" viewBox="0 0 16 16">
-        <path
-            d="M8 1L2 4.5v7L8 15l6-3.5v-7L8 1zm0 1.15L12.85 5 8 7.85 3.15 5 8 2.15zM3 5.85l4.5 2.6v5.1L3 10.95V5.85zm5.5 7.7v-5.1L13 5.85v5.1l-4.5 2.6z"
-        />
     </symbol>
     <symbol id="exitFullscreenIcon" viewBox="0 0 24 24">
         <path

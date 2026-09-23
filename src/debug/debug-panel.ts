@@ -24,7 +24,6 @@ const STYLES = `
     font: 11px/1.4 ui-monospace, Menlo, Consolas, monospace;
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 4px;
-    z-index: 1000;
     pointer-events: auto;
     user-select: none;
     min-width: 220px;

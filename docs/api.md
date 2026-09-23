@@ -152,7 +152,7 @@ The value stays active until replaced. The viewer clears it on camera/XR mode ch
 
 ### Saved preferences
 
-`performanceMode`, `gamingControls` and `showAnnotations` load from and write changes to the existing origin-wide local-storage keys, with or without the built-in UI. Creation does not write defaults; the legacy `retinaDisplay` migration is preserved. A new viewer reads the saved values; already-mounted viewers keep their own state rather than synchronizing through storage. The host can change these preferences through the corresponding writable state fields. Storage denial or quota errors leave the viewer usable, and destruction removes its persistence subscriptions.
+`performanceMode`, `gamingControls` and `showAnnotations` load from and write changes to the existing origin-wide local-storage keys, with or without the built-in UI. Creation does not write defaults; the legacy `retinaDisplay` migration is preserved. A new viewer reads the saved values; already-mounted viewers keep their own state rather than synchronizing through storage. The host can change these preferences through the corresponding writable state fields. Storage denial or quota errors leave the viewer usable, and destruction removes its persistence subscriptions. The built-in UI also remembers whether its controls panel is open, under the origin-wide key `controlsPanelOpen`; it is open for a new visitor until they close it.
 
 ### Controlling annotations
 
@@ -175,7 +175,7 @@ else viewer.events.once('loaded:changed', selectFirst);
 
 Selection switches to orbit and transitions to the annotation's authored camera without changing the animation pause flag. Selecting the same index again navigates again. `selectAnnotation(null)` clears selection while leaving the camera and any transition alone. Commands return immediately and throw before readiness, after destruction, or for an index that is not an integer in range. Clearing an empty annotation list is valid.
 
-With `ui: false`, the same data, selection and camera navigation are available; the host supplies presentation. `state.showAnnotations` controls built-in visibility and does not clear selection, so showing annotations again restores the selected panel. The built-in navigator retains its last title and navigation position after dismissal. Clicking elsewhere inside this viewer clears selection; clicking host controls or another viewer does not.
+With `ui: false`, the same data, selection and camera navigation are available; the host supplies presentation. `state.showAnnotations` controls built-in visibility and does not clear selection, so showing annotations again restores the selected panel. The built-in navigator retains its last title and navigation position after dismissal, greyed out while nothing is selected; clicking it selects that annotation again. Clicking elsewhere inside this viewer clears selection; clicking host controls or another viewer does not.
 
 ### Fullscreen and XR
 

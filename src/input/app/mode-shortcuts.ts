@@ -73,8 +73,11 @@ class ModeShortcuts {
             case 'g':
                 state.gamingControls = !state.gamingControls;
                 break;
+            // H the controls panel, Shift+H the info panel. Shift is read from the event, so
+            // caps lock does not swap them
             case 'h':
-                events.fire('inputEvent', 'toggleHelp');
+            case 'H':
+                events.fire('inputEvent', event.shiftKey ? 'toggleHelp' : 'toggleControls');
                 break;
             case 'r':
                 events.fire('inputEvent', 'reset', event);

@@ -555,6 +555,20 @@ class Picker {
 
     pickSurface: (x: number, y: number) => Promise<PickSurface | null>;
 
+    /**
+     * Pick several points from one render of the pick pass, for testing many screen positions
+     * at once (the annotation occlusion test). Coordinates are normalised like `pick`'s. Each
+     * result is the world position there with the splats' coverage of the pixel, 0 to 1, or
+     * null where no splat covers it.
+     */
+    pickMany: (points: readonly { x: number; y: number }[]) => Promise<({ position: Vec3; alpha: number } | null)[]>;
+
+    /**
+     * Drop the cached pick render, for when the scene has changed under a still camera (finer
+     * detail streamed in), which the camera-based cache cannot see.
+     */
+    invalidate: () => void;
+
     release: () => void;
 
     constructor(app: AppBase, camera: Entity) {
@@ -564,6 +578,9 @@ class Picker {
         let accumTarget: RenderTarget;
         let accumPass: RenderPassPicker;
         let chunksPatched = false;
+        // set by release: queued and in-flight picks then resolve to nothing, rather than render
+        // with released resources or reach an app that is being destroyed
+        let released = false;
         let pickQueue = Promise.resolve();
         let cacheValid = false;
         let cacheWidth = 0;
@@ -725,6 +742,10 @@ class Picker {
         };
 
         const prepareSample = (x: number, y: number) => {
+            if (released) {
+                return null;
+            }
+
             const width = Math.floor(graphicsDevice.width);
             const height = Math.floor(graphicsDevice.height);
 
@@ -769,9 +790,22 @@ class Picker {
             return position ? { position, camera: pickCamera, screenX, screenY, width, height } : null;
         };
 
-        const serializePick = <T>(operation: () => Promise<T>): Promise<T> => {
+        // `fallback` is the result for a pick that release overtakes: one queued behind another
+        // pick, or one whose read-back is cut short as the device goes
+        const serializePick = <T>(operation: () => Promise<T>, fallback: T): Promise<T> => {
+            const guarded = (): Promise<T> => {
+                if (released) {
+                    return Promise.resolve(fallback);
+                }
+                return operation().catch((error: unknown) => {
+                    if (released) {
+                        return fallback;
+                    }
+                    throw error;
+                });
+            };
             // The render targets are shared by all picks on this instance.
-            const result = pickQueue.then(operation, operation);
+            const result = pickQueue.then(guarded, guarded);
             pickQueue = result.then(
                 (): void => undefined,
                 (): void => undefined
@@ -861,11 +895,43 @@ class Picker {
             };
         };
 
-        this.pick = (x: number, y: number) => serializePick(() => pick(x, y));
+        this.pick = (x: number, y: number) => serializePick(() => pick(x, y), null);
 
-        this.pickSurface = (x: number, y: number) => serializePick(() => pickSurface(x, y));
+        this.pickSurface = (x: number, y: number) => serializePick(() => pickSurface(x, y), null);
+
+        const pickCoverage = async (x: number, y: number) => {
+            const sample = prepareSample(x, y);
+            if (!sample) {
+                return null;
+            }
+            const { width, height, screenX, screenY, pickCamera } = sample;
+
+            const pixels = await readTexture<Uint16Array>(accumBuffer, screenX, screenY, accumTarget);
+
+            const r = half2Float(pixels[0]);
+            const alpha = 1 - half2Float(pixels[3]);
+            if (!Number.isFinite(r) || !Number.isFinite(alpha) || alpha < 1e-6) {
+                return null;
+            }
+
+            const position = getWorldPoint(pickCamera, screenX, screenY, width, height, r / alpha);
+            return position ? { position, alpha } : null;
+        };
+
+        // the first sample renders the pass and the rest hit its cache, since the camera cannot
+        // change between these synchronous calls; the reads then run in parallel
+        this.pickMany = (points) =>
+            serializePick(
+                () => Promise.all(points.map(({ x, y }) => pickCoverage(x, y))),
+                points.map((): null => null)
+            );
+
+        this.invalidate = () => {
+            cacheValid = false;
+        };
 
         this.release = () => {
+            released = true;
             if (chunksPatched) {
                 unregisterPickerShaderPatches(app);
                 chunksPatched = false;
