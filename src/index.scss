@@ -429,6 +429,12 @@
                 opacity 0.5s ease-out;
         }
 
+        // dimmed for a moment before fading out, when idle or entering mouse capture. After the
+        // faded states so it overrides the faded-in opacity, and takes its transition
+        &.sse-dimmed {
+            opacity: 0.4;
+        }
+
         > .sse-timelineContainer {
             height: 30px;
             cursor: pointer;
@@ -998,6 +1004,11 @@
             transition:
                 visibility 0s 0.5s,
                 opacity 0.5s ease-out;
+        }
+
+        // dimmed with the toolbar before both hide
+        &.sse-dimmed {
+            opacity: 0.4;
         }
 
         > button {

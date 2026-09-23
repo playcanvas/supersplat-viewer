@@ -67,6 +67,7 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     const dom = [
         'ui',
         'controlsWrap',
+        'annotationNav',
         'arMode',
         'vrMode',
         'enterFullscreen',
@@ -249,7 +250,7 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         }
     });
 
-    // fade ui controls after 5 seconds of inactivity
+    // after 3 seconds of inactivity the controls dim, then hide 2.5 seconds later
     on('controlsHidden:changed', (value) => {
         dom.controlsWrap.classList.toggle('sse-faded-out', value);
         dom.controlsWrap.classList.toggle('sse-faded-in', !value);
@@ -258,10 +259,21 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     // show the ui and start a timer to hide it again
     let uiTimeout: ReturnType<typeof setTimeout> | null = null;
 
+    // the controls dim for a moment before hiding, both when idle and when the mouse is
+    // captured, so they are seen to be going rather than vanishing at once
+    let dimTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    // the pointer is over the controls: hold them up, and restart the timer on leaving
+    let hovering = false;
+
     disposers.push(() => {
         if (uiTimeout) {
             clearTimeout(uiTimeout);
             uiTimeout = null;
+        }
+        if (dimTimeout) {
+            clearTimeout(dimTimeout);
+            dimTimeout = null;
         }
     });
 
@@ -270,36 +282,90 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         state.gamingControls &&
         (state.cameraMode === 'walk' || state.cameraMode === 'fly');
 
+    const setDimmed = (dimmed: boolean) => {
+        dom.controlsWrap.classList.toggle('sse-dimmed', dimmed);
+        dom.annotationNav.classList.toggle('sse-dimmed', dimmed);
+    };
+
+    const clearDim = () => {
+        if (dimTimeout) {
+            clearTimeout(dimTimeout);
+            dimTimeout = null;
+        }
+        setDimmed(false);
+    };
+
     const hideUI = () => {
+        if (uiTimeout) {
+            clearTimeout(uiTimeout);
+            uiTimeout = null;
+        }
+        clearDim();
+        hovering = false;
+        showInfo(false);
+        showSettings(false);
+        state.controlsHidden = true;
+    };
+
+    // controlsHidden stays false while dimmed, so a host reading it sees dimmed controls as
+    // shown; it turns true only once they are gone
+    const dimThenHide = () => {
+        clearDim();
+        setDimmed(true);
+        dimTimeout = setTimeout(hideUI, 2500);
+    };
+
+    // entering capture: the controls stay, dimmed, then hide
+    const dimUI = () => {
         if (uiTimeout) {
             clearTimeout(uiTimeout);
             uiTimeout = null;
         }
         showInfo(false);
         showSettings(false);
-        state.controlsHidden = true;
+        state.controlsHidden = false;
+        dimThenHide();
     };
 
     const showUI = () => {
         if (isPointerCapturedMode()) {
-            hideUI();
+            // input while captured (mouse look fires it constantly) does not bring the controls
+            // back or cut the dim short; it only closes a panel a shortcut may have opened
+            if (dimTimeout) {
+                showInfo(false);
+                showSettings(false);
+            } else {
+                hideUI();
+            }
             return;
         }
         if (uiTimeout) {
             clearTimeout(uiTimeout);
         }
+        clearDim();
         state.controlsHidden = false;
         uiTimeout = setTimeout(() => {
             uiTimeout = null;
-            // the controls stay while a panel is open; closing it restarts this timer
-            if (isVisible(dom.settingsPanel) || isVisible(dom.infoPanel)) {
+            // the controls stay while a panel is open or the pointer is over them; closing the
+            // panel or leaving restarts this timer
+            if (hovering || isVisible(dom.settingsPanel) || isVisible(dom.infoPanel)) {
                 return;
             }
             if (state.selectedAnnotation === null || !state.showAnnotations) {
-                state.controlsHidden = true;
+                dimThenHide();
             }
-        }, 4000);
+        }, 3000);
     };
+
+    // entering also restores dimmed controls to full
+    dom.controlsWrap.addEventListener('pointerenter', () => {
+        hovering = true;
+        showUI();
+    });
+    dom.controlsWrap.addEventListener('pointerleave', () => {
+        hovering = false;
+        showUI();
+    });
 
     // Show controls once loaded
     on('loaded:changed', () => {
@@ -309,12 +375,17 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
 
     on('inputEvent', showUI);
 
+    // dim on entering capture, show on leaving it; any other mode change just shows the controls
+    let wasCaptured = false;
     const updateCapturedUI = () => {
-        if (isPointerCapturedMode()) {
-            hideUI();
-        } else {
+        const captured = isPointerCapturedMode();
+        if (captured && !wasCaptured) {
+            dimUI();
+        } else if (!captured) {
+            clearDim();
             showUI();
         }
+        wasCaptured = captured;
     };
 
     on('cameraMode:changed', updateCapturedUI);
