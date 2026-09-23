@@ -1,3 +1,4 @@
+import { version as engineVersion } from 'playcanvas';
 import type { EventHandler } from 'playcanvas';
 
 import { version as appVersion } from '../package.json';
@@ -7,6 +8,7 @@ import type { Global, ViewerHandle } from './types';
 import { initAnnotationControls } from './ui/annotation-controls';
 import { Annotations } from './ui/annotations';
 import { initCameraControls } from './ui/camera-controls';
+import { initControlsHint } from './ui/controls-hint';
 import { initFullscreenControls } from './ui/fullscreen-controls';
 import { initJoystick } from './ui/joystick';
 import { initPlayback } from './ui/playback';
@@ -35,6 +37,20 @@ const initPoster = (root: HTMLElement, image: HTMLImageElement, events: EventHan
     events.on('progress:changed', blur);
 };
 
+// the gpu the renderer runs on, as the browser names it: the WebGPU adapter's description,
+// or WebGL's unmasked renderer string. Empty where the browser withholds it
+const getGpuName = (device: unknown) => {
+    const { gpuAdapter, unmaskedRenderer } = device as {
+        gpuAdapter?: { info?: { description: string; vendor: string; architecture: string; device: string } };
+        unmaskedRenderer?: string;
+    };
+    const info = gpuAdapter?.info;
+    if (info) {
+        return info.description || [info.vendor, info.architecture, info.device].filter(Boolean).join(' / ');
+    }
+    return unmaskedRenderer ?? '';
+};
+
 // Returns a function that removes the listeners added outside the ui subtree (window,
 // document, screen) and cancels pending timers. Listeners on the subtree's own elements are
 // released with the elements.
@@ -51,16 +67,18 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     const dom = [
         'ui',
         'controlsWrap',
+        'annotationNav',
         'arMode',
         'vrMode',
         'enterFullscreen',
         'exitFullscreen',
         'info',
         'infoPanel',
-        'desktopTab',
-        'touchTab',
-        'desktopInfoPanel',
-        'touchInfoPanel',
+        'infoClose',
+        'infoShortcuts',
+        'rendererName',
+        'gpuName',
+        'engineVersionLabel',
         'buttonContainer',
         'play',
         'pause',
@@ -76,33 +94,30 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         'gamingControlsRow',
         'gamingControlsCheck',
         'gamingControlsOption',
-        'desktopFlyClickToFly',
-        'desktopFlyGamingControls',
-        'desktopClickToWalk',
-        'desktopGamingControls',
-        'touchFlyClickToWalk',
-        'touchFlyGamingControls',
-        'touchClickToWalk',
-        'touchGamingControls',
-        'walkHint',
+        'controlsHintPin',
+        'controlsHintClose',
         'reset',
         'frame',
         'loadingWrap',
         'loadingText',
         'loadingBar',
         'showCollision',
-        'desktopShowCollisionHelp',
+        'showCollisionShortcut',
+        'walkShortcut',
+        'playShortcut',
         'tooltip',
         'viewerBranding',
-        'viewerTitle',
         'appVersionLabel'
     ].reduce((acc: Record<string, HTMLElement>, name) => {
         acc[name] = root.querySelector<HTMLElement>(`.sse-${name}`);
         return acc;
     }, {});
 
-    // populate the info-panel title with the app version
+    // populate the info panel: versions, the renderer and the gpu it runs on
     dom.appVersionLabel.textContent = appVersion;
+    dom.engineVersionLabel.textContent = engineVersion;
+    dom.rendererName.textContent = global.renderer === 'webgpu' ? 'WebGPU' : 'WebGL 2';
+    dom.gpuName.textContent = getGpuName(global.app.graphicsDevice);
 
     // Remove focus from buttons after click so keyboard input isn't captured by the UI
     dom.ui.addEventListener('click', () => {
@@ -179,52 +194,48 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
 
     const updateGamingControls = () => {
         dom.gamingControlsCheck.classList.toggle('sse-active', state.gamingControls);
-        dom.desktopFlyClickToFly.classList.toggle('sse-hidden', state.gamingControls);
-        dom.desktopFlyGamingControls.classList.toggle('sse-hidden', !state.gamingControls);
-        dom.desktopClickToWalk.classList.toggle('sse-hidden', state.gamingControls);
-        dom.desktopGamingControls.classList.toggle('sse-hidden', !state.gamingControls);
-        dom.touchFlyClickToWalk.classList.toggle('sse-hidden', state.gamingControls);
-        dom.touchFlyGamingControls.classList.toggle('sse-hidden', !state.gamingControls);
-        dom.touchClickToWalk.classList.toggle('sse-hidden', state.gamingControls);
-        dom.touchGamingControls.classList.toggle('sse-hidden', !state.gamingControls);
     };
 
     on('gamingControls:changed', updateGamingControls);
-    on('inputMode:changed', updateGamingControls);
     updateGamingControls();
 
+    // The settings and info buttons are toggles: each shows active while its panel is open.
+    // Every open and close goes through these so the two cannot disagree.
+    const isVisible = (panel: HTMLElement) => !panel.classList.contains('sse-hidden');
+
+    const showSettings = (visible: boolean) => {
+        dom.settingsPanel.classList.toggle('sse-hidden', !visible);
+        dom.settings.classList.toggle('sse-active', visible);
+    };
+
+    const showInfo = (visible: boolean) => {
+        // the shortcuts are keyboard shortcuts, and list only what this scene offers, as the
+        // toolbar does: walk needs collision, play needs an animation
+        dom.infoShortcuts.classList.toggle('sse-hidden', state.inputMode !== 'desktop');
+        dom.walkShortcut.classList.toggle('sse-hidden', !state.walkAllowed);
+        dom.playShortcut.classList.toggle('sse-hidden', !state.hasAnimation);
+        dom.infoPanel.classList.toggle('sse-hidden', !visible);
+        dom.info.classList.toggle('sse-active', visible);
+    };
+
     // Info panel
-    const updateInfoTab = (tab: 'desktop' | 'touch') => {
-        if (tab === 'desktop') {
-            dom.desktopTab.classList.add('sse-active');
-            dom.touchTab.classList.remove('sse-active');
-            dom.desktopInfoPanel.classList.remove('sse-hidden');
-            dom.touchInfoPanel.classList.add('sse-hidden');
-        } else {
-            dom.desktopTab.classList.remove('sse-active');
-            dom.touchTab.classList.add('sse-active');
-            dom.desktopInfoPanel.classList.add('sse-hidden');
-            dom.touchInfoPanel.classList.remove('sse-hidden');
-        }
-    };
+    const toggleHelp = () => showInfo(!isVisible(dom.infoPanel));
 
-    dom.desktopTab.addEventListener('click', () => {
-        updateInfoTab('desktop');
+    // these close a panel without an input event, so they restart the fade timer themselves
+    dom.info.addEventListener('click', () => {
+        toggleHelp();
+        showUI();
     });
 
-    dom.touchTab.addEventListener('click', () => {
-        updateInfoTab('touch');
-    });
-
-    const toggleHelp = () => {
-        updateInfoTab(state.inputMode);
-        dom.infoPanel.classList.toggle('sse-hidden');
-    };
-
-    dom.info.addEventListener('click', toggleHelp);
-
+    // the panel covers the viewer, so this is also how a second click on the button closes it
     dom.infoPanel.addEventListener('pointerdown', () => {
-        dom.infoPanel.classList.add('sse-hidden');
+        showInfo(false);
+        showUI();
+    });
+
+    dom.infoClose.addEventListener('click', () => {
+        showInfo(false);
+        showUI();
     });
 
     on('inputEvent', (event) => {
@@ -232,14 +243,14 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
             toggleHelp();
         } else if (event === 'cancel') {
             // close info panel on cancel
-            dom.infoPanel.classList.add('sse-hidden');
-            dom.settingsPanel.classList.add('sse-hidden');
+            showInfo(false);
+            showSettings(false);
         } else if (event === 'interrupt') {
-            dom.settingsPanel.classList.add('sse-hidden');
+            showSettings(false);
         }
     });
 
-    // fade ui controls after 5 seconds of inactivity
+    // after 3 seconds of inactivity the controls dim, then hide 2.5 seconds later
     on('controlsHidden:changed', (value) => {
         dom.controlsWrap.classList.toggle('sse-faded-out', value);
         dom.controlsWrap.classList.toggle('sse-faded-in', !value);
@@ -248,10 +259,21 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     // show the ui and start a timer to hide it again
     let uiTimeout: ReturnType<typeof setTimeout> | null = null;
 
+    // the controls dim for a moment before hiding, both when idle and when the mouse is
+    // captured, so they are seen to be going rather than vanishing at once
+    let dimTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    // the pointer is over the controls: hold them up, and restart the timer on leaving
+    let hovering = false;
+
     disposers.push(() => {
         if (uiTimeout) {
             clearTimeout(uiTimeout);
             uiTimeout = null;
+        }
+        if (dimTimeout) {
+            clearTimeout(dimTimeout);
+            dimTimeout = null;
         }
     });
 
@@ -260,33 +282,90 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
         state.gamingControls &&
         (state.cameraMode === 'walk' || state.cameraMode === 'fly');
 
+    const setDimmed = (dimmed: boolean) => {
+        dom.controlsWrap.classList.toggle('sse-dimmed', dimmed);
+        dom.annotationNav.classList.toggle('sse-dimmed', dimmed);
+    };
+
+    const clearDim = () => {
+        if (dimTimeout) {
+            clearTimeout(dimTimeout);
+            dimTimeout = null;
+        }
+        setDimmed(false);
+    };
+
     const hideUI = () => {
         if (uiTimeout) {
             clearTimeout(uiTimeout);
             uiTimeout = null;
         }
-        dom.infoPanel.classList.add('sse-hidden');
-        dom.settingsPanel.classList.add('sse-hidden');
-        dom.walkHint.classList.add('sse-hidden');
+        clearDim();
+        hovering = false;
+        showInfo(false);
+        showSettings(false);
         state.controlsHidden = true;
+    };
+
+    // controlsHidden stays false while dimmed, so a host reading it sees dimmed controls as
+    // shown; it turns true only once they are gone
+    const dimThenHide = () => {
+        clearDim();
+        setDimmed(true);
+        dimTimeout = setTimeout(hideUI, 2500);
+    };
+
+    // entering capture: the controls stay, dimmed, then hide
+    const dimUI = () => {
+        if (uiTimeout) {
+            clearTimeout(uiTimeout);
+            uiTimeout = null;
+        }
+        showInfo(false);
+        showSettings(false);
+        state.controlsHidden = false;
+        dimThenHide();
     };
 
     const showUI = () => {
         if (isPointerCapturedMode()) {
-            hideUI();
+            // input while captured (mouse look fires it constantly) does not bring the controls
+            // back or cut the dim short; it only closes a panel a shortcut may have opened
+            if (dimTimeout) {
+                showInfo(false);
+                showSettings(false);
+            } else {
+                hideUI();
+            }
             return;
         }
         if (uiTimeout) {
             clearTimeout(uiTimeout);
         }
+        clearDim();
         state.controlsHidden = false;
         uiTimeout = setTimeout(() => {
             uiTimeout = null;
-            if (state.selectedAnnotation === null || !state.showAnnotations) {
-                state.controlsHidden = true;
+            // the controls stay while a panel is open or the pointer is over them; closing the
+            // panel or leaving restarts this timer
+            if (hovering || isVisible(dom.settingsPanel) || isVisible(dom.infoPanel)) {
+                return;
             }
-        }, 4000);
+            if (state.selectedAnnotation === null || !state.showAnnotations) {
+                dimThenHide();
+            }
+        }, 3000);
     };
+
+    // entering also restores dimmed controls to full
+    dom.controlsWrap.addEventListener('pointerenter', () => {
+        hovering = true;
+        showUI();
+    });
+    dom.controlsWrap.addEventListener('pointerleave', () => {
+        hovering = false;
+        showUI();
+    });
 
     // Show controls once loaded
     on('loaded:changed', () => {
@@ -296,12 +375,17 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
 
     on('inputEvent', showUI);
 
+    // dim on entering capture, show on leaving it; any other mode change just shows the controls
+    let wasCaptured = false;
     const updateCapturedUI = () => {
-        if (isPointerCapturedMode()) {
-            hideUI();
-        } else {
+        const captured = isPointerCapturedMode();
+        if (captured && !wasCaptured) {
+            dimUI();
+        } else if (!captured) {
+            clearDim();
             showUI();
         }
+        wasCaptured = captured;
     };
 
     on('cameraMode:changed', updateCapturedUI);
@@ -313,40 +397,14 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
 
     disposers.push(initPlayback(viewer, root, showUI));
     disposers.push(initCameraControls(viewer, root));
+    disposers.push(initControlsHint(viewer, root, localize));
     disposers.push(initFullscreenControls(viewer, root));
     disposers.push(initXrControls(viewer, root));
 
-    // Walk mode hint banner (shown once per session on first FPS entry)
-    let walkHintShown = false;
-
-    const getWalkHintText = () => {
-        if (state.inputMode === 'desktop') {
-            return localize('walk-hint.desktop');
-        }
-        return localize(state.gamingControls ? 'walk-hint.touch-gaming' : 'walk-hint.touch-tap');
-    };
-
-    on('cameraMode:changed', (value: string) => {
-        if (value === 'walk' && !walkHintShown && !isPointerCapturedMode()) {
-            walkHintShown = true;
-            dom.walkHint.textContent = getWalkHintText();
-            dom.walkHint.classList.remove('sse-hidden');
-        } else if (value !== 'walk') {
-            dom.walkHint.classList.add('sse-hidden');
-        }
-    });
-
-    const dismissWalkHint = () => dom.walkHint.classList.add('sse-hidden');
-
-    dom.walkHint.addEventListener('click', dismissWalkHint);
-    on('inputEvent', (type: string) => {
-        if (type === 'interrupt') dismissWalkHint();
-    });
-
-    // Collision overlay toggle + matching help-panel row (only visible when overlay is available)
+    // Collision overlay toggle + matching info-panel shortcut (only visible when overlay is available)
     on('hasCollisionOverlay:changed', (value: boolean) => {
         dom.showCollision.classList.toggle('sse-hidden', !value);
-        dom.desktopShowCollisionHelp.classList.toggle('sse-hidden', !value);
+        dom.showCollisionShortcut.classList.toggle('sse-hidden', !value);
     });
 
     dom.showCollision.addEventListener('click', () => {
@@ -358,7 +416,8 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     });
 
     dom.settings.addEventListener('click', () => {
-        dom.settingsPanel.classList.toggle('sse-hidden');
+        showSettings(!isVisible(dom.settingsPanel));
+        showUI();
     });
 
     // Initialize touch joystick for fly mode
@@ -384,6 +443,8 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
     tooltip.register(dom.showCollision, localize('tooltip.show-collision'), 'top');
     tooltip.register(dom.settings, localize('tooltip.settings'), 'top');
     tooltip.register(dom.info, localize('tooltip.help'), 'top');
+    tooltip.register(dom.controlsHintPin, localize('tooltip.pin-hints'), 'bottom');
+    tooltip.register(dom.controlsHintClose, localize('tooltip.hide-hints'), 'bottom');
     tooltip.register(dom.arMode, localize('tooltip.enter-ar'), 'top');
     tooltip.register(dom.vrMode, localize('tooltip.enter-vr'), 'top');
     tooltip.register(dom.enterFullscreen, localize('tooltip.fullscreen'), 'top');
@@ -406,7 +467,6 @@ const initUI = (global: Global, viewer: ViewerHandle, hasCameraFrame: boolean) =
 
         (dom.viewerBranding as HTMLAnchorElement).href = viewUrl.toString();
         dom.viewerBranding.classList.remove('sse-hidden');
-        (dom.viewerTitle as HTMLAnchorElement).href = viewUrl.toString();
     }
 
     return () => {

@@ -7,6 +7,18 @@ const isCaptureMode = (mode: string) => mode === 'walk' || mode === 'fly';
 const isWasdKey = (event: KeyboardEvent) =>
     event.code === 'KeyW' || event.code === 'KeyA' || event.code === 'KeyS' || event.code === 'KeyD';
 
+// The shortcut a key press stands for. A key that types a Latin character keeps using it, so
+// the shortcuts follow the key labels (Dvorak moves them, as it should). A key that types
+// anything else, such as Cyrillic or Greek, falls back to its position on a US layout, the way
+// WASD already works, so the shortcuts still work on every layout the ui is translated for.
+const shortcutKey = (event: KeyboardEvent) => {
+    if (/^[\x20-\x7e]$/.test(event.key)) {
+        return event.key;
+    }
+    const match = /^(?:Key([A-Z])|Digit(\d))$/.exec(event.code);
+    return match ? (match[1]?.toLowerCase() ?? match[2]) : event.key;
+};
+
 /**
  * Keyboard shortcuts that switch camera mode and toggle UI affordances.
  * Listens on `window` so the user can press 1/2/3, V, G, H, F, R, Space,
@@ -41,7 +53,9 @@ class ModeShortcuts {
             return;
         }
 
-        switch (event.key) {
+        const key = shortcutKey(event);
+
+        switch (key) {
             case '1':
                 state.cameraMode = 'orbit';
                 break;
@@ -78,7 +92,7 @@ class ModeShortcuts {
         }
 
         if (state.cameraMode !== 'walk') {
-            switch (event.key) {
+            switch (key) {
                 case 'f':
                     events.fire('inputEvent', 'frame', event);
                     break;

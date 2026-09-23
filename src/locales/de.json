@@ -2,6 +2,7 @@
     "settings.performance-mode": "Leistungsmodus",
     "settings.gaming-controls": "Gaming-Steuerung",
     "settings.show-annotations": "Anmerkungen anzeigen",
+    "settings.show-hints": "Steuerungshinweise anzeigen",
     "settings.frame": "Einpassen",
     "settings.reset": "Zurücksetzen",
 
@@ -14,17 +15,17 @@
     "tooltip.frame-scene": "Szene einpassen",
     "tooltip.show-collision": "Kollision anzeigen",
     "tooltip.settings": "Einstellungen",
-    "tooltip.help": "Hilfe",
+    "tooltip.help": "Info",
+    "tooltip.pin-hints": "Steuerungshinweise anheften",
+    "tooltip.hide-hints": "Steuerungshinweise ausblenden",
     "tooltip.enter-ar": "AR starten",
     "tooltip.enter-vr": "VR starten",
     "tooltip.fullscreen": "Vollbild",
 
-    "help.tab.desktop": "Desktop",
-    "help.tab.touch": "Touch",
-
     "help.section.orbit": "Umlaufmodus",
     "help.section.fly": "Flugmodus",
     "help.section.walk": "Gehmodus",
+    "help.section.anim": "Animation",
     "help.section.modes": "Modus wechseln",
 
     "help.action.orbit": "Umkreisen",
@@ -48,15 +49,11 @@
     "help.action.toggle-gaming": "Gaming-Steuerung umschalten",
     "help.action.show-collision": "Kollision anzeigen",
     "help.action.play-pause": "Wiedergabe / Pause",
-    "help.action.toggle-help": "Hilfe umschalten",
+    "help.action.toggle-help": "Info umschalten",
     "help.action.exit-cancel": "Beenden / Abbrechen",
+    "help.action.release-mouse": "Maus freigeben",
+    "help.action.exit-walk": "Gehmodus beenden",
 
-    "help.key.left-click": "Linksklick",
-    "help.key.left-click-drag": "Linksklick + Ziehen",
-    "help.key.right-click-drag": "Rechtsklick + Ziehen",
-    "help.key.mouse-wheel": "Mausrad",
-    "help.key.mouse": "Maus",
-    "help.key.double-click": "Doppelklick",
     "help.key.double-tap": "Doppeltippen",
     "help.key.tap": "Tippen",
     "help.key.touch-drag": "Berühren + Ziehen",
@@ -65,16 +62,11 @@
     "help.key.pinch": "Zwei-Finger-Zoom",
     "help.key.pinch-two-finger": "Zwei-Finger-Zoom / Ziehen",
     "help.key.joystick": "Joystick",
-    "help.key.shift-ctrl": "Umschalt / Strg",
     "help.key.space": "Leertaste",
     "help.key.esc": "Esc",
 
     "xr-modal.title": "WebGL erforderlich",
     "xr-modal.message": "AR und VR werden vom WebGPU-Renderer nicht unterstützt. Mit OK wird der Viewer mit WebGL neu geladen.",
     "xr-modal.cancel": "Abbrechen",
-    "xr-modal.ok": "OK",
-
-    "walk-hint.desktop": "Zum Gehen klicken. WASD für freie Bewegung.",
-    "walk-hint.touch-tap": "Zum Gehen tippen. Ziehen, um sich umzusehen.",
-    "walk-hint.touch-gaming": "Mit dem Joystick bewegen. Ziehen, um sich umzusehen. Zum Springen tippen."
+    "xr-modal.ok": "OK"
 }

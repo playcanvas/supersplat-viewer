@@ -2,6 +2,7 @@
     "settings.performance-mode": "Performance Mode",
     "settings.gaming-controls": "Gaming Controls",
     "settings.show-annotations": "Show Annotations",
+    "settings.show-hints": "Show Control Hints",
     "settings.frame": "Frame",
     "settings.reset": "Reset",
 
@@ -14,17 +15,17 @@
     "tooltip.frame-scene": "Frame Scene",
     "tooltip.show-collision": "Show Collision",
     "tooltip.settings": "Settings",
-    "tooltip.help": "Help",
+    "tooltip.help": "Info",
+    "tooltip.pin-hints": "Pin Control Hints",
+    "tooltip.hide-hints": "Hide Control Hints",
     "tooltip.enter-ar": "Enter AR",
     "tooltip.enter-vr": "Enter VR",
     "tooltip.fullscreen": "Fullscreen",
 
-    "help.tab.desktop": "Desktop",
-    "help.tab.touch": "Touch",
-
     "help.section.orbit": "Orbit Mode",
     "help.section.fly": "Fly Mode",
     "help.section.walk": "Walk Mode",
+    "help.section.anim": "Animation",
     "help.section.modes": "Mode Switching",
 
     "help.action.orbit": "Orbit",
@@ -48,15 +49,11 @@
     "help.action.toggle-gaming": "Toggle Gaming Controls",
     "help.action.show-collision": "Show Collision",
     "help.action.play-pause": "Play / Pause",
-    "help.action.toggle-help": "Toggle Help",
+    "help.action.toggle-help": "Toggle Info",
     "help.action.exit-cancel": "Exit / Cancel",
+    "help.action.release-mouse": "Release Mouse",
+    "help.action.exit-walk": "Exit Walk",
 
-    "help.key.left-click": "Left Click",
-    "help.key.left-click-drag": "Left Click + Drag",
-    "help.key.right-click-drag": "Right Click + Drag",
-    "help.key.mouse-wheel": "Mouse Wheel",
-    "help.key.mouse": "Mouse",
-    "help.key.double-click": "Double-click",
     "help.key.double-tap": "Double-tap",
     "help.key.tap": "Tap",
     "help.key.touch-drag": "Touch + Drag",
@@ -65,16 +62,11 @@
     "help.key.pinch": "Pinch",
     "help.key.pinch-two-finger": "Pinch / Two Finger Drag",
     "help.key.joystick": "Joystick",
-    "help.key.shift-ctrl": "Shift / Ctrl",
     "help.key.space": "Space",
     "help.key.esc": "Esc",
 
     "xr-modal.title": "WebGL Required",
     "xr-modal.message": "AR and VR are not supported on the WebGPU renderer. Pressing OK will reload the viewer with WebGL.",
     "xr-modal.cancel": "Cancel",
-    "xr-modal.ok": "OK",
-
-    "walk-hint.desktop": "Click to walk. WASD to move freely.",
-    "walk-hint.touch-tap": "Tap to walk. Drag to look around.",
-    "walk-hint.touch-gaming": "Use the joystick to move. Drag to look around. Tap to jump."
+    "xr-modal.ok": "OK"
 }

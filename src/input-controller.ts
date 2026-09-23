@@ -96,7 +96,7 @@ class InputController {
         document.addEventListener('visibilitychange', this._clearMoveInput);
 
         // canvas-level signals: anything that interrupts an animation /
-        // closes the settings panel / dismisses the walk hint
+        // closes the settings panel
         const listen = (eventName: string, handler: EventListener) => {
             canvas.addEventListener(eventName, handler);
             this._canvasListeners.push([eventName, handler]);

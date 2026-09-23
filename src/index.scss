@@ -12,7 +12,8 @@
     --sse-text-darkest: #666;
     --sse-accent: #f60;
     --sse-grip: #ffaf50;
-    --sse-bkg: #333;
+    // black like the toolbar and annotation bar; the panels show it at 40%
+    --sse-bkg: #000;
     --sse-bkg-dark: #282828;
     --sse-bkg-darkest: #141414;
     --sse-bkg-light: #444;
@@ -92,19 +93,230 @@
         pointer-events: auto;
     }
 
-    .sse-walkHint {
-        position: absolute;
-        top: max(60px, env(safe-area-inset-top));
-        left: 50%;
-        transform: translateX(-50%);
-        background-color: rgba(black, 0.7);
+    // keycap, after the studio's navigation guide; the controls hint and the info panel share it
+    .sse-key {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 5px;
+        border-radius: 4px;
+        border: 1px solid rgba(white, 0.14);
+        border-bottom-color: rgba(white, 0.26);
+        background-color: rgba(white, 0.08);
         color: var(--sse-text-light);
-        font-size: 14px;
-        padding: 10px 20px;
-        border-radius: 8px;
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 500;
+    }
+
+    // small icon button in a panel corner: the controls hint's pin and close, the info box's close
+    .sse-panelButton {
+        width: 26px;
+        height: 26px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 6px;
         cursor: pointer;
-        pointer-events: auto;
-        white-space: nowrap;
+        color: var(--sse-text-dark);
+        background-color: transparent;
+        transition:
+            color 150ms ease,
+            background-color 150ms ease;
+
+        > svg {
+            width: 14px;
+            height: 14px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        &:hover {
+            color: var(--sse-text-light);
+            background-color: rgba(white, 0.1);
+        }
+
+        &.sse-active {
+            color: var(--sse-accent);
+        }
+    }
+
+    /* controlsHint: the current camera mode's controls, at the top right */
+
+    .sse-controlsHint {
+        position: absolute;
+        top: max(16px, env(safe-area-inset-top));
+        right: max(16px, env(safe-area-inset-right));
+        min-width: 200px;
+        max-width: calc(100% - 32px);
+        box-sizing: border-box;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(white, 0.08);
+
+        font-size: 12px;
+        color: var(--sse-text);
+        background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+
+        // hidden until popped up; visibility keeps the faded panel from taking pointer input
+        visibility: hidden;
+        opacity: 0;
+        transform: translateY(-4px);
+        transition:
+            visibility 0s 0.4s,
+            opacity 0.4s ease-out,
+            transform 0.4s ease-out;
+
+        &.sse-visible {
+            visibility: visible;
+            opacity: 1;
+            transform: none;
+            transition:
+                opacity 0.2s ease-out,
+                transform 0.2s ease-out;
+        }
+
+        // the title shares a line with the icon and buttons, and the subtitle hangs below it,
+        // so the title stays put whether or not there is a subtitle
+        > .sse-controlsHintHeader {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding-bottom: 8px;
+            margin-bottom: 4px;
+            border-bottom: 1px solid rgba(white, 0.06);
+
+            > .sse-controlsHintIcon {
+                width: 20px;
+                height: 20px;
+                margin-top: 3px;
+                flex-shrink: 0;
+                fill: var(--sse-text-light);
+            }
+
+            > .sse-controlsHintTitles {
+                flex-grow: 1;
+                display: flex;
+                flex-direction: column;
+                min-width: 0;
+
+                > .sse-controlsHintTitle {
+                    // the buttons' height, so the title centres on their line
+                    line-height: 26px;
+                    font-size: 13px;
+                    font-weight: bold;
+                    color: var(--sse-text-light);
+                }
+
+                > .sse-controlsHintSubtitle {
+                    margin-top: -5px;
+                    font-size: 11px;
+                    color: var(--sse-text-dark);
+
+                    &:empty {
+                        display: none;
+                    }
+                }
+            }
+        }
+
+        > .sse-controlsHintRows {
+            > .sse-controlsHintItem {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                min-height: 28px;
+
+                > .sse-controlsHintInputs {
+                    display: flex;
+                    align-items: center;
+                    justify-content: flex-end;
+                    gap: 3px;
+                    flex-shrink: 0;
+                    color: var(--sse-text-dark);
+                }
+            }
+
+            > .sse-divider {
+                height: 1px;
+                margin: 4px 0;
+                background-color: rgba(white, 0.06);
+            }
+        }
+
+        // the mouse after the studio's navigation guide
+        .sse-mouse {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+
+            > .sse-mouseIcon {
+                width: 15px;
+                height: 22px;
+
+                > .sse-mouseBody {
+                    fill: none;
+                    stroke: rgba(white, 0.6);
+                    stroke-width: 1.5;
+                }
+
+                > .sse-mouseSplit {
+                    fill: none;
+                    stroke: rgba(white, 0.35);
+                    stroke-width: 1.25;
+                }
+
+                // the pressed button, solid against the outline
+                > .sse-mouseActive {
+                    fill: rgba(white, 0.85);
+                }
+            }
+
+            > .sse-dragIcon {
+                width: 12px;
+                height: 12px;
+                fill: none;
+                stroke: currentColor;
+                stroke-width: 1.2;
+                stroke-linecap: round;
+                stroke-linejoin: round;
+            }
+
+            > .sse-mouseCount {
+                font-size: 10px;
+                font-weight: 500;
+            }
+        }
+
+        .sse-gesture {
+            display: inline-flex;
+            align-items: center;
+            min-height: 20px;
+            padding: 1px 7px;
+            box-sizing: border-box;
+            border-radius: 5px;
+            border: 1px solid rgba(white, 0.14);
+            background-color: rgba(white, 0.08);
+            color: var(--sse-text-light);
+            font-size: 11px;
+            text-align: right;
+        }
+
+        .sse-or {
+            font-size: 11px;
+            color: var(--sse-text-darkest);
+        }
     }
 
     /* branding link for third-party embeds */
@@ -215,6 +427,12 @@
             transition:
                 visibility 0s 0.5s,
                 opacity 0.5s ease-out;
+        }
+
+        // dimmed for a moment before fading out, when idle or entering mouse capture. After the
+        // faded states so it overrides the faded-in opacity, and takes its transition
+        &.sse-dimmed {
+            opacity: 0.4;
         }
 
         > .sse-timelineContainer {
@@ -368,7 +586,7 @@
         font-size: 14px;
 
         color: var(--sse-text);
-        background-color: color-mix(in srgb, var(--sse-bkg) 80%, transparent);
+        background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
 
@@ -467,168 +685,155 @@
         left: 0;
         width: 100%;
         height: 100%;
-        background-color: rgba(black, 0.4);
-        backdrop-filter: blur(2px);
+        // only catches the click that closes the box: a background or backdrop-filter here
+        // would stack with the box's own (a backdrop-filter makes this the box's backdrop, so
+        // the box would blur this layer's black, not the scene) and darken it past the others
 
         > .sse-infoPanelContent {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 360px;
-            height: min(80%, 640px);
+            width: 320px;
+            max-width: calc(100% - 32px);
+            max-height: calc(100% - 32px);
+            box-sizing: border-box;
+            overflow-y: auto;
+            padding: 24px 20px 20px;
             border-radius: 16px;
-            border: 1px solid rgba(white, 0.1);
+            border: 1px solid rgba(white, 0.08);
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            gap: 16px;
 
+            font-size: 13px;
             color: var(--sse-text);
-            background-color: color-mix(in srgb, var(--sse-bkg) 85%, transparent);
+            background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
 
+            > .sse-infoClose {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+            }
+
             > .sse-viewerTitle {
                 display: flex;
+                flex-direction: column;
                 align-items: center;
-                justify-content: center;
-                gap: 8px;
-                padding: 14px 16px;
-                flex-shrink: 0;
-                background-color: rgba(black, 0.15);
-                border-bottom: 1px solid rgba(white, 0.06);
+                gap: 6px;
                 text-decoration: none;
-                white-space: nowrap;
-                color: var(--sse-text);
+                color: var(--sse-text-light);
+                transition: opacity 150ms ease;
 
-                > svg {
-                    height: 20px;
-                    width: auto;
-                    flex-shrink: 0;
-
-                    > g {
-                        &.sse-stroke {
-                            fill: black;
-                            stroke: black;
-                            stroke-width: 2;
-                            stroke-linejoin: round;
-                            opacity: 0.4;
-                        }
-
-                        &.sse-fill {
-                            fill: var(--sse-accent);
-                            stroke: none;
-                        }
-                    }
+                > .sse-viewerLogo {
+                    width: 56px;
+                    height: 56px;
+                    margin-bottom: 6px;
                 }
 
                 > .sse-title-name {
-                    font-size: 14px;
+                    font-size: 16px;
                     font-weight: bold;
                 }
 
                 > .sse-title-version {
                     font-size: 12px;
-                    font-weight: normal;
-                    color: var(--sse-text-dark);
-                    margin-left: -2px;
+                    color: var(--sse-accent);
                 }
 
-                &[href] {
-                    cursor: pointer;
-                    transition: color 150ms ease;
+                &:hover {
+                    opacity: 0.8;
+                }
+            }
 
-                    &:hover {
-                        color: var(--sse-text-light);
+            // plain text rather than a badge, "WebGPU · gpu name", so the renderer does not read
+            // as a control; inline, so a long gpu name wraps as one centred line
+            > .sse-infoGpu {
+                padding: 7px 10px;
+                border-radius: 8px;
+                background-color: rgba(black, 0.2);
+                font-size: 12px;
+                text-align: center;
+                overflow-wrap: anywhere;
+
+                > .sse-rendererName {
+                    font-weight: bold;
+                    color: var(--sse-text-light);
+                }
+
+                > .sse-gpuName {
+                    color: var(--sse-text);
+                    user-select: text;
+                    -webkit-user-select: text;
+
+                    &::before {
+                        // the markup's whitespace already spaces the dot from the renderer name
+                        content: '·';
+                        margin-right: 4px;
+                        color: var(--sse-text-dark);
+                    }
+
+                    &:empty {
+                        display: none;
                     }
                 }
             }
 
-            > .sse-infoPanels {
-                padding: 16px;
-                flex: 1 1 auto;
-                min-height: 0;
-                overflow-y: auto;
+            > .sse-infoLinks {
+                display: flex;
+                justify-content: center;
+                gap: 8px;
 
-                &::-webkit-scrollbar {
-                    width: 6px;
+                > .sse-infoLink {
+                    flex: 1 1 0;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 6px 4px;
+                    border-radius: 8px;
+                    text-decoration: none;
+                    text-align: center;
+                    font-size: 11px;
+                    color: var(--sse-text-dark);
+                    transition:
+                        color 150ms ease,
+                        background-color 150ms ease;
+
+                    > .sse-infoLinkVersion {
+                        color: var(--sse-text);
+                    }
+
+                    &:hover {
+                        color: var(--sse-text-light);
+                        background-color: rgba(white, 0.06);
+                    }
                 }
+            }
 
-                &::-webkit-scrollbar-track {
-                    background: transparent;
-                }
+            > .sse-infoShortcuts {
+                padding-top: 12px;
+                border-top: 1px solid rgba(white, 0.06);
 
-                &::-webkit-scrollbar-thumb {
-                    background-color: rgba(white, 0.12);
-                    border-radius: 3px;
-                }
-
-                h1 {
+                > h1 {
                     font-size: 11px;
                     font-weight: bold;
                     text-transform: uppercase;
                     letter-spacing: 1px;
-                    padding: 4px 0 8px 0;
+                    padding-bottom: 6px;
                     color: var(--sse-accent);
                 }
 
-                .sse-control-item {
+                > .sse-infoShortcut {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    gap: 32px;
-                    padding: 5px 8px;
-                    margin: 0 -8px;
-                    border-radius: 6px;
-                    font-size: 13px;
-
-                    > .sse-control-action {
-                        text-align: left;
-                    }
-
-                    > .sse-control-key {
-                        text-align: right;
-                        color: var(--sse-text-dark);
-                        font-size: 12px;
-                    }
-
-                    &:nth-child(odd) {
-                        background-color: rgba(white, 0.03);
-                    }
-                }
-
-                .sse-control-spacer {
-                    margin: 14px 0;
-                }
-            }
-
-            > .sse-tabs {
-                display: flex;
-                gap: 24px;
-                padding: 8px 16px;
-                justify-content: center;
-                flex-shrink: 0;
-                border-top: 1px solid rgba(white, 0.06);
-
-                > .sse-tab {
-                    padding: 8px 4px;
-                    border-bottom: 2px solid transparent;
-                    cursor: pointer;
-                    font-weight: bold;
-                    font-size: 13px;
-                    color: var(--sse-text-dark);
-                    transition:
-                        color 150ms ease,
-                        border-color 150ms ease;
-                }
-
-                > .sse-tab:hover {
-                    color: var(--sse-text-light);
-                }
-
-                > .sse-tab.sse-active {
-                    color: var(--sse-text-light);
-                    border-bottom-color: var(--sse-accent);
+                    gap: 16px;
+                    min-height: 28px;
+                    // the controls hint's row size
+                    font-size: 12px;
                 }
             }
         }
@@ -690,8 +895,7 @@
         left: 0;
         width: 100%;
         height: 100%;
-        background-color: rgba(black, 0.4);
-        backdrop-filter: blur(2px);
+        // clear, like the info panel's: the box carries the panels' surface on its own
         display: flex;
         align-items: center;
         justify-content: center;
@@ -700,10 +904,10 @@
             width: min(360px, calc(100% - 32px));
             padding: 20px;
             border-radius: 16px;
-            border: 1px solid rgba(white, 0.1);
+            border: 1px solid rgba(white, 0.08);
 
             color: var(--sse-text);
-            background-color: color-mix(in srgb, var(--sse-bkg) 90%, transparent);
+            background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
 
@@ -800,6 +1004,11 @@
             transition:
                 visibility 0s 0.5s,
                 opacity 0.5s ease-out;
+        }
+
+        // dimmed with the toolbar before both hide
+        &.sse-dimmed {
+            opacity: 0.4;
         }
 
         > button {
