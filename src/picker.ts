@@ -555,6 +555,14 @@ class Picker {
 
     pickSurface: (x: number, y: number) => Promise<PickSurface | null>;
 
+    /**
+     * Pick several points from one render of the pick pass, for testing many screen positions
+     * at once (the annotation occlusion test). Coordinates are normalised like `pick`'s. Each
+     * result is the world position there with the splats' coverage of the pixel, 0 to 1, or
+     * null where no splat covers it.
+     */
+    pickMany: (points: readonly { x: number; y: number }[]) => Promise<({ position: Vec3; alpha: number } | null)[]>;
+
     release: () => void;
 
     constructor(app: AppBase, camera: Entity) {
@@ -864,6 +872,29 @@ class Picker {
         this.pick = (x: number, y: number) => serializePick(() => pick(x, y));
 
         this.pickSurface = (x: number, y: number) => serializePick(() => pickSurface(x, y));
+
+        const pickCoverage = async (x: number, y: number) => {
+            const sample = prepareSample(x, y);
+            if (!sample) {
+                return null;
+            }
+            const { width, height, screenX, screenY, pickCamera } = sample;
+
+            const pixels = await readTexture<Uint16Array>(accumBuffer, screenX, screenY, accumTarget);
+
+            const r = half2Float(pixels[0]);
+            const alpha = 1 - half2Float(pixels[3]);
+            if (!Number.isFinite(r) || !Number.isFinite(alpha) || alpha < 1e-6) {
+                return null;
+            }
+
+            const position = getWorldPoint(pickCamera, screenX, screenY, width, height, r / alpha);
+            return position ? { position, alpha } : null;
+        };
+
+        // the first sample renders the pass and the rest hit its cache, since the camera cannot
+        // change between these synchronous calls; the reads then run in parallel
+        this.pickMany = (points) => serializePick(() => Promise.all(points.map(({ x, y }) => pickCoverage(x, y))));
 
         this.release = () => {
             if (chunksPatched) {

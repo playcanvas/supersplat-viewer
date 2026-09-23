@@ -20,6 +20,16 @@ import type { CameraMode, Global } from './types';
 
 const tmpCamera = new Camera();
 const tmpv = new Vec3();
+const tmpv2 = new Vec3();
+
+// Annotation moves ease in and out, lasting longer the farther the camera travels and turns,
+// between these bounds in seconds. Every other transition keeps the quick-start easeOut.
+const ANNOTATION_MIN_DURATION = 0.8;
+const ANNOTATION_MAX_DURATION = 2;
+
+// A cubic from 0 to 1 that starts at `slope` (progress per unit time: 0 starts from rest, 1 at
+// the move's average speed) and comes to rest at the end. Slopes up to 3 keep it monotonic.
+const easeInOutFrom = (slope: number) => (x: number) => ((slope - 2) * x + (3 - 2 * slope)) * x * x + slope * x;
 
 // Walk mode is only enabled when the scene's horizontal footprint is large
 // enough to walk around in. Vertical extent (Y) is irrelevant — a tall but
@@ -150,14 +160,22 @@ class CameraManager {
         getController(state.cameraMode).onEnter(this.camera);
 
         // transition state
-        const transitionSpeed = 1.0;
         let transitionTimer = 1;
+        let transitionDuration = 1;
+        let transitionEase = easeOut;
         let clearOrbitTargetOnTransitionEnd = false;
 
-        // start a new camera transition from the current pose
-        const startTransition = () => {
+        // the camera's speed over the last frame, so a new annotation move can carry on from
+        // the motion it interrupts rather than restart from rest
+        let cameraSpeed = 0;
+        const lastPosition = this.camera.position.clone();
+
+        // start a new camera transition from the current pose, over `duration` seconds
+        const startTransition = (duration = 1, ease = easeOut) => {
             from.copy(this.camera);
             transitionTimer = 0;
+            transitionDuration = duration;
+            transitionEase = ease;
         };
 
         this.setCollision = (value: Collision | null) => {
@@ -180,7 +198,7 @@ class CameraManager {
 
             // update transition timer
             const prevTransitionTimer = transitionTimer;
-            transitionTimer = Math.min(1, transitionTimer + deltaTime * transitionSpeed);
+            transitionTimer = Math.min(1, transitionTimer + deltaTime / transitionDuration);
 
             const controller = getController(state.cameraMode);
 
@@ -190,10 +208,15 @@ class CameraManager {
 
             if (transitionTimer < 1) {
                 // lerp away from previous camera during transition
-                this.camera.lerp(from, target, easeOut(transitionTimer));
+                this.camera.lerp(from, target, transitionEase(transitionTimer));
             } else {
                 this.camera.copy(target);
             }
+
+            if (deltaTime > 0) {
+                cameraSpeed = this.camera.position.distance(lastPosition) / deltaTime;
+            }
+            lastPosition.copy(this.camera.position);
 
             // update animation timeline
             if (state.cameraMode === 'anim') {
@@ -349,8 +372,25 @@ class CameraManager {
             tmpCamera.fov = initial.fov;
             tmpCamera.look(new Vec3(initial.position), new Vec3(initial.target));
 
+            // longer for a longer move: travel relative to the scene's size, plus how far the
+            // view turns
+            const travel = this.camera.position.distance(tmpCamera.position);
+            const sceneSize = Math.max(bbox.halfExtents.length(), 1e-3);
+            this.camera.calcFocusPoint(tmpv);
+            tmpv.sub(this.camera.position).normalize();
+            tmpCamera.calcFocusPoint(tmpv2);
+            tmpv2.sub(tmpCamera.position).normalize();
+            const turn = Math.acos(Math.max(-1, Math.min(1, tmpv.dot(tmpv2)))) / Math.PI;
+            const duration = Math.max(
+                ANNOTATION_MIN_DURATION,
+                Math.min(ANNOTATION_MAX_DURATION, ANNOTATION_MIN_DURATION + (0.8 * travel) / sceneSize + 0.6 * turn)
+            );
+
+            // start at the camera's current speed, as a share of this move's average speed
+            const slope = travel > 1e-6 ? Math.min(3, (cameraSpeed * duration) / travel) : 0;
+
             controllers.orbit.goto(tmpCamera);
-            startTransition();
+            startTransition(duration, easeInOutFrom(slope));
         };
 
         // tap-to-navigate: start auto-driving the active mode toward a picked position

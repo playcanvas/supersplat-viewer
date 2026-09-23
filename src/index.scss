@@ -987,6 +987,154 @@
         pointer-events: auto;
     }
 
+    .sse-annotations {
+        // the hotspots' layer: a stacking context of its own, so their depth ordering cannot
+        // lift one above the tooltip that follows it. Passes clicks through between hotspots
+        > .sse-annotation-hotspots {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            isolation: isolate;
+            pointer-events: none;
+        }
+
+        // a numbered circle over the annotation's position; ui/annotation.ts moves it with a
+        // transform from the top-left corner
+        > .sse-annotation-hotspots > .sse-annotation-hotspot {
+            position: absolute;
+            left: 0;
+            top: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            border: 2px solid rgba(white, 0.9);
+            cursor: pointer;
+
+            font-size: 12px;
+            font-weight: bold;
+            color: var(--sse-text-light);
+            background-color: rgba(black, 0.7);
+            box-shadow: 0 1px 4px rgba(black, 0.4);
+            // coming back into view: a smooth ease at both ends, so the change reads as a fade
+            // rather than a blink
+            transition:
+                opacity 300ms cubic-bezier(0.45, 0, 0.55, 1),
+                border-color 150ms ease,
+                background-color 150ms ease;
+
+            &:hover {
+                border-color: var(--sse-accent);
+            }
+
+            // the selected annotation, the one whose panel is showing
+            &.sse-active {
+                border-color: var(--sse-accent);
+                background-color: var(--sse-accent);
+            }
+
+            // behind scene content: faint but still clickable. Going behind fades a little slower
+            // than coming back, so a hotspot the camera passes does not seem to flicker
+            &.sse-occluded {
+                // the dimmed toolbar's level
+                opacity: 0.4;
+                transition:
+                    opacity 450ms cubic-bezier(0.45, 0, 0.55, 1),
+                    border-color 150ms ease,
+                    background-color 150ms ease;
+
+                // pointing at a hidden hotspot, or selecting it, reveals it, with the quicker
+                // coming-back fade
+                &:hover,
+                &.sse-active {
+                    opacity: 1;
+                    transition:
+                        opacity 300ms cubic-bezier(0.45, 0, 0.55, 1),
+                        border-color 150ms ease,
+                        background-color 150ms ease;
+                }
+            }
+        }
+
+        // the selected annotation's panel. Content over the scene, so a much darker surface than
+        // the other panels, dark enough to keep its text readable over a bright scene, with their
+        // shape, border and type
+        > .sse-annotation {
+            // plain css: sass passes a custom property's value through unevaluated, so
+            // rgba(black, 0.9) would reach the browser as an invalid colour
+            --sse-annotation-bkg: rgba(0, 0, 0, 0.9);
+
+            position: absolute;
+            // above the hotspots' layer
+            z-index: 1;
+            width: max-content;
+            max-width: min(280px, calc(100% - 16px));
+            box-sizing: border-box;
+            padding: 10px 12px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(white, 0.08);
+            pointer-events: none;
+
+            font-size: 12px;
+            line-height: 1.45;
+            color: var(--sse-text);
+            background-color: var(--sse-annotation-bkg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            overflow-wrap: break-word;
+
+            visibility: hidden;
+            opacity: 0;
+            translate: 0 4px;
+            transition:
+                visibility 0s 0.2s,
+                opacity 0.2s ease-out,
+                translate 0.2s ease-out;
+
+            &.sse-visible {
+                visibility: visible;
+                opacity: 1;
+                translate: 0 0;
+                transition:
+                    opacity 0.2s ease-out,
+                    translate 0.2s ease-out;
+            }
+
+            > .sse-annotation-title {
+                margin-bottom: 4px;
+                font-size: 13px;
+                font-weight: bold;
+                color: var(--sse-text-light);
+            }
+
+            // the arrow pointing at the hotspot; --arrow-top is set to the hotspot's height
+            &.sse-arrow-right::before,
+            &.sse-arrow-left::before {
+                content: '';
+                position: absolute;
+                top: var(--arrow-top, 50%);
+                transform: translateY(-50%);
+                border-top: 8px solid transparent;
+                border-bottom: 8px solid transparent;
+            }
+
+            &.sse-arrow-right::before {
+                left: -8px;
+                border-right: 8px solid var(--sse-annotation-bkg);
+            }
+
+            &.sse-arrow-left::before {
+                right: -8px;
+                border-left: 8px solid var(--sse-annotation-bkg);
+            }
+        }
+    }
+
     /* annotationNav */
 
     .sse-annotationNav {
