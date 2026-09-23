@@ -1,7 +1,7 @@
 import { math, Vec3, Quat } from 'playcanvas';
 import type { InputFrame } from 'playcanvas';
 
-import { vecToAngles } from '../core/math';
+import { mod, vecToAngles } from '../core/math';
 
 type CameraFrame = InputFrame<{
     move: [number, number, number];
@@ -45,6 +45,19 @@ class Camera {
 
         vecToAngles(this.angles, avec.mulScalar(1.0 / this.distance));
 
+        this.fov = math.lerp(a.fov, b.fov, t);
+    }
+
+    // Blend position, view angles and distance directly, rather than through the look-at
+    // point as `lerp` does: the view then turns steadily across the move, the heading the
+    // shorter way round, and with the horizon kept level. `turn` is the angles' own progress,
+    // so the view can turn ahead of the travel.
+    lerpAngles(a: Camera, b: Camera, t: number, turn = t) {
+        this.position.lerp(a.position, b.position, t);
+        this.angles.x = math.lerp(a.angles.x, b.angles.x, turn);
+        this.angles.y = a.angles.y + (mod(b.angles.y - a.angles.y + 180, 360) - 180) * turn;
+        this.angles.z = math.lerp(a.angles.z, b.angles.z, turn);
+        this.distance = math.lerp(a.distance, b.distance, t);
         this.fov = math.lerp(a.fov, b.fov, t);
     }
 

@@ -24,12 +24,29 @@ const tmpv2 = new Vec3();
 
 // Annotation moves ease in and out, lasting longer the farther the camera travels and turns,
 // between these bounds in seconds. Every other transition keeps the quick-start easeOut.
-const ANNOTATION_MIN_DURATION = 0.8;
-const ANNOTATION_MAX_DURATION = 2;
+// The curve does most of its travel in the first half and settles through the second, so
+// these allow for the settle.
+const ANNOTATION_MIN_DURATION = 1.2;
+const ANNOTATION_MAX_DURATION = 2.4;
 
-// A cubic from 0 to 1 that starts at `slope` (progress per unit time: 0 starts from rest, 1 at
-// the move's average speed) and comes to rest at the end. Slopes up to 3 keep it monotonic.
-const easeInOutFrom = (slope: number) => (x: number) => ((slope - 2) * x + (3 - 2 * slope)) * x * x + slope * x;
+// How hard the annotation move's curve settles: higher gets going sooner and settles longer.
+const SETTLE_POWER = 5;
+
+// The highest starting slope carried into a move. The curve stays monotonic up to
+// SETTLE_POWER, so this is well inside it.
+const MAX_START_SLOPE = 3;
+
+// The view turns a little ahead of the travel, finishing at this share of the move, the way
+// a camera operator looks toward where they are going before they arrive.
+const TURN_LEAD = 0.8;
+
+// A curve from 0 to 1 over the move that starts at `slope` (progress per unit time: 0 starts
+// from rest, 1 at the move's average speed), gets going quickly and settles slowly, like a
+// hand-held move rather than an even symmetric ramp. It shapes like a critically damped spring,
+// but it arrives at exactly zero speed with no deceleration left, where a spring scaled to land
+// in a fixed time still has speed to lose and stops abruptly on a long move.
+const settleFrom = (slope: number) => (x: number) =>
+    1 - Math.pow(1 - x, SETTLE_POWER) * (1 + (SETTLE_POWER - slope) * x);
 
 // Walk mode is only enabled when the scene's horizontal footprint is large
 // enough to walk around in. Vertical extent (Y) is irrelevant — a tall but
@@ -163,6 +180,9 @@ class CameraManager {
         let transitionTimer = 1;
         let transitionDuration = 1;
         let transitionEase = easeOut;
+        // annotation moves blend the view angles directly, on their own curve so the turn can
+        // lead the travel; the rest blend through the look-at point
+        let transitionTurnEase: ((x: number) => number) | null = null;
         let clearOrbitTargetOnTransitionEnd = false;
 
         // the camera's speed over the last frame, so a new annotation move can carry on from
@@ -171,11 +191,12 @@ class CameraManager {
         const lastPosition = this.camera.position.clone();
 
         // start a new camera transition from the current pose, over `duration` seconds
-        const startTransition = (duration = 1, ease = easeOut) => {
+        const startTransition = (duration = 1, ease = easeOut, turnEase: ((x: number) => number) | null = null) => {
             from.copy(this.camera);
             transitionTimer = 0;
             transitionDuration = duration;
             transitionEase = ease;
+            transitionTurnEase = turnEase;
         };
 
         this.setCollision = (value: Collision | null) => {
@@ -208,7 +229,12 @@ class CameraManager {
 
             if (transitionTimer < 1) {
                 // lerp away from previous camera during transition
-                this.camera.lerp(from, target, transitionEase(transitionTimer));
+                const t = transitionEase(transitionTimer);
+                if (transitionTurnEase) {
+                    this.camera.lerpAngles(from, target, t, transitionTurnEase(transitionTimer));
+                } else {
+                    this.camera.lerp(from, target, t);
+                }
             } else {
                 this.camera.copy(target);
             }
@@ -387,10 +413,12 @@ class CameraManager {
             );
 
             // start at the camera's current speed, as a share of this move's average speed
-            const slope = travel > 1e-6 ? Math.min(3, (cameraSpeed * duration) / travel) : 0;
+            const slope = travel > 1e-6 ? Math.min(MAX_START_SLOPE, (cameraSpeed * duration) / travel) : 0;
 
+            const travelEase = settleFrom(slope);
+            const turnEase = settleFrom(slope * TURN_LEAD);
             controllers.orbit.goto(tmpCamera);
-            startTransition(duration, easeInOutFrom(slope));
+            startTransition(duration, travelEase, (x) => turnEase(Math.min(1, x / TURN_LEAD)));
         };
 
         // tap-to-navigate: start auto-driving the active mode toward a picked position

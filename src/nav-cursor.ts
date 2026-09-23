@@ -313,8 +313,11 @@ class NavCursor {
 
         this.svg = document.createElementNS(SVGNS, 'svg');
         this.svg.style.cssText =
-            'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:1';
-        this.canvas.parentElement!.appendChild(this.svg);
+            'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible';
+        // in the scene layer, over the scene and beneath the ui, and first in it so the
+        // annotations draw over the cursor
+        const parent = this.canvas.parentElement!;
+        (parent.querySelector(':scope > .sse-sceneLayer') ?? parent).prepend(this.svg);
 
         this.captureMarker = document.createElementNS(SVGNS, 'circle');
         this.captureMarker.setAttribute('cx', '50%');

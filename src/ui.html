@@ -1,11 +1,18 @@
 <!--
-    The viewer's own markup: one canvas, the ui overlay and the svg icon sheet. createViewer
+    The viewer's own markup: one canvas, the scene layer, the ui overlay and the svg icon sheet. createViewer
     parses this into a <div class="sse-viewer"> per instance, so nothing here carries an id —
     a document can hold the template many times over. Every class carries the sse- prefix so host page styles cannot
     collide with it; ui.ts looks elements up by `sse-` + name under the instance root. The <symbol> ids are the exception: <use> resolves
     them document-wide, and duplicates resolve to whichever copy is first.
 -->
 <canvas></canvas>
+
+<!--
+    Layering is by order, back to front: the canvas, then the scene layer (things drawn over the
+    scene: the navigation cursor and the annotations), then the ui. Within the ui the chrome
+    comes first and the modals last, so nothing needs a z-index to stack.
+-->
+<div class="sse-sceneLayer"></div>
 
 <div class="sse-ui">
     <div class="sse-poster"></div>
@@ -161,6 +168,31 @@
         <div class="sse-controlsHintRows"></div>
     </div>
 
+    <!-- Touch Joystick -->
+    <div class="sse-joystickBase sse-hidden">
+        <div class="sse-joystick"></div>
+    </div>
+
+    <!-- Annotation Navigator -->
+    <div class="sse-annotationNav sse-hidden">
+        <button class="sse-annotationPrev">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+                <g class="sse-stroke"><use href="#chevronLeftIcon" /></g>
+                <g class="sse-fill"><use href="#chevronLeftIcon" /></g>
+            </svg>
+        </button>
+        <div class="sse-annotationInfo">
+            <span class="sse-annotationNavNumber"></span>
+            <span class="sse-annotationNavTitle"></span>
+        </div>
+        <button class="sse-annotationNext">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+                <g class="sse-stroke"><use href="#chevronRightIcon" /></g>
+                <g class="sse-fill"><use href="#chevronRightIcon" /></g>
+            </svg>
+        </button>
+    </div>
+
     <!-- Settings Panel -->
     <div class="sse-settingsPanel sse-hidden">
         <div class="sse-performanceModeRow sse-settingsRow">
@@ -194,6 +226,9 @@
             <button class="sse-reset" data-i18n="settings.reset">Reset</button>
         </div>
     </div>
+
+    <!-- Tooltip -->
+    <div class="sse-tooltip"></div>
 
     <!-- Info Panel: what is running, and the global shortcuts the controls hint does not show -->
     <div class="sse-infoPanel sse-hidden">
@@ -265,33 +300,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Touch Joystick -->
-    <div class="sse-joystickBase sse-hidden">
-        <div class="sse-joystick"></div>
-    </div>
-
-    <!-- Annotation Navigator -->
-    <div class="sse-annotationNav sse-hidden">
-        <button class="sse-annotationPrev">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
-                <g class="sse-stroke"><use href="#chevronLeftIcon" /></g>
-                <g class="sse-fill"><use href="#chevronLeftIcon" /></g>
-            </svg>
-        </button>
-        <div class="sse-annotationInfo">
-            <span class="sse-annotationNavTitle"></span>
-        </div>
-        <button class="sse-annotationNext">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">
-                <g class="sse-stroke"><use href="#chevronRightIcon" /></g>
-                <g class="sse-fill"><use href="#chevronRightIcon" /></g>
-            </svg>
-        </button>
-    </div>
-
-    <!-- Tooltip -->
-    <div class="sse-tooltip"></div>
 
     <!-- XR WebGL-required modal -->
     <div class="sse-xrModal sse-hidden" onwheel="event.stopPropagation()">

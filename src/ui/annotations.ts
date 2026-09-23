@@ -1,5 +1,5 @@
 import { Entity, Mat4 } from 'playcanvas';
-import type { EventHandle, ScriptComponent } from 'playcanvas';
+import type { CameraComponent, EventHandle, ScriptComponent } from 'playcanvas';
 
 import type { Picker } from '../picker';
 import type { ViewerHandle } from '../types';
@@ -37,7 +37,8 @@ class Annotations {
         const { app, state, events, annotations } = viewer;
         const parentDom = document.createElement('div');
         parentDom.className = 'sse-annotations';
-        root.querySelector('.sse-ui').appendChild(parentDom);
+        // over the scene, beneath the ui
+        root.querySelector('.sse-sceneLayer').appendChild(parentDom);
         this.parentDom = parentDom;
 
         const canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
@@ -90,9 +91,16 @@ class Annotations {
             if (targets.length === 0) return;
 
             const testedPose = pose;
-            const hits = await picker.pickMany(
-                targets.map(({ screen }) => ({ x: screen.x / width, y: screen.y / height }))
-            );
+            let hits: Awaited<ReturnType<Picker['pickMany']>>;
+            try {
+                hits = await picker.pickMany(
+                    targets.map(({ screen }) => ({ x: screen.x / width, y: screen.y / height }))
+                );
+            } catch {
+                // a read-back that failed (a lost device, say): keep the hotspots as they are, and
+                // the next camera stop or content change tests again
+                return;
+            }
             if (destroyed || testedPose !== pose) return;
 
             const cameraPosition = camera.getPosition();
@@ -122,10 +130,28 @@ class Annotations {
         };
         app.on('frameend', onFrameEnd);
 
+        // The scene can change under a still camera: finer detail streams in after the reveal,
+        // and after every move. The engine reports each frame whether all the detail it wants is
+        // resident; when that turns true, new content has landed, so drop the picker's cached
+        // render (it only knows about the camera) and test again.
+        const gsplatSystem = app.systems.gsplat;
+        let contentReady = false;
+        const onFrameReady = (frameCamera: CameraComponent, _layer: unknown, ready: boolean) => {
+            if (frameCamera !== camera.camera) return;
+            if (ready && !contentReady) {
+                getPicker()?.invalidate();
+                pose++;
+                scheduleOcclusion();
+            }
+            contentReady = ready;
+        };
+        gsplatSystem.on('frame:ready', onFrameReady);
+
         this.removeOcclusion = () => {
             destroyed = true;
             if (settleTimer) clearTimeout(settleTimer);
             app.off('frameend', onFrameEnd);
+            gsplatSystem.off('frame:ready', onFrameReady);
         };
 
         const update = () => {
