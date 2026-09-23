@@ -9,7 +9,7 @@ import type { Global, ViewerHandle } from './types';
 import { initAnnotationControls } from './ui/annotation-controls';
 import { Annotations } from './ui/annotations';
 import { initCameraControls } from './ui/camera-controls';
-import { initControlsHint } from './ui/controls-hint';
+import { initControlsHint, readControlsOpen, writeControlsOpen } from './ui/controls-hint';
 import { initFullscreenControls } from './ui/fullscreen-controls';
 import { initJoystick } from './ui/joystick';
 import { initPlayback } from './ui/playback';
@@ -93,18 +93,19 @@ const initUI = (global: Global, viewer: ViewerHandle, getPicker: () => Picker | 
         'performanceModeRow',
         'performanceModeCheck',
         'performanceModeOption',
-        'gamingControlsDivider',
         'gamingControlsRow',
         'gamingControlsCheck',
         'gamingControlsOption',
-        'controlsHintPin',
+        'controlsButton',
+        'controlsHint',
         'controlsHintClose',
         'reset',
         'frame',
         'loadingWrap',
         'loadingText',
         'loadingBar',
-        'showCollision',
+        'showCollisionRow',
+        'showCollisionCheck',
         'showCollisionShortcut',
         'walkShortcut',
         'playShortcut',
@@ -189,7 +190,6 @@ const initUI = (global: Global, viewer: ViewerHandle, getPicker: () => Picker | 
 
     const updateGamingSettingsVisibility = () => {
         const isDesktop = state.inputMode === 'desktop';
-        dom.gamingControlsDivider.classList.toggle('sse-hidden', isDesktop);
         dom.gamingControlsRow.classList.toggle('sse-hidden', isDesktop);
     };
     on('inputMode:changed', updateGamingSettingsVisibility);
@@ -202,14 +202,51 @@ const initUI = (global: Global, viewer: ViewerHandle, getPicker: () => Picker | 
     on('gamingControls:changed', updateGamingControls);
     updateGamingControls();
 
-    // The settings and info buttons are toggles: each shows active while its panel is open.
-    // Every open and close goes through these so the two cannot disagree.
+    // The settings, controls and info buttons are toggles: each shows active while its panel is
+    // open. Every open and close goes through these so the two cannot disagree.
     const isVisible = (panel: HTMLElement) => !panel.classList.contains('sse-hidden');
+
+    // The controls panel and the settings panel share the space above the toolbar. The controls
+    // panel's open state is the user's choice and persists: it stays open while the scene is used,
+    // and shows once the scene has loaded. Settings is a quick look, so while it is open it only
+    // stands in for the controls panel, which comes back when it closes.
+    let controlsOpen = readControlsOpen();
+
+    const applyControls = () => {
+        const visible = controlsOpen && state.loaded && !isVisible(dom.settingsPanel);
+        dom.controlsHint.classList.toggle('sse-hidden', !visible);
+        dom.controlsButton.classList.toggle('sse-active', visible);
+    };
 
     const showSettings = (visible: boolean) => {
         dom.settingsPanel.classList.toggle('sse-hidden', !visible);
         dom.settings.classList.toggle('sse-active', visible);
+        applyControls();
     };
+
+    // the toolbar button toggles what it shows, so opening the panel from under settings
+    // closes settings rather than leaving the panel open and unseen
+    const showControls = (open: boolean) => {
+        controlsOpen = open;
+        writeControlsOpen(open);
+        if (open) showSettings(false);
+        applyControls();
+    };
+
+    on('loaded:changed', applyControls);
+    applyControls();
+
+    // clicks rather than input events, so they restart the fade timer themselves
+    const toggleControls = () => showControls(!isVisible(dom.controlsHint));
+
+    dom.controlsButton.addEventListener('click', () => {
+        toggleControls();
+        showUI();
+    });
+    dom.controlsHintClose.addEventListener('click', () => {
+        showControls(false);
+        showUI();
+    });
 
     const showInfo = (visible: boolean) => {
         // the shortcuts are keyboard shortcuts, and list only what this scene offers, as the
@@ -244,6 +281,8 @@ const initUI = (global: Global, viewer: ViewerHandle, getPicker: () => Picker | 
     on('inputEvent', (event) => {
         if (event === 'toggleHelp') {
             toggleHelp();
+        } else if (event === 'toggleControls') {
+            toggleControls();
         } else if (event === 'cancel') {
             // close info panel on cancel
             showInfo(false);
@@ -351,7 +390,7 @@ const initUI = (global: Global, viewer: ViewerHandle, getPicker: () => Picker | 
             uiTimeout = null;
             // the controls stay while a panel is open or the pointer is over them; closing the
             // panel or leaving restarts this timer
-            if (hovering || isVisible(dom.settingsPanel) || isVisible(dom.infoPanel)) {
+            if (hovering || isVisible(dom.settingsPanel) || isVisible(dom.infoPanel) || isVisible(dom.controlsHint)) {
                 return;
             }
             if (state.selectedAnnotation === null || !state.showAnnotations) {
@@ -404,18 +443,19 @@ const initUI = (global: Global, viewer: ViewerHandle, getPicker: () => Picker | 
     disposers.push(initFullscreenControls(viewer, root));
     disposers.push(initXrControls(viewer, root));
 
-    // Collision overlay toggle + matching info-panel shortcut (only visible when overlay is available)
+    // Collision overlay: a settings row and the matching info-panel shortcut, shown only when
+    // the scene ships an overlay
     on('hasCollisionOverlay:changed', (value: boolean) => {
-        dom.showCollision.classList.toggle('sse-hidden', !value);
+        dom.showCollisionRow.classList.toggle('sse-hidden', !value);
         dom.showCollisionShortcut.classList.toggle('sse-hidden', !value);
     });
 
-    dom.showCollision.addEventListener('click', () => {
+    dom.showCollisionRow.addEventListener('click', () => {
         state.collisionOverlayEnabled = !state.collisionOverlayEnabled;
     });
 
     on('collisionOverlayEnabled:changed', (value: boolean) => {
-        dom.showCollision.classList.toggle('sse-active', value);
+        dom.showCollisionCheck.classList.toggle('sse-active', value);
     });
 
     dom.settings.addEventListener('click', () => {
@@ -443,11 +483,9 @@ const initUI = (global: Global, viewer: ViewerHandle, getPicker: () => Picker | 
     tooltip.register(dom.fpsCamera, localize('tooltip.walk-mode'), 'top');
     tooltip.register(dom.reset, localize('tooltip.reset-camera'), 'bottom');
     tooltip.register(dom.frame, localize('tooltip.frame-scene'), 'bottom');
-    tooltip.register(dom.showCollision, localize('tooltip.show-collision'), 'top');
     tooltip.register(dom.settings, localize('tooltip.settings'), 'top');
     tooltip.register(dom.info, localize('tooltip.help'), 'top');
-    tooltip.register(dom.controlsHintPin, localize('tooltip.pin-hints'), 'bottom');
-    tooltip.register(dom.controlsHintClose, localize('tooltip.hide-hints'), 'bottom');
+    tooltip.register(dom.controlsButton, localize('tooltip.controls'), 'top');
     tooltip.register(dom.arMode, localize('tooltip.enter-ar'), 'top');
     tooltip.register(dom.vrMode, localize('tooltip.enter-vr'), 'top');
     tooltip.register(dom.enterFullscreen, localize('tooltip.fullscreen'), 'top');
