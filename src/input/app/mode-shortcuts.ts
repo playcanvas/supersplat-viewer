@@ -68,7 +68,7 @@ class ModeShortcuts {
             default:
                 if (isWasdKey(event) && state.inputMode === 'desktop') {
                     if (!isCaptureMode(state.cameraMode)) {
-                        state.cameraMode = 'fly';
+                        events.fire('inputEvent', 'requestFirstPerson');
                     }
                     if (!state.gamingControls) {
                         state.gamingControls = true;

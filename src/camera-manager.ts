@@ -248,7 +248,9 @@ class CameraManager {
                     }
                     break;
                 case 'requestFirstPerson':
-                    state.cameraMode = 'fly';
+                    // movement input from a non-first-person mode: walk where the scene allows
+                    // it, fly otherwise, the same preference as the animation fallback
+                    state.cameraMode = walkAllowed ? 'walk' : 'fly';
                     break;
                 case 'toggleWalk':
                     if (walkAllowed) {
