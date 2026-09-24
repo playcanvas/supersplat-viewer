@@ -54,8 +54,8 @@ vec4 encodePickOutput(uint id) {
 
     // Four independent trials, one per channel: each keeps the fragment with probability alpha,
     // the splat's opacity at this fragment with its falloff included, writing its depth there,
-    // and the far plane where it does not. A splat's depth is the same across its quad, so
-    // hashing it with the pixel decorrelates the splats covering one pixel.
+    // and the far plane where it does not. The splat's seed (see pickSeedVS) and depth, both
+    // the same across its quad, hashed with the pixel decorrelate the splats covering one pixel.
     vec4 getSplatPickOutput(float alpha) {
         float normalizedDepth;
         if (camera_params.w > 0.5) {
@@ -66,7 +66,7 @@ vec4 encodePickOutput(uint id) {
         }
 
         uvec2 p = uvec2(gl_FragCoord.xy);
-        uint h = pickHash(p.x ^ pickHash(p.y ^ pickHash(floatBitsToUint(normalizedDepth))));
+        uint h = pickHash(p.x ^ pickHash(p.y ^ pickHash(vPickSeed ^ floatBitsToUint(normalizedDepth))));
         uvec4 trials = uvec4(pickHash(h), pickHash(h ^ 0x9e3779b9u), pickHash(h ^ 0x7f4a7c15u), pickHash(h ^ 0x2545f491u));
         bvec4 keep = lessThan(vec4(trials >> 8u) * (1.0 / 16777216.0), vec4(alpha));
         if (!any(keep)) {
@@ -130,8 +130,8 @@ fn encodePickOutput(id: u32) -> vec4f {
 
     // Four independent trials, one per channel: each keeps the fragment with probability alpha,
     // the splat's opacity at this fragment with its falloff included, writing its depth there,
-    // and the far plane where it does not. A splat's depth is the same across its quad, so
-    // hashing it with the pixel decorrelates the splats covering one pixel.
+    // and the far plane where it does not. The splat's seed (see pickSeedVS) and depth, both
+    // the same across its quad, hashed with the pixel decorrelate the splats covering one pixel.
     fn getSplatPickOutput(alpha: f32) -> vec4f {
         var normalizedDepth: f32;
         if (uniform.camera_params.w > 0.5) {
@@ -142,7 +142,7 @@ fn encodePickOutput(id: u32) -> vec4f {
         }
 
         let p = vec2u(pcPosition.xy);
-        let h = pickHash(p.x ^ pickHash(p.y ^ pickHash(bitcast<u32>(normalizedDepth))));
+        let h = pickHash(p.x ^ pickHash(p.y ^ pickHash(vPickSeed ^ bitcast<u32>(normalizedDepth))));
         let trials = vec4u(pickHash(h), pickHash(h ^ 0x9e3779b9u), pickHash(h ^ 0x7f4a7c15u), pickHash(h ^ 0x2545f491u));
         let keep = vec4f(trials >> vec4u(8u)) * (1.0 / 16777216.0) < vec4f(alpha);
         if (!any(keep)) {
@@ -180,13 +180,6 @@ fn encodePickOutput(id: u32) -> vec4f {
 #endif
 `;
 
-const pickPassChunkInjected = [
-    '#ifdef PICK_PASS',
-    '    #define GSPLAT_PICK_DEPTH',
-    '    #include "pickPS"',
-    '#endif'
-].join('\n');
-
 const safeChunkReplace = (s: string, find: string | RegExp, repl: string) => {
     const out = s.replace(find, repl);
     if (out === s) {
@@ -195,11 +188,58 @@ const safeChunkReplace = (s: string, find: string | RegExp, repl: string) => {
     return out;
 };
 
+const pickPassChunkInjected = (seedVarying: string) => `#ifdef PICK_PASS
+    ${seedVarying}
+    #define GSPLAT_PICK_DEPTH
+    #include "pickPS"
+#endif`;
+
+const seedVaryingGlsl = 'flat varying uint vPickSeed;';
+const seedVaryingWgsl = 'varying @interpolate(flat) vPickSeed: u32;';
+
+// pickSeedVS: a per-splat seed for the survival trials, from its projected centre. The depth
+// alone would give splats at exactly the same depth the same random values at a pixel, so
+// their survivals would be correlated. The centre rather than an index: the cache index of the
+// GPU-sort path is the splat's slot in this frame's compacted list, which changes from render
+// to render, so repeated picks at one pose would disagree. Only exact duplicates (same centre
+// and depth) stay correlated
+const pickSeedGlsl = (proj: string) =>
+    `vPickSeed = (floatBitsToUint(${proj}.x) * 0x9e3779b9u) ^ (floatBitsToUint(${proj}.y) * 0x85ebca6bu) ^ (floatBitsToUint(${proj}.w) * 0xc2b2ae35u);`;
+const pickSeedWgsl = (proj: string) =>
+    `output.vPickSeed = (bitcast<u32>(${proj}.x) * 0x9e3779b9u) ^ (bitcast<u32>(${proj}.y) * 0x85ebca6bu) ^ (bitcast<u32>(${proj}.w) * 0xc2b2ae35u);`;
+
+const inPickPass = (line: string) => `\n#ifdef PICK_PASS\n    ${line}\n#endif\n`;
+
+const patchGsplatVSGlsl = (chunk: string) =>
+    safeChunkReplace(
+        safeChunkReplace(chunk, /(varying mediump vec2 gaussianUV;)/, `$1${inPickPass(seedVaryingGlsl)}`),
+        /(gaussianUV = corner\.uv;)/,
+        `$1${inPickPass(pickSeedGlsl('center.proj'))}`
+    );
+
+const patchGsplatVSWgsl = (chunk: string) =>
+    safeChunkReplace(
+        safeChunkReplace(chunk, /(varying gaussianUV: half2;)/, `$1${inPickPass(seedVaryingWgsl)}`),
+        /(output\.gaussianUV = corner\.uv;)/,
+        `$1${inPickPass(pickSeedWgsl('center.proj'))}`
+    );
+
+const patchGsplatHybridVSWgsl = (chunk: string) =>
+    safeChunkReplace(
+        safeChunkReplace(chunk, /(varying gaussianUV: half2;)/, `$1${inPickPass(seedVaryingWgsl)}`),
+        /(output\.gaussianUV = half2\(cornerClipped\);)/,
+        `$1${inPickPass(pickSeedWgsl('proj'))}`
+    );
+
 // Both pick-output calls (with and without unified ids) take the fragment's alpha, which
 // `main` computes locally: the varying holds only the splat's peak opacity.
 const patchGsplatPickGlsl = (chunk: string) => {
     return safeChunkReplace(
-        safeChunkReplace(chunk, /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/, pickPassChunkInjected),
+        safeChunkReplace(
+            chunk,
+            /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/,
+            pickPassChunkInjected(seedVaryingGlsl)
+        ),
         /pcFragColor0 = (encodePickOutput\(vPickId\)|getPickOutput\(\));/g,
         'pcFragColor0 = getSplatPickOutput(alpha);'
     );
@@ -207,7 +247,11 @@ const patchGsplatPickGlsl = (chunk: string) => {
 
 const patchGsplatPickWgsl = (chunk: string) => {
     return safeChunkReplace(
-        safeChunkReplace(chunk, /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/, pickPassChunkInjected),
+        safeChunkReplace(
+            chunk,
+            /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/,
+            pickPassChunkInjected(seedVaryingWgsl)
+        ),
         /output\.color = (encodePickOutput\(vPickId\)|getPickOutput\(\));/g,
         'output.color = getSplatPickOutput(f32(alpha));'
     );
@@ -218,6 +262,9 @@ type PickerShaderPatchState = {
     glslGsplatPS: string;
     wgslPickPS: string;
     wgslGsplatPS: string;
+    glslGsplatVS: string;
+    wgslGsplatVS: string;
+    wgslGsplatHybridVS: string;
     refCount: number;
 };
 
@@ -322,16 +369,25 @@ const registerPickerShaderPatches = (app: AppBase) => {
     const glslGsplatPS = glslChunks.get('gsplatPS');
     const wgslPickPS = wgslChunks.get('pickPS');
     const wgslGsplatPS = wgslChunks.get('gsplatPS');
+    const glslGsplatVS = glslChunks.get('gsplatVS');
+    const wgslGsplatVS = wgslChunks.get('gsplatVS');
+    const wgslGsplatHybridVS = wgslChunks.get('gsplatHybridVS');
 
     // Patch strings before mutating ShaderChunks so engine mismatches leave globals untouched.
     const patchedGlslGsplatPS = patchGsplatPickGlsl(glslGsplatPS);
     const patchedWgslGsplatPS = patchGsplatPickWgsl(wgslGsplatPS);
+    const patchedGlslGsplatVS = patchGsplatVSGlsl(glslGsplatVS);
+    const patchedWgslGsplatVS = patchGsplatVSWgsl(wgslGsplatVS);
+    const patchedWgslGsplatHybridVS = patchGsplatHybridVSWgsl(wgslGsplatHybridVS);
 
     const state: PickerShaderPatchState = {
         glslPickPS,
         glslGsplatPS,
         wgslPickPS,
         wgslGsplatPS,
+        glslGsplatVS,
+        wgslGsplatVS,
+        wgslGsplatHybridVS,
         refCount: 1
     };
     pickerShaderPatchState.set(device, state);
@@ -340,6 +396,9 @@ const registerPickerShaderPatches = (app: AppBase) => {
     wgslChunks.set('pickPS', pickDepthWgsl);
     glslChunks.set('gsplatPS', patchedGlslGsplatPS);
     wgslChunks.set('gsplatPS', patchedWgslGsplatPS);
+    glslChunks.set('gsplatVS', patchedGlslGsplatVS);
+    wgslChunks.set('gsplatVS', patchedWgslGsplatVS);
+    wgslChunks.set('gsplatHybridVS', patchedWgslGsplatHybridVS);
 };
 
 const unregisterPickerShaderPatches = (app: AppBase) => {
@@ -359,6 +418,9 @@ const unregisterPickerShaderPatches = (app: AppBase) => {
     glslChunks.set('gsplatPS', state.glslGsplatPS);
     wgslChunks.set('pickPS', state.wgslPickPS);
     wgslChunks.set('gsplatPS', state.wgslGsplatPS);
+    glslChunks.set('gsplatVS', state.glslGsplatVS);
+    wgslChunks.set('gsplatVS', state.wgslGsplatVS);
+    wgslChunks.set('gsplatHybridVS', state.wgslGsplatHybridVS);
     pickerShaderPatchState.delete(device);
 };
 
@@ -616,11 +678,13 @@ class Picker {
 
     /**
      * Bring the pick render up to date for the current camera and return its texture, for a view
-     * that reads it on the GPU (the debug panel's pick depth). Each channel is one trial's
-     * nearest surviving normalised depth, 1 where nothing survived. Null before the device is
-     * sized or after release.
+     * that reads it on the GPU (the debug panel's pick depth), with a count of the renders so
+     * far, which changes whenever the texture does. Each channel is one trial's nearest
+     * surviving normalised depth, 1 where nothing survived. Null before the device is sized or
+     * after release. Call it between frames, as the picks do: a pick pass rendered during a
+     * frame (in `prerender`, say) can come out empty.
      */
-    renderView: () => Texture | null;
+    renderView: () => { texture: Texture; renders: number } | null;
 
     release: () => void;
 
@@ -636,6 +700,7 @@ class Picker {
         let released = false;
         let pickQueue = Promise.resolve();
         let cacheValid = false;
+        let renders = 0;
         let cacheWidth = 0;
         let cacheHeight = 0;
         const cacheCamera: PickCameraSnapshot = createPickCameraSnapshot();
@@ -787,6 +852,7 @@ class Picker {
 
             updateCache(width, height);
             cacheValid = true;
+            renders++;
         };
 
         const prepareSample = (x: number, y: number) => {
@@ -971,7 +1037,7 @@ class Picker {
                 points.map((): null => null)
             );
 
-        this.renderView = () => (prepareSample(0, 0) ? pickBuffer : null);
+        this.renderView = () => (prepareSample(0, 0) ? { texture: pickBuffer, renders } : null);
 
         // The scene can change under a still camera, which the camera-based cache cannot see:
         // finer detail streams in after the reveal and after every move. The engine reports each

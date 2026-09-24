@@ -13,7 +13,7 @@ import {
     Texture,
     drawQuadWithShader
 } from 'playcanvas';
-import type { AppBase, CameraComponent, Entity, Shader } from 'playcanvas';
+import type { AppBase, Entity, Shader } from 'playcanvas';
 
 import { PICK_TRIALS, SURFACE_OPACITY, SURFACE_RADIUS_PX } from '../picker';
 import type { Picker } from '../picker';
@@ -140,26 +140,27 @@ fn turbo(x: f32) -> vec3f {
 `;
 
 // Colour: the resolved depth at this pixel, looked up at the pick render's css resolution from
-// the finer backbuffer
+// the target being drawn, whose size the renderer supplies as viewport_size: the backbuffer, or
+// captureFrame's supersampled offscreen target
 const colourGlsl = /* glsl */ `
 uniform highp sampler2D surfaceDepth;
-uniform vec2 screenSize;
+uniform vec4 viewport_size;
 ${turboGlsl}
 void main(void) {
     ivec2 size = textureSize(surfaceDepth, 0);
-    float z = texelFetch(surfaceDepth, ivec2(gl_FragCoord.xy * vec2(size) / screenSize), 0).r;
+    float z = texelFetch(surfaceDepth, ivec2(gl_FragCoord.xy * vec2(size) * viewport_size.zw), 0).r;
     gl_FragColor = z > 0.0 ? vec4(turbo(fract(log2(z))), 1.0) : vec4(0.6, 0.0, 0.6, 1.0);
 }
 `;
 
 const colourWgsl = /* wgsl */ `
 var surfaceDepth: texture_2d<uff>;
-uniform screenSize: vec2f;
+uniform viewport_size: vec4f;
 ${turboWgsl}
 @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     var output: FragmentOutput;
     let size = vec2f(textureDimensions(surfaceDepth, 0));
-    let z = textureLoad(surfaceDepth, vec2i(pcPosition.xy * size / uniform.screenSize), 0).r;
+    let z = textureLoad(surfaceDepth, vec2i(pcPosition.xy * size * uniform.viewport_size.zw), 0).r;
     output.color = select(vec4f(0.6, 0.0, 0.6, 1.0), vec4f(turbo(fract(log2(z))), 1.0), z > 0.0);
     return output;
 }
@@ -169,10 +170,15 @@ ${turboWgsl}
  * Debug view of the depth the picker resolves: every pixel shows the surface a navigation pick
  * there would find, the same SURFACE_OPACITY quantile of the pick render's nearest survivors
  * over the same disc, so no clicking around. Two passes: the depth is resolved once per pick
- * pixel, then coloured at the backbuffer's size. The colour runs through the map once per
- * doubling of distance, so noise and steps show at any scale; magenta is where no surface is
- * found. It re-renders the pick pass every frame the camera
- * moves, so it costs a pass per frame.
+ * pixel, then coloured at the size of the target drawn. The colour runs through the map once
+ * per doubling of distance, so noise and steps show at any scale; magenta is where no surface
+ * is found.
+ *
+ * The pick and the resolve run after each frame, as a pick pass rendered during a frame can
+ * come out empty, and only when the pick render changed (the camera moved, or new detail
+ * landed), which then asks for a frame to show it: the view trails the camera by a frame while
+ * it moves, and costs a pick pass per frame then. Offscreen renders (captureFrame) do not show
+ * it, as it follows the on-screen camera, whose framing a capture need not share.
  */
 class PickDepthOverlay {
     private readonly app: AppBase;
@@ -187,20 +193,12 @@ class PickDepthOverlay {
 
     private depthTarget: RenderTarget | null = null;
 
-    private readonly onPrerender = () => this.update();
+    private readonly onFrameEnd = () => this.resolve();
 
-    // The picker drops its render when new detail lands, but only re-renders when asked, and
-    // this view asks from a frame: the frame the detail finishes landing in may be the last
-    // one rendered, so ask for one more while the content is changing and once after
-    private contentReady = false;
+    private readonly onPrerender = () => this.draw();
 
-    private readonly onFrameReady = (frameCamera: CameraComponent, _layer: unknown, ready: boolean) => {
-        if (frameCamera !== this.camera.camera) return;
-        if (!ready || !this.contentReady) {
-            this.app.renderNextFrame = true;
-        }
-        this.contentReady = ready;
-    };
+    // the pick render the resolved depth came from, by the picker's render count
+    private resolvedRenders = -1;
 
     private _enabled = false;
 
@@ -255,11 +253,12 @@ class PickDepthOverlay {
         if (value === this._enabled) return;
         this._enabled = value;
         if (value) {
+            this.app.on('frameend', this.onFrameEnd);
             this.app.on('prerender', this.onPrerender);
-            this.app.systems.gsplat.on('frame:ready', this.onFrameReady);
         } else {
+            this.app.off('frameend', this.onFrameEnd);
             this.app.off('prerender', this.onPrerender);
-            this.app.systems.gsplat.off('frame:ready', this.onFrameReady);
+            this.resolvedRenders = -1;
         }
         this.app.renderNextFrame = true;
     }
@@ -287,22 +286,30 @@ class PickDepthOverlay {
         return this.depthTarget;
     }
 
-    private update() {
-        const pickTexture = this.picker.renderView();
-        if (!pickTexture) return;
+    private resolve() {
+        if (this.camera.camera.renderTarget) return;
+        const view = this.picker.renderView();
+        if (!view || view.renders === this.resolvedRenders) return;
+        this.resolvedRenders = view.renders;
 
         const device = this.app.graphicsDevice;
         const cam = this.camera.camera;
-        const target = this.ensureDepthTarget(pickTexture.width, pickTexture.height);
+        const target = this.ensureDepthTarget(view.texture.width, view.texture.height);
 
-        device.scope.resolve('pickDepth').setValue(pickTexture);
+        device.scope.resolve('pickDepth').setValue(view.texture);
         device.scope.resolve('pickRange').setValue([cam.nearClip, cam.farClip]);
         device.scope.resolve('surfaceOpacity').setValue(SURFACE_OPACITY);
         device.setBlendState(BlendState.NOBLEND);
         drawQuadWithShader(device, target, this.resolveShader);
 
-        this.material.setParameter('surfaceDepth', target.colorBuffer);
-        this.material.setParameter('screenSize', [device.width, device.height]);
+        // show it
+        this.app.renderNextFrame = true;
+    }
+
+    private draw() {
+        // nothing resolved yet: the first frame's end resolves, and asks for the next
+        if (!this.depthTarget || this.resolvedRenders < 0 || this.camera.camera.renderTarget) return;
+        this.material.setParameter('surfaceDepth', this.depthTarget.colorBuffer);
         this.app.drawTexture(0, 0, 2, 2, null, this.material);
     }
 
