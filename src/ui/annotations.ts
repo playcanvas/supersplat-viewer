@@ -13,8 +13,9 @@ const SETTLE_MS = 150;
 const OCCLUDING_COVERAGE = 0.5;
 
 // an annotation sits on the surface it describes, so the scene there is at about its distance;
-// only content this much nearer than the annotation counts as in front of it
-const OCCLUSION_TOLERANCE = 0.05;
+// only content this much nearer than the annotation counts as in front of it. Relative, since
+// the coarser detail streamed for a farther view thickens surfaces toward the camera
+const OCCLUSION_TOLERANCE = 0.1;
 
 // Built-in hotspot and panel presentation. Selection and camera navigation belong to the viewer.
 class Annotations {
