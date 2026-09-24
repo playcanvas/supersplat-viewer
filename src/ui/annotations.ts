@@ -9,13 +9,16 @@ import { Annotation, AnnotationContext } from './annotation';
 // how long the camera must be still before the hotspots are tested against the scene
 const SETTLE_MS = 150;
 
-// splats must cover at least this much of a hotspot's pixel to hide it, so haze does not
-const OCCLUDING_COVERAGE = 0.5;
+// the scene in front of a hotspot must be at least this opaque to hide it, so haze does not
+const OCCLUDING_OPACITY = 0.5;
 
-// an annotation sits on the surface it describes, so the scene there is at about its distance;
+// an annotation sits on the surface it describes, so the scene there is at about its depth;
 // only content this much nearer than the annotation counts as in front of it. Relative, since
 // the coarser detail streamed for a farther view thickens surfaces toward the camera
 const OCCLUSION_TOLERANCE = 0.1;
+
+// the hotspot's radius in css pixels: the opacity in front is averaged over its whole disc
+const HOTSPOT_RADIUS = 13;
 
 // Built-in hotspot and panel presentation. Selection and camera navigation belong to the viewer.
 class Annotations {
@@ -92,10 +95,15 @@ class Annotations {
             if (targets.length === 0) return;
 
             const testedPose = pose;
-            let hits: Awaited<ReturnType<Picker['pickMany']>>;
+            let opacities: (number | null)[];
             try {
-                hits = await picker.pickMany(
-                    targets.map(({ screen }) => ({ x: screen.x / width, y: screen.y / height }))
+                opacities = await picker.pickVisibility(
+                    targets.map(({ screen }) => ({
+                        x: screen.x / width,
+                        y: screen.y / height,
+                        depth: screen.depth * (1 - OCCLUSION_TOLERANCE)
+                    })),
+                    HOTSPOT_RADIUS / height
                 );
             } catch {
                 // a read-back that failed (a lost device, say): keep the hotspots as they are, and
@@ -104,14 +112,8 @@ class Annotations {
             }
             if (destroyed || testedPose !== pose) return;
 
-            const cameraPosition = camera.getPosition();
             targets.forEach((script, i) => {
-                const hit = hits[i];
-                const occluded =
-                    !!hit &&
-                    hit.alpha >= OCCLUDING_COVERAGE &&
-                    cameraPosition.distance(hit.position) < script.screen.distance * (1 - OCCLUSION_TOLERANCE);
-                script.setOccluded(occluded);
+                script.setOccluded((opacities[i] ?? 0) >= OCCLUDING_OPACITY);
             });
         };
 
@@ -133,14 +135,13 @@ class Annotations {
 
         // The scene can change under a still camera: finer detail streams in after the reveal,
         // and after every move. The engine reports each frame whether all the detail it wants is
-        // resident; when that turns true, new content has landed, so drop the picker's cached
-        // render (it only knows about the camera) and test again.
+        // resident; when that turns true, new content has landed, so test again (the picker
+        // drops its own cached render).
         const gsplatSystem = app.systems.gsplat;
         let contentReady = false;
         const onFrameReady = (frameCamera: CameraComponent, _layer: unknown, ready: boolean) => {
             if (frameCamera !== camera.camera) return;
             if (ready && !contentReady) {
-                getPicker()?.invalidate();
                 pose++;
                 scheduleOcclusion();
             }

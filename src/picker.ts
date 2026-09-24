@@ -1,16 +1,18 @@
 /**
  * World picking for splat scenes.
  *
- * Uses a custom `pickPS` / `gsplatPS` patch plus `RGBA16F` alpha-weighted depth accumulation,
- * because the stock pick pass encodes splat IDs / last-fragment depth rather than expected depth.
+ * Uses a custom `pickPS` / `gsplatPS` patch for a stochastic pick pass, because the stock pick
+ * pass encodes splat IDs rather than depth. Each splat fragment survives with probability equal
+ * to its opacity, and a MIN blend keeps each pixel's nearest survivor, so a pixel is nearer than
+ * a depth with probability equal to the scene's opacity in front of that depth, whatever order
+ * the splats draw in. Surfaces are then the depth where that opacity reaches one half: faint haze
+ * does not count, while enough of it layered together does.
  */
 
 import {
     ADDRESS_CLAMP_TO_EDGE,
-    BLENDEQUATION_ADD,
-    BLENDMODE_ZERO,
+    BLENDEQUATION_MIN,
     BLENDMODE_ONE,
-    BLENDMODE_ONE_MINUS_SRC_ALPHA,
     FILTER_NEAREST,
     PIXELFORMAT_RGBA16F,
     PROJECTION_ORTHOGRAPHIC,
@@ -24,9 +26,9 @@ import {
     Vec4,
     BlendState
 } from 'playcanvas';
-import type { AppBase, Entity, GSplatComponent, Layer, MeshInstance } from 'playcanvas';
+import type { AppBase, CameraComponent, Entity, GSplatComponent, Layer, MeshInstance } from 'playcanvas';
 
-// Override global picking to pack alpha-weighted splat depth instead of meshInstance id.
+// Override global picking to output stochastic splat depth instead of meshInstance id.
 const pickDepthGlsl = /* glsl */ `
 vec4 encodePickOutput(uint id) {
     const vec4 inv = vec4(1.0 / 255.0);
@@ -41,7 +43,20 @@ vec4 encodePickOutput(uint id) {
         uniform vec4 camera_params; // x: 1/far, y: far, z: near, w: isOrtho
     #endif
 
-    vec4 getPickOutput() {
+    uint pickHash(uint v) {
+        v ^= v >> 16u;
+        v *= 0x7feb352du;
+        v ^= v >> 15u;
+        v *= 0x846ca68bu;
+        v ^= v >> 16u;
+        return v;
+    }
+
+    // Four independent trials, one per channel: each keeps the fragment with probability alpha,
+    // the splat's opacity at this fragment with its falloff included, writing its depth there,
+    // and the far plane where it does not. The splat's seed (see pickSeedVS) and depth, both
+    // the same across its quad, hashed with the pixel decorrelate the splats covering one pixel.
+    vec4 getSplatPickOutput(float alpha) {
         float normalizedDepth;
         if (camera_params.w > 0.5) {
             normalizedDepth = gl_FragCoord.z;
@@ -50,7 +65,14 @@ vec4 encodePickOutput(uint id) {
             normalizedDepth = (linearDepth - camera_params.z) / (camera_params.y - camera_params.z);
         }
 
-        return vec4(gaussianColor.a * normalizedDepth, 0.0, 0.0, gaussianColor.a);
+        uvec2 p = uvec2(gl_FragCoord.xy);
+        uint h = pickHash(p.x ^ pickHash(p.y ^ pickHash(vPickSeed ^ floatBitsToUint(normalizedDepth))));
+        uvec4 trials = uvec4(pickHash(h), pickHash(h ^ 0x9e3779b9u), pickHash(h ^ 0x7f4a7c15u), pickHash(h ^ 0x2545f491u));
+        bvec4 keep = lessThan(vec4(trials >> 8u) * (1.0 / 16777216.0), vec4(alpha));
+        if (!any(keep)) {
+            discard;
+        }
+        return mix(vec4(1.0), vec4(normalizedDepth), vec4(keep));
     }
 #else
     #ifndef PICK_CUSTOM_ID
@@ -96,7 +118,21 @@ fn encodePickOutput(id: u32) -> vec4f {
         uniform camera_params: vec4f; // x: 1/far, y: far, z: near, w: isOrtho
     #endif
 
-    fn getPickOutput() -> vec4f {
+    fn pickHash(value: u32) -> u32 {
+        var v = value;
+        v ^= v >> 16u;
+        v *= 0x7feb352du;
+        v ^= v >> 15u;
+        v *= 0x846ca68bu;
+        v ^= v >> 16u;
+        return v;
+    }
+
+    // Four independent trials, one per channel: each keeps the fragment with probability alpha,
+    // the splat's opacity at this fragment with its falloff included, writing its depth there,
+    // and the far plane where it does not. The splat's seed (see pickSeedVS) and depth, both
+    // the same across its quad, hashed with the pixel decorrelate the splats covering one pixel.
+    fn getSplatPickOutput(alpha: f32) -> vec4f {
         var normalizedDepth: f32;
         if (uniform.camera_params.w > 0.5) {
             normalizedDepth = pcPosition.z;
@@ -105,8 +141,14 @@ fn encodePickOutput(id: u32) -> vec4f {
             normalizedDepth = (linearDepth - uniform.camera_params.z) / (uniform.camera_params.y - uniform.camera_params.z);
         }
 
-        let a = f32(gaussianColor.a);
-        return vec4f(a * normalizedDepth, 0.0, 0.0, a);
+        let p = vec2u(pcPosition.xy);
+        let h = pickHash(p.x ^ pickHash(p.y ^ pickHash(vPickSeed ^ bitcast<u32>(normalizedDepth))));
+        let trials = vec4u(pickHash(h), pickHash(h ^ 0x9e3779b9u), pickHash(h ^ 0x7f4a7c15u), pickHash(h ^ 0x2545f491u));
+        let keep = vec4f(trials >> vec4u(8u)) * (1.0 / 16777216.0) < vec4f(alpha);
+        if (!any(keep)) {
+            discard;
+        }
+        return select(vec4f(1.0), vec4f(normalizedDepth), keep);
     }
 #else
     #ifndef PICK_CUSTOM_ID
@@ -138,13 +180,6 @@ fn encodePickOutput(id: u32) -> vec4f {
 #endif
 `;
 
-const pickPassChunkInjected = [
-    '#ifdef PICK_PASS',
-    '    #define GSPLAT_PICK_DEPTH',
-    '    #include "pickPS"',
-    '#endif'
-].join('\n');
-
 const safeChunkReplace = (s: string, find: string | RegExp, repl: string) => {
     const out = s.replace(find, repl);
     if (out === s) {
@@ -153,19 +188,72 @@ const safeChunkReplace = (s: string, find: string | RegExp, repl: string) => {
     return out;
 };
 
+const pickPassChunkInjected = (seedVarying: string) => `#ifdef PICK_PASS
+    ${seedVarying}
+    #define GSPLAT_PICK_DEPTH
+    #include "pickPS"
+#endif`;
+
+const seedVaryingGlsl = 'flat varying uint vPickSeed;';
+const seedVaryingWgsl = 'varying @interpolate(flat) vPickSeed: u32;';
+
+// pickSeedVS: a per-splat seed for the survival trials, from its projected centre. The depth
+// alone would give splats at exactly the same depth the same random values at a pixel, so
+// their survivals would be correlated. The centre rather than an index: the cache index of the
+// GPU-sort path is the splat's slot in this frame's compacted list, which changes from render
+// to render, so repeated picks at one pose would disagree. Only exact duplicates (same centre
+// and depth) stay correlated
+const pickSeedGlsl = (proj: string) =>
+    `vPickSeed = (floatBitsToUint(${proj}.x) * 0x9e3779b9u) ^ (floatBitsToUint(${proj}.y) * 0x85ebca6bu) ^ (floatBitsToUint(${proj}.w) * 0xc2b2ae35u);`;
+const pickSeedWgsl = (proj: string) =>
+    `output.vPickSeed = (bitcast<u32>(${proj}.x) * 0x9e3779b9u) ^ (bitcast<u32>(${proj}.y) * 0x85ebca6bu) ^ (bitcast<u32>(${proj}.w) * 0xc2b2ae35u);`;
+
+const inPickPass = (line: string) => `\n#ifdef PICK_PASS\n    ${line}\n#endif\n`;
+
+const patchGsplatVSGlsl = (chunk: string) =>
+    safeChunkReplace(
+        safeChunkReplace(chunk, /(varying mediump vec2 gaussianUV;)/, `$1${inPickPass(seedVaryingGlsl)}`),
+        /(gaussianUV = corner\.uv;)/,
+        `$1${inPickPass(pickSeedGlsl('center.proj'))}`
+    );
+
+const patchGsplatVSWgsl = (chunk: string) =>
+    safeChunkReplace(
+        safeChunkReplace(chunk, /(varying gaussianUV: half2;)/, `$1${inPickPass(seedVaryingWgsl)}`),
+        /(output\.gaussianUV = corner\.uv;)/,
+        `$1${inPickPass(pickSeedWgsl('center.proj'))}`
+    );
+
+const patchGsplatHybridVSWgsl = (chunk: string) =>
+    safeChunkReplace(
+        safeChunkReplace(chunk, /(varying gaussianUV: half2;)/, `$1${inPickPass(seedVaryingWgsl)}`),
+        /(output\.gaussianUV = half2\(cornerClipped\);)/,
+        `$1${inPickPass(pickSeedWgsl('proj'))}`
+    );
+
+// Both pick-output calls (with and without unified ids) take the fragment's alpha, which
+// `main` computes locally: the varying holds only the splat's peak opacity.
 const patchGsplatPickGlsl = (chunk: string) => {
     return safeChunkReplace(
-        safeChunkReplace(chunk, /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/, pickPassChunkInjected),
-        'pcFragColor0 = encodePickOutput(vPickId);',
-        'pcFragColor0 = getPickOutput();'
+        safeChunkReplace(
+            chunk,
+            /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/,
+            pickPassChunkInjected(seedVaryingGlsl)
+        ),
+        /pcFragColor0 = (encodePickOutput\(vPickId\)|getPickOutput\(\));/g,
+        'pcFragColor0 = getSplatPickOutput(alpha);'
     );
 };
 
 const patchGsplatPickWgsl = (chunk: string) => {
     return safeChunkReplace(
-        safeChunkReplace(chunk, /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/, pickPassChunkInjected),
-        'output.color = encodePickOutput(vPickId);',
-        'output.color = getPickOutput();'
+        safeChunkReplace(
+            chunk,
+            /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/,
+            pickPassChunkInjected(seedVaryingWgsl)
+        ),
+        /output\.color = (encodePickOutput\(vPickId\)|getPickOutput\(\));/g,
+        'output.color = getSplatPickOutput(f32(alpha));'
     );
 };
 
@@ -174,6 +262,9 @@ type PickerShaderPatchState = {
     glslGsplatPS: string;
     wgslPickPS: string;
     wgslGsplatPS: string;
+    glslGsplatVS: string;
+    wgslGsplatVS: string;
+    wgslGsplatHybridVS: string;
     refCount: number;
 };
 
@@ -182,7 +273,18 @@ const pickerShaderPatchState = new WeakMap<object, PickerShaderPatchState>();
 
 const vec4 = new Vec4();
 const viewProjMat = new Mat4();
-const clearColor = new Color(0, 0, 0, 1);
+// the pick pass keeps the nearest surviving depth, so it starts at the far plane
+const farColor = new Color(1, 1, 1, 1);
+// independent survival trials per pixel, one per channel of the pick render
+const PICK_TRIALS = 4;
+// A surface's depth is taken over a disc of this radius around each pick pixel (a css pixel,
+// see prepareSample): each pixel is one random sample, so a single one says little. Small,
+// since it also blurs edges
+const SURFACE_RADIUS_PX = 2;
+// A surface is where the opacity in front first reaches this. Well under one half: captured
+// surfaces seen at a glancing angle, a deck or a floor, can be little more than half opaque,
+// and a pick must not pass through them to whatever lies beneath
+const SURFACE_OPACITY = 0.3;
 const NORMAL_EPSILON = 1e-12;
 const NORMAL_DEGENERATE_EPSILON = 1e-20;
 // Sampling for the surface-normal estimator runs on a circular footprint of
@@ -219,15 +321,6 @@ type PickCameraSnapshot = {
     nearClip: number;
     farClip: number;
     projection: number;
-};
-
-type PickPosition = {
-    position: Vec3;
-    camera: PickCameraSnapshot;
-    screenX: number;
-    screenY: number;
-    width: number;
-    height: number;
 };
 
 // Shared buffer for half-to-float conversion
@@ -276,16 +369,25 @@ const registerPickerShaderPatches = (app: AppBase) => {
     const glslGsplatPS = glslChunks.get('gsplatPS');
     const wgslPickPS = wgslChunks.get('pickPS');
     const wgslGsplatPS = wgslChunks.get('gsplatPS');
+    const glslGsplatVS = glslChunks.get('gsplatVS');
+    const wgslGsplatVS = wgslChunks.get('gsplatVS');
+    const wgslGsplatHybridVS = wgslChunks.get('gsplatHybridVS');
 
     // Patch strings before mutating ShaderChunks so engine mismatches leave globals untouched.
     const patchedGlslGsplatPS = patchGsplatPickGlsl(glslGsplatPS);
     const patchedWgslGsplatPS = patchGsplatPickWgsl(wgslGsplatPS);
+    const patchedGlslGsplatVS = patchGsplatVSGlsl(glslGsplatVS);
+    const patchedWgslGsplatVS = patchGsplatVSWgsl(wgslGsplatVS);
+    const patchedWgslGsplatHybridVS = patchGsplatHybridVSWgsl(wgslGsplatHybridVS);
 
     const state: PickerShaderPatchState = {
         glslPickPS,
         glslGsplatPS,
         wgslPickPS,
         wgslGsplatPS,
+        glslGsplatVS,
+        wgslGsplatVS,
+        wgslGsplatHybridVS,
         refCount: 1
     };
     pickerShaderPatchState.set(device, state);
@@ -294,6 +396,9 @@ const registerPickerShaderPatches = (app: AppBase) => {
     wgslChunks.set('pickPS', pickDepthWgsl);
     glslChunks.set('gsplatPS', patchedGlslGsplatPS);
     wgslChunks.set('gsplatPS', patchedWgslGsplatPS);
+    glslChunks.set('gsplatVS', patchedGlslGsplatVS);
+    wgslChunks.set('gsplatVS', patchedWgslGsplatVS);
+    wgslChunks.set('gsplatHybridVS', patchedWgslGsplatHybridVS);
 };
 
 const unregisterPickerShaderPatches = (app: AppBase) => {
@@ -313,6 +418,9 @@ const unregisterPickerShaderPatches = (app: AppBase) => {
     glslChunks.set('gsplatPS', state.glslGsplatPS);
     wgslChunks.set('pickPS', state.wgslPickPS);
     wgslChunks.set('gsplatPS', state.wgslGsplatPS);
+    glslChunks.set('gsplatVS', state.glslGsplatVS);
+    wgslChunks.set('gsplatVS', state.wgslGsplatVS);
+    wgslChunks.set('gsplatHybridVS', state.wgslGsplatHybridVS);
     pickerShaderPatchState.delete(device);
 };
 
@@ -556,39 +664,49 @@ class Picker {
     pickSurface: (x: number, y: number) => Promise<PickSurface | null>;
 
     /**
-     * Pick several points from one render of the pick pass, for testing many screen positions
-     * at once (the annotation occlusion test). Coordinates are normalised like `pick`'s. Each
-     * result is the world position there with the splats' coverage of the pixel, 0 to 1, or
-     * null where no splat covers it.
+     * Estimate how opaque the scene is in front of several points, for testing many at once
+     * (the annotation occlusion test): the share of the pick render's pixels, over a disc of
+     * `radius` around each point, whose nearest survivor is nearer than the point's `depth`.
+     * Coordinates and radius are normalised like `pick`'s (the radius to the height); `depth`
+     * is the view depth to test against. Each result is 0 (nothing in front) to 1 (opaque), or
+     * null where the disc is off the render.
      */
-    pickMany: (points: readonly { x: number; y: number }[]) => Promise<({ position: Vec3; alpha: number } | null)[]>;
+    pickVisibility: (
+        points: readonly { x: number; y: number; depth: number }[],
+        radius: number
+    ) => Promise<(number | null)[]>;
 
     /**
-     * Drop the cached pick render, for when the scene has changed under a still camera (finer
-     * detail streamed in), which the camera-based cache cannot see.
+     * Bring the pick render up to date for the current camera and return its texture, for a view
+     * that reads it on the GPU (the debug panel's pick depth), with a count of the renders so
+     * far, which changes whenever the texture does. Each channel is one trial's nearest
+     * surviving normalised depth, 1 where nothing survived. Null before the device is sized or
+     * after release. Call it between frames, as the picks do: a pick pass rendered during a
+     * frame (in `prerender`, say) can come out empty.
      */
-    invalidate: () => void;
+    renderView: () => { texture: Texture; renders: number } | null;
 
     release: () => void;
 
     constructor(app: AppBase, camera: Entity) {
         const { graphicsDevice } = app;
 
-        let accumBuffer: Texture;
-        let accumTarget: RenderTarget;
-        let accumPass: RenderPassPicker;
+        let pickBuffer: Texture;
+        let pickTarget: RenderTarget;
+        let pickPass: RenderPassPicker;
         let chunksPatched = false;
         // set by release: queued and in-flight picks then resolve to nothing, rather than render
         // with released resources or reach an app that is being destroyed
         let released = false;
         let pickQueue = Promise.resolve();
         let cacheValid = false;
+        let renders = 0;
         let cacheWidth = 0;
         let cacheHeight = 0;
         const cacheCamera: PickCameraSnapshot = createPickCameraSnapshot();
 
-        const initRasterAccum = (width: number, height: number) => {
-            accumBuffer = new Texture(graphicsDevice, {
+        const initPickTarget = (width: number, height: number) => {
+            pickBuffer = new Texture(graphicsDevice, {
                 format: PIXELFORMAT_RGBA16F,
                 width,
                 height,
@@ -597,39 +715,25 @@ class Picker {
                 magFilter: FILTER_NEAREST,
                 addressU: ADDRESS_CLAMP_TO_EDGE,
                 addressV: ADDRESS_CLAMP_TO_EDGE,
-                name: 'picker-accum'
+                name: 'picker-stochastic'
             });
 
-            accumTarget = new RenderTarget({
-                colorBuffer: accumBuffer,
-                depth: false // not needed — gaussians are rendered back to front
+            pickTarget = new RenderTarget({
+                colorBuffer: pickBuffer,
+                depth: false // not needed: the blend keeps the nearest depth
             });
 
-            accumPass = new RenderPassPicker(graphicsDevice, app.renderer);
-            // RGB: additive depth accumulation. Alpha: multiplicative transmittance.
-            accumPass.blendState = new BlendState(
+            pickPass = new RenderPassPicker(graphicsDevice, app.renderer);
+            // the nearest surviving depth wins, whatever order the splats draw in
+            pickPass.blendState = new BlendState(
                 true,
-                BLENDEQUATION_ADD,
+                BLENDEQUATION_MIN,
                 BLENDMODE_ONE,
-                BLENDMODE_ONE_MINUS_SRC_ALPHA,
-                BLENDEQUATION_ADD,
-                BLENDMODE_ZERO,
-                BLENDMODE_ONE_MINUS_SRC_ALPHA
+                BLENDMODE_ONE,
+                BLENDEQUATION_MIN,
+                BLENDMODE_ONE,
+                BLENDMODE_ONE
             );
-        };
-
-        const readTexture = <T extends Uint8Array | Uint16Array>(
-            texture: Texture,
-            x: number,
-            y: number,
-            target: RenderTarget
-        ): Promise<T> => {
-            const texY = graphicsDevice.isWebGL2 ? target.height - y - 1 : y;
-
-            return texture.read(x, texY, 1, 1, {
-                renderTarget: target,
-                immediate: true
-            }) as Promise<T>;
         };
 
         const updateCache = (width: number, height: number) => {
@@ -663,23 +767,22 @@ class Picker {
             return snapshot;
         };
 
-        const readRasterBlock = async (
-            blockX: number,
-            blockY: number,
-            blockWidth: number,
-            blockHeight: number,
-            viewportWidth: number,
-            viewportHeight: number,
-            pickCamera: PickCameraSnapshot
-        ) => {
-            const texY = graphicsDevice.isWebGL2 ? accumTarget.height - blockY - blockHeight : blockY;
+        // Read the pick render around a pixel, `margin` pixels each way, clamped to the render.
+        // The accessor returns a pixel's nearest surviving normalised depth in one of its
+        // PICK_TRIALS trials, 1 where no fragment survived, or null outside the block.
+        const readAround = async (screenX: number, screenY: number, margin: number, width: number, height: number) => {
+            const blockX = Math.max(0, screenX - margin);
+            const blockY = Math.max(0, screenY - margin);
+            const blockWidth = Math.min(width - 1, screenX + margin) - blockX + 1;
+            const blockHeight = Math.min(height - 1, screenY + margin) - blockY + 1;
+            const texY = graphicsDevice.isWebGL2 ? pickTarget.height - blockY - blockHeight : blockY;
 
-            const pixels = (await accumBuffer.read(blockX, texY, blockWidth, blockHeight, {
-                renderTarget: accumTarget,
+            const pixels = (await pickBuffer.read(blockX, texY, blockWidth, blockHeight, {
+                renderTarget: pickTarget,
                 immediate: true
             })) as Uint16Array;
 
-            return (x: number, y: number) => {
+            return (x: number, y: number, trial: number) => {
                 const localX = x - blockX;
                 const localY = y - blockY;
                 if (localX < 0 || localX >= blockWidth || localY < 0 || localY >= blockHeight) {
@@ -687,18 +790,34 @@ class Picker {
                 }
 
                 const row = graphicsDevice.isWebGL2 ? blockHeight - localY - 1 : localY;
-                const index = (row * blockWidth + localX) * 4;
-                const r = half2Float(pixels[index]);
-                const transmittance = half2Float(pixels[index + 3]);
-                const alpha = 1 - transmittance;
-
-                if (!Number.isFinite(r) || !Number.isFinite(alpha) || alpha < 1e-6) {
-                    return null;
-                }
-
-                const normalizedDepth = r / alpha;
-                return getWorldPoint(pickCamera, x, y, viewportWidth, viewportHeight, normalizedDepth);
+                return half2Float(pixels[(row * blockWidth + localX) * 4 + trial]);
             };
+        };
+
+        // The surface at a pixel: the SURFACE_OPACITY quantile of the nearest survivors over a
+        // small disc, which is the depth where the opacity in front reaches that. Null where it
+        // never does.
+        const surfaceDepth = (
+            depthAt: (x: number, y: number, trial: number) => number | null,
+            x: number,
+            y: number
+        ) => {
+            const samples: number[] = [];
+            for (let dy = -SURFACE_RADIUS_PX; dy <= SURFACE_RADIUS_PX; dy++) {
+                for (let dx = -SURFACE_RADIUS_PX; dx <= SURFACE_RADIUS_PX; dx++) {
+                    if (dx * dx + dy * dy > SURFACE_RADIUS_PX * SURFACE_RADIUS_PX) continue;
+                    for (let trial = 0; trial < PICK_TRIALS; trial++) {
+                        const depth = depthAt(x + dx, y + dy, trial);
+                        if (depth !== null) samples.push(depth);
+                    }
+                }
+            }
+            if (samples.length === 0) {
+                return null;
+            }
+            samples.sort((a, b) => a - b);
+            const depth = samples[Math.max(0, Math.ceil(samples.length * SURFACE_OPACITY) - 1)];
+            return Number.isFinite(depth) && depth < 1 ? depth : null;
         };
 
         const ensureRendered = (width: number, height: number, worldLayer: Layer) => {
@@ -706,39 +825,34 @@ class Picker {
                 return;
             }
 
-            // Enable gsplat IDs only while rendering the pick target so we
-            // don't pay the memory/perf cost between pick passes.
-            const prevEnableIds = app.scene.gsplat.enableIds;
-            app.scene.gsplat.enableIds = true;
-            try {
-                if (!chunksPatched) {
-                    registerPickerShaderPatches(app);
-                    chunksPatched = true;
-                }
-
-                if (!accumPass) {
-                    initRasterAccum(width, height);
-                } else if (cacheWidth !== width || cacheHeight !== height) {
-                    cacheValid = false;
-                    accumTarget.resize(width, height);
-                }
-
-                accumPass.init(accumTarget);
-                accumPass.setClearColor(clearColor);
-                accumPass.update(
-                    camera.camera,
-                    app.scene,
-                    [worldLayer],
-                    new Map<number, MeshInstance | GSplatComponent>(),
-                    false
-                );
-                accumPass.render();
-
-                updateCache(width, height);
-                cacheValid = true;
-            } finally {
-                app.scene.gsplat.enableIds = prevEnableIds;
+            // No gsplat ids: the pass outputs depth, not ids, and switching `enableIds` changes the
+            // work buffer's format, which rebuilds the whole work buffer on the next frame
+            if (!chunksPatched) {
+                registerPickerShaderPatches(app);
+                chunksPatched = true;
             }
+
+            if (!pickPass) {
+                initPickTarget(width, height);
+            } else if (cacheWidth !== width || cacheHeight !== height) {
+                cacheValid = false;
+                pickTarget.resize(width, height);
+            }
+
+            pickPass.init(pickTarget);
+            pickPass.setClearColor(farColor);
+            pickPass.update(
+                camera.camera,
+                app.scene,
+                [worldLayer],
+                new Map<number, MeshInstance | GSplatComponent>(),
+                false
+            );
+            pickPass.render();
+
+            updateCache(width, height);
+            cacheValid = true;
+            renders++;
         };
 
         const prepareSample = (x: number, y: number) => {
@@ -746,10 +860,15 @@ class Picker {
                 return null;
             }
 
-            const width = Math.floor(graphicsDevice.width);
-            const height = Math.floor(graphicsDevice.height);
+            // One pick pixel per css pixel, never more than the backbuffer has: picking then
+            // behaves the same in performance mode and at any device pixel ratio, since the
+            // pixel sizes above are css pixels, and a high-density display does not multiply
+            // the pass's cost
+            const canvas = graphicsDevice.canvas as HTMLCanvasElement;
+            const width = Math.min(Math.floor(graphicsDevice.width), Math.round(canvas.clientWidth));
+            const height = Math.min(Math.floor(graphicsDevice.height), Math.round(canvas.clientHeight));
 
-            // bail out if the device hasn't been sized yet
+            // bail out if the device or the canvas hasn't been sized yet
             if (width <= 0 || height <= 0) {
                 return null;
             }
@@ -768,28 +887,6 @@ class Picker {
             return { width, height, screenX, screenY, pickCamera };
         };
 
-        const pickPosition = async (x: number, y: number): Promise<PickPosition | null> => {
-            const sample = prepareSample(x, y);
-            if (!sample) {
-                return null;
-            }
-            const { width, height, screenX, screenY, pickCamera } = sample;
-
-            const pixels = await readTexture<Uint16Array>(accumBuffer, screenX, screenY, accumTarget);
-
-            const r = half2Float(pixels[0]);
-            const transmittance = half2Float(pixels[3]);
-            const alpha = 1 - transmittance;
-
-            if (!Number.isFinite(r) || !Number.isFinite(alpha) || alpha < 1e-6) {
-                return null;
-            }
-
-            const normalizedDepth = r / alpha;
-            const position = getWorldPoint(pickCamera, screenX, screenY, width, height, normalizedDepth);
-            return position ? { position, camera: pickCamera, screenX, screenY, width, height } : null;
-        };
-
         // `fallback` is the result for a pick that release overtakes: one queued behind another
         // pick, or one whose read-back is cut short as the device goes
         const serializePick = <T>(operation: () => Promise<T>, fallback: T): Promise<T> => {
@@ -804,7 +901,7 @@ class Picker {
                     throw error;
                 });
             };
-            // The render targets are shared by all picks on this instance.
+            // The render target is shared by all picks on this instance.
             const result = pickQueue.then(guarded, guarded);
             pickQueue = result.then(
                 (): void => undefined,
@@ -814,8 +911,15 @@ class Picker {
         };
 
         const pick = async (x: number, y: number) => {
-            const result = await pickPosition(x, y);
-            return result?.position ?? null;
+            const sample = prepareSample(x, y);
+            if (!sample) {
+                return null;
+            }
+            const { width, height, screenX, screenY, pickCamera } = sample;
+
+            const depthAt = await readAround(screenX, screenY, SURFACE_RADIUS_PX, width, height);
+            const depth = surfaceDepth(depthAt, screenX, screenY);
+            return depth === null ? null : getWorldPoint(pickCamera, screenX, screenY, width, height, depth);
         };
 
         const pickSurface = async (x: number, y: number) => {
@@ -825,24 +929,16 @@ class Picker {
             }
             const { width, height, screenX, screenY, pickCamera } = sample;
 
-            // Single block read serves both depth (center pixel) and normal
-            // samples. Sized to the maximum possible ring pixel-radius so the
-            // dynamic ring offsets always lie inside the buffer we read.
-            const blockX = Math.max(0, screenX - NORMAL_SAMPLE_MAX_PX);
-            const blockY = Math.max(0, screenY - NORMAL_SAMPLE_MAX_PX);
-            const blockWidth = Math.min(width - 1, screenX + NORMAL_SAMPLE_MAX_PX) - blockX + 1;
-            const blockHeight = Math.min(height - 1, screenY + NORMAL_SAMPLE_MAX_PX) - blockY + 1;
-            const rasterBlock = await readRasterBlock(
-                blockX,
-                blockY,
-                blockWidth,
-                blockHeight,
-                width,
-                height,
-                pickCamera
-            );
+            // Single block read serves both the depth (center pixel) and the normal samples.
+            // Sized to the maximum possible ring pixel-radius, plus the surface disc around each
+            // sample, so the dynamic ring offsets always lie inside the buffer we read.
+            const depthAt = await readAround(screenX, screenY, NORMAL_SAMPLE_MAX_PX + SURFACE_RADIUS_PX, width, height);
+            const surfacePoint = (px: number, py: number) => {
+                const depth = surfaceDepth(depthAt, px, py);
+                return depth === null ? null : getWorldPoint(pickCamera, px, py, width, height, depth);
+            };
 
-            const position = rasterBlock(screenX, screenY);
+            const position = surfacePoint(screenX, screenY);
             if (!position) {
                 return null;
             }
@@ -851,7 +947,7 @@ class Picker {
                 if (px < 0 || px >= width || py < 0 || py >= height) {
                     return null;
                 }
-                return rasterBlock(px, py);
+                return surfacePoint(px, py);
             };
 
             // Pixel radius corresponding to a fixed world radius at the
@@ -874,7 +970,7 @@ class Picker {
             const toCamera = setCameraFacingNormal(pickCamera.position, position, new Vec3());
 
             // Collect every valid 3D sample: the picked position plus all ring
-            // samples that didn't fall off-screen or fail the depth read.
+            // samples that didn't fall off-screen or find no surface.
             const fitPoints: Vec3[] = [position];
             for (let i = 0; i < sampleRings.length; i++) {
                 const ring = sampleRings[i];
@@ -895,54 +991,84 @@ class Picker {
             };
         };
 
+        const pickVisibility = async (points: readonly { x: number; y: number; depth: number }[], radius: number) => {
+            if (points.length === 0) {
+                return [];
+            }
+            // every point renders from the same cached pass, since the camera cannot change
+            // between these synchronous calls; the reads then run in parallel
+            return Promise.all(
+                points.map(async ({ x, y, depth }) => {
+                    const sample = prepareSample(x, y);
+                    if (!sample) {
+                        return null;
+                    }
+                    const { width, height, screenX, screenY, pickCamera } = sample;
+
+                    const r = Math.max(1, Math.round(radius * height));
+                    const depthAt = await readAround(screenX, screenY, r, width, height);
+                    const threshold = (depth - pickCamera.nearClip) / (pickCamera.farClip - pickCamera.nearClip);
+
+                    let total = 0;
+                    let inFront = 0;
+                    for (let dy = -r; dy <= r; dy++) {
+                        for (let dx = -r; dx <= r; dx++) {
+                            if (dx * dx + dy * dy > r * r) continue;
+                            for (let trial = 0; trial < PICK_TRIALS; trial++) {
+                                const nearest = depthAt(screenX + dx, screenY + dy, trial);
+                                if (nearest === null) continue;
+                                total++;
+                                if (nearest < threshold) inFront++;
+                            }
+                        }
+                    }
+                    return total > 0 ? inFront / total : null;
+                })
+            );
+        };
+
         this.pick = (x: number, y: number) => serializePick(() => pick(x, y), null);
 
         this.pickSurface = (x: number, y: number) => serializePick(() => pickSurface(x, y), null);
 
-        const pickCoverage = async (x: number, y: number) => {
-            const sample = prepareSample(x, y);
-            if (!sample) {
-                return null;
-            }
-            const { width, height, screenX, screenY, pickCamera } = sample;
-
-            const pixels = await readTexture<Uint16Array>(accumBuffer, screenX, screenY, accumTarget);
-
-            const r = half2Float(pixels[0]);
-            const alpha = 1 - half2Float(pixels[3]);
-            if (!Number.isFinite(r) || !Number.isFinite(alpha) || alpha < 1e-6) {
-                return null;
-            }
-
-            const position = getWorldPoint(pickCamera, screenX, screenY, width, height, r / alpha);
-            return position ? { position, alpha } : null;
-        };
-
-        // the first sample renders the pass and the rest hit its cache, since the camera cannot
-        // change between these synchronous calls; the reads then run in parallel
-        this.pickMany = (points) =>
+        this.pickVisibility = (points, radius) =>
             serializePick(
-                () => Promise.all(points.map(({ x, y }) => pickCoverage(x, y))),
+                () => pickVisibility(points, radius),
                 points.map((): null => null)
             );
 
-        this.invalidate = () => {
-            cacheValid = false;
+        this.renderView = () => (prepareSample(0, 0) ? { texture: pickBuffer, renders } : null);
+
+        // The scene can change under a still camera, which the camera-based cache cannot see:
+        // finer detail streams in after the reveal and after every move. The engine reports each
+        // frame whether all the detail it wants is resident, so the cached render is stale on
+        // every frame it is not, and once more when it becomes so. Nothing re-renders until a
+        // pick needs it.
+        const gsplatSystem = app.systems.gsplat;
+        let contentReady = false;
+        const onFrameReady = (frameCamera: CameraComponent, _layer: unknown, ready: boolean) => {
+            if (frameCamera !== camera.camera) return;
+            if (!ready || !contentReady) {
+                cacheValid = false;
+            }
+            contentReady = ready;
         };
+        gsplatSystem.on('frame:ready', onFrameReady);
 
         this.release = () => {
             released = true;
+            gsplatSystem.off('frame:ready', onFrameReady);
             if (chunksPatched) {
                 unregisterPickerShaderPatches(app);
                 chunksPatched = false;
             }
-            accumPass?.destroy();
-            accumTarget?.destroy();
-            accumBuffer?.destroy();
+            pickPass?.destroy();
+            pickTarget?.destroy();
+            pickBuffer?.destroy();
             cacheValid = false;
         };
     }
 }
 
 export type { PickSurface, PickCameraSnapshot };
-export { Picker, getWorldPoint, captureCameraSnapshot };
+export { Picker, getWorldPoint, captureCameraSnapshot, PICK_TRIALS, SURFACE_RADIUS_PX, SURFACE_OPACITY };

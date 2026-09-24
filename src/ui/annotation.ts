@@ -43,11 +43,12 @@ export class Annotation extends Script {
     hotspotDom: HTMLDivElement | null = null;
 
     /**
-     * The hotspot's position in canvas pixels, and its distance from the camera, as of the
-     * last update; null while it is behind the camera. Read by the occlusion test.
+     * The hotspot's position in canvas pixels, its distance from the camera and its depth
+     * along the view, as of the last update; null while it is behind the camera. Read by the
+     * occlusion test.
      * @private
      */
-    screen: { x: number; y: number; distance: number } | null = null;
+    screen: { x: number; y: number; distance: number; depth: number } | null = null;
 
     /**
      * Set once the entity is destroyed, so a prerender still queued for this frame does not
@@ -107,7 +108,7 @@ export class Annotation extends Script {
 
         const screenPos = camera.camera.worldToScreen(position);
         const distance = camera.getPosition().distance(position);
-        this.screen = { x: screenPos.x, y: screenPos.y, distance };
+        this.screen = { x: screenPos.x, y: screenPos.y, distance, depth: -vec.z };
         this._updatePositions(screenPos, distance);
     }
 
