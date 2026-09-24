@@ -135,14 +135,13 @@ class Annotations {
 
         // The scene can change under a still camera: finer detail streams in after the reveal,
         // and after every move. The engine reports each frame whether all the detail it wants is
-        // resident; when that turns true, new content has landed, so drop the picker's cached
-        // render (it only knows about the camera) and test again.
+        // resident; when that turns true, new content has landed, so test again (the picker
+        // drops its own cached render).
         const gsplatSystem = app.systems.gsplat;
         let contentReady = false;
         const onFrameReady = (frameCamera: CameraComponent, _layer: unknown, ready: boolean) => {
             if (frameCamera !== camera.camera) return;
             if (ready && !contentReady) {
-                getPicker()?.invalidate();
                 pose++;
                 scheduleOcclusion();
             }

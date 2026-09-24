@@ -13,7 +13,7 @@ import {
     Texture,
     drawQuadWithShader
 } from 'playcanvas';
-import type { AppBase, Entity, Shader } from 'playcanvas';
+import type { AppBase, CameraComponent, Entity, Shader } from 'playcanvas';
 
 import { PICK_TRIALS, SURFACE_OPACITY, SURFACE_RADIUS_PX } from '../picker';
 import type { Picker } from '../picker';
@@ -189,6 +189,19 @@ class PickDepthOverlay {
 
     private readonly onPrerender = () => this.update();
 
+    // The picker drops its render when new detail lands, but only re-renders when asked, and
+    // this view asks from a frame: the frame the detail finishes landing in may be the last
+    // one rendered, so ask for one more while the content is changing and once after
+    private contentReady = false;
+
+    private readonly onFrameReady = (frameCamera: CameraComponent, _layer: unknown, ready: boolean) => {
+        if (frameCamera !== this.camera.camera) return;
+        if (!ready || !this.contentReady) {
+            this.app.renderNextFrame = true;
+        }
+        this.contentReady = ready;
+    };
+
     private _enabled = false;
 
     constructor(app: AppBase, camera: Entity, picker: Picker) {
@@ -243,8 +256,10 @@ class PickDepthOverlay {
         this._enabled = value;
         if (value) {
             this.app.on('prerender', this.onPrerender);
+            this.app.systems.gsplat.on('frame:ready', this.onFrameReady);
         } else {
             this.app.off('prerender', this.onPrerender);
+            this.app.systems.gsplat.off('frame:ready', this.onFrameReady);
         }
         this.app.renderNextFrame = true;
     }

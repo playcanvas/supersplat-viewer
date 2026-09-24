@@ -26,7 +26,7 @@ import {
     Vec4,
     BlendState
 } from 'playcanvas';
-import type { AppBase, Entity, GSplatComponent, Layer, MeshInstance } from 'playcanvas';
+import type { AppBase, CameraComponent, Entity, GSplatComponent, Layer, MeshInstance } from 'playcanvas';
 
 // Override global picking to output stochastic splat depth instead of meshInstance id.
 const pickDepthGlsl = /* glsl */ `
@@ -622,12 +622,6 @@ class Picker {
      */
     renderView: () => Texture | null;
 
-    /**
-     * Drop the cached pick render, for when the scene has changed under a still camera (finer
-     * detail streamed in), which the camera-based cache cannot see.
-     */
-    invalidate: () => void;
-
     release: () => void;
 
     constructor(app: AppBase, camera: Entity) {
@@ -985,12 +979,25 @@ class Picker {
 
         this.renderView = () => (prepareSample(0, 0) ? pickBuffer : null);
 
-        this.invalidate = () => {
-            cacheValid = false;
+        // The scene can change under a still camera, which the camera-based cache cannot see:
+        // finer detail streams in after the reveal and after every move. The engine reports each
+        // frame whether all the detail it wants is resident, so the cached render is stale on
+        // every frame it is not, and once more when it becomes so. Nothing re-renders until a
+        // pick needs it.
+        const gsplatSystem = app.systems.gsplat;
+        let contentReady = false;
+        const onFrameReady = (frameCamera: CameraComponent, _layer: unknown, ready: boolean) => {
+            if (frameCamera !== camera.camera) return;
+            if (!ready || !contentReady) {
+                cacheValid = false;
+            }
+            contentReady = ready;
         };
+        gsplatSystem.on('frame:ready', onFrameReady);
 
         this.release = () => {
             released = true;
+            gsplatSystem.off('frame:ready', onFrameReady);
             if (chunksPatched) {
                 unregisterPickerShaderPatches(app);
                 chunksPatched = false;
