@@ -398,6 +398,17 @@ class CameraManager {
             tmpCamera.fov = initial.fov;
             tmpCamera.look(new Vec3(initial.position), new Vec3(initial.target));
 
+            // orbit at the annotation's depth along the view rather than about the authored
+            // target, which is often a hair in front of the lens or far past the subject. The
+            // new focus lies on the same view ray, so the pose is unchanged. An annotation
+            // behind the camera keeps the authored target
+            tmpCamera.calcFocusPoint(tmpv);
+            tmpv.sub(tmpCamera.position).normalize();
+            const depth = tmpv2.set(...annotation.position).sub(tmpCamera.position).dot(tmpv);
+            if (depth > 1e-3) {
+                tmpCamera.distance = depth;
+            }
+
             // longer for a longer move: travel relative to the scene's size, plus how far the
             // view turns
             const travel = this.camera.position.distance(tmpCamera.position);

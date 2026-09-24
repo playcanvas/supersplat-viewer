@@ -1136,10 +1136,22 @@
             }
 
             > .sse-annotation-title {
-                margin-bottom: 4px;
                 font-size: 13px;
                 font-weight: bold;
                 color: var(--sse-text-light);
+            }
+
+            > .sse-annotation-text {
+                margin-top: 4px;
+            }
+
+            // a title with no text: one line, centred with even padding
+            &:has(> .sse-annotation-text:empty) {
+                padding-bottom: 10px;
+
+                > .sse-annotation-text {
+                    display: none;
+                }
             }
 
             // the arrow pointing at the hotspot; --arrow-top is set to the hotspot's height
