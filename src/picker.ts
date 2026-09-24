@@ -760,39 +760,33 @@ class Picker {
                 return;
             }
 
-            // Enable gsplat IDs only while rendering the pick target so we
-            // don't pay the memory/perf cost between pick passes.
-            const prevEnableIds = app.scene.gsplat.enableIds;
-            app.scene.gsplat.enableIds = true;
-            try {
-                if (!chunksPatched) {
-                    registerPickerShaderPatches(app);
-                    chunksPatched = true;
-                }
-
-                if (!pickPass) {
-                    initPickTarget(width, height);
-                } else if (cacheWidth !== width || cacheHeight !== height) {
-                    cacheValid = false;
-                    pickTarget.resize(width, height);
-                }
-
-                pickPass.init(pickTarget);
-                pickPass.setClearColor(farColor);
-                pickPass.update(
-                    camera.camera,
-                    app.scene,
-                    [worldLayer],
-                    new Map<number, MeshInstance | GSplatComponent>(),
-                    false
-                );
-                pickPass.render();
-
-                updateCache(width, height);
-                cacheValid = true;
-            } finally {
-                app.scene.gsplat.enableIds = prevEnableIds;
+            // No gsplat ids: the pass outputs depth, not ids, and switching `enableIds` changes the
+            // work buffer's format, which rebuilds the whole work buffer on the next frame
+            if (!chunksPatched) {
+                registerPickerShaderPatches(app);
+                chunksPatched = true;
             }
+
+            if (!pickPass) {
+                initPickTarget(width, height);
+            } else if (cacheWidth !== width || cacheHeight !== height) {
+                cacheValid = false;
+                pickTarget.resize(width, height);
+            }
+
+            pickPass.init(pickTarget);
+            pickPass.setClearColor(farColor);
+            pickPass.update(
+                camera.camera,
+                app.scene,
+                [worldLayer],
+                new Map<number, MeshInstance | GSplatComponent>(),
+                false
+            );
+            pickPass.render();
+
+            updateCache(width, height);
+            cacheValid = true;
         };
 
         const prepareSample = (x: number, y: number) => {
