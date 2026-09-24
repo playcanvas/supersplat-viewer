@@ -1,10 +1,12 @@
 import { Vec3 } from 'playcanvas';
 
 import type { CameraManager } from '../camera-manager';
+import type { Picker } from '../picker';
 import type { Global } from '../types';
 
 import { captureCameraState, restoreCameraState } from './camera-state';
 import type { CameraStateSnapshot } from './camera-state';
+import { PickDepthOverlay } from './pick-depth-overlay';
 
 // Developer / debug panel. Hidden by default; surfaced via `?debug` URL
 // param or Ctrl+Shift+D keyboard shortcut. DOM and styles are injected
@@ -82,6 +84,9 @@ const STYLES = `
 .${PANEL_CLASS} button.sse-flash {
     background: rgba(120, 220, 140, 0.35);
 }
+.${PANEL_CLASS} button.sse-debug-on {
+    background: rgba(120, 180, 255, 0.35);
+}
 `;
 
 const fmt = (v: Vec3) => `${v.x.toFixed(3)}, ${v.y.toFixed(3)}, ${v.z.toFixed(3)}`;
@@ -103,6 +108,10 @@ class DebugPanel {
 
     private readonly _cameraManager: CameraManager;
 
+    private readonly _picker: Picker;
+
+    private _pickDepthOverlay: PickDepthOverlay | null = null;
+
     private readonly _focusTmp = new Vec3();
 
     private _root: HTMLDivElement | null = null;
@@ -118,6 +127,8 @@ class DebugPanel {
     private _pasteButton: HTMLButtonElement | null = null;
 
     private _screenshotButton: HTMLButtonElement | null = null;
+
+    private _pickDepthButton: HTMLButtonElement | null = null;
 
     private _editing: HTMLSpanElement | null = null;
 
@@ -136,9 +147,10 @@ class DebugPanel {
         }
     };
 
-    constructor(global: Global, cameraManager: CameraManager) {
+    constructor(global: Global, cameraManager: CameraManager, picker: Picker) {
         this._global = global;
         this._cameraManager = cameraManager;
+        this._picker = picker;
         window.addEventListener('keydown', this._onKeyDown);
         if (global.config.debug) {
             this.show();
@@ -166,6 +178,8 @@ class DebugPanel {
         if (this._root) {
             this._root.style.display = 'none';
         }
+        // the view is only reachable from the panel, so it goes with it
+        this._setPickDepth(false);
         this._global.app.off('prerender', this._onPrerender);
         if (this._global.config.exposeGlobals) {
             delete window.getCameraState;
@@ -180,6 +194,8 @@ class DebugPanel {
 
     destroy() {
         this.hide();
+        this._pickDepthOverlay?.destroy();
+        this._pickDepthOverlay = null;
         window.removeEventListener('keydown', this._onKeyDown);
         if (this._root) {
             this._root.remove();
@@ -212,6 +228,7 @@ class DebugPanel {
             </div>
             <div class="sse-debug-buttons">
                 <button data-id="screenshot">Screenshot</button>
+                <button data-id="pick-depth" title="Show the depth a navigation pick finds at every pixel">Pick depth</button>
             </div>
         `;
         host.appendChild(root);
@@ -222,10 +239,14 @@ class DebugPanel {
         this._copyButton = root.querySelector('[data-id="copy"]')!;
         this._pasteButton = root.querySelector('[data-id="paste"]')!;
         this._screenshotButton = root.querySelector('[data-id="screenshot"]')!;
+        this._pickDepthButton = root.querySelector('[data-id="pick-depth"]')!;
 
         this._copyButton.addEventListener('click', () => this._copy());
         this._pasteButton.addEventListener('click', () => this._paste());
         this._screenshotButton.addEventListener('click', () => this._screenshot());
+        this._pickDepthButton.addEventListener('click', () => {
+            this._setPickDepth(!this._pickDepthOverlay?.enabled);
+        });
         this._wireEditable(this._positionValue, 'position');
         this._wireEditable(this._focusValue, 'focus');
     }
@@ -282,6 +303,16 @@ class DebugPanel {
             }
             this._flashOk(span);
         });
+    }
+
+    private _setPickDepth(value: boolean) {
+        if (value && !this._pickDepthOverlay) {
+            this._pickDepthOverlay = new PickDepthOverlay(this._global.app, this._global.camera, this._picker);
+        }
+        if (this._pickDepthOverlay) {
+            this._pickDepthOverlay.enabled = value;
+        }
+        this._pickDepthButton?.classList.toggle('sse-debug-on', value);
     }
 
     private _applyPosition(pos: [number, number, number]) {

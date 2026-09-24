@@ -404,7 +404,10 @@ class CameraManager {
             // behind the camera keeps the authored target
             tmpCamera.calcFocusPoint(tmpv);
             tmpv.sub(tmpCamera.position).normalize();
-            const depth = tmpv2.set(...annotation.position).sub(tmpCamera.position).dot(tmpv);
+            const depth = tmpv2
+                .set(...annotation.position)
+                .sub(tmpCamera.position)
+                .dot(tmpv);
             if (depth > 1e-3) {
                 tmpCamera.distance = depth;
             }
