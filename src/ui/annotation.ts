@@ -61,7 +61,9 @@ export class Annotation extends Script {
         const ctx = this.context;
 
         this.hotspotDom = document.createElement('div');
-        this.hotspotDom.className = 'sse-annotation-hotspot';
+        // dimmed until the occlusion test first shows it in view, rather than every hotspot
+        // showing at full strength on the reveal and the hidden ones fading afterwards
+        this.hotspotDom.className = 'sse-annotation-hotspot sse-occluded';
         this.hotspotDom.textContent = this.label;
 
         const onClick = (e: MouseEvent) => {
@@ -212,8 +214,7 @@ export class Annotation extends Script {
 
         tooltip.classList.toggle('sse-arrow-right', !flipped);
         tooltip.classList.toggle('sse-arrow-left', flipped);
-        tooltip.style.left = `${left}px`;
-        tooltip.style.top = `${top}px`;
+        tooltip.style.transform = `translate(${left}px, ${top}px)`;
     }
 }
 
