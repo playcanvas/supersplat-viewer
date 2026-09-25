@@ -1037,6 +1037,10 @@
             position: absolute;
             left: 0;
             top: 0;
+            // drawn once and moved by the compositor at fractional positions. Redrawn at each
+            // one instead, its number snaps to the pixel grid (Windows has no subpixel glyph
+            // positioning) while the circle does not, so on a slow move the number crawls
+            will-change: transform;
             display: none;
             align-items: center;
             justify-content: center;
@@ -1100,8 +1104,12 @@
             // rgba(black, 0.9) would reach the browser as an invalid colour
             --sse-annotation-bkg: rgba(0, 0, 0, 0.9);
 
-            // after the hotspots' layer, so above it
+            // after the hotspots' layer, so above it. Moved with a transform from the top-left
+            // corner, like the hotspots and for the same reason
             position: absolute;
+            left: 0;
+            top: 0;
+            will-change: transform;
             width: max-content;
             max-width: min(280px, calc(100% - 16px));
             box-sizing: border-box;
@@ -1152,6 +1160,11 @@
                 > .sse-annotation-text {
                     display: none;
                 }
+            }
+
+            // no title and no text: nothing to show, so no empty panel
+            &:has(> .sse-annotation-title:empty):has(> .sse-annotation-text:empty) {
+                display: none;
             }
 
             // the arrow pointing at the hotspot; --arrow-top is set to the hotspot's height
