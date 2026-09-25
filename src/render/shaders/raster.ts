@@ -19,6 +19,10 @@ uniform projectionFlipY: f32;
 
 var<storage, read> splatCache: array<u32>;
 var<storage, read> splatCount: array<u32>;
+#ifdef SSE_ORDERED
+    // cache slots in draw order (variant order:bucket)
+    var<storage, read> orderedSlots: array<u32>;
+#endif
 
 varying gaussianUV: vec2f;
 varying @interpolate(flat, either) packedColor: u32;
@@ -37,7 +41,11 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
         return output;
     }
 
-    let base = order * ${CACHE_WORDS}u;
+    #ifdef SSE_ORDERED
+        let base = orderedSlots[order] * ${CACHE_WORDS}u;
+    #else
+        let base = order * ${CACHE_WORDS}u;
+    #endif
     let maxRadius = min(1024.0, min(uniform.viewportSize.x, uniform.viewportSize.y));
     let ndcRange = vec2f(1.0) + vec2f(4.0 * maxRadius) / uniform.viewportSize.xy;
     let ndc = unpack2x16snorm(splatCache[base]) * ndcRange;

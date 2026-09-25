@@ -8,10 +8,13 @@ const CACHE_WORDS = 7;
 
 const PROJECTOR_WORKGROUP_SIZE = 256;
 
+/** Buckets of the counting order (order:bucket); the workgroup size, so each thread owns one. */
+const ORDER_BUCKETS = PROJECTOR_WORKGROUP_SIZE;
+
 /** Splats per chunk-table entry; a chunk is one workgroup. */
 const CHUNK_SIZE = PROJECTOR_WORKGROUP_SIZE;
 
-const projectorWGSL = (readChunk: string, occlusion: boolean) => /* wgsl */ `
+const projectorWGSL = (readChunk: string, occlusion: boolean, order: boolean) => /* wgsl */ `
 struct ProjectorUniforms {
     view: mat4x4f,
     viewProj: mat4x4f,
@@ -38,7 +41,10 @@ struct ProjectorUniforms {
     // 0 off, 1 level 1 only, 2 both levels
     occlusionMode: u32,
     // -1 when the previous depth texture's rows run bottom-up (an offscreen target), else 1
-    prevFlip: f32
+    prevFlip: f32,
+    // the order key: bucket = (log(depth) - keyLogNear) * keyInvLogRange, over [0, 1)
+    keyLogNear: f32,
+    keyInvLogRange: f32
 }
 
 // chunk table entry: slotBase, count, node, lod | file << 16
@@ -52,6 +58,8 @@ struct ProjectorUniforms {
 // the previous frame's farthest depth per block, as f32 bits (see shaders/reduce.ts)
 @group(0) @binding(5) var<storage, read> occL1: array<u32>;
 @group(0) @binding(6) var<storage, read> occL2: array<u32>;
+// order:bucket: survivors per depth bucket (see shaders/order.ts)
+@group(0) @binding(7) var<storage, read_write> buckets: array<atomic<u32>>;
 
 struct Splat {
     index: u32,
@@ -302,6 +310,15 @@ ${
     result.words[1] = bitcast<u32>(depth);
     result.words[2] = pack2x16float(axis1);
     result.words[3] = pack2x16float(vec2f(len2, 0.0)) | (u32(clamp(opacity, 0.0, 1.0) * 255.0 + 0.5) << 16u);
+${
+    order
+        ? `
+    // the depth bucket, log-spaced from the near plane, in the flags byte
+    let key = clamp((log(max(depth, 1e-6)) - uniforms.keyLogNear) * uniforms.keyInvLogRange, 0.0, 0.999) * ${ORDER_BUCKETS}.0;
+    result.words[3] |= u32(key) << 24u;
+`
+        : ''
+}
     result.words[4] = rgb.r | (rgb.g << 10u) | (rgb.b << 20u) | (exponent << 30u);
     // popless depth gradient (plan M5); flat until then
     result.words[5] = 0u;
@@ -313,6 +330,7 @@ ${
 var<workgroup> wgCount: atomic<u32>;
 var<workgroup> wgOccluded: atomic<u32>;
 var<workgroup> wgBase: u32;
+${order ? `var<workgroup> wgBuckets: array<atomic<u32>, ${ORDER_BUCKETS}>;` : ''}
 
 @compute @workgroup_size(${PROJECTOR_WORKGROUP_SIZE})
 fn main(
@@ -322,6 +340,7 @@ fn main(
 ) {
     // no early returns: the barriers below need every thread of the workgroup
     let chunkIndex = wg.x + wg.y * numWorkgroups.x;
+${order ? `    atomicStore(&wgBuckets[local], 0u);` : ''}
     var projected: Projected;
     projected.valid = false;
     projected.occluded = false;
@@ -356,8 +375,22 @@ fn main(
         for (var i = 0u; i < ${CACHE_WORDS}u; i++) {
             cache[base + i] = projected.words[i];
         }
+${order ? `        atomicAdd(&wgBuckets[projected.words[3] >> 24u], 1u);` : ''}
     }
+${
+    order
+        ? `
+    // a chunk's splats are spatially coherent, so few of its buckets are non-empty: one
+    // workgroup count each, then one global atomic per non-empty bucket
+    workgroupBarrier();
+    let bucketCount = atomicLoad(&wgBuckets[local]);
+    if (bucketCount > 0u) {
+        atomicAdd(&buckets[local], bucketCount);
+    }
+`
+        : ''
+}
 }
 `;
 
-export { CACHE_WORDS, CHUNK_SIZE, PROJECTOR_WORKGROUP_SIZE, projectorWGSL };
+export { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, PROJECTOR_WORKGROUP_SIZE, projectorWGSL };

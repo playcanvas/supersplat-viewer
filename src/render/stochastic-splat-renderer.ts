@@ -60,7 +60,8 @@ import { EngineResidentSetProvider } from './resident-set';
 import type { EngineManager, ResidentSet } from './resident-set';
 import { argsWGSL } from './shaders/args';
 import { composeFragmentWGSL, composeVertexWGSL } from './shaders/compose';
-import { CACHE_WORDS, CHUNK_SIZE, projectorWGSL } from './shaders/projector';
+import { orderScanWGSL, orderScatterWGSL } from './shaders/order';
+import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, projectorWGSL } from './shaders/projector';
 import { QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
 import type { SplatSource, SplatSourceKind } from './splat-source';
@@ -78,9 +79,14 @@ type Variant = {
      * test then costs more than the raster it saves (large scenes seen from outside).
      */
     cull: 'off' | 'l1' | 'l2' | 'auto';
+    /**
+     * Draw order: `bucket` (the default), 256 log-spaced depth buckets front to back so early-z
+     * rejects most of what the depth test would, or the projector's `append` order.
+     */
+    order: 'append' | 'bucket';
 };
 
-const defaultVariant = (): Variant => ({ spp: 'quad', compose: 'blend', cull: 'auto' });
+const defaultVariant = (): Variant => ({ spp: 'quad', compose: 'blend', cull: 'auto', order: 'bucket' });
 
 const parseVariant = (text: string | undefined): Variant => {
     const variant = defaultVariant();
@@ -92,6 +98,7 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'cull' && (value === 'off' || value === 'l1' || value === 'l2' || value === 'auto')) {
             variant.cull = value;
         }
+        if (key === 'order' && (value === 'append' || value === 'bucket')) variant.order = value;
     }
     return variant;
 };
@@ -106,6 +113,8 @@ type EngineDevice = GraphicsDevice & {
     computeDispatch(computes: Compute[], name: string): void;
     getIndirectDrawSlot(count?: number): number;
     indirectDrawBuffer: StorageBuffer;
+    getIndirectDispatchSlot(count?: number): number;
+    indirectDispatchBuffer: StorageBuffer;
 };
 
 type EngineForwardRenderer = {
@@ -217,6 +226,17 @@ class StochasticSplatRenderer {
 
     private argsBindGroupFormat: BindGroupFormat;
 
+    // order:bucket: bucket counts then offsets, the ordered slot list, and its two passes
+    private orderBuckets: StorageBuffer;
+
+    private orderedBuffer: StorageBuffer | null = null;
+
+    private orderScan: Compute;
+
+    private orderScatter: Compute;
+
+    private orderFormats: BindGroupFormat[] = [];
+
     // the occlusion grid: farthest depth per 8 px block (level 1) and per 32 px block (level 2)
     private occL1: StorageBuffer;
 
@@ -320,7 +340,9 @@ class StochasticSplatRenderer {
             this.chunkBuffer,
             this.nodeVisibleBuffer,
             this.cacheBuffer,
+            this.orderedBuffer,
             this.counter,
+            this.orderBuckets,
             this.occL1,
             this.occL2
         ];
@@ -411,6 +433,7 @@ class StochasticSplatRenderer {
         this.argsBindGroupFormat = new BindGroupFormat(device, [
             new BindStorageBufferFormat('counter', SHADERSTAGE_COMPUTE, true),
             new BindStorageBufferFormat('indirectDrawArgs', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('indirectDispatchArgs', SHADERSTAGE_COMPUTE),
             new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE)
         ]);
         this.args = new Compute(
@@ -423,12 +446,45 @@ class StochasticSplatRenderer {
                     uniforms: new UniformBufferFormat(device, [
                         new UniformFormat('drawSlot', UNIFORMTYPE_UINT),
                         new UniformFormat('indexCount', UNIFORMTYPE_UINT),
-                        new UniformFormat('quadsPerInstance', UNIFORMTYPE_UINT)
+                        new UniformFormat('quadsPerInstance', UNIFORMTYPE_UINT),
+                        new UniformFormat('dispatchSlot', UNIFORMTYPE_UINT),
+                        new UniformFormat('scatterWorkgroupSize', UNIFORMTYPE_UINT)
                     ])
                 },
                 computeBindGroupFormat: this.argsBindGroupFormat
             }),
             'sse-splat-args'
+        );
+
+        // the ordering passes
+        this.orderBuckets = new StorageBuffer(device, 2 * ORDER_BUCKETS * 4, BUFFERUSAGE_COPY_DST);
+        const scanFormat = new BindGroupFormat(device, [new BindStorageBufferFormat('buckets', SHADERSTAGE_COMPUTE)]);
+        const scatterFormat = new BindGroupFormat(device, [
+            new BindStorageBufferFormat('counter', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('cache', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('buckets', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('ordered', SHADERSTAGE_COMPUTE)
+        ]);
+        this.orderFormats = [scanFormat, scatterFormat];
+        this.orderScan = new Compute(
+            device,
+            new Shader(device, {
+                name: 'sse-splat-order-scan',
+                shaderLanguage: SHADERLANGUAGE_WGSL,
+                cshader: orderScanWGSL,
+                computeBindGroupFormat: scanFormat
+            }),
+            'sse-splat-order-scan'
+        );
+        this.orderScatter = new Compute(
+            device,
+            new Shader(device, {
+                name: 'sse-splat-order-scatter',
+                shaderLanguage: SHADERLANGUAGE_WGSL,
+                cshader: orderScatterWGSL,
+                computeBindGroupFormat: scatterFormat
+            }),
+            'sse-splat-order-scatter'
         );
 
         // the occlusion grid and its two reduce passes
@@ -596,6 +652,7 @@ class StochasticSplatRenderer {
     applyVariant() {
         const quad = this.variant.spp === 'quad';
         this.rasterMaterial.setDefine('SSE_SPP_QUAD', quad ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_ORDERED', this.variant.order === 'bucket' ? '' : undefined);
         this.composeMaterial.setDefine('SSE_SPP_QUAD', quad ? '' : undefined);
         this.rasterMaterial.update();
         this.composeMaterial.update();
@@ -705,8 +762,13 @@ class StochasticSplatRenderer {
         }
 
         this.counter.clear();
+        const ordered = this.variant.order === 'bucket';
+        if (ordered) this.orderBuckets.clear();
+        // the order key spans the fitted clip range, log-spaced
+        const logNear = Math.log(Math.max(cam.nearClip, 1e-6));
+        const invLogRange = 1 / Math.max(Math.log(Math.max(cam.farClip, 1e-6)) - logNear, 1e-6);
 
-        const projector = this.ensureProjector(culling);
+        const projector = this.ensureProjector(culling, ordered);
         const groups = this.source.dispatchPlan(set, this.numChunks);
         for (const group of groups) {
             this.source.bind(projector, group, set);
@@ -716,6 +778,7 @@ class StochasticSplatRenderer {
             projector.setParameter('counter', this.counter);
             projector.setParameter('occL1', this.occL1);
             projector.setParameter('occL2', this.occL2);
+            projector.setParameter('buckets', this.orderBuckets);
             projector.setParameter('view', view.data);
             projector.setParameter('viewProj', this.viewProjection.data);
             projector.setParameter('prevViewProj', this.prevViewProjection.data);
@@ -737,25 +800,47 @@ class StochasticSplatRenderer {
             projector.setParameter('occBlocksY2', this.occBlocks.y2);
             projector.setParameter('occlusionMode', culling ? (cullMode === 'l1' ? 1 : 2) : 0);
             projector.setParameter('prevFlip', this.prevFlip);
+            projector.setParameter('keyLogNear', logNear);
+            projector.setParameter('keyInvLogRange', invLogRange);
             Compute.calcDispatchSize(group.chunkCount, tmpVec2);
             projector.setupDispatch(tmpVec2.x, tmpVec2.y, 1);
             device.computeDispatch([projector], 'sse-splat-project');
         }
 
-        // indirect draw arguments; slots are per frame
+        // indirect draw arguments for the raster and dispatch size for the scatter; slots are
+        // per frame
         const drawSlot = device.getIndirectDrawSlot(1);
+        const dispatchSlot = device.getIndirectDispatchSlot(1);
         this.args.setParameter('counter', this.counter);
         this.args.setParameter('indirectDrawArgs', device.indirectDrawBuffer);
+        this.args.setParameter('indirectDispatchArgs', device.indirectDispatchBuffer);
         this.args.setParameter('drawSlot', drawSlot);
         this.args.setParameter('indexCount', QUADS_PER_INSTANCE * 6);
         this.args.setParameter('quadsPerInstance', QUADS_PER_INSTANCE);
+        this.args.setParameter('dispatchSlot', dispatchSlot);
+        this.args.setParameter('scatterWorkgroupSize', ORDER_BUCKETS);
         this.args.setupDispatch(1, 1, 1);
         device.computeDispatch([this.args], 'sse-splat-args');
         this.rasterInstance.setIndirect(null, drawSlot, 1);
 
+        if (ordered) {
+            // bucket offsets, then every survivor claims its place in its bucket
+            this.orderScan.setParameter('buckets', this.orderBuckets);
+            this.orderScan.setupDispatch(1, 1, 1);
+            device.computeDispatch([this.orderScan], 'sse-splat-order-scan');
+            const scatter = this.orderScatter;
+            scatter.setParameter('counter', this.counter);
+            scatter.setParameter('cache', this.cacheBuffer!);
+            scatter.setParameter('buckets', this.orderBuckets);
+            scatter.setParameter('ordered', this.orderedBuffer!);
+            scatter.setupIndirectDispatch(dispatchSlot);
+            device.computeDispatch([scatter], 'sse-splat-order-scatter');
+        }
+
         const material = this.rasterMaterial;
         material.setParameter('splatCache', this.cacheBuffer!);
         material.setParameter('splatCount', this.counter);
+        if (ordered) material.setParameter('orderedSlots', this.orderedBuffer!);
         material.setParameter('viewportSize', [width, height, 2 / width, 2 / height]);
         // clip z is affine in view depth: z = -m22 * depth + m23 of the shader projection
         material.setParameter('clipZParams', [
@@ -850,8 +935,10 @@ class StochasticSplatRenderer {
     private ensureCache(splats: number) {
         if (splats <= this.cacheSlots) return;
         this.cacheBuffer?.destroy();
+        this.orderedBuffer?.destroy();
         this.cacheSlots = Math.max(1, Math.ceil(splats * 1.25));
         this.cacheBuffer = new StorageBuffer(this.device, this.cacheSlots * CACHE_WORDS * 4, BUFFERUSAGE_COPY_SRC);
+        this.orderedBuffer = new StorageBuffer(this.device, this.cacheSlots * 4);
     }
 
     // sphere-frustum test per node on the cpu: thousands of nodes, one bit each
@@ -872,14 +959,14 @@ class StochasticSplatRenderer {
         this.nodeVisibleBuffer!.write(0, bits, 0, words);
     }
 
-    private ensureProjector(occlusion: boolean) {
+    private ensureProjector(occlusion: boolean, ordered: boolean) {
         const sourceKey = this.source.shaderKey();
         if (this.projectorSourceKey !== sourceKey) {
             // a different source: every specialisation and the bind group format go
             this.destroyProjector();
             this.projectorSourceKey = sourceKey;
         }
-        const key = occlusion ? 'occlusion' : 'plain';
+        const key = `${occlusion ? 'occlusion' : 'plain'}-${ordered ? 'bucket' : 'append'}`;
         const existing = this.projectors.get(key);
         if (existing) return existing;
         const { device } = this;
@@ -890,14 +977,15 @@ class StochasticSplatRenderer {
             new BindStorageBufferFormat('counter', SHADERSTAGE_COMPUTE),
             new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE),
             new BindStorageBufferFormat('occL1', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('occL2', SHADERSTAGE_COMPUTE, true)
+            new BindStorageBufferFormat('occL2', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('buckets', SHADERSTAGE_COMPUTE)
         ];
         const formats = [...fixed, ...this.source.bindFormats()] as ConstructorParameters<typeof BindGroupFormat>[1];
         this.projectorBindGroupFormat ??= new BindGroupFormat(device, formats);
         const shader = new Shader(device, {
             name: `sse-splat-project-${key}`,
             shaderLanguage: SHADERLANGUAGE_WGSL,
-            cshader: projectorWGSL(this.source.readChunk(fixed.length), occlusion),
+            cshader: projectorWGSL(this.source.readChunk(fixed.length), occlusion, ordered),
             computeUniformBufferFormats: {
                 // the same order as the wgsl struct; both follow the same alignment rules
                 uniforms: new UniformBufferFormat(device, [
@@ -921,7 +1009,9 @@ class StochasticSplatRenderer {
                     new UniformFormat('occBlocksX2', UNIFORMTYPE_UINT),
                     new UniformFormat('occBlocksY2', UNIFORMTYPE_UINT),
                     new UniformFormat('occlusionMode', UNIFORMTYPE_UINT),
-                    new UniformFormat('prevFlip', UNIFORMTYPE_FLOAT)
+                    new UniformFormat('prevFlip', UNIFORMTYPE_FLOAT),
+                    new UniformFormat('keyLogNear', UNIFORMTYPE_FLOAT),
+                    new UniformFormat('keyInvLogRange', UNIFORMTYPE_FLOAT)
                 ])
             },
             computeBindGroupFormat: this.projectorBindGroupFormat
@@ -959,6 +1049,14 @@ class StochasticSplatRenderer {
         for (const format of this.reduceFormats) format.destroy();
         this.occL1.destroy();
         this.occL2.destroy();
+        for (const compute of [this.orderScan, this.orderScatter]) {
+            compute.shader.destroy();
+            compute.destroy();
+        }
+        for (const format of this.orderFormats) format.destroy();
+        this.orderBuckets.destroy();
+        this.orderedBuffer?.destroy();
+        this.orderedBuffer = null;
 
         this.chunkBuffer?.destroy();
         this.nodeVisibleBuffer?.destroy();

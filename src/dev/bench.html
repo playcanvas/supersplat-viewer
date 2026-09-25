@@ -61,7 +61,7 @@
               poses=<url>                   json array of { name, snapshot } (window.getCameraState shape)
                                             or { name, position, target, fov }; default: the start pose
               modes=sorted,stochastic       which renderers to load
-              variants=cull:off;cull:l2     stochastic variant strings, ; separated (keys: spp, compose, cull)
+              variants=cull:off;cull:l2     stochastic variant strings, ; separated (keys: spp, compose, cull, order)
               rounds=3 warmup=40 frames=180
               width=1280 height=720         host size in css pixels (the canvas follows the dpr rule)
               budget=<millions>             default 8; the engine allocates its work buffer for the whole budget
