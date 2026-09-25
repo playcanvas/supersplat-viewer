@@ -52,6 +52,10 @@ type EngineWorldState = {
 type EngineRenderer = {
     prepareRenderView: (...args: unknown[]) => boolean;
     meshInstance?: { visible: boolean } | null;
+    // the hybrid renderer's gpu pipeline, created lazily by its render prep and its pick prep
+    gpuSorter?: { destroy(): void } | null;
+    projector?: { destroy(): void } | null;
+    intervalCompaction?: { destroy(): void } | null;
 };
 
 type EngineManager = {
@@ -205,6 +209,18 @@ class EngineResidentSetProvider {
             renderer.prepareRenderView = () => false;
         }
         if (renderer.meshInstance) renderer.meshInstance.visible = false;
+        // The manager's first update runs its render prep before frame:ready fires, and
+        // material:created fires before the layer data holds the manager, so the engine's
+        // projector, sorter and compaction get allocated once (32 bytes a splat and more).
+        // Release them; the engine recreates them lazily if it renders again (XR, restore)
+        // or picks through its sorted path.
+        for (const key of ['gpuSorter', 'projector', 'intervalCompaction'] as const) {
+            const resource = renderer[key];
+            if (resource) {
+                resource.destroy();
+                renderer[key] = null;
+            }
+        }
     }
 
     restore() {

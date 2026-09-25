@@ -297,7 +297,9 @@ class Viewer {
                     source: config.splatSource,
                     variant: config.variant
                 });
-                events.fire('splatRenderer:ready', this.splatRenderer);
+                // announced on the first frame rather than here: createViewer resolves after this
+                // constructor, so a page can only subscribe once loading is under way
+                events.once('firstFrame', () => events.fire('splatRenderer:ready', this.splatRenderer));
             }
         }
 

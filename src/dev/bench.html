@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>SuperSplat Viewer — renderer bench</title>
+        <link rel="stylesheet" href="./index.css" />
+        <style>
+            body {
+                margin: 0;
+                background: #181818;
+                color: #ddd;
+                font: 12px/1.5 monospace;
+            }
+            #host {
+                position: relative;
+            }
+            #panel {
+                padding: 8px 12px;
+            }
+            #log {
+                white-space: pre-wrap;
+                margin: 0;
+            }
+            #log .fail {
+                color: #f66;
+            }
+            table {
+                border-collapse: collapse;
+                margin: 8px 0;
+            }
+            td,
+            th {
+                border: 1px solid #444;
+                padding: 2px 8px;
+                text-align: right;
+            }
+            th:first-child,
+            td:first-child {
+                text-align: left;
+            }
+            canvas.preview {
+                width: 240px;
+                margin: 4px;
+                outline: 1px solid #444;
+            }
+        </style>
+    </head>
+    <body>
+        <!--
+            Bench harness for the splat renderers (docs/stochastic-renderer.md). Loads the scene once
+            per mode (the engine's sorted renderer, then the opt-in stochastic renderer), sets each
+            camera pose, and measures every variant with the engine's gpu timestamp profiler while a
+            MessageChannel pump drives frames as fast as the gpu takes them, so the queue stays
+            saturated regardless of vsync or tab visibility. Three round-robin rounds per pose;
+            median-of-medians and min-of-mins are reported. Stochastic frames are diffed against the
+            sorted frame at the same pose, and against a second stochastic frame with another seed
+            for the noise floor. Results download as json.
+
+            Params:
+              content=<url> settings=<url>  the scene (fullload and a large budget keep the resident set fixed)
+              poses=<url>                   json array of { name, snapshot } (window.getCameraState shape)
+                                            or { name, position, target, fov }; default: the start pose
+              modes=sorted,stochastic       which renderers to load
+              variants=cull:off;cull:l2     stochastic variant strings, ; separated (keys: spp, compose, cull)
+              rounds=3 warmup=40 frames=180
+              width=1280 height=720         host size in css pixels (the canvas follows the dpr rule)
+              budget=<millions>             default 8; the engine allocates its work buffer for the whole budget
+              nodiff                        skip the image comparison
+              fx hpr                        post effects / high precision rendering, off by default
+        -->
+        <div id="host"></div>
+        <div id="panel">
+            <button id="download" disabled>Download json</button>
+            <div id="tables"></div>
+            <div id="previews"></div>
+            <pre id="log"></pre>
+        </div>
+        <script type="module">
+            import { createViewer } from './index.js';
+
+            const params = new URL(location.href).searchParams;
+            const host = document.getElementById('host');
+            const logEl = document.getElementById('log');
+            const log = (message, fail = false) => {
+                const line = document.createElement('div');
+                line.textContent = message;
+                if (fail) line.className = 'fail';
+                logEl.appendChild(line);
+                console.log(message);
+            };
+            window.addEventListener('error', (event) => log(`ERROR ${event.error?.stack ?? event.message}`, true));
+            window.addEventListener('unhandledrejection', (event) =>
+                log(`ERROR ${event.reason?.stack ?? event.reason}`, true)
+            );
+
+            const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            const until = async (test, timeoutMs) => {
+                const deadline = performance.now() + timeoutMs;
+                while (!test()) {
+                    if (performance.now() > deadline) return false;
+                    await wait(50);
+                }
+                return true;
+            };
+            const median = (values) => {
+                const sorted = [...values].sort((a, b) => a - b);
+                const mid = sorted.length >> 1;
+                return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+            };
+
+            const width = Number(params.get('width') ?? 1280);
+            const height = Number(params.get('height') ?? 720);
+            host.style.width = `${width}px`;
+            host.style.height = `${height}px`;
+
+            const modes = (params.get('modes') ?? 'sorted,stochastic').split(',').filter(Boolean);
+            const variants = (params.get('variants') ?? 'cull:off;cull:l2').split(';').filter(Boolean);
+            const rounds = Number(params.get('rounds') ?? 3);
+            const warmup = Number(params.get('warmup') ?? 40);
+            const frames = Number(params.get('frames') ?? 180);
+            // the engine allocates its work buffer for the whole budget up front (budget x 1.15 slots
+            // x 24 bytes), so keep it just above the scene's splat count
+            const budget = Number(params.get('budget') ?? 8);
+            const diff = !params.has('nodiff');
+            const contentUrl = params.get('content') ?? './shoe.ply';
+            const settings = await (await fetch(params.get('settings') ?? './settings.json')).json();
+
+            // poses: the debug panel's snapshot shape, or position/target/fov converted the way
+            // Camera.look does (see src/core/math.ts vecToAngles)
+            const toSnapshot = (pose) => {
+                if (pose.snapshot) return pose.snapshot;
+                const [px, py, pz] = pose.position;
+                const [tx, ty, tz] = pose.target;
+                let dx = tx - px;
+                let dy = ty - py;
+                let dz = tz - pz;
+                const distance = Math.hypot(dx, dy, dz);
+                dx /= distance;
+                dy /= distance;
+                dz /= distance;
+                const radToDeg = 180 / Math.PI;
+                const horizLenSq = dx * dx + dz * dz;
+                return {
+                    position: [px, py, pz],
+                    angles: [
+                        Math.asin(Math.max(-1, Math.min(1, dy))) * radToDeg,
+                        horizLenSq > 1e-8 ? Math.atan2(-dx, -dz) * radToDeg : 0,
+                        0
+                    ],
+                    distance,
+                    fov: pose.fov ?? 85,
+                    mode: 'orbit'
+                };
+            };
+            const posesUrl = params.get('poses');
+            const poses = posesUrl
+                ? (await (await fetch(posesUrl)).json()).map((p) => ({ name: p.name, snapshot: toSnapshot(p) }))
+                : null;
+
+            // one frame, sequenced as AppBase.tick does it, without waiting for the display
+            const pumpFrame = (app, dt) => {
+                app.fire('frameupdate', dt * 1000);
+                app.update(dt);
+                app.fire('framerender');
+                app.render();
+                app.renderNextFrame = false;
+                app.fire('frameend');
+            };
+            const pump = (app, count, onFrame) =>
+                new Promise((resolve) => {
+                    const channel = new MessageChannel();
+                    let i = 0;
+                    channel.port1.onmessage = () => {
+                        if (i >= count) {
+                            channel.port1.close();
+                            resolve();
+                            return;
+                        }
+                        pumpFrame(app, 1 / 60);
+                        onFrame?.(i);
+                        i++;
+                        channel.port2.postMessage(0);
+                    };
+                    channel.port2.postMessage(0);
+                });
+            const stopTicker = (app) => {
+                if (app.frameRequestId) {
+                    cancelAnimationFrame(app.frameRequestId);
+                    app.frameRequestId = null;
+                }
+            };
+            const startTicker = (app) => {
+                if (!app.frameRequestId) app.requestAnimationFrame();
+            };
+            const nextFrame = (app) => new Promise((resolve) => app.once('frameend', resolve));
+            // the viewer renders on demand, and frameend fires whether or not a frame rendered
+            const renderFrame = (app) => {
+                app.renderNextFrame = true;
+                return nextFrame(app);
+            };
+
+            // gpu spans: the engine's timestamp profiler reports asynchronously, a few frames late;
+            // the pass names live in pastFrameAllocations and are consumed by report(), so copy
+            // them first
+            const attachProfiler = (device) => {
+                const profiler = device.gpuProfiler;
+                profiler.enabled = true;
+                const samples = [];
+                const original = profiler.report;
+                profiler.report = function (renderVersion, timings, frameTime) {
+                    const names = this.pastFrameAllocations.get(renderVersion);
+                    if (timings && names) {
+                        const passes = {};
+                        let sum = 0;
+                        names.forEach((name, i) => {
+                            passes[name] = (passes[name] ?? 0) + timings[i];
+                            sum += timings[i];
+                        });
+                        samples.push({ frame: frameTime ?? sum, passes });
+                    }
+                    return original.call(this, renderVersion, timings, frameTime);
+                };
+                return {
+                    samples,
+                    detach() {
+                        profiler.report = original;
+                        profiler.enabled = false;
+                    }
+                };
+            };
+
+            const capture = async (viewer, w, h) => {
+                const result = await viewer.captureFrame({ width: w, height: h, supersample: 1 });
+                return Uint8ClampedArray.from(atob(result.data), (c) => c.charCodeAt(0));
+            };
+            // 8-bit rgb metrics: pixels changed by more than 8/255 in any channel, mean absolute
+            // and rms difference (the editor's convention)
+            const imageDiff = (a, b) => {
+                let changed = 0;
+                let sumAbs = 0;
+                let sumSq = 0;
+                const pixels = a.length / 4;
+                for (let i = 0; i < a.length; i += 4) {
+                    let pixelChanged = false;
+                    for (let c = 0; c < 3; c++) {
+                        const d = a[i + c] - b[i + c];
+                        if (Math.abs(d) > 8) pixelChanged = true;
+                        sumAbs += Math.abs(d);
+                        sumSq += d * d;
+                    }
+                    if (pixelChanged) changed++;
+                }
+                return {
+                    changedPct: (100 * changed) / pixels,
+                    meanAbs: sumAbs / (pixels * 3),
+                    rms: Math.sqrt(sumSq / (pixels * 3))
+                };
+            };
+            const preview = (bytes, w, h, title) => {
+                const canvas = document.createElement('canvas');
+                canvas.className = 'preview';
+                canvas.width = w;
+                canvas.height = h;
+                canvas.title = title;
+                canvas.getContext('2d').putImageData(new ImageData(bytes, w, h), 0, 0);
+                document.getElementById('previews').appendChild(canvas);
+            };
+
+            const loadViewer = async (mode) => {
+                const viewer = await createViewer({
+                    container: host,
+                    settings,
+                    contentUrl,
+                    stochastic: mode === 'stochastic',
+                    renderer: 'webgpu',
+                    ui: false,
+                    noanim: true,
+                    nofx: !params.has('fx'),
+                    hpr: params.has('hpr'),
+                    fullload: true,
+                    budget,
+                    // the debug panel publishes window.setCameraState, which the poses use
+                    debug: true,
+                    exposeGlobals: true
+                });
+                let renderer = null;
+                viewer.events.once('splatRenderer:ready', (r) => {
+                    renderer = r;
+                    // captures photograph the culled frame, so the image diff covers the cull
+                    renderer.allowQueryCull = true;
+                });
+                const { app } = viewer;
+                app.graphicsDevice.wgpu?.addEventListener('uncapturederror', (event) =>
+                    log(`GPU ERROR ${event.error.message}`, true)
+                );
+                if (!(await until(() => viewer.state.loaded, 300000))) {
+                    throw new Error(`${mode}: did not load within 300s`);
+                }
+                // let streaming and the first sorts settle
+                for (let i = 0; i < 30; i++) await nextFrame(app);
+                return { viewer, app, renderer };
+            };
+
+            const measure = async (app, profiler, label) => {
+                profiler.samples.length = 0;
+                await pump(app, warmup + frames);
+                // reports trail the frames; give them a moment
+                await until(() => profiler.samples.length >= warmup + frames - 5, 2000);
+                const samples = profiler.samples.slice(warmup);
+                const frameTimes = samples.map((s) => s.frame);
+                const passNames = new Set();
+                samples.forEach((s) => Object.keys(s.passes).forEach((n) => passNames.add(n)));
+                const passes = {};
+                for (const name of passNames) {
+                    passes[name] = median(samples.map((s) => s.passes[name] ?? 0));
+                }
+                return {
+                    label,
+                    samples: samples.length,
+                    median: median(frameTimes),
+                    min: Math.min(...frameTimes),
+                    passes
+                };
+            };
+
+            const adapter = await navigator.gpu?.requestAdapter();
+            const adapterInfo = adapter?.info ?? (await adapter?.requestAdapterInfo?.()) ?? {};
+            const results = {
+                date: new Date().toISOString(),
+                userAgent: navigator.userAgent,
+                adapter: {
+                    vendor: adapterInfo.vendor,
+                    architecture: adapterInfo.architecture,
+                    device: adapterInfo.device,
+                    description: adapterInfo.description
+                },
+                content: contentUrl,
+                dpr: window.devicePixelRatio,
+                host: { width, height },
+                rounds,
+                warmup,
+                frames,
+                budget,
+                modes: {}
+            };
+
+            const references = new Map(); // pose name -> sorted frame bytes
+            let target = null;
+            let poseList = poses;
+
+            for (const mode of modes) {
+                log(`loading ${mode}...`);
+                const { viewer, app, renderer } = await loadViewer(mode);
+                const device = app.graphicsDevice;
+                target = { width: device.width, height: device.height };
+                results.target = target;
+                log(
+                    `${mode}: loaded, ${app.stats.frame.gsplats} splats resident, target ${target.width}x${target.height}`
+                );
+                if (mode === 'stochastic' && !renderer) {
+                    log('stochastic renderer not created (webgl fallback?)', true);
+                    viewer.destroy();
+                    continue;
+                }
+
+                const modeResult = { resident: app.stats.frame.gsplats, poses: [] };
+                results.modes[mode] = modeResult;
+                const profiler = attachProfiler(device);
+                // No poses: frame the whole scene, plus a pose at the subject. The subject is the
+                // per-axis median of the splat centres (robust to the sky and background that
+                // dominate a capture's bound), viewed from 1.5 spreads away, the spread being the
+                // median absolute deviation. Centres exist on the cpu only for the sorted mode
+                // (the stochastic mode switches them off), so poses are computed once and reused.
+                if (!poseList) {
+                    viewer.frameScene();
+                    for (let i = 0; i < 120; i++) await nextFrame(app);
+                    poseList = [{ name: 'framed', snapshot: window.getCameraState() }];
+                    const gsplat = app.root.findByName('gsplat')?.gsplat;
+                    const centers = gsplat?.resource?.centers;
+                    if (centers && centers.length >= 3) {
+                        const count = centers.length / 3;
+                        const step = Math.max(1, Math.floor(count / 200000));
+                        const axis = (k) => {
+                            const values = [];
+                            for (let i = 0; i < count; i += step) values.push(centers[i * 3 + k]);
+                            const med = median(values);
+                            const mad = median(values.map((v) => Math.abs(v - med)));
+                            return { med, mad };
+                        };
+                        const [x, y, z] = [axis(0), axis(1), axis(2)];
+                        const transform = gsplat.entity.getWorldTransform();
+                        const local = new (app.root.getPosition().constructor)(x.med, y.med, z.med);
+                        const subject = transform.transformPoint(local);
+                        const spread = Math.hypot(x.mad, y.mad, z.mad) * transform.getScale().x;
+                        const dir = [0.5, 0.35, 1];
+                        const len = Math.hypot(...dir);
+                        const distance = 1.5 * spread;
+                        poseList.push({
+                            name: 'subject',
+                            snapshot: toSnapshot({
+                                position: [
+                                    subject.x + (dir[0] / len) * distance,
+                                    subject.y + (dir[1] / len) * distance,
+                                    subject.z + (dir[2] / len) * distance
+                                ],
+                                target: [subject.x, subject.y, subject.z],
+                                fov: 85
+                            })
+                        });
+                    } else {
+                        log('no cpu centres: run the sorted mode first for a subject pose');
+                    }
+                }
+                const modeVariants = mode === 'stochastic' ? variants : ['sorted'];
+
+                for (const pose of poseList) {
+                    window.setCameraState(pose.snapshot);
+                    for (let i = 0; i < 3; i++) await renderFrame(app);
+                    const poseResult = { name: pose.name, variants: {}, images: null };
+                    modeResult.poses.push(poseResult);
+
+                    if (diff) {
+                        if (mode === 'sorted') {
+                            const bytes = await capture(viewer, target.width, target.height);
+                            references.set(pose.name, bytes);
+                            preview(bytes, target.width, target.height, `${pose.name} sorted`);
+                        } else {
+                            // every variant against the sorted frame; the noise floor once, from a
+                            // second frame of the first variant with another seed
+                            const reference = references.get(pose.name);
+                            poseResult.images = {};
+                            for (const [i, variant] of variants.entries()) {
+                                renderer.setVariant(variant);
+                                renderer.seed = 0;
+                                // rendered frames first, so the cull has a previous on-screen frame
+                                for (let f = 0; f < 2; f++) await renderFrame(app);
+                                const a = await capture(viewer, target.width, target.height);
+                                let noiseFloor = null;
+                                if (i === 0) {
+                                    renderer.seed = 1;
+                                    for (let f = 0; f < 2; f++) await renderFrame(app);
+                                    const b = await capture(viewer, target.width, target.height);
+                                    renderer.seed = 0;
+                                    noiseFloor = imageDiff(a, b);
+                                    preview(a, target.width, target.height, `${pose.name} ${variant}`);
+                                }
+                                poseResult.images[variant] = {
+                                    vsSorted: reference ? imageDiff(a, reference) : null,
+                                    noiseFloor
+                                };
+                                const v = poseResult.images[variant].vsSorted;
+                                log(
+                                    `${mode} ${pose.name} ${variant}: vs sorted ${v ? `${v.changedPct.toFixed(2)}% changed, meanAbs ${v.meanAbs.toFixed(2)}, rms ${v.rms.toFixed(2)}` : 'n/a'}${noiseFloor ? `; noise floor rms ${noiseFloor.rms.toFixed(2)}` : ''}`
+                                );
+                            }
+                        }
+                    }
+
+                    // three round-robin rounds so drift affects every variant equally
+                    stopTicker(app);
+                    const runs = new Map();
+                    for (let round = 0; round < rounds; round++) {
+                        for (const variant of modeVariants) {
+                            if (renderer) renderer.setVariant(variant);
+                            const run = await measure(app, profiler, variant);
+                            if (!runs.has(variant)) runs.set(variant, []);
+                            runs.get(variant).push(run);
+                        }
+                    }
+                    for (const [variant, list] of runs) {
+                        // survivors and culled count of a fresh frame in this variant
+                        let stats = null;
+                        if (renderer) {
+                            renderer.setVariant(variant);
+                            await pump(app, 3);
+                            stats = await renderer.readStats();
+                        }
+                        const passes = {};
+                        for (const name of Object.keys(list[0].passes)) {
+                            passes[name] = median(list.map((r) => r.passes[name] ?? 0));
+                        }
+                        poseResult.variants[variant] = {
+                            median: median(list.map((r) => r.median)),
+                            min: Math.min(...list.map((r) => r.min)),
+                            samples: list.reduce((s, r) => s + r.samples, 0),
+                            passes,
+                            survivors: stats?.survivors ?? null,
+                            occluded: stats?.occluded ?? null
+                        };
+                        const passText = Object.entries(passes)
+                            .filter(([, ms]) => ms >= 0.01)
+                            .map(([name, ms]) => `${name} ${ms.toFixed(3)}`)
+                            .join(', ');
+                        const counts = stats ? ` survivors ${stats.survivors}, occluded ${stats.occluded};` : '';
+                        log(
+                            `${mode} ${pose.name} ${variant}: ${poseResult.variants[variant].median.toFixed(3)} / ${poseResult.variants[variant].min.toFixed(3)} ms (${poseResult.variants[variant].samples} samples)${counts} [${passText}]`
+                        );
+                    }
+                    startTicker(app);
+                    await nextFrame(app);
+
+                    const vram = app.stats.vram;
+                    poseResult.memory = {
+                        vramTotal: vram.tex + vram.vb + vram.ib + vram.sb + vram.ub,
+                        vramTex: vram.tex,
+                        vramSb: vram.sb,
+                        rendererBytes: renderer ? renderer.gpuBytes : null,
+                        survivors: renderer ? (await renderer.readStats()).survivors : app.stats.frame.gsplats
+                    };
+                }
+
+                profiler.detach();
+                viewer.destroy();
+            }
+
+            // summary table
+            const tables = document.getElementById('tables');
+            const table = document.createElement('table');
+            const header = document.createElement('tr');
+            [
+                'pose',
+                'mode',
+                'variant',
+                'median ms',
+                'min ms',
+                'survivors',
+                'occluded',
+                'vram MB',
+                'renderer MB',
+                'vs sorted rms',
+                'noise rms'
+            ].forEach((h) => {
+                const th = document.createElement('th');
+                th.textContent = h;
+                header.appendChild(th);
+            });
+            table.appendChild(header);
+            for (const [mode, modeResult] of Object.entries(results.modes)) {
+                for (const pose of modeResult.poses) {
+                    for (const [variant, run] of Object.entries(pose.variants)) {
+                        const row = document.createElement('tr');
+                        const cells = [
+                            pose.name,
+                            mode,
+                            variant,
+                            run.median.toFixed(3),
+                            run.min.toFixed(3),
+                            String(run.survivors ?? pose.memory?.survivors ?? ''),
+                            run.occluded != null ? String(run.occluded) : '',
+                            ((pose.memory?.vramTotal ?? 0) / 1048576).toFixed(1),
+                            pose.memory?.rendererBytes != null ? (pose.memory.rendererBytes / 1048576).toFixed(1) : '',
+                            pose.images?.[variant]?.vsSorted ? pose.images[variant].vsSorted.rms.toFixed(2) : '',
+                            pose.images?.[variant]?.noiseFloor ? pose.images[variant].noiseFloor.rms.toFixed(2) : ''
+                        ];
+                        cells.forEach((c) => {
+                            const td = document.createElement('td');
+                            td.textContent = c;
+                            row.appendChild(td);
+                        });
+                        table.appendChild(row);
+                    }
+                }
+            }
+            tables.appendChild(table);
+            window.benchResults = results;
+            const download = document.getElementById('download');
+            download.disabled = false;
+            download.onclick = () => {
+                const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `bench-${contentUrl.split('/').pop()}-${Date.now()}.json`;
+                a.click();
+            };
+            log('done');
+        </script>
+    </body>
+</html>

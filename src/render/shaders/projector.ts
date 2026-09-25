@@ -11,18 +11,34 @@ const PROJECTOR_WORKGROUP_SIZE = 256;
 /** Splats per chunk-table entry; a chunk is one workgroup. */
 const CHUNK_SIZE = PROJECTOR_WORKGROUP_SIZE;
 
-const projectorWGSL = (readChunk: string) => /* wgsl */ `
+const projectorWGSL = (readChunk: string, occlusion: boolean) => /* wgsl */ `
 struct ProjectorUniforms {
     view: mat4x4f,
     viewProj: mat4x4f,
+    // the previous frame, for the occlusion cull: its view and view-projection, its clip-z
+    // mapping (a, b, isOrtho, 0), viewport and focal length
+    prevViewProj: mat4x4f,
+    prevView: mat4x4f,
+    prevClipZ: vec4f,
     viewport: vec2f,
     focal: vec2f,
+    prevViewport: vec2f,
+    prevFocal: vec2f,
     numChunks: u32,
     splatTextureSize: u32,
     isOrtho: u32,
     minPixelSize: f32,
     alphaClip: f32,
-    minContribution: f32
+    minContribution: f32,
+    // the occlusion grid: level 1 (8 px) and level 2 (32 px) block counts
+    occBlocksX1: u32,
+    occBlocksY1: u32,
+    occBlocksX2: u32,
+    occBlocksY2: u32,
+    // 0 off, 1 level 1 only, 2 both levels
+    occlusionMode: u32,
+    // -1 when the previous depth texture's rows run bottom-up (an offscreen target), else 1
+    prevFlip: f32
 }
 
 // chunk table entry: slotBase, count, node, lod | file << 16
@@ -30,9 +46,12 @@ struct ProjectorUniforms {
 // one bit per node: 1 = inside the frustum this frame
 @group(0) @binding(1) var<storage, read> nodeVisible: array<u32>;
 @group(0) @binding(2) var<storage, read_write> cache: array<u32>;
-// [0] survivors this frame
+// [0] survivors this frame, [1] splats the occlusion cull removed
 @group(0) @binding(3) var<storage, read_write> counter: array<atomic<u32>>;
 @group(0) @binding(4) var<uniform> uniforms: ProjectorUniforms;
+// the previous frame's farthest depth per block, as f32 bits (see shaders/reduce.ts)
+@group(0) @binding(5) var<storage, read> occL1: array<u32>;
+@group(0) @binding(6) var<storage, read> occL2: array<u32>;
 
 struct Splat {
     index: u32,
@@ -62,12 +81,35 @@ fn rotationMatrix(qIn: vec4f) -> mat3x3f {
 
 struct Projected {
     valid: bool,
+    occluded: bool,
     words: array<u32, ${CACHE_WORDS}>
+}
+
+// The farthest depth over the (2g+1)^2 blocks around a block, on one grid level.
+fn farthestL1(block: vec2i, gather: i32, blocks: vec2i) -> u32 {
+    var farthest = 0u;
+    for (var dy = -gather; dy <= gather; dy++) {
+        for (var dx = -gather; dx <= gather; dx++) {
+            farthest = max(farthest, occL1[u32((block.y + dy) * blocks.x + block.x + dx)]);
+        }
+    }
+    return farthest;
+}
+
+fn farthestL2(block: vec2i, gather: i32, blocks: vec2i) -> u32 {
+    var farthest = 0u;
+    for (var dy = -gather; dy <= gather; dy++) {
+        for (var dx = -gather; dx <= gather; dx++) {
+            farthest = max(farthest, occL2[u32((block.y + dy) * blocks.x + block.x + dx)]);
+        }
+    }
+    return farthest;
 }
 
 fn project(slot: u32) -> Projected {
     var result: Projected;
     result.valid = false;
+    result.occluded = false;
 
     setSplat(slot);
     let center = getCenter();
@@ -174,6 +216,69 @@ fn project(slot: u32) -> Projected {
         return result;
     }
 
+${
+    occlusion
+        ? `
+    // Occlusion cull against the previous frame. Each stored depth is the nearest sample that
+    // survived there, so the farthest depth over the blocks a splat covered bounds what could
+    // still have shown behind it; a splat whose front (its centre less 2 sqrt(2) sigma along the
+    // view, the same cut-off as the quad's edge) lies beyond that bound was invisible last
+    // frame, up to sampling. Static splats reproject exactly through the previous view, so only
+    // true disocclusions arrive a frame late. The footprint the splat had last frame bounds the
+    // gather; footprints up to 16 px use the 8 px grid, up to 64 px the 32 px grid, larger ones
+    // skip the test.
+    if (uniforms.occlusionMode != 0u) {
+        let prevClip = uniforms.prevViewProj * vec4f(center, 1.0);
+        let prevDepth = -(uniforms.prevView * vec4f(center, 1.0)).z;
+        let prevOrtho = uniforms.prevClipZ.z != 0.0;
+        if (prevClip.w > 0.0 && (prevOrtho || prevDepth > 0.0)) {
+            let prevNdc = prevClip.xy / prevClip.w;
+            let halfExtent = len1 * radiusScale;
+            let prevHalfExtent = halfExtent * (uniforms.prevFocal.x / focal.x)
+                * select(depth / max(prevDepth, 0.001), 1.0, prevOrtho);
+            let footprint = max(halfExtent, prevHalfExtent);
+            var level = 1u;
+            var blockSize = 8.0;
+            var blocks = vec2i(i32(uniforms.occBlocksX1), i32(uniforms.occBlocksY1));
+            if (footprint > 16.0) {
+                level = 2u;
+                blockSize = 32.0;
+                blocks = vec2i(i32(uniforms.occBlocksX2), i32(uniforms.occBlocksY2));
+            }
+            if (footprint <= 64.0 && level <= uniforms.occlusionMode) {
+                let gather = max(i32(ceil(footprint / blockSize)), 1);
+                let prevPixel = vec2f(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * uniforms.prevFlip * 0.5) * uniforms.prevViewport;
+                let block = vec2i(floor(prevPixel / blockSize));
+                if (block.x >= gather && block.y >= gather && block.x < blocks.x - gather && block.y < blocks.y - gather) {
+                    let front = prevDepth - 2.8284 * sqrt(c22);
+                    let w = select(front, 1.0, prevOrtho);
+                    if (w > 0.0) {
+                        let frontZ = clamp(uniforms.prevClipZ.x * front + uniforms.prevClipZ.y, 0.0, w) / w;
+                        // the block under the centre first: the neighbourhood's maximum is at
+                        // least its maximum, so a splat that block alone cannot cull is visible,
+                        // and most splats leave here after one load
+                        let centreIndex = u32(block.y * blocks.x + block.x);
+                        var farthest = select(occL1[centreIndex], occL2[centreIndex], level == 2u);
+                        if (frontZ > bitcast<f32>(farthest)) {
+                            if (level == 1u) {
+                                farthest = farthestL1(block, gather, blocks);
+                            } else {
+                                farthest = farthestL2(block, gather, blocks);
+                            }
+                            if (frontZ > bitcast<f32>(farthest)) {
+                                result.occluded = true;
+                                return result;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+`
+        : ''
+}
     let color = max(getColor(), vec3f(0.0));
 
     // rgb: 10/10/10 unorm with a 2-bit shared exponent (scale 1/2/4/8, range [0, 8])
@@ -206,6 +311,7 @@ fn project(slot: u32) -> Projected {
 }
 
 var<workgroup> wgCount: atomic<u32>;
+var<workgroup> wgOccluded: atomic<u32>;
 var<workgroup> wgBase: u32;
 
 @compute @workgroup_size(${PROJECTOR_WORKGROUP_SIZE})
@@ -218,6 +324,7 @@ fn main(
     let chunkIndex = wg.x + wg.y * numWorkgroups.x;
     var projected: Projected;
     projected.valid = false;
+    projected.occluded = false;
     if (chunkIndex < uniforms.numChunks) {
         let chunk = chunks[chunkIndex];
         let visible = (nodeVisible[chunk.z >> 5u] >> (chunk.z & 31u)) & 1u;
@@ -231,10 +338,17 @@ fn main(
     if (projected.valid) {
         localSlot = atomicAdd(&wgCount, 1u);
     }
+    if (projected.occluded) {
+        atomicAdd(&wgOccluded, 1u);
+    }
     workgroupBarrier();
     if (local == 0u) {
         let n = atomicLoad(&wgCount);
         wgBase = select(0u, atomicAdd(&counter[0], n), n > 0u);
+        let o = atomicLoad(&wgOccluded);
+        if (o > 0u) {
+            atomicAdd(&counter[1], o);
+        }
     }
     workgroupBarrier();
     if (projected.valid) {
