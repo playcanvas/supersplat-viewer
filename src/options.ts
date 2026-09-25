@@ -62,6 +62,22 @@ type ViewerFlags = {
     fullload?: boolean;
     /** Render with antialiasing. */
     aa?: boolean;
+    /**
+     * Opt in to the experimental stochastic splat renderer: unsorted, depth-tested splats whose
+     * depth buffer also serves picking. WebGPU only; ignored on WebGL and while an XR session is
+     * active, where the engine's sorted renderer draws. Fixed for the life of the viewer.
+     */
+    stochastic?: boolean;
+    /**
+     * Developer knob for the stochastic renderer: the data path that feeds it. Default
+     * `workbuffer`, the engine's work buffer.
+     */
+    splatSource?: 'workbuffer' | 'direct' | 'light';
+    /**
+     * Developer knob for the stochastic renderer: comma-separated `key:value` experiment
+     * switches, e.g. `spp:1,compose:none`.
+     */
+    variant?: string;
     /** Splat budget in millions, overriding the platform and performance-mode table. */
     budget?: number;
     /** Render the collision heatmap debug overlay (WebGPU only). */

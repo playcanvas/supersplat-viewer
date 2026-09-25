@@ -38,6 +38,7 @@ import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
 import { NavCursor } from './nav-cursor';
 import { Picker } from './picker';
+import { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { CaptureOptions, Config, Global, XrMode } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
@@ -188,6 +189,9 @@ class Viewer {
 
     debugPanel: DebugPanel | null = null;
 
+    /** The opt-in stochastic renderer (WebGPU only); null when the engine's sorted renderer draws. */
+    splatRenderer: StochasticSplatRenderer | null = null;
+
     /** Set once {@link destroy} has run. Load continuations check it and bail. */
     destroyed = false;
 
@@ -283,9 +287,26 @@ class Viewer {
         // configure the camera
         this.configureCamera(settings);
 
-        // reconfigure camera when entering/exiting XR
+        // The stochastic renderer, when opted in. Created before the first frame so it can
+        // switch the engine's own splat renderer off as soon as the engine creates it. An
+        // instance without the flag never constructs it, and the sorted path is untouched.
+        if (config.stochastic && renderer === 'webgpu') {
+            const worldLayer = app.scene.layers.getLayerByName('World');
+            if (worldLayer) {
+                this.splatRenderer = new StochasticSplatRenderer(app, camera.camera, worldLayer, {
+                    source: config.splatSource,
+                    variant: config.variant
+                });
+                events.fire('splatRenderer:ready', this.splatRenderer);
+            }
+        }
+
+        // reconfigure camera when entering/exiting XR. The stochastic renderer has no stereo
+        // path yet, so the engine's renderer draws the splats for the session
         const configureXrCamera = () => {
-            if (!this.destroyed) this.configureCamera(settings);
+            if (this.destroyed) return;
+            this.configureCamera(settings);
+            this.splatRenderer?.setEnabled(!app.xr.active);
         };
         const xrStart = app.xr.on('start', configureXrCamera);
         const xrEnd = app.xr.on('end', configureXrCamera);
@@ -681,7 +702,12 @@ class Viewer {
                     events.on('performanceMode:changed', applyPerfSettings);
                     applyPerfSettings();
 
-                    gsplat.renderer = rendererTable[renderer];
+                    // the stochastic renderer consumes the engine's world under whatever
+                    // renderer mode the engine resolved; switching modes here would rebuild
+                    // the work buffer for nothing
+                    if (!this.splatRenderer) {
+                        gsplat.renderer = rendererTable[renderer];
+                    }
 
                     // wait for the first valid frame to complete rendering
                     app.once('frameend', () => {
@@ -886,6 +912,8 @@ class Viewer {
         this.voxelOverlay?.destroy();
         this.meshOverlay?.destroy();
         this.picker?.release();
+        this.splatRenderer?.destroy();
+        this.splatRenderer = null;
         this.capture?.destroy();
         this.capture = null;
         if (this.cameraFrame) {
