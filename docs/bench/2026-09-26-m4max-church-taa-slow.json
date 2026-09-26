@@ -1,0 +1,423 @@
+{
+  "note": "TAA (M8) quality on the church: converged at rest (260 frames, cap 256) against the sorted frame and against the mean of 128 raw frames (the renderer expectation, itself 4.5 rms noisy), and moving frames at orbit steps 60 and 180 of a 0.05 deg/frame orbit against the sorted frame at the same pose. Timings here are of the moving measurement (the work-buffer colour refresh is in them) and the per-pass names are misattributed when passes toggle between variants; use the frame totals.",
+  "date": "2026-09-26T04:32:18.109Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.7032.0 Chrome/152.0.7977.130 Safari/537.36",
+  "adapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "content": "./church.ply",
+  "dpr": 1.5,
+  "host": {
+    "width": 1280,
+    "height": 720
+  },
+  "splatSource": "workbuffer",
+  "move": 0.05,
+  "rounds": 1,
+  "warmup": 40,
+  "frames": 180,
+  "budget": 8,
+  "modes": {
+    "sorted": {
+      "resident": 4399819,
+      "poses": [
+        {
+          "name": "framed",
+          "variants": {
+            "sorted": {
+              "median": 4.063232,
+              "min": 3.801088,
+              "samples": 175,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 0.32767999999999997,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 0.393216,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.065536,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.065536,
+                "RenderPassForward": 3.080192,
+                "GSplatWorkBufferRenderPass": 0
+              },
+              "survivors": null,
+              "occluded": null
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 954153100,
+            "vramTex": 643518844,
+            "vramSb": 265772952,
+            "rendererBytes": null,
+            "survivors": 0
+          }
+        },
+        {
+          "name": "subject",
+          "variants": {
+            "sorted": {
+              "median": 10.092544,
+              "min": 8.257536,
+              "samples": 175,
+              "passes": {
+                "GSplatWorkBufferRenderPass": 2.097152,
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.131072,
+                "GSplatIntervalScatter": 0.589824,
+                "GSplatIntervalWriteIndirectArgs": 0.065536,
+                "GSplatProjector": 0.458752,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.131072,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.262144,
+                "RenderPassForward": 7.077888
+              },
+              "survivors": null,
+              "occluded": null
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 954153100,
+            "vramTex": 643518844,
+            "vramSb": 265772952,
+            "rendererBytes": null,
+            "survivors": 0
+          }
+        }
+      ]
+    },
+    "stochastic": {
+      "resident": 4399819,
+      "poses": [
+        {
+          "name": "framed",
+          "variants": {
+            "cull:off": {
+              "median": 0.589824,
+              "min": 0.458752,
+              "samples": 175,
+              "passes": {
+                "sse-splat-project": 0.262144,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.131072,
+                "sse-splat-taa": 0.196608,
+                "RenderPassForward": 0.196608,
+                "GSplatWorkBufferRenderPass": 0
+              },
+              "survivors": 10190,
+              "occluded": 0
+            },
+            "cull:off,taa:on": {
+              "median": 0.524288,
+              "min": 0.458752,
+              "samples": 180,
+              "passes": {
+                "sse-splat-project": 0.262144,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.131072,
+                "RenderPassForward": 0.196608,
+                "GSplatWorkBufferRenderPass": 0
+              },
+              "survivors": 10190,
+              "occluded": 0
+            },
+            "cull:off,taa:on,taaMotion:2": {
+              "median": 0.524288,
+              "min": 0.458752,
+              "samples": 180,
+              "passes": {
+                "sse-splat-project": 0.262144,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.131072,
+                "RenderPassForward": 0.196608,
+                "sse-splat-taa": 0,
+                "GSplatWorkBufferRenderPass": 0
+              },
+              "survivors": 10190,
+              "occluded": 0
+            }
+          },
+          "images": {
+            "cull:off": {
+              "vsSorted": {
+                "changedPct": 0.6572145061728395,
+                "meanAbs": 0.14878375771604938,
+                "rms": 2.445401025478546
+              },
+              "vsTruth": {
+                "changedPct": 0.6089409722222222,
+                "meanAbs": 0.10397055041152263,
+                "rms": 1.2613319934235177
+              },
+              "noiseFloor": {
+                "changedPct": 0.7114197530864198,
+                "meanAbs": 0.11342914094650206,
+                "rms": 1.3731854141318143
+              },
+              "moving": {
+                "60": {
+                  "changedPct": 0.6516685956790124,
+                  "meanAbs": 0.14484985853909466,
+                  "rms": 2.403897124736596
+                },
+                "180": {
+                  "changedPct": 0.6229745370370371,
+                  "meanAbs": 0.1317060506687243,
+                  "rms": 2.1775357643186557
+                }
+              },
+              "depthRoughness": null
+            },
+            "cull:off,taa:on": {
+              "vsSorted": {
+                "changedPct": 0.2566068672839506,
+                "meanAbs": 0.09875996656378601,
+                "rms": 2.286453455870947
+              },
+              "vsTruth": {
+                "changedPct": 0.08058449074074074,
+                "meanAbs": 0.03513438786008231,
+                "rms": 0.41800556487129986
+              },
+              "noiseFloor": {
+                "changedPct": 0.02189429012345679,
+                "meanAbs": 0.005963220164609054,
+                "rms": 0.18639765117119883
+              },
+              "moving": {
+                "60": {
+                  "changedPct": 0.42703510802469136,
+                  "meanAbs": 0.1172120949074074,
+                  "rms": 2.282162284467087
+                },
+                "180": {
+                  "changedPct": 0.40070408950617287,
+                  "meanAbs": 0.10587175282921811,
+                  "rms": 2.049715137226566
+                }
+              },
+              "depthRoughness": null
+            },
+            "cull:off,taa:on,taaMotion:2": {
+              "vsSorted": {
+                "changedPct": 0.2529417438271605,
+                "meanAbs": 0.09858024691358025,
+                "rms": 2.288647843294657
+              },
+              "vsTruth": {
+                "changedPct": 0.07605131172839506,
+                "meanAbs": 0.03503954475308642,
+                "rms": 0.4224403219595449
+              },
+              "noiseFloor": {
+                "changedPct": 0.021315586419753087,
+                "meanAbs": 0.006211098251028806,
+                "rms": 0.2054671669324391
+              },
+              "moving": {
+                "60": {
+                  "changedPct": 0.4231770833333333,
+                  "meanAbs": 0.1166994598765432,
+                  "rms": 2.261731248566182
+                },
+                "180": {
+                  "changedPct": 0.40475501543209874,
+                  "meanAbs": 0.10544399434156379,
+                  "rms": 2.0502268424378496
+                }
+              },
+              "depthRoughness": null
+            }
+          },
+          "truthVsSorted": {
+            "changedPct": 0.26514274691358025,
+            "meanAbs": 0.10127572016460905,
+            "rms": 2.294125644832871
+          },
+          "memory": {
+            "vramTotal": 1068608012,
+            "vramTex": 792818044,
+            "vramSb": 230919872,
+            "rendererBytes": 325775540,
+            "survivors": 10190
+          }
+        },
+        {
+          "name": "subject",
+          "variants": {
+            "cull:off": {
+              "median": 4.784128,
+              "min": 3.145728,
+              "samples": 175,
+              "passes": {
+                "GSplatWorkBufferRenderPass": 2.097152,
+                "sse-splat-project": 0.393216,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.065536,
+                "sse-splat-raster": 1.572864,
+                "sse-splat-taa": 1.507328,
+                "RenderPassForward": 1.572864
+              },
+              "survivors": 1131873,
+              "occluded": 0
+            },
+            "cull:off,taa:on": {
+              "median": 4.194304,
+              "min": 2.1626879999999997,
+              "samples": 180,
+              "passes": {
+                "GSplatWorkBufferRenderPass": 2.097152,
+                "sse-splat-project": 0.393216,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.065536,
+                "sse-splat-raster": 1.572864,
+                "RenderPassForward": 0.9830399999999999
+              },
+              "survivors": 1131873,
+              "occluded": 0
+            },
+            "cull:off,taa:on,taaMotion:2": {
+              "median": 2.1626879999999997,
+              "min": 2.1626879999999997,
+              "samples": 180,
+              "passes": {
+                "sse-splat-project": 0.458752,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.065536,
+                "sse-splat-raster": 1.6383999999999999,
+                "RenderPassForward": 0.9830399999999999,
+                "sse-splat-taa": 0,
+                "GSplatWorkBufferRenderPass": 0
+              },
+              "survivors": 1131873,
+              "occluded": 0
+            }
+          },
+          "images": {
+            "cull:off": {
+              "vsSorted": {
+                "changedPct": 52.51340663580247,
+                "meanAbs": 9.353437017746913,
+                "rms": 12.696998062763212
+              },
+              "vsTruth": {
+                "changedPct": 51.46045524691358,
+                "meanAbs": 9.266619566615226,
+                "rms": 12.462310018890737
+              },
+              "noiseFloor": {
+                "changedPct": 59.44159915123457,
+                "meanAbs": 11.977464152520577,
+                "rms": 16.430387994786
+              },
+              "moving": {
+                "60": {
+                  "changedPct": 56.49266975308642,
+                  "meanAbs": 9.594514692644033,
+                  "rms": 13.40025865670567
+                },
+                "180": {
+                  "changedPct": 56.785493827160494,
+                  "meanAbs": 10.99590245627572,
+                  "rms": 15.626002992499552
+                }
+              },
+              "depthRoughness": null
+            },
+            "cull:off,taa:on": {
+              "vsSorted": {
+                "changedPct": 13.420235339506172,
+                "meanAbs": 3.750433063271605,
+                "rms": 6.0796165766124926
+              },
+              "vsTruth": {
+                "changedPct": 16.568287037037038,
+                "meanAbs": 4.015948752572016,
+                "rms": 5.513120573394901
+              },
+              "noiseFloor": {
+                "changedPct": 0,
+                "meanAbs": 0.2550186471193416,
+                "rms": 0.5092644149570671
+              },
+              "moving": {
+                "60": {
+                  "changedPct": 36.051118827160494,
+                  "meanAbs": 6.309588959619342,
+                  "rms": 9.621915449238484
+                },
+                "180": {
+                  "changedPct": 35.71624228395062,
+                  "meanAbs": 7.310429526748972,
+                  "rms": 12.038147246699987
+                }
+              },
+              "depthRoughness": null
+            },
+            "cull:off,taa:on,taaMotion:2": {
+              "vsSorted": {
+                "changedPct": 13.447627314814815,
+                "meanAbs": 3.7536559606481483,
+                "rms": 6.083207034563272
+              },
+              "vsTruth": {
+                "changedPct": 16.61593364197531,
+                "meanAbs": 4.018784561471193,
+                "rms": 5.519150614161604
+              },
+              "noiseFloor": {
+                "changedPct": 0,
+                "meanAbs": 0.25542807998971195,
+                "rms": 0.5096968343157751
+              },
+              "moving": {
+                "60": {
+                  "changedPct": 34.38059413580247,
+                  "meanAbs": 6.193363554526749,
+                  "rms": 9.55853349780189
+                },
+                "180": {
+                  "changedPct": 36.641541280864196,
+                  "meanAbs": 7.436420878343621,
+                  "rms": 12.09305875248268
+                }
+              },
+              "depthRoughness": null
+            }
+          },
+          "truthVsSorted": {
+            "changedPct": 20.13155864197531,
+            "meanAbs": 4.538297003600823,
+            "rms": 6.893279104366774
+          },
+          "memory": {
+            "vramTotal": 1068608012,
+            "vramTex": 792818044,
+            "vramSb": 230919872,
+            "rendererBytes": 325775540,
+            "survivors": 1131873
+          }
+        }
+      ]
+    }
+  },
+  "target": {
+    "width": 1920,
+    "height": 1080
+  }
+}

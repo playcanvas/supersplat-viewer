@@ -29,7 +29,9 @@ import {
     Mat4,
     Mesh,
     MeshInstance,
+    FILTER_NEAREST,
     PIXELFORMAT_DEPTH,
+    PIXELFORMAT_RGBA32F,
     PIXELFORMAT_RGBA8,
     PRIMITIVE_TRIANGLES,
     PROJECTION_ORTHOGRAPHIC,
@@ -64,6 +66,7 @@ import { orderScanWGSL, orderScatterWGSL } from './shaders/order';
 import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, projectorWGSL } from './shaders/projector';
 import { QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
+import { taaFragmentWGSL, taaVertexWGSL } from './shaders/taa';
 import type { DispatchGroup, SplatSource, SplatSourceKind } from './splat-source';
 import { DirectSplatSource } from './splat-source-direct';
 import { WorkBufferSplatSource } from './splat-source-workbuffer';
@@ -93,6 +96,28 @@ type Variant = {
     contribution: number;
     /** Popless depth: every fragment gets the depth of the Gaussian's peak along its ray (paper 3.4). */
     popless: 'on' | 'off';
+    /** Temporal accumulation of the stochastic samples (shaders/taa.ts). */
+    taa: 'on' | 'off';
+    /** Sample cap of the accumulation at rest: the history weight never drops below 1 / taaMax. */
+    taaMax: number;
+    /** Sample cap while the camera moves, so the history keeps up with the view. */
+    taaMoveMax: number;
+    /** Relative depth tolerance of the history test, plus 2 sigma of the pixel's depth distribution. */
+    taaTol: number;
+    /** Colour clamp while moving, in neighbourhood standard deviations (0 disables it). */
+    taaClip: number;
+    /** Consecutive out-of-distribution samples on one side that reset a pixel while moving; 0 disables the depth test. */
+    taaRun: number;
+    /** History filter while moving: bilinear or Catmull-Rom. */
+    taaFilter: 'linear' | 'cubic';
+    /** Depth the moving reprojection goes through: this frame's sample or the pixel's accumulated mean. */
+    taaReproj: 'sample' | 'history';
+    /** Image motion in pixels a frame that halves the moving sample cap (0: fixed cap). */
+    taaMotion: number;
+    /** 1 shows the accumulation state (count, acceptance, sample) instead of the colour. */
+    taaDebug: number;
+    /** Overrides the row-order sign of the reprojection (-1 or 1); 0 derives it from the target. */
+    taaFlip: number;
 };
 
 const defaultVariant = (): Variant => ({
@@ -101,7 +126,18 @@ const defaultVariant = (): Variant => ({
     cull: 'auto',
     order: 'bucket',
     contribution: 0,
-    popless: 'on'
+    popless: 'on',
+    taa: 'on',
+    taaMax: 256,
+    taaMoveMax: 16,
+    taaTol: 0.02,
+    taaClip: 1.25,
+    taaRun: 0,
+    taaFilter: 'cubic',
+    taaReproj: 'sample',
+    taaMotion: 4,
+    taaDebug: 0,
+    taaFlip: 0
 });
 
 const parseVariant = (text: string | undefined): Variant => {
@@ -112,6 +148,17 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'spp' && (value === '1' || value === 'quad')) variant.spp = value;
         if (key === 'compose' && (value === 'blend' || value === 'none' || value === 'depth')) variant.compose = value;
         if (key === 'popless' && (value === 'on' || value === 'off')) variant.popless = value;
+        if (key === 'taa' && (value === 'on' || value === 'off')) variant.taa = value;
+        if (key === 'taaMax' && Number.isFinite(Number(value))) variant.taaMax = Math.max(1, Number(value));
+        if (key === 'taaMoveMax' && Number.isFinite(Number(value))) variant.taaMoveMax = Math.max(1, Number(value));
+        if (key === 'taaTol' && Number.isFinite(Number(value))) variant.taaTol = Math.max(0, Number(value));
+        if (key === 'taaDebug' && Number.isFinite(Number(value))) variant.taaDebug = Number(value);
+        if (key === 'taaClip' && Number.isFinite(Number(value))) variant.taaClip = Math.max(0, Number(value));
+        if (key === 'taaRun' && Number.isFinite(Number(value))) variant.taaRun = Math.max(0, Number(value));
+        if (key === 'taaFilter' && (value === 'linear' || value === 'cubic')) variant.taaFilter = value;
+        if (key === 'taaReproj' && (value === 'sample' || value === 'history')) variant.taaReproj = value;
+        if (key === 'taaMotion' && Number.isFinite(Number(value))) variant.taaMotion = Math.max(0, Number(value));
+        if (key === 'taaFlip' && Number.isFinite(Number(value))) variant.taaFlip = Number(value);
         if (key === 'cull' && (value === 'off' || value === 'l1' || value === 'l2' || value === 'auto')) {
             variant.cull = value;
         }
@@ -146,18 +193,19 @@ type EngineForwardRenderer = {
     ): void;
 };
 
-// Renders the raster mesh instance into the renderer's own target. An explicit instance list
-// rather than a layer: a layer in camera.layers is culled once and drawn by every pass for the
-// camera, so the scene pass would draw the splats into the camera target as well.
+// Renders an explicit mesh-instance list into the renderer's own target (the raster and the
+// taa resolve). Not a layer: a layer in camera.layers is culled once and drawn by every pass
+// for the camera, so the scene pass would draw the splats into the camera target as well.
 class SplatRasterPass extends RenderPass {
     constructor(
         device: GraphicsDevice,
         private forward: EngineForwardRenderer,
         private camera: CameraComponent,
-        private instances: MeshInstance[]
+        private instances: MeshInstance[],
+        name = 'sse-splat-raster'
     ) {
         super(device);
-        this.name = 'sse-splat-raster';
+        this.name = name;
     }
 
     execute() {
@@ -349,6 +397,61 @@ class StochasticSplatRenderer {
 
     private rasterPass: SplatRasterPass;
 
+    // taa: ping-pong history (premultiplied colour + coverage, and depth mean / variance /
+    // count), resolved by a fullscreen pass after the raster
+    private taaColor: Texture[] = [];
+
+    private taaInfo: Texture[] = [];
+
+    private taaTargets: RenderTarget[] = [];
+
+    private taaWrite = 0;
+
+    private taaMesh: Mesh;
+
+    private taaMaterial: ShaderMaterial;
+
+    private taaInstance: MeshInstance;
+
+    private taaPass: SplatRasterPass;
+
+    // whether the history holds the previous on-screen frame at the current size
+    private taaHistoryValid = false;
+
+    // the previous taa frame's matrices as the pass reads them, and this frame's, copied over
+    // at the start of the next frame: the material holds the data arrays by reference and
+    // uploads them when it draws, after this hook has run
+    private taaPrevViewProjection = new Mat4();
+
+    private taaPrevView = new Mat4();
+
+    private taaLastViewProjection = new Mat4();
+
+    private taaLastView = new Mat4();
+
+    private taaWidth = 0;
+
+    private taaHeight = 0;
+
+    private invViewProjection = new Mat4();
+
+    // frames since the camera or the scene last changed, for converging at rest
+    private restFrames = 0;
+
+    private frameIndex = 0;
+
+    // the seed the harness sets; the frame index replaces it while taa accumulates
+    private userSeed = 0;
+
+    /** Whether the last frame ran the temporal accumulation, for the debug panel. */
+    taaActive = false;
+
+    /**
+     * Let a capture (query) frame at the on-screen size run the accumulation over the on-screen
+     * history, so the harness can photograph converged and moving frames. Off by default.
+     */
+    allowQueryTaa = false;
+
     // compose
     private composeMesh: Mesh;
 
@@ -383,6 +486,7 @@ class StochasticSplatRenderer {
         let bytes = 0;
         for (const buffer of buffers) bytes += buffer?.byteSize ?? 0;
         bytes += this.colorTexture.gpuSize + this.depthTexture.gpuSize;
+        for (const texture of [...this.taaColor, ...this.taaInfo]) bytes += texture.gpuSize;
         return bytes + this.source.gpuBytes();
     }
 
@@ -395,7 +499,8 @@ class StochasticSplatRenderer {
     }
 
     set seed(value: number) {
-        this.frameSeed = value >>> 0;
+        this.userSeed = value >>> 0;
+        this.frameSeed = this.userSeed;
         this.app.renderNextFrame = true;
     }
 
@@ -631,6 +736,69 @@ class StochasticSplatRenderer {
         // nothing to draw, and no buffers bound, until the first populated frame
         this.rasterPass.enabled = false;
 
+        // the taa resolve: a fullscreen pass from the raster target and the previous history
+        // into the other history, sized with the target on its first frame
+        for (let i = 0; i < 2; i++) {
+            this.taaColor.push(
+                new Texture(device, {
+                    name: `sse-splat-taa-color-${i}`,
+                    width: 4,
+                    height: 4,
+                    format: PIXELFORMAT_RGBA32F,
+                    mipmaps: false,
+                    minFilter: FILTER_NEAREST,
+                    magFilter: FILTER_NEAREST,
+                    addressU: ADDRESS_CLAMP_TO_EDGE,
+                    addressV: ADDRESS_CLAMP_TO_EDGE
+                })
+            );
+            this.taaInfo.push(
+                new Texture(device, {
+                    name: `sse-splat-taa-info-${i}`,
+                    width: 4,
+                    height: 4,
+                    format: PIXELFORMAT_RGBA32F,
+                    mipmaps: false,
+                    minFilter: FILTER_NEAREST,
+                    magFilter: FILTER_NEAREST,
+                    addressU: ADDRESS_CLAMP_TO_EDGE,
+                    addressV: ADDRESS_CLAMP_TO_EDGE
+                })
+            );
+            this.taaTargets.push(
+                new RenderTarget({
+                    name: `sse-splat-taa-${i}`,
+                    colorBuffers: [this.taaColor[i], this.taaInfo[i]],
+                    depth: false,
+                    samples: 1
+                })
+            );
+        }
+        this.taaMesh = createFullscreenMesh(device);
+        this.taaMaterial = new ShaderMaterial({
+            uniqueName: 'sse-splat-taa',
+            vertexWGSL: taaVertexWGSL,
+            fragmentWGSL: taaFragmentWGSL,
+            attributes: { vertex_position: SEMANTIC_POSITION }
+        });
+        this.taaMaterial.blendType = BLEND_NONE;
+        this.taaMaterial.depthWrite = false;
+        this.taaMaterial.depthTest = false;
+        this.taaMaterial.cull = CULLFACE_NONE;
+        this.taaInstance = new MeshInstance(this.taaMesh, this.taaMaterial, new GraphNode('sse-splat-taa'));
+        this.taaInstance.cull = false;
+        this.taaInstance.castShadow = false;
+        this.taaInstance.receiveShadow = false;
+        this.taaPass = new SplatRasterPass(
+            device,
+            app.renderer as unknown as EngineForwardRenderer,
+            camera,
+            [this.taaInstance],
+            'sse-splat-taa'
+        );
+        this.taaPass.init(this.taaTargets[0]);
+        this.taaPass.enabled = false;
+
         // the compose quad, blended over the skybox and opaque meshes with the splat depth
         this.composeMesh = createFullscreenMesh(device);
         this.composeMaterial = new ShaderMaterial({
@@ -645,6 +813,10 @@ class StochasticSplatRenderer {
         this.composeMaterial.cull = CULLFACE_NONE;
         this.composeMaterial.setParameter('splatColor', this.colorTexture);
         this.composeMaterial.setParameter('splatDepth', this.depthTexture);
+        // always bound, even while taa is off: a declared texture without a value makes the
+        // engine create and upload a placeholder inside the forward pass, which submits the
+        // command buffer mid-pass on WebGPU
+        this.composeMaterial.setParameter('taaColor', this.taaColor[0]);
         this.composeInstance = new MeshInstance(
             this.composeMesh,
             this.composeMaterial,
@@ -686,8 +858,16 @@ class StochasticSplatRenderer {
         this.applyVariant();
     }
 
+    /** Drop the temporal history; the next frame starts accumulating from its own sample. */
+    resetHistory() {
+        this.taaHistoryValid = false;
+        this.restFrames = 0;
+    }
+
     /** Re-read {@link variant} after a field changed. */
     applyVariant() {
+        // a switch changes what the frames hold; an old history would leak into the new ones
+        this.resetHistory();
         const quad = this.variant.spp === 'quad';
         this.rasterMaterial.setDefine('SSE_SPP_QUAD', quad ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_ORDERED', this.variant.order === 'bucket' ? '' : undefined);
@@ -710,14 +890,18 @@ class StochasticSplatRenderer {
     private attach() {
         const passes = this.camera.camera.beforePasses;
         if (!passes.includes(this.rasterPass)) passes.push(this.rasterPass);
+        if (!passes.includes(this.taaPass)) passes.push(this.taaPass);
         this.worldLayer.addMeshInstances([this.composeInstance]);
         this.provider.setActive(true);
     }
 
     private detach() {
         const passes = this.camera.camera.beforePasses;
-        const index = passes.indexOf(this.rasterPass);
-        if (index >= 0) passes.splice(index, 1);
+        for (const pass of [this.rasterPass, this.taaPass]) {
+            const index = passes.indexOf(pass);
+            if (index >= 0) passes.splice(index, 1);
+        }
+        this.taaHistoryValid = false;
         this.worldLayer.removeMeshInstances([this.composeInstance]);
         this.provider.setActive(false);
     }
@@ -774,19 +958,44 @@ class StochasticSplatRenderer {
 
         // the moving-camera contribution cull: a raised threshold while the view changes, then
         // one more frame at the scene's threshold once it has stopped
-        const moved = !view.equals(this.prevView);
+        const moved = this.viewMoved(view);
         const raised = moved && this.variant.contribution > 0;
         const minContribution = raised
             ? Math.max(gsplat.minContribution, this.variant.contribution)
             : gsplat.minContribution;
         if (raised) this.app.renderNextFrame = true;
 
+        // Temporal accumulation runs on on-screen frames (and, for the harness, on a capture at
+        // the same size); the history is only trusted when it holds the previous such frame at
+        // this size. While it runs the coverage seed changes every frame, and a resting camera
+        // keeps requesting frames until the history has filled its cap
+        const isQuery = !!rt;
+        const taaOn =
+            this.variant.taa === 'on' &&
+            (!isQuery || (this.allowQueryTaa && width === this.taaWidth && height === this.taaHeight));
+        if (taaOn) {
+            if (this.taaWidth !== width || this.taaHeight !== height) {
+                for (const texture of [...this.taaColor, ...this.taaInfo]) texture.resize(width, height);
+                for (const target of this.taaTargets) target.resize(width, height);
+                this.taaWidth = width;
+                this.taaHeight = height;
+                this.taaHistoryValid = false;
+            }
+            this.frameSeed = this.frameIndex++ >>> 0;
+            if (moved || changed) this.restFrames = 0;
+            else this.restFrames++;
+            if (this.restFrames < this.variant.taaMax + 2) this.app.renderNextFrame = true;
+        } else {
+            this.frameSeed = this.userSeed;
+            this.taaHistoryValid = false;
+        }
+        this.taaActive = taaOn;
+
         // The occlusion cull reads the depth texture as the previous frame left it, so it needs
         // that frame to have drawn to this target at this size (a resize loses the texture, a
         // capture draws elsewhere), with no splat removed since (its depth would hide what is
         // now behind it; arrivals are safe) and the same projection type. A capture frame is
         // never culled and never becomes the previous frame.
-        const isQuery = !!rt;
         // a new world state can change what is occluded: try the test again
         if (this.prevVersion !== set.version) {
             this.cullSuspendedFrames = 0;
@@ -798,7 +1007,7 @@ class StochasticSplatRenderer {
         if (cullMode === 'auto' && !isQuery) {
             if (this.cullSuspendedFrames > 0) {
                 // a moving camera changes what is occluded, so the probe comes sooner
-                const moved = !view.equals(this.prevView);
+                const moved = this.viewMoved(view);
                 this.cullSuspendedFrames = Math.max(0, this.cullSuspendedFrames - (moved ? 4 : 1));
                 wanted = false;
             } else if (!this.cullActive) {
@@ -917,12 +1126,60 @@ class StochasticSplatRenderer {
         material.setParameter('sseAlphaClip', gsplat.alphaClipForward);
         material.setParameter('frameSeed', this.frameSeed);
 
+        this.taaPass.enabled = taaOn;
+        if (taaOn) {
+            const read = this.taaWrite ^ 1;
+            const taa = this.taaMaterial;
+            this.taaPrevViewProjection.copy(this.taaLastViewProjection);
+            this.taaPrevView.copy(this.taaLastView);
+            this.invViewProjection.copy(this.viewProjection).invert();
+            taa.setParameter('curColor', this.colorTexture);
+            taa.setParameter('curDepth', this.depthTexture);
+            taa.setParameter('histColor', this.taaColor[read]);
+            taa.setParameter('histInfo', this.taaInfo[read]);
+            taa.setParameter('invViewProj', this.invViewProjection.data);
+            taa.setParameter('prevViewProj', this.taaPrevViewProjection.data);
+            taa.setParameter('prevView', this.taaPrevView.data);
+            taa.setParameter('clipZParams', [
+                -shaderProjection.data[10],
+                shaderProjection.data[14],
+                isOrtho ? 1 : 0,
+                0
+            ]);
+            taa.setParameter('taaParams', [
+                moved ? this.variant.taaMoveMax : this.variant.taaMax,
+                this.variant.taaTol,
+                this.taaHistoryValid ? 1 : 0,
+                moved ? 1 : 0
+            ]);
+            taa.setParameter('taaViewport', [width, height, 1 / width, 1 / height]);
+            taa.setParameter('taaControl', [
+                this.variant.taaFlip || (this.target.flipY ? -1 : 1),
+                this.variant.taaClip,
+                this.variant.taaRun,
+                this.variant.spp === 'quad' ? 1 : 0
+            ]);
+            taa.setParameter('taaDebug', this.variant.taaDebug);
+            taa.setParameter('taaFilter', [
+                this.variant.taaFilter === 'cubic' ? 1 : 0,
+                this.variant.taaReproj === 'history' ? 1 : 0,
+                this.variant.taaMotion,
+                0
+            ]);
+            this.taaPass.renderTarget = this.taaTargets[this.taaWrite];
+            this.composeMaterial.setParameter('taaColor', this.taaColor[this.taaWrite]);
+            this.taaLastViewProjection.copy(this.viewProjection);
+            this.taaLastView.copy(view);
+            this.taaHistoryValid = true;
+            this.taaWrite ^= 1;
+        }
+
         // an offscreen target's rows run the other way to the backbuffer's on WebGPU
         const targetFlipY = rt ? rt.flipY : device.backBuffer.flipY;
         this.composeMaterial.setParameter('composeParams', [
             this.target.flipY !== targetFlipY ? 1 : 0,
             isOrtho ? 1 : 0,
-            0,
+            taaOn ? 1 : 0,
             0
         ]);
         this.composeMaterial.setParameter('depthViewParams', [
@@ -973,6 +1230,15 @@ class StochasticSplatRenderer {
         this.prevValid = !isQuery;
 
         this.setReady(true);
+    }
+
+    // whether the view differs from the previous on-screen frame's beyond float noise (the
+    // camera controllers settle over many frames)
+    private viewMoved(view: Mat4) {
+        for (let i = 0; i < 16; i++) {
+            if (Math.abs(view.data[i] - this.prevView.data[i]) > 1e-6) return true;
+        }
+        return false;
     }
 
     // one chunk-table entry per CHUNK_SIZE splats of every resident node
@@ -1176,6 +1442,15 @@ class StochasticSplatRenderer {
         this.rasterInstance.destroy();
         this.rasterMaterial.destroy();
         this.rasterMesh.destroy();
+        this.taaPass.destroy();
+        this.taaInstance.destroy();
+        this.taaMaterial.destroy();
+        this.taaMesh.destroy();
+        for (const target of this.taaTargets) target.destroy();
+        for (const texture of [...this.taaColor, ...this.taaInfo]) texture.destroy();
+        this.taaTargets.length = 0;
+        this.taaColor.length = 0;
+        this.taaInfo.length = 0;
         this.target.destroy();
         this.colorTexture.destroy();
         this.depthTexture.destroy();

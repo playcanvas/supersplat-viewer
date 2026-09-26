@@ -38,7 +38,7 @@ The raster pass draws an explicit mesh-instance list through `renderForwardLayer
 | ------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `stochastic`  | opt in (creation time, WebGPU only)                                                                                   |
 | `splatSource` | data path: `workbuffer` (default); `direct` and `light` are not implemented yet                                       |
-| `variant`     | comma-separated `key:value` experiment switches: `spp` (1, quad), `compose` (blend, none, depth), `cull` (off, l1, l2, auto), `order` (append, bucket), `contribution` (threshold while moving, 0 off), `popless` (on, off) |
+| `variant`     | comma-separated `key:value` experiment switches: `spp` (1, quad), `compose` (blend, none, depth), `cull` (off, l1, l2, auto), `order` (append, bucket), `contribution` (threshold while moving, 0 off), `popless` (on, off), `taa` (on, off) with `taaMax`, `taaMoveMax`, `taaMotion`, `taaClip`, `taaFilter`, `taaReproj`, `taaRun`, `taaDebug` |
 
 ## Occlusion cull (M3)
 
@@ -76,6 +76,27 @@ With one depth per splat (its centre's), two overlapping splats swap pixel owner
 | church subject  |         29.42 |        29.00 | 12.53 / 12.70 (16.44)                       | 2.43 / 2.43 |
 
 The stochastic choice of splat per pixel dominates the roughness (neighbouring pixels draw different splats), so the plate steps popless removes show as a 1 to 4 % drop on the in-scene poses and nothing on the framed ones, at no cost in the vertex stage and with the image still inside the sampling noise. A cleaner test of the surface itself needs a low-noise image, which is what TAA will provide; the pick normals of M6 will test it too.
+
+## Temporal accumulation (M8, in progress)
+
+One stochastic sample a pixel is a noisy estimate of the splat composite (a raw frame differs from the expectation by about 51 rms in 8-bit units on the church subject pose). `taa:on`, the default (`shaders/taa.ts`, the debug panel's TAA button), accumulates those samples over frames. The history is a premultiplied colour plus coverage per pixel, so coverage averages like any other quantity and the compose blends the result over the scene exactly as it blends a raw frame, and it is kept in 32-bit floats: a half-float mean stalls once the 1 / N increments fall below its resolution, which showed as an error floor of about 5 rms from N = 64. Beside it sits a depth record (mean, variance, count, run) in a second attachment of the same ping-pong target; the resolve is a fullscreen pass in `camera.beforePasses` after the raster, and the compose reads the accumulated texture instead of the raw one.
+
+At rest every sample is accepted (a still camera cannot disocclude anything), the pixel is its own history texel, and the count grows to `taaMax` (256), the viewer requesting frames until it has; the raster's coverage seed advances every frame while the accumulation runs. Measured against the mean of 128 to 256 raw frames the converged image is unbiased, its error the 51 / sqrt(N) of a mean, and against the sorted frame it lands at 6.1 rms on the church subject where a raw frame is 12.7 and the renderer's own expectation is 6.9 (the popless order and the culls differ from the sorted composite). Moving, the pixel's world point (through this frame's sample depth, or the history's mean depth where there is no sample) is carried into the previous view and the history fetched there with a Catmull-Rom filter, clamped to the mean plus or minus 1.25 standard deviations of the current frame's 3x3 neighbourhood (the anti-ghosting that matters: without it the moving error doubles), and blended at a cap of `taaMoveMax` (16) samples that shrinks with the image motion (`taaMotion`: 4 px a frame halves it). The shrinking cap is what makes motion work: a stochastic pixel's history is a mixture of layers reprojected through one layer's depth, so their parallax smears it by an amount that grows with the motion, and past a few pixels a frame the raw frame is the better estimate. The input while moving is the 2x2 quad resolve (four samples a pixel) rather than the pixel's own sample, which measured far lower error. The depth-distribution test that was to catch disocclusions (`taaRun`) is off: with fast adaptation it either reset semi-transparent pixels every few frames or accepted everything, and the colour clamp does the job.
+
+Measured on the church (`docs/bench/2026-09-26-m4max-church-taa-*.json`, 1920x1080, rms against the sorted frame at the same pose; the raw frame is the 2x2 quad resolve):
+
+| pose, motion                     | raw frame | taa   |
+| -------------------------------- | --------: | ----: |
+| subject, at rest (converged)     |     12.70 |  6.08 |
+| subject, 3 deg/s orbit @60 / @180 |  13.4 / 15.6 | 9.6 / 12.0 |
+| subject, 15 deg/s orbit @60 / @180 | 11.7 / 7.6 | 10.4 / 7.7 |
+| framed, at rest                  |      2.45 |  2.29 |
+| framed, 3 deg/s orbit            | 2.40 / 2.18 | 2.28 / 2.05 |
+| framed, 15 deg/s orbit           | 2.14 / 2.11 | 2.05 / 2.05 |
+
+Cost: at rest the resolve does not show in the frame minima (church subject 1.835 ms with and without it; it is one texel of history and one of the frame per pixel, under the 65 us profiler tick); moving it adds the 16-tap Catmull-Rom fetch, the 3x3 neighbourhood and the quad resolve, not isolated yet because the profiler folds the pass into its neighbour's slot whenever passes are toggled between variants. The debug panel toggles it at runtime; `taaDebug:1` shows count, acceptance and motion state, `taaDebug:2` the reprojection offsets.
+
+Open: the history costs 64 bytes a pixel (two RGBA32F pairs, 133 MB at 1920x1080), which wants a compact info encoding and a single read-write history in a compute pass; sub-pixel jitter of the projection for anti-aliasing of small splats; the picker's use of the accumulated depth; and PROD scenes. Two bugs found on the way are worth knowing about: a material texture that is declared but never set makes the engine create and upload a placeholder inside the render pass, which on WebGPU submits the command buffer mid-pass and invalidates the frame (every declared texture is now bound every frame); and a matrix passed to a material by its data array and overwritten later in the same frame reaches the shader with the new value, since the material uploads when it draws (the previous-frame matrices are double-buffered).
 
 ## Draw order (M4)
 
@@ -171,4 +192,4 @@ Two harness caveats: whole-scene framing size-culls most splats, so the subject 
 
 ## Status
 
-M0 (skeleton), M2 (bench harness and baselines), M3 (occlusion cull), M4 (ordering, the direct data path, the moving-camera contribution cull, a moving-camera bench mode) and M5 (popless depth) are done, with the work-buffer against direct decision deferred until PROD scenes and the engine's external mode allow a memory comparison: the renderer draws, captures at another size, composes under CameraFrame, tears down cleanly, culls against the previous frame with an adaptive switch that stays on while a scene streams in, draws front to back through depth buckets, and reads either the work buffer or the resident files directly. Not yet: `cache:off` and `clipCorner`, the light work buffer (iii), the correctness pass proper (M1), picking from the frame depth (M6), the engine changes that remove the interim patches (M7), and the TAA hooks (M8). PROD streamed scenes await content urls.
+M0 (skeleton), M2 (bench harness and baselines), M3 (occlusion cull), M4 (ordering, the direct data path, the moving-camera contribution cull, a moving-camera bench mode) and M5 (popless depth) are done, with the work-buffer against direct decision deferred until PROD scenes and the engine's external mode allow a memory comparison: the renderer draws, captures at another size, composes under CameraFrame, tears down cleanly, culls against the previous frame with an adaptive switch that stays on while a scene streams in, draws front to back through depth buckets, and reads either the work buffer or the resident files directly. Temporal accumulation (M8) is implemented, measured and on by default. Not yet: `cache:off` and `clipCorner`, the light work buffer (iii), the correctness pass proper (M1), picking from the frame depth (M6), the engine changes that remove the interim patches (M7), and the TAA memory and jitter work above. PROD streamed scenes await content urls.

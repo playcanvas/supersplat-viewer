@@ -65,6 +65,7 @@
               splatSource=workbuffer        stochastic data path: workbuffer or direct
               dpr=1.5                       pin the pixel ratio and screen size: target = host * dpr
               move=0.25                     orbit the camera this many degrees per measured frame (0: still)
+              truth=32                      raw frames averaged into the stochastic expectation each variant is judged against
               rounds=3 warmup=40 frames=180
               width=1280 height=720         host size in css pixels (the canvas follows the dpr rule)
               budget=<millions>             default 8; the engine allocates its work buffer for the whole budget
@@ -261,21 +262,25 @@
                 };
             };
 
-            // the capture waits for a frame end, so frames are pumped until it settles
+            // The frame as shown: one more frame is rendered and the canvas read back in the same
+            // task (WebGPU keeps no drawing buffer past it). Not viewer.captureFrame(): that renders
+            // a query frame into its own target with a horizontal fov, which the temporal history
+            // would have to be resampled into, and it would enter the history as an extra sample
+            let readback = null;
             const capture = async (viewer, w, h) => {
                 const { app } = viewer;
-                let result = null;
-                let error = null;
-                viewer
-                    .captureFrame({ width: w, height: h, supersample: 1 })
-                    .then((r) => (result = r))
-                    .catch((e) => (error = e));
-                while (!result && !error) {
-                    pumpFrame(app, 1 / 60);
-                    await yieldTask();
+                const canvas = app.graphicsDevice.canvas;
+                if (!readback || readback.width !== w || readback.height !== h) {
+                    readback = document.createElement('canvas');
+                    readback.width = w;
+                    readback.height = h;
                 }
-                if (error) throw error;
-                return Uint8ClampedArray.from(atob(result.data), (c) => c.charCodeAt(0));
+                app.renderNextFrame = true;
+                pumpFrame(app, 1 / 60);
+                const ctx = readback.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(canvas, 0, 0, w, h);
+                await yieldTask();
+                return ctx.getImageData(0, 0, w, h).data;
             };
             // Mean absolute horizontal and vertical step of the depth view (24-bit log depth in
             // rgb, see the compose) between neighbouring covered pixels, in thousandths of the
@@ -358,11 +363,25 @@
                     renderer = r;
                     // captures photograph the culled frame, so the image diff covers the cull
                     renderer.allowQueryCull = true;
+                    renderer.allowQueryTaa = true;
                 });
                 const { app } = viewer;
                 app.graphicsDevice.wgpu?.addEventListener('uncapturederror', (event) =>
                     log(`GPU ERROR ${event.error.message}`, true)
                 );
+                // a submit inside a pass invalidates the frame's command buffer (a texture
+                // uploaded at bind time does it); report the first two with their stacks
+                {
+                    const dev = app.graphicsDevice;
+                    const original = dev.submit.bind(dev);
+                    let logged = 0;
+                    dev.submit = () => {
+                        if (dev.insideRenderPass && logged++ < 2) {
+                            log(`SUBMIT INSIDE PASS\n${new Error().stack}`, true);
+                        }
+                        original();
+                    };
+                }
                 stopTicker(app);
                 if (!(await pumpUntil(app, () => viewer.state.loaded, 300000))) {
                     throw new Error(`${mode}: did not load within 300s`);
@@ -372,30 +391,33 @@
                 return { viewer, app, renderer };
             };
 
+            // A moving camera exercises the work-buffer colour refresh, lod changes, the occlusion
+            // cull's reprojection and the temporal history: the camera orbits its focus point
+            // (position + forward * distance, the snapshot's own convention) by `move` degrees a
+            // frame, restarting from the pose every round
+            const orbitStep = (snapshot, i) => {
+                const degToRad = Math.PI / 180;
+                const forward = (pitch, yaw) => [
+                    -Math.sin(yaw * degToRad) * Math.cos(pitch * degToRad),
+                    Math.sin(pitch * degToRad),
+                    -Math.cos(yaw * degToRad) * Math.cos(pitch * degToRad)
+                ];
+                const [pitch, yaw] = snapshot.angles;
+                const f0 = forward(pitch, yaw);
+                const focus = snapshot.position.map((p, k) => p + f0[k] * snapshot.distance);
+                const f1 = forward(pitch, yaw + i * move);
+                window.setCameraState({
+                    ...snapshot,
+                    position: focus.map((c, k) => c - f1[k] * snapshot.distance),
+                    angles: [pitch, yaw + i * move, snapshot.angles[2]]
+                });
+            };
+            // the orbit frames photographed for the moving-image comparison
+            const MOVE_FRAMES = [60, 180];
+
             const measure = async (app, profiler, label, snapshot) => {
                 profiler.samples.length = 0;
-                // a moving camera exercises the work-buffer colour refresh, lod changes and the
-                // occlusion cull's reprojection: the camera orbits its focus point (position +
-                // forward * distance, the snapshot's own convention) and restarts every round
-                const orbit = move
-                    ? (i) => {
-                          const degToRad = Math.PI / 180;
-                          const forward = (pitch, yaw) => [
-                              -Math.sin(yaw * degToRad) * Math.cos(pitch * degToRad),
-                              Math.sin(pitch * degToRad),
-                              -Math.cos(yaw * degToRad) * Math.cos(pitch * degToRad)
-                          ];
-                          const [pitch, yaw] = snapshot.angles;
-                          const f0 = forward(pitch, yaw);
-                          const focus = snapshot.position.map((p, k) => p + f0[k] * snapshot.distance);
-                          const f1 = forward(pitch, yaw + i * move);
-                          window.setCameraState({
-                              ...snapshot,
-                              position: focus.map((c, k) => c - f1[k] * snapshot.distance),
-                              angles: [pitch, yaw + i * move, snapshot.angles[2]]
-                          });
-                      }
-                    : undefined;
+                const orbit = move ? (i) => orbitStep(snapshot, i) : undefined;
                 await pump(app, warmup + frames, orbit);
                 // reports trail the frames by a few; pump until they have arrived
                 await pumpUntil(app, () => profiler.samples.length >= warmup + frames - 5, 2000);
@@ -517,41 +539,109 @@
                     const poseResult = { name: pose.name, variants: {}, images: null };
                     modeResult.poses.push(poseResult);
 
+                    // the frame at orbit step k, for the moving comparison: the camera moves into
+                    // step k inside the captured frame itself, so it is a moving frame
+                    const movingCapture = async (k) => {
+                        window.setCameraState(pose.snapshot);
+                        for (let f = 0; f < 2; f++) await renderFrame(app);
+                        for (let i = 0; i < k; i++) {
+                            orbitStep(pose.snapshot, i);
+                            pumpFrame(app, 1 / 60);
+                        }
+                        orbitStep(pose.snapshot, k);
+                        return capture(viewer, target.width, target.height);
+                    };
+
                     if (diff) {
                         if (mode === 'sorted') {
                             const bytes = await capture(viewer, target.width, target.height);
                             references.set(pose.name, bytes);
                             preview(bytes, target.width, target.height, `${pose.name} sorted`);
+                            if (move) {
+                                for (const k of MOVE_FRAMES) {
+                                    const frame = await movingCapture(k);
+                                    references.set(`${pose.name}@${k}`, frame);
+                                    preview(frame, target.width, target.height, `${pose.name}@${k} sorted`);
+                                }
+                                window.setCameraState(pose.snapshot);
+                            }
                         } else {
                             // every variant against the sorted frame; the noise floor once, from a
-                            // second frame of the first variant with another seed
+                            // second frame of the first variant with another seed (for a taa
+                            // variant: the converged frame, and the next frame as its residual)
                             const reference = references.get(pose.name);
                             poseResult.images = {};
+                            // The stochastic renderer's own expectation at this pose: the mean of
+                            // many raw frames with different seeds. A converged accumulation is
+                            // judged against this; its difference to the sorted frame is the
+                            // renderer's, not the accumulation's
+                            const TRUTH_FRAMES = Number(params.get('truth') ?? 32);
+                            renderer.setVariant('cull:off,spp:1');
+                            renderer.seed = 0;
+                            window.setCameraState(pose.snapshot);
+                            for (let f = 0; f < 2; f++) await renderFrame(app);
+                            const sum = new Float32Array(target.width * target.height * 4);
+                            for (let k = 1; k <= TRUTH_FRAMES; k++) {
+                                renderer.seed = k;
+                                const frame = await capture(viewer, target.width, target.height);
+                                for (let i = 0; i < sum.length; i++) sum[i] += frame[i];
+                            }
+                            const truth = new Uint8ClampedArray(sum.length);
+                            for (let i = 0; i < sum.length; i++) truth[i] = Math.round(sum[i] / TRUTH_FRAMES);
+                            renderer.seed = 0;
+                            preview(truth, target.width, target.height, `${pose.name} truth`);
+                            const truthVsSorted = reference ? imageDiff(truth, reference) : null;
+                            poseResult.truthVsSorted = truthVsSorted;
+                            log(
+                                `${mode} ${pose.name}: mean of ${TRUTH_FRAMES} raw frames vs sorted ${truthVsSorted ? `${truthVsSorted.changedPct.toFixed(2)}% changed, meanAbs ${truthVsSorted.meanAbs.toFixed(2)}, rms ${truthVsSorted.rms.toFixed(2)}` : 'n/a'}`
+                            );
                             for (const [i, variant] of variants.entries()) {
                                 renderer.setVariant(variant);
                                 renderer.seed = 0;
+                                const taa = renderer.variant.taa === 'on';
+                                window.setCameraState(pose.snapshot);
                                 // rendered frames first, so the cull has a previous on-screen frame
-                                for (let f = 0; f < 2; f++) await renderFrame(app);
+                                // and the history has converged
+                                for (let f = 0; f < (taa ? renderer.variant.taaMax + 4 : 2); f++)
+                                    await renderFrame(app);
                                 const a = await capture(viewer, target.width, target.height);
                                 let noiseFloor = null;
-                                if (i === 0) {
-                                    renderer.seed = 1;
+                                if (i === 0 || taa) {
+                                    if (!taa) renderer.seed = 1;
                                     for (let f = 0; f < 2; f++) await renderFrame(app);
                                     const b = await capture(viewer, target.width, target.height);
                                     renderer.seed = 0;
                                     noiseFloor = imageDiff(a, b);
                                     preview(a, target.width, target.height, `${pose.name} ${variant}`);
                                 }
+                                let moving = null;
+                                if (move && !variant.includes('compose:depth')) {
+                                    moving = {};
+                                    for (const k of MOVE_FRAMES) {
+                                        const ref = references.get(`${pose.name}@${k}`);
+                                        const frame = await movingCapture(k);
+                                        moving[k] = ref ? imageDiff(frame, ref) : null;
+                                        if (taa)
+                                            preview(frame, target.width, target.height, `${pose.name}@${k} ${variant}`);
+                                    }
+                                    window.setCameraState(pose.snapshot);
+                                    log(
+                                        `${mode} ${pose.name} ${variant}: moving vs sorted rms ${MOVE_FRAMES.map((k) => `@${k} ${moving[k] ? moving[k].rms.toFixed(2) : 'n/a'}`).join(', ')}`
+                                    );
+                                }
                                 const depthView = variant.includes('compose:depth');
                                 poseResult.images[variant] = {
                                     vsSorted: reference && !depthView ? imageDiff(a, reference) : null,
+                                    vsTruth: !depthView ? imageDiff(a, truth) : null,
                                     noiseFloor,
+                                    moving,
                                     depthRoughness: depthView ? depthRoughness(a, target.width, target.height) : null
                                 };
                                 const v = poseResult.images[variant].vsSorted;
                                 const rough = poseResult.images[variant].depthRoughness;
+                                const vt = poseResult.images[variant].vsTruth;
                                 log(
-                                    `${mode} ${pose.name} ${variant}: ${depthView ? `depth roughness ${rough.toFixed(3)}` : `vs sorted ${v ? `${v.changedPct.toFixed(2)}% changed, meanAbs ${v.meanAbs.toFixed(2)}, rms ${v.rms.toFixed(2)}` : 'n/a'}`}${noiseFloor ? `; noise floor rms ${noiseFloor.rms.toFixed(2)}` : ''}`
+                                    `${mode} ${pose.name} ${variant}: ${depthView ? `depth roughness ${rough.toFixed(3)}` : `vs sorted ${v ? `${v.changedPct.toFixed(2)}% changed, meanAbs ${v.meanAbs.toFixed(2)}, rms ${v.rms.toFixed(2)}` : 'n/a'}; vs truth rms ${vt.rms.toFixed(2)}`}${noiseFloor ? `; noise floor rms ${noiseFloor.rms.toFixed(2)}` : ''}`
                                 );
                             }
                         }
@@ -627,7 +717,9 @@
                 'vram MB',
                 'renderer MB',
                 'vs sorted rms',
-                'noise rms'
+                'vs truth rms',
+                'noise rms',
+                'moving rms'
             ].forEach((h) => {
                 const th = document.createElement('th');
                 th.textContent = h;
@@ -649,7 +741,13 @@
                             ((pose.memory?.vramTotal ?? 0) / 1048576).toFixed(1),
                             pose.memory?.rendererBytes != null ? (pose.memory.rendererBytes / 1048576).toFixed(1) : '',
                             pose.images?.[variant]?.vsSorted ? pose.images[variant].vsSorted.rms.toFixed(2) : '',
-                            pose.images?.[variant]?.noiseFloor ? pose.images[variant].noiseFloor.rms.toFixed(2) : ''
+                            pose.images?.[variant]?.vsTruth ? pose.images[variant].vsTruth.rms.toFixed(2) : '',
+                            pose.images?.[variant]?.noiseFloor ? pose.images[variant].noiseFloor.rms.toFixed(2) : '',
+                            pose.images?.[variant]?.moving
+                                ? Object.values(pose.images[variant].moving)
+                                      .map((m) => (m ? m.rms.toFixed(2) : 'n/a'))
+                                      .join(' / ')
+                                : ''
                         ];
                         cells.forEach((c) => {
                             const td = document.createElement('td');

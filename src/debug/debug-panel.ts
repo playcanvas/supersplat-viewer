@@ -116,6 +116,8 @@ class DebugPanel {
 
     private _cullButton: HTMLButtonElement | null = null;
 
+    private _taaButton: HTMLButtonElement | null = null;
+
     private _culledValue: HTMLSpanElement | null = null;
 
     private _cullStatsFrames = 0;
@@ -258,6 +260,7 @@ class DebugPanel {
                     ? `
             <div class="sse-debug-buttons">
                 <button data-id="depth-cull" title="Stochastic renderer: cull splats hidden in the previous frame's depth (auto suspends the test when it removes too little)">Depth cull</button>
+                <button data-id="taa" title="Stochastic renderer: accumulate the samples over frames (reprojected while the camera moves)">TAA</button>
             </div>
             <div class="sse-debug-row"><span class="sse-debug-label">culled</span><span class="sse-debug-value" data-id="culled">—</span></div>`
                     : ''
@@ -281,7 +284,14 @@ class DebugPanel {
         });
         if (this._splatRenderer) {
             this._cullButton = root.querySelector('[data-id="depth-cull"]')!;
+            this._taaButton = root.querySelector('[data-id="taa"]')!;
             this._culledValue = root.querySelector('[data-id="culled"]')!;
+            this._taaButton.addEventListener('click', () => {
+                const renderer = this._splatRenderer!;
+                renderer.variant.taa = renderer.variant.taa === 'on' ? 'off' : 'on';
+                renderer.applyVariant();
+                this._renderCull();
+            });
             // cycles the cull mode: auto (the default) -> on (both grid levels) -> off
             this._cullButton.addEventListener('click', () => {
                 const renderer = this._splatRenderer!;
@@ -397,6 +407,10 @@ class DebugPanel {
         const mode = renderer.variant.cull;
         this._cullButton.textContent = `Depth cull: ${mode === 'off' ? 'off' : mode === 'auto' ? 'auto' : 'on'}`;
         this._cullButton.classList.toggle('sse-debug-on', mode !== 'off');
+        if (this._taaButton) {
+            this._taaButton.textContent = `TAA: ${renderer.variant.taa}`;
+            this._taaButton.classList.toggle('sse-debug-on', renderer.variant.taa === 'on');
+        }
         if (mode === 'off') {
             this._culledValue.textContent = 'off';
             return;
