@@ -61,9 +61,10 @@
               poses=<url>                   json array of { name, snapshot } (window.getCameraState shape)
                                             or { name, position, target, fov }; default: the start pose
               modes=sorted,stochastic       which renderers to load
-              variants=cull:off;cull:l2     stochastic variant strings, ; separated (keys: spp, compose, cull, order)
+              variants=cull:off;cull:l2     stochastic variant strings, ; separated (keys: spp, compose, cull, order, contribution)
               splatSource=workbuffer        stochastic data path: workbuffer or direct
               dpr=1.5                       pin the pixel ratio and screen size: target = host * dpr
+              move=0.25                     orbit the camera this many degrees per measured frame (0: still)
               rounds=3 warmup=40 frames=180
               width=1280 height=720         host size in css pixels (the canvas follows the dpr rule)
               budget=<millions>             default 8; the engine allocates its work buffer for the whole budget
@@ -124,6 +125,8 @@
             // x 24 bytes), so keep it just above the scene's splat count
             const budget = Number(params.get('budget') ?? 8);
             const splatSource = params.get('splatSource') ?? 'workbuffer';
+            // degrees of orbit per measured frame; 0 measures a still camera
+            const move = Number(params.get('move') ?? 0);
             // the pane's device pixel ratio and screen size follow tab visibility, so pin them for
             // repeatable targets: the viewer caps its ratio from the screen's short side, and a
             // host-sized screen leaves the ratio at dpr (target = host * dpr)
@@ -316,9 +319,31 @@
                 return { viewer, app, renderer };
             };
 
-            const measure = async (app, profiler, label) => {
+            const measure = async (app, profiler, label, snapshot) => {
                 profiler.samples.length = 0;
-                await pump(app, warmup + frames);
+                // a moving camera exercises the work-buffer colour refresh, lod changes and the
+                // occlusion cull's reprojection: the camera orbits its focus point (position +
+                // forward * distance, the snapshot's own convention) and restarts every round
+                const orbit = move
+                    ? (i) => {
+                          const degToRad = Math.PI / 180;
+                          const forward = (pitch, yaw) => [
+                              -Math.sin(yaw * degToRad) * Math.cos(pitch * degToRad),
+                              Math.sin(pitch * degToRad),
+                              -Math.cos(yaw * degToRad) * Math.cos(pitch * degToRad)
+                          ];
+                          const [pitch, yaw] = snapshot.angles;
+                          const f0 = forward(pitch, yaw);
+                          const focus = snapshot.position.map((p, k) => p + f0[k] * snapshot.distance);
+                          const f1 = forward(pitch, yaw + i * move);
+                          window.setCameraState({
+                              ...snapshot,
+                              position: focus.map((c, k) => c - f1[k] * snapshot.distance),
+                              angles: [pitch, yaw + i * move, snapshot.angles[2]]
+                          });
+                      }
+                    : undefined;
+                await pump(app, warmup + frames, orbit);
                 // reports trail the frames; give them a moment
                 await until(() => profiler.samples.length >= warmup + frames - 5, 2000);
                 const samples = profiler.samples.slice(warmup);
@@ -353,6 +378,7 @@
                 dpr: window.devicePixelRatio,
                 host: { width, height },
                 splatSource,
+                move,
                 rounds,
                 warmup,
                 frames,
@@ -478,7 +504,7 @@
                     for (let round = 0; round < rounds; round++) {
                         for (const variant of modeVariants) {
                             if (renderer) renderer.setVariant(variant);
-                            const run = await measure(app, profiler, variant);
+                            const run = await measure(app, profiler, variant, pose.snapshot);
                             if (!runs.has(variant)) runs.set(variant, []);
                             runs.get(variant).push(run);
                         }

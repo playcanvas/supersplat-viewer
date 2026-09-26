@@ -204,6 +204,7 @@
                 // the opt-in stochastic renderer: its own passes, buffers and textures must go
                 // with the viewer
                 stochastic: url.searchParams.has('stochastic'),
+                splatSource: url.searchParams.get('splatSource') ?? undefined,
                 exposeGlobals: false,
                 collisionUrl: url.searchParams.get('collision') ?? undefined,
                 ui: !url.searchParams.has('noui')

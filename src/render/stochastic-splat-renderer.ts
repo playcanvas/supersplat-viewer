@@ -85,9 +85,21 @@ type Variant = {
      * rejects most of what the depth test would, or the projector's `append` order.
      */
     order: 'append' | 'bucket';
+    /**
+     * Contribution cull while the camera moves: splats whose alpha mass in pixels (opacity times
+     * projected area) falls below this are skipped on moving frames, and a settled frame at the
+     * scene's own threshold follows when the camera stops. 0 leaves the scene threshold alone.
+     */
+    contribution: number;
 };
 
-const defaultVariant = (): Variant => ({ spp: 'quad', compose: 'blend', cull: 'auto', order: 'bucket' });
+const defaultVariant = (): Variant => ({
+    spp: 'quad',
+    compose: 'blend',
+    cull: 'auto',
+    order: 'bucket',
+    contribution: 0
+});
 
 const parseVariant = (text: string | undefined): Variant => {
     const variant = defaultVariant();
@@ -100,6 +112,7 @@ const parseVariant = (text: string | undefined): Variant => {
             variant.cull = value;
         }
         if (key === 'order' && (value === 'append' || value === 'bucket')) variant.order = value;
+        if (key === 'contribution' && Number.isFinite(Number(value))) variant.contribution = Math.max(0, Number(value));
     }
     return variant;
 };
@@ -276,6 +289,13 @@ class StochasticSplatRenderer {
     private prevHeight = 0;
 
     private prevVersion = -1;
+
+    // the allocations resident when the previous frame drew, and whether any of them has gone
+    // since: only a removed splat can make the previous depth wrong (it may have hidden what is
+    // now behind it), so arrivals leave the cull on while a scene streams in
+    private residentAllocIds = new Set<number>();
+
+    private nodesRemoved = false;
 
     private prevOrtho = false;
 
@@ -701,7 +721,16 @@ class StochasticSplatRenderer {
         const { device, camera } = this;
         const cam = camera.camera;
 
+        this.nodesRemoved = false;
         if (changed || this.set !== set) {
+            const ids = new Set(set.nodes.map((node) => node.allocId));
+            for (const id of this.residentAllocIds) {
+                if (!ids.has(id)) {
+                    this.nodesRemoved = true;
+                    break;
+                }
+            }
+            this.residentAllocIds = ids;
             this.source.update(set, manager);
             this.rebuildChunkTable(set);
             this.ensureCache(set.activeSplats);
@@ -737,11 +766,20 @@ class StochasticSplatRenderer {
         const focal = [Math.abs(projection.data[0]) * width * 0.5, Math.abs(projection.data[5]) * height * 0.5];
         const gsplat = this.app.scene.gsplat;
 
+        // the moving-camera contribution cull: a raised threshold while the view changes, then
+        // one more frame at the scene's threshold once it has stopped
+        const moved = !view.equals(this.prevView);
+        const raised = moved && this.variant.contribution > 0;
+        const minContribution = raised
+            ? Math.max(gsplat.minContribution, this.variant.contribution)
+            : gsplat.minContribution;
+        if (raised) this.app.renderNextFrame = true;
+
         // The occlusion cull reads the depth texture as the previous frame left it, so it needs
         // that frame to have drawn to this target at this size (a resize loses the texture, a
-        // capture draws elsewhere), from the same world state (a removed splat's depth would
-        // hide what is now behind it) and projection type. A capture frame is never culled
-        // and never becomes the previous frame.
+        // capture draws elsewhere), with no splat removed since (its depth would hide what is
+        // now behind it; arrivals are safe) and the same projection type. A capture frame is
+        // never culled and never becomes the previous frame.
         const isQuery = !!rt;
         // a new world state can change what is occluded: try the test again
         if (this.prevVersion !== set.version) {
@@ -769,7 +807,7 @@ class StochasticSplatRenderer {
             this.prevValid &&
             this.prevWidth === width &&
             this.prevHeight === height &&
-            this.prevVersion === set.version &&
+            !this.nodesRemoved &&
             this.prevOrtho === isOrtho;
         this.culling = culling;
         if (culling) {
@@ -813,7 +851,7 @@ class StochasticSplatRenderer {
             projector.setParameter('isOrtho', isOrtho ? 1 : 0);
             projector.setParameter('minPixelSize', gsplat.minPixelSize);
             projector.setParameter('alphaClip', gsplat.alphaClipForward);
-            projector.setParameter('minContribution', gsplat.minContribution);
+            projector.setParameter('minContribution', minContribution);
             projector.setParameter('occBlocksX1', this.occBlocks.x1);
             projector.setParameter('occBlocksY1', this.occBlocks.y1);
             projector.setParameter('occBlocksX2', this.occBlocks.x2);
