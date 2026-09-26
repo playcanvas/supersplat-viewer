@@ -1,0 +1,219 @@
+{
+  "note": "M5 popless depth: depth roughness (mean neighbour step of the 24-bit log depth view, thousandths of the near-to-far range) and GPU time with popless off and on; the image against the sorted frame was identical to two decimals in a preceding run (rms 8.76 vs 8.77). Stochastic sample selection dominates the roughness; popless removes the plate steps on top of it. The resident counts read 0 because the stat is sampled before the first pumped frame; the bicycle has 6.13 M.",
+  "date": "2026-09-26T00:46:46.177Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.7032.0 Chrome/152.0.7977.130 Safari/537.36",
+  "adapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "content": "./bicycle.compressed.ply",
+  "dpr": 1.5,
+  "host": {
+    "width": 1280,
+    "height": 720
+  },
+  "splatSource": "workbuffer",
+  "move": 0,
+  "rounds": 1,
+  "warmup": 40,
+  "frames": 180,
+  "budget": 8,
+  "modes": {
+    "sorted": {
+      "resident": 0,
+      "poses": [
+        {
+          "name": "framed",
+          "variants": {
+            "sorted": {
+              "median": 2.4903679999999997,
+              "min": 2.359296,
+              "samples": 175,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 0.458752,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 0.524288,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.065536,
+                "RenderPassForward": 1.2451839999999998
+              },
+              "survivors": null,
+              "occluded": null
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 738466368,
+            "vramTex": 337604444,
+            "vramSb": 355898220,
+            "rendererBytes": null,
+            "survivors": 0
+          }
+        },
+        {
+          "name": "subject",
+          "variants": {
+            "sorted": {
+              "median": 7.536639999999999,
+              "min": 7.4711039999999995,
+              "samples": 180,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 0.458752,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 0.589824,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.131072,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.262144,
+                "RenderPassForward": 5.963775999999999
+              },
+              "survivors": null,
+              "occluded": null
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 738466368,
+            "vramTex": 337604444,
+            "vramSb": 355898220,
+            "rendererBytes": null,
+            "survivors": 0
+          }
+        }
+      ]
+    },
+    "stochastic": {
+      "resident": 0,
+      "poses": [
+        {
+          "name": "framed",
+          "variants": {
+            "cull:off,popless:off,compose:depth": {
+              "median": 1.114112,
+              "min": 0.917504,
+              "samples": 175,
+              "passes": {
+                "sse-splat-project": 0.458752,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.524288,
+                "RenderPassForward": 0.524288
+              },
+              "survivors": 151401,
+              "occluded": 0
+            },
+            "cull:off,popless:on,compose:depth": {
+              "median": 1.048576,
+              "min": 0.917504,
+              "samples": 180,
+              "passes": {
+                "sse-splat-project": 0.458752,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.524288,
+                "RenderPassForward": 0.458752
+              },
+              "survivors": 151401,
+              "occluded": 0
+            }
+          },
+          "images": {
+            "cull:off,popless:off,compose:depth": {
+              "vsSorted": null,
+              "noiseFloor": {
+                "changedPct": 3.7300829475308643,
+                "meanAbs": 2.425389178240741,
+                "rms": 19.187339893401795
+              },
+              "depthRoughness": 1.6356762251136252
+            },
+            "cull:off,popless:on,compose:depth": {
+              "vsSorted": null,
+              "noiseFloor": null,
+              "depthRoughness": 1.6541149389459548
+            }
+          },
+          "memory": {
+            "vramTotal": 706332444,
+            "vramTex": 354193244,
+            "vramSb": 307269148,
+            "rendererBytes": 262485876,
+            "survivors": 151401
+          }
+        },
+        {
+          "name": "subject",
+          "variants": {
+            "cull:off,popless:off,compose:depth": {
+              "median": 2.883584,
+              "min": 2.8180479999999997,
+              "samples": 175,
+              "passes": {
+                "sse-splat-project": 0.589824,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.131072,
+                "sse-splat-raster": 2.097152,
+                "RenderPassForward": 1.2451839999999998
+              },
+              "survivors": 1635861,
+              "occluded": 0
+            },
+            "cull:off,popless:on,compose:depth": {
+              "median": 2.883584,
+              "min": 2.8180479999999997,
+              "samples": 180,
+              "passes": {
+                "sse-splat-project": 0.589824,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.131072,
+                "sse-splat-raster": 2.097152,
+                "RenderPassForward": 1.2451839999999998
+              },
+              "survivors": 1635861,
+              "occluded": 0
+            }
+          },
+          "images": {
+            "cull:off,popless:off,compose:depth": {
+              "vsSorted": null,
+              "noiseFloor": {
+                "changedPct": 70.62152777777777,
+                "meanAbs": 43.86757796424897,
+                "rms": 75.12485343236492
+              },
+              "depthRoughness": 33.2348233582481
+            },
+            "cull:off,popless:on,compose:depth": {
+              "vsSorted": null,
+              "noiseFloor": null,
+              "depthRoughness": 31.934800737114838
+            }
+          },
+          "memory": {
+            "vramTotal": 706332444,
+            "vramTex": 354193244,
+            "vramSb": 307269148,
+            "rendererBytes": 262485876,
+            "survivors": 1635861
+          }
+        }
+      ]
+    }
+  },
+  "target": {
+    "width": 1920,
+    "height": 1080
+  }
+}

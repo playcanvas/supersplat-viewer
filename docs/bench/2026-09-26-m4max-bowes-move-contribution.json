@@ -1,0 +1,277 @@
+{
+  "note": "M4 contribution cull while moving: Bowes orbiting 0.25 deg/frame, cull on, contribution threshold 2/4/8 against the scene value 1. Survivors and occluded are read from the settled frame after each orbit (scene threshold), not from the moving frames.",
+  "date": "2026-09-26T00:13:57.903Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.7032.0 Chrome/152.0.7977.130 Safari/537.36",
+  "adapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "content": "./bowes.ply",
+  "dpr": 1.5,
+  "host": {
+    "width": 1280,
+    "height": 720
+  },
+  "splatSource": "workbuffer",
+  "move": 0.25,
+  "rounds": 2,
+  "warmup": 40,
+  "frames": 180,
+  "budget": 20,
+  "modes": {
+    "stochastic": {
+      "resident": 17493093,
+      "poses": [
+        {
+          "name": "wide",
+          "variants": {
+            "cull:l2": {
+              "median": 6.094848,
+              "min": 5.8982399999999995,
+              "samples": 363,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.9660799999999998,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.131072,
+                "sse-splat-raster": 3.866624,
+                "RenderPassForward": 2.8180479999999997
+              },
+              "survivors": 2018205,
+              "occluded": 144124
+            },
+            "cull:l2,contribution:2": {
+              "median": 4.456448,
+              "min": 4.325375999999999,
+              "samples": 360,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.835008,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.065536,
+                "sse-splat-raster": 2.424832,
+                "RenderPassForward": 1.835008
+              },
+              "survivors": 2018205,
+              "occluded": 144124
+            },
+            "cull:l2,contribution:4": {
+              "median": 3.145728,
+              "min": 3.080192,
+              "samples": 360,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.572864,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.065536,
+                "sse-splat-raster": 1.441792,
+                "RenderPassForward": 1.179648
+              },
+              "survivors": 2018205,
+              "occluded": 144124
+            },
+            "cull:l2,contribution:8": {
+              "median": 2.6214399999999998,
+              "min": 2.555904,
+              "samples": 360,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.376256,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 1.048576,
+                "RenderPassForward": 0.917504
+              },
+              "survivors": 2018205,
+              "occluded": 144124
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 2014643608,
+            "vramTex": 1128454444,
+            "vramSb": 863232712,
+            "rendererBytes": 717819044,
+            "survivors": 2018205
+          }
+        },
+        {
+          "name": "facade",
+          "variants": {
+            "cull:l2": {
+              "median": 7.45472,
+              "min": 6.619136,
+              "samples": 362,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 2.1626879999999997,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.196608,
+                "sse-splat-raster": 4.9152,
+                "RenderPassForward": 3.473408
+              },
+              "survivors": 2415227,
+              "occluded": 1767256
+            },
+            "cull:l2,contribution:2": {
+              "median": 5.636095999999999,
+              "min": 5.177344,
+              "samples": 360,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 2.031616,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.131072,
+                "sse-splat-raster": 3.342336,
+                "RenderPassForward": 2.424832
+              },
+              "survivors": 2415227,
+              "occluded": 1767256
+            },
+            "cull:l2,contribution:4": {
+              "median": 4.128768,
+              "min": 3.997696,
+              "samples": 360,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.835008,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.065536,
+                "sse-splat-raster": 2.097152,
+                "RenderPassForward": 1.6383999999999999
+              },
+              "survivors": 2415227,
+              "occluded": 1767256
+            },
+            "cull:l2,contribution:8": {
+              "median": 3.3423359999999995,
+              "min": 3.211264,
+              "samples": 360,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.6711679999999998,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.049152,
+                "sse-splat-raster": 1.441792,
+                "RenderPassForward": 1.212416
+              },
+              "survivors": 2415227,
+              "occluded": 1767256
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 2014643608,
+            "vramTex": 1128454444,
+            "vramSb": 863232712,
+            "rendererBytes": 717819044,
+            "survivors": 2415227
+          }
+        },
+        {
+          "name": "aerial",
+          "variants": {
+            "cull:l2": {
+              "median": 4.9152,
+              "min": 4.784128,
+              "samples": 362,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.769472,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.131072,
+                "sse-splat-raster": 2.883584,
+                "RenderPassForward": 2.195456
+              },
+              "survivors": 1462399,
+              "occluded": 8629
+            },
+            "cull:l2,contribution:2": {
+              "median": 4.227072,
+              "min": 3.538944,
+              "samples": 360,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.6711679999999998,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.065536,
+                "sse-splat-raster": 1.9660799999999998,
+                "RenderPassForward": 1.6383999999999999
+              },
+              "survivors": 1462399,
+              "occluded": 8629
+            },
+            "cull:l2,contribution:4": {
+              "median": 2.686976,
+              "min": 2.6214399999999998,
+              "samples": 360,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.441792,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 1.048576,
+                "RenderPassForward": 0.917504
+              },
+              "survivors": 1462399,
+              "occluded": 8629
+            },
+            "cull:l2,contribution:8": {
+              "median": 2.228224,
+              "min": 2.1626879999999997,
+              "samples": 360,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.3107199999999999,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.720896,
+                "RenderPassForward": 0.6553599999999999
+              },
+              "survivors": 1462399,
+              "occluded": 8629
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 2014643608,
+            "vramTex": 1128454444,
+            "vramSb": 863232712,
+            "rendererBytes": 717819044,
+            "survivors": 1462399
+          }
+        }
+      ]
+    }
+  },
+  "target": {
+    "width": 1920,
+    "height": 1080
+  }
+}

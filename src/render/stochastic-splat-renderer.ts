@@ -72,8 +72,8 @@ import { WorkBufferSplatSource } from './splat-source-workbuffer';
 type Variant = {
     /** Coverage thresholds: plain 1 spp, or stratified over 2x2 pixel quads with a quad-mean compose. */
     spp: '1' | 'quad';
-    /** `none` skips the compose, to bound its cost. */
-    compose: 'blend' | 'none';
+    /** `none` skips the compose, to bound its cost; `depth` shows the splat depth as grey. */
+    compose: 'blend' | 'none' | 'depth';
     /**
      * Previous-frame occlusion cull: off, the 8 px grid only, both grid levels, or `auto`: both
      * levels, suspended for a while whenever a frame culled less than 8 % of its splats, since the
@@ -91,6 +91,8 @@ type Variant = {
      * scene's own threshold follows when the camera stops. 0 leaves the scene threshold alone.
      */
     contribution: number;
+    /** Popless depth: every fragment gets the depth of the Gaussian's peak along its ray (paper 3.4). */
+    popless: 'on' | 'off';
 };
 
 const defaultVariant = (): Variant => ({
@@ -98,7 +100,8 @@ const defaultVariant = (): Variant => ({
     compose: 'blend',
     cull: 'auto',
     order: 'bucket',
-    contribution: 0
+    contribution: 0,
+    popless: 'on'
 });
 
 const parseVariant = (text: string | undefined): Variant => {
@@ -107,7 +110,8 @@ const parseVariant = (text: string | undefined): Variant => {
         const [key, value] = part.split(':').map((s) => s.trim());
         if (!key || value === undefined) continue;
         if (key === 'spp' && (value === '1' || value === 'quad')) variant.spp = value;
-        if (key === 'compose' && (value === 'blend' || value === 'none')) variant.compose = value;
+        if (key === 'compose' && (value === 'blend' || value === 'none' || value === 'depth')) variant.compose = value;
+        if (key === 'popless' && (value === 'on' || value === 'off')) variant.popless = value;
         if (key === 'cull' && (value === 'off' || value === 'l1' || value === 'l2' || value === 'auto')) {
             variant.cull = value;
         }
@@ -687,6 +691,8 @@ class StochasticSplatRenderer {
         const quad = this.variant.spp === 'quad';
         this.rasterMaterial.setDefine('SSE_SPP_QUAD', quad ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_ORDERED', this.variant.order === 'bucket' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_POPLESS', this.variant.popless === 'on' ? '' : undefined);
+        this.composeMaterial.setDefine('SSE_SHOW_DEPTH', this.variant.compose === 'depth' ? '' : undefined);
         this.composeMaterial.setDefine('SSE_SPP_QUAD', quad ? '' : undefined);
         this.rasterMaterial.update();
         this.composeMaterial.update();
@@ -907,12 +913,24 @@ class StochasticSplatRenderer {
             isOrtho ? 1 : 0,
             0
         ]);
+        material.setParameter('focalParams', [focal[0], focal[1], 0, 0]);
         material.setParameter('sseAlphaClip', gsplat.alphaClipForward);
         material.setParameter('frameSeed', this.frameSeed);
 
         // an offscreen target's rows run the other way to the backbuffer's on WebGPU
         const targetFlipY = rt ? rt.flipY : device.backBuffer.flipY;
-        this.composeMaterial.setParameter('composeParams', [this.target.flipY !== targetFlipY ? 1 : 0, 0, 0, 0]);
+        this.composeMaterial.setParameter('composeParams', [
+            this.target.flipY !== targetFlipY ? 1 : 0,
+            isOrtho ? 1 : 0,
+            0,
+            0
+        ]);
+        this.composeMaterial.setParameter('depthViewParams', [
+            -shaderProjection.data[10],
+            shaderProjection.data[14],
+            Math.max(cam.nearClip, 1e-4),
+            Math.max(cam.farClip, cam.nearClip * 2)
+        ]);
 
         // cull:auto: read this culled frame's counts back (asynchronously, off the frame) and
         // keep the test only while it removes enough to pay for itself

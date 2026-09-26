@@ -1,0 +1,315 @@
+{
+  "note": "M5 popless depth on the church: image against the sorted frame, depth roughness of the 24-bit depth view, and GPU time with popless off and on. Resident counts read 0 because the stat is sampled before the first pumped frame; the church has 4.4 M.",
+  "date": "2026-09-26T00:48:06.339Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.7032.0 Chrome/152.0.7977.130 Safari/537.36",
+  "adapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "content": "./church.ply",
+  "dpr": 1.5,
+  "host": {
+    "width": 1280,
+    "height": 720
+  },
+  "splatSource": "workbuffer",
+  "move": 0,
+  "rounds": 1,
+  "warmup": 40,
+  "frames": 180,
+  "budget": 8,
+  "modes": {
+    "sorted": {
+      "resident": 0,
+      "poses": [
+        {
+          "name": "framed",
+          "variants": {
+            "sorted": {
+              "median": 3.997696,
+              "min": 3.9321599999999997,
+              "samples": 175,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 0.32767999999999997,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 0.393216,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.065536,
+                "RenderPassForward": 3.014656
+              },
+              "survivors": null,
+              "occluded": null
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 970844300,
+            "vramTex": 660107644,
+            "vramSb": 265772952,
+            "rendererBytes": null,
+            "survivors": 0
+          }
+        },
+        {
+          "name": "subject",
+          "variants": {
+            "sorted": {
+              "median": 8.257536,
+              "min": 8.192,
+              "samples": 180,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 0.32767999999999997,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 0.458752,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.131072,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.262144,
+                "RenderPassForward": 7.012352
+              },
+              "survivors": null,
+              "occluded": null
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 970844300,
+            "vramTex": 660107644,
+            "vramSb": 265772952,
+            "rendererBytes": null,
+            "survivors": 0
+          }
+        }
+      ]
+    },
+    "stochastic": {
+      "resident": 0,
+      "poses": [
+        {
+          "name": "framed",
+          "variants": {
+            "cull:off,popless:off": {
+              "median": 1.376256,
+              "min": 1.3107199999999999,
+              "samples": 175,
+              "passes": {
+                "sse-splat-project": 0.32767999999999997,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.9830399999999999,
+                "RenderPassForward": 0.917504
+              },
+              "survivors": 138099,
+              "occluded": 0
+            },
+            "cull:off,popless:on": {
+              "median": 1.376256,
+              "min": 1.3107199999999999,
+              "samples": 180,
+              "passes": {
+                "sse-splat-project": 0.32767999999999997,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.9830399999999999,
+                "RenderPassForward": 0.917504
+              },
+              "survivors": 138099,
+              "occluded": 0
+            },
+            "cull:off,popless:off,compose:depth": {
+              "median": 1.376256,
+              "min": 1.3107199999999999,
+              "samples": 180,
+              "passes": {
+                "sse-splat-project": 0.32767999999999997,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.9830399999999999,
+                "RenderPassForward": 0.917504
+              },
+              "survivors": 138099,
+              "occluded": 0
+            },
+            "cull:off,popless:on,compose:depth": {
+              "median": 1.376256,
+              "min": 1.3107199999999999,
+              "samples": 180,
+              "passes": {
+                "sse-splat-project": 0.32767999999999997,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.9830399999999999,
+                "RenderPassForward": 0.917504
+              },
+              "survivors": 138099,
+              "occluded": 0
+            }
+          },
+          "images": {
+            "cull:off,popless:off": {
+              "vsSorted": {
+                "changedPct": 0.6021894290123457,
+                "meanAbs": 0.1067946244855967,
+                "rms": 1.3492707077904103
+              },
+              "noiseFloor": {
+                "changedPct": 0.6955536265432098,
+                "meanAbs": 0.11072755915637861,
+                "rms": 1.3463513794834678
+              },
+              "depthRoughness": null
+            },
+            "cull:off,popless:on": {
+              "vsSorted": {
+                "changedPct": 0.6067708333333334,
+                "meanAbs": 0.10732028034979424,
+                "rms": 1.3531474084336181
+              },
+              "noiseFloor": null,
+              "depthRoughness": null
+            },
+            "cull:off,popless:off,compose:depth": {
+              "vsSorted": null,
+              "noiseFloor": null,
+              "depthRoughness": 1.7894577274190684
+            },
+            "cull:off,popless:on,compose:depth": {
+              "vsSorted": null,
+              "noiseFloor": null,
+              "depthRoughness": 1.780971061546697
+            }
+          },
+          "memory": {
+            "vramTotal": 952588768,
+            "vramTex": 676696444,
+            "vramSb": 230919872,
+            "rendererBytes": 193065140,
+            "survivors": 138099
+          }
+        },
+        {
+          "name": "subject",
+          "variants": {
+            "cull:off,popless:off": {
+              "median": 2.4903679999999997,
+              "min": 2.424832,
+              "samples": 175,
+              "passes": {
+                "sse-splat-project": 0.458752,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.131072,
+                "sse-splat-raster": 1.900544,
+                "RenderPassForward": 1.114112
+              },
+              "survivors": 1377796,
+              "occluded": 0
+            },
+            "cull:off,popless:on": {
+              "median": 2.4903679999999997,
+              "min": 2.424832,
+              "samples": 180,
+              "passes": {
+                "sse-splat-project": 0.458752,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.065536,
+                "sse-splat-raster": 1.900544,
+                "RenderPassForward": 1.114112
+              },
+              "survivors": 1377796,
+              "occluded": 0
+            },
+            "cull:off,popless:off,compose:depth": {
+              "median": 2.4903679999999997,
+              "min": 2.424832,
+              "samples": 180,
+              "passes": {
+                "sse-splat-project": 0.458752,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.065536,
+                "sse-splat-raster": 1.900544,
+                "RenderPassForward": 1.114112
+              },
+              "survivors": 1377796,
+              "occluded": 0
+            },
+            "cull:off,popless:on,compose:depth": {
+              "median": 2.4903679999999997,
+              "min": 2.424832,
+              "samples": 180,
+              "passes": {
+                "sse-splat-project": 0.458752,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.131072,
+                "sse-splat-raster": 1.900544,
+                "RenderPassForward": 1.114112
+              },
+              "survivors": 1377796,
+              "occluded": 0
+            }
+          },
+          "images": {
+            "cull:off,popless:off": {
+              "vsSorted": {
+                "changedPct": 53.277054398148145,
+                "meanAbs": 9.385254790380658,
+                "rms": 12.5312351066689
+              },
+              "noiseFloor": {
+                "changedPct": 59.825376157407405,
+                "meanAbs": 12.00903838734568,
+                "rms": 16.441584529448242
+              },
+              "depthRoughness": null
+            },
+            "cull:off,popless:on": {
+              "vsSorted": {
+                "changedPct": 52.51253858024691,
+                "meanAbs": 9.352857831790123,
+                "rms": 12.696222244627707
+              },
+              "noiseFloor": null,
+              "depthRoughness": null
+            },
+            "cull:off,popless:off,compose:depth": {
+              "vsSorted": null,
+              "noiseFloor": null,
+              "depthRoughness": 29.421546774461362
+            },
+            "cull:off,popless:on,compose:depth": {
+              "vsSorted": null,
+              "noiseFloor": null,
+              "depthRoughness": 28.99566720622239
+            }
+          },
+          "memory": {
+            "vramTotal": 952588768,
+            "vramTex": 676696444,
+            "vramSb": 230919872,
+            "rendererBytes": 193065140,
+            "survivors": 1377796
+          }
+        }
+      ]
+    }
+  },
+  "target": {
+    "width": 1920,
+    "height": 1080
+  }
+}

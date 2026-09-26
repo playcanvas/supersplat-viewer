@@ -96,15 +96,6 @@
                 log(`ERROR ${event.reason?.stack ?? event.reason}`, true)
             );
 
-            const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-            const until = async (test, timeoutMs) => {
-                const deadline = performance.now() + timeoutMs;
-                while (!test()) {
-                    if (performance.now() > deadline) return false;
-                    await wait(50);
-                }
-                return true;
-            };
             const median = (values) => {
                 const sorted = [...values].sort((a, b) => a - b);
                 const mid = sorted.length >> 1;
@@ -200,20 +191,44 @@
                     };
                     channel.port2.postMessage(0);
                 });
+            // a yield that a hidden tab does not throttle (timers there fire once a second at best)
+            const yieldTask = () =>
+                new Promise((resolve) => {
+                    const channel = new MessageChannel();
+                    channel.port1.onmessage = () => {
+                        channel.port1.close();
+                        resolve();
+                    };
+                    channel.port2.postMessage(0);
+                });
+            // pump frames until the test passes, at real elapsed time so streaming and animation
+            // see sane deltas; false on timeout
+            const pumpUntil = async (app, test, timeoutMs) => {
+                const deadline = performance.now() + timeoutMs;
+                let last = performance.now();
+                while (!test()) {
+                    if (performance.now() > deadline) return false;
+                    const now = performance.now();
+                    pumpFrame(app, Math.min(0.1, Math.max(1 / 240, (now - last) / 1000)));
+                    last = now;
+                    await yieldTask();
+                }
+                return true;
+            };
             const stopTicker = (app) => {
                 if (app.frameRequestId) {
                     cancelAnimationFrame(app.frameRequestId);
                     app.frameRequestId = null;
                 }
             };
-            const startTicker = (app) => {
-                if (!app.frameRequestId) app.requestAnimationFrame();
-            };
-            const nextFrame = (app) => new Promise((resolve) => app.once('frameend', resolve));
+            // The page's own frame loop is stopped once the viewer exists and every frame is pumped
+            // from here: the desktop app's browser pane hides the page whenever it is not in front,
+            // and a hidden page gets no requestAnimationFrame, which would stall every wait below.
+            const nextFrame = (app) => pump(app, 1);
             // the viewer renders on demand, and frameend fires whether or not a frame rendered
             const renderFrame = (app) => {
                 app.renderNextFrame = true;
-                return nextFrame(app);
+                return pump(app, 1);
             };
 
             // gpu spans: the engine's timestamp profiler reports asynchronously, a few frames late;
@@ -246,9 +261,46 @@
                 };
             };
 
+            // the capture waits for a frame end, so frames are pumped until it settles
             const capture = async (viewer, w, h) => {
-                const result = await viewer.captureFrame({ width: w, height: h, supersample: 1 });
+                const { app } = viewer;
+                let result = null;
+                let error = null;
+                viewer
+                    .captureFrame({ width: w, height: h, supersample: 1 })
+                    .then((r) => (result = r))
+                    .catch((e) => (error = e));
+                while (!result && !error) {
+                    pumpFrame(app, 1 / 60);
+                    await yieldTask();
+                }
+                if (error) throw error;
                 return Uint8ClampedArray.from(atob(result.data), (c) => c.charCodeAt(0));
+            };
+            // Mean absolute horizontal and vertical step of the depth view (24-bit log depth in
+            // rgb, see the compose) between neighbouring covered pixels, in thousandths of the
+            // near-to-far log range: a depth surface's roughness, where plates show as steps
+            const depthRoughness = (a, w, h) => {
+                const t = (i) => (a[i] * 65536 + a[i + 1] * 256 + a[i + 2]) / 16777215;
+                const covered = (i) => a[i] + a[i + 1] + a[i + 2] > 0;
+                let sum = 0;
+                let count = 0;
+                for (let y = 0; y < h - 1; y++) {
+                    for (let x = 0; x < w - 1; x++) {
+                        const i = (y * w + x) * 4;
+                        if (!covered(i)) continue;
+                        if (covered(i + 4)) {
+                            sum += Math.abs(t(i) - t(i + 4));
+                            count++;
+                        }
+                        const j = i + w * 4;
+                        if (covered(j)) {
+                            sum += Math.abs(t(i) - t(j));
+                            count++;
+                        }
+                    }
+                }
+                return count ? (1000 * sum) / count : 0;
             };
             // 8-bit rgb metrics: pixels changed by more than 8/255 in any channel, mean absolute
             // and rms difference (the editor's convention)
@@ -311,11 +363,12 @@
                 app.graphicsDevice.wgpu?.addEventListener('uncapturederror', (event) =>
                     log(`GPU ERROR ${event.error.message}`, true)
                 );
-                if (!(await until(() => viewer.state.loaded, 300000))) {
+                stopTicker(app);
+                if (!(await pumpUntil(app, () => viewer.state.loaded, 300000))) {
                     throw new Error(`${mode}: did not load within 300s`);
                 }
                 // let streaming and the first sorts settle
-                for (let i = 0; i < 30; i++) await nextFrame(app);
+                await pump(app, 30);
                 return { viewer, app, renderer };
             };
 
@@ -344,9 +397,9 @@
                       }
                     : undefined;
                 await pump(app, warmup + frames, orbit);
-                // reports trail the frames; give them a moment
-                await until(() => profiler.samples.length >= warmup + frames - 5, 2000);
-                const samples = profiler.samples.slice(warmup);
+                // reports trail the frames by a few; pump until they have arrived
+                await pumpUntil(app, () => profiler.samples.length >= warmup + frames - 5, 2000);
+                const samples = profiler.samples.slice(warmup, warmup + frames);
                 const frameTimes = samples.map((s) => s.frame);
                 const passNames = new Set();
                 samples.forEach((s) => Object.keys(s.passes).forEach((n) => passNames.add(n)));
@@ -405,7 +458,10 @@
                     continue;
                 }
 
-                const modeResult = { resident: app.stats.frame.gsplats, poses: [] };
+                // the frame stat is only filled by a rendered frame; fall back to the resource
+                const resident =
+                    app.stats.frame.gsplats || app.root.findByName('gsplat')?.gsplat?.resource?.numSplats || 0;
+                const modeResult = { resident, poses: [] };
                 results.modes[mode] = modeResult;
                 const profiler = attachProfiler(device);
                 // No poses: frame the whole scene, plus a pose at the subject. The subject is the
@@ -415,7 +471,7 @@
                 // (the stochastic mode switches them off), so poses are computed once and reused.
                 if (!poseList) {
                     viewer.frameScene();
-                    for (let i = 0; i < 120; i++) await nextFrame(app);
+                    await pump(app, 120);
                     poseList = [{ name: 'framed', snapshot: window.getCameraState() }];
                     const gsplat = app.root.findByName('gsplat')?.gsplat;
                     const centers = gsplat?.resource?.centers;
@@ -486,20 +542,22 @@
                                     noiseFloor = imageDiff(a, b);
                                     preview(a, target.width, target.height, `${pose.name} ${variant}`);
                                 }
+                                const depthView = variant.includes('compose:depth');
                                 poseResult.images[variant] = {
-                                    vsSorted: reference ? imageDiff(a, reference) : null,
-                                    noiseFloor
+                                    vsSorted: reference && !depthView ? imageDiff(a, reference) : null,
+                                    noiseFloor,
+                                    depthRoughness: depthView ? depthRoughness(a, target.width, target.height) : null
                                 };
                                 const v = poseResult.images[variant].vsSorted;
+                                const rough = poseResult.images[variant].depthRoughness;
                                 log(
-                                    `${mode} ${pose.name} ${variant}: vs sorted ${v ? `${v.changedPct.toFixed(2)}% changed, meanAbs ${v.meanAbs.toFixed(2)}, rms ${v.rms.toFixed(2)}` : 'n/a'}${noiseFloor ? `; noise floor rms ${noiseFloor.rms.toFixed(2)}` : ''}`
+                                    `${mode} ${pose.name} ${variant}: ${depthView ? `depth roughness ${rough.toFixed(3)}` : `vs sorted ${v ? `${v.changedPct.toFixed(2)}% changed, meanAbs ${v.meanAbs.toFixed(2)}, rms ${v.rms.toFixed(2)}` : 'n/a'}`}${noiseFloor ? `; noise floor rms ${noiseFloor.rms.toFixed(2)}` : ''}`
                                 );
                             }
                         }
                     }
 
                     // three round-robin rounds so drift affects every variant equally
-                    stopTicker(app);
                     const runs = new Map();
                     for (let round = 0; round < rounds; round++) {
                         for (const variant of modeVariants) {
@@ -538,7 +596,6 @@
                             `${mode} ${pose.name} ${variant}: ${poseResult.variants[variant].median.toFixed(3)} / ${poseResult.variants[variant].min.toFixed(3)} ms (${poseResult.variants[variant].samples} samples)${counts} [${passText}]`
                         );
                     }
-                    startTicker(app);
                     await nextFrame(app);
 
                     const vram = app.stats.vram;

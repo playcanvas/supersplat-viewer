@@ -16,6 +16,8 @@ uniform viewportSize: vec4f;
 uniform clipZParams: vec4f;
 // set by the engine's forward renderer for the target being rendered
 uniform projectionFlipY: f32;
+// focal length in pixels (x, y), for the popless corner depths
+uniform focalParams: vec4f;
 
 var<storage, read> splatCache: array<u32>;
 var<storage, read> splatCount: array<u32>;
@@ -24,7 +26,8 @@ var<storage, read> splatCount: array<u32>;
     var<storage, read> orderedSlots: array<u32>;
 #endif
 
-varying gaussianUV: vec2f;
+// screen-linear: the corners share one screen footprint whatever depth they carry
+varying @interpolate(linear) gaussianUV: vec2f;
 varying @interpolate(flat, either) packedColor: u32;
 varying @interpolate(flat, either) packedAlpha: u32;
 varying @interpolate(flat, either) splatId: u32;
@@ -50,8 +53,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
     let ndcRange = vec2f(1.0) + vec2f(4.0 * maxRadius) / uniform.viewportSize.xy;
     let ndc = unpack2x16snorm(splatCache[base]) * ndcRange;
     let depth = bitcast<f32>(splatCache[base + 1u]);
-    let w = select(depth, 1.0, uniform.clipZParams.z != 0.0);
-    let clip = vec4f(ndc * w, clamp(uniform.clipZParams.x * depth + uniform.clipZParams.y, 0.0, w), w);
+    let ortho = uniform.clipZParams.z != 0.0;
 
     let axis1 = unpack2x16float(splatCache[base + 2u]);
     let word3 = splatCache[base + 3u];
@@ -60,7 +62,18 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 
     let corner = vertex_position.xy;
     let pixelOffset = corner.x * axis1 + corner.y * axis2;
-    let pos = clip + vec4f(pixelOffset * clip.w * uniform.viewportSize.zw, 0.0, 0.0);
+    #ifdef SSE_POPLESS
+        // the corner's depth on the splat's plane (see the projector): its view-space offset
+        // at the centre's depth, times the stored gradient
+        let g = unpack2x16float(splatCache[base + 5u]);
+        let shift = dot(g, pixelOffset * select(depth, 1.0, ortho) / uniform.focalParams.xy);
+        let cornerDepth = select(depth / (1.0 + shift), depth + shift, ortho);
+    #else
+        let cornerDepth = depth;
+    #endif
+    let w = select(cornerDepth, 1.0, ortho);
+    let ndcCorner = ndc + pixelOffset * uniform.viewportSize.zw;
+    let pos = vec4f(ndcCorner * w, clamp(uniform.clipZParams.x * cornerDepth + uniform.clipZParams.y, 0.0, w), w);
     output.position = vec4f(pos.x, pos.y * uniform.projectionFlipY, pos.z, pos.w);
     output.gaussianUV = corner;
     output.packedColor = splatCache[base + 4u];
@@ -71,7 +84,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 `;
 
 const rasterFragmentWGSL = /* wgsl */ `
-varying gaussianUV: vec2f;
+varying @interpolate(linear) gaussianUV: vec2f;
 varying @interpolate(flat, either) packedColor: u32;
 varying @interpolate(flat, either) packedAlpha: u32;
 varying @interpolate(flat, either) splatId: u32;

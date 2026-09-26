@@ -20,8 +20,11 @@ const composeFragmentWGSL = /* wgsl */ `
 var splatColor: texture_2d<f32>;
 var splatColorSampler: sampler;
 var splatDepth: texture_depth_2d;
-// x: 1 when the splat target's rows run the other way to the camera target's
+// x: 1 when the splat target's rows run the other way to the camera target's; y: 1 for an
+// orthographic camera
 uniform composeParams: vec4f;
+// clip z = a * viewDepth + b over w = viewDepth (x, y), near and far (z, w): the depth view
+uniform depthViewParams: vec4f;
 
 @fragment
 fn fragmentMain(input: FragmentInput) -> FragmentOutput {
@@ -63,6 +66,23 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     if (color.a <= 0.0 || depth >= 1.0) {
         discard;
     }
+
+    #ifdef SSE_SHOW_DEPTH
+        // the nearest sample's view depth, log-spaced between near and far, as grey
+        let p = uniform.depthViewParams;
+        let dz = depth - p.x;
+        let safeDz = select(dz, sign(dz) * 1e-9 + 1e-12, abs(dz) < 1e-9);
+        let viewDepth = select(p.y / safeDz, (depth - p.y) / p.x, uniform.composeParams.y > 0.5);
+        let t = clamp(log(max(viewDepth, p.z) / p.z) / log(p.w / p.z), 0.0, 1.0);
+        // 24-bit fixed point across rgb (high byte in red), so a capture can read it precisely
+        let fixed = floor(t * 16777215.0);
+        let hi = floor(fixed / 65536.0);
+        let mid = floor((fixed - hi * 65536.0) / 256.0);
+        let lo = fixed - hi * 65536.0 - mid * 256.0;
+        output.color = vec4f(vec3f(hi, mid, lo) / 255.0, 1.0);
+        output.fragDepth = depth;
+        return output;
+    #endif
 
     // un-premultiply for the output transform, then premultiply for the blend
     let gamma = color.rgb / color.a;

@@ -1,0 +1,103 @@
+{
+  "date": "2026-09-25T13:44:06.132Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.7032.0 Chrome/152.0.7977.130 Safari/537.36",
+  "adapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "content": "./windmill.ply",
+  "dpr": 2,
+  "host": {
+    "width": 1280,
+    "height": 720
+  },
+  "rounds": 3,
+  "warmup": 40,
+  "frames": 180,
+  "budget": 20,
+  "modes": {
+    "sorted": {
+      "resident": 17912572,
+      "poses": [
+        {
+          "name": "default",
+          "variants": {
+            "sorted": {
+              "median": 10.092544,
+              "min": 9.895935999999999,
+              "samples": 447,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 1.2451839999999998,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 1.572864,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.131072,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.32767999999999997,
+                "RenderPassForward": 6.619136
+              }
+            }
+          },
+          "image": null,
+          "memory": {
+            "vramTotal": 2484586144,
+            "vramTex": 1431449396,
+            "vramSb": 1024045044,
+            "rendererBytes": null,
+            "survivors": 17912572
+          }
+        }
+      ]
+    },
+    "stochastic": {
+      "resident": 17912572,
+      "poses": [
+        {
+          "name": "default",
+          "variants": {
+            "spp:quad": {
+              "median": 4.9152,
+              "min": 4.849664,
+              "samples": 540,
+              "passes": {
+                "sse-splat-project": 1.2451839999999998,
+                "sse-splat-args": 0,
+                "sse-splat-raster": 3.6044799999999997,
+                "RenderPassForward": 2.9491199999999997
+              }
+            }
+          },
+          "image": {
+            "variant": "spp:quad",
+            "vsSorted": {
+              "changedPct": 76.35009280419689,
+              "meanAbs": 17.27056284251,
+              "rms": 23.678330723487548
+            },
+            "noiseFloor": {
+              "changedPct": 81.6358899251534,
+              "meanAbs": 21.600992701920088,
+              "rms": 29.43382298939322
+            }
+          },
+          "memory": {
+            "vramTotal": 2265612424,
+            "vramTex": 1450944156,
+            "vramSb": 792019848,
+            "rendererBytes": 647834272,
+            "survivors": 1263935
+          }
+        }
+      ]
+    }
+  },
+  "target": {
+    "width": 2081,
+    "height": 1171
+  },
+  "note": "M0 skeleton (append order, no occlusion cull, no popless) with the M2 harness; pose from the editor measurements (docs/bench/poses/windmill.json)."
+}

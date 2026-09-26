@@ -1,0 +1,234 @@
+{
+  "note": "M4 data path (ii): splatSource=direct reads the resident file textures in the projector (no work buffer read, model transform and sh evaluated per splat per frame); the engine work buffer is still allocated but its copy passes are switched off, so memory is unchanged until engine change E2. Camera at rest: the work-buffer path pays no copy cost in this run. Compare with 2026-09-26-m4max-church-m4-workbuffer.json at the same 1920x1080 target.",
+  "date": "2026-09-25T23:56:09.597Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.7032.0 Chrome/152.0.7977.130 Safari/537.36",
+  "adapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "content": "./church.ply",
+  "dpr": 2,
+  "host": {
+    "width": 1280,
+    "height": 720
+  },
+  "splatSource": "direct",
+  "rounds": 3,
+  "warmup": 40,
+  "frames": 180,
+  "budget": 8,
+  "modes": {
+    "sorted": {
+      "resident": 4399819,
+      "poses": [
+        {
+          "name": "framed",
+          "variants": {
+            "sorted": {
+              "median": 3.997696,
+              "min": 3.9321599999999997,
+              "samples": 540,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 0.32767999999999997,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 0.393216,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.065536,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.098304,
+                "RenderPassForward": 3.014656
+              },
+              "survivors": null,
+              "occluded": null
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 948418700,
+            "vramTex": 660107644,
+            "vramSb": 265772952,
+            "rendererBytes": null,
+            "survivors": 4399819
+          }
+        },
+        {
+          "name": "subject",
+          "variants": {
+            "sorted": {
+              "median": 8.323072,
+              "min": 8.192,
+              "samples": 540,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 0.32767999999999997,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 0.458752,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.131072,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.262144,
+                "RenderPassForward": 7.077888
+              },
+              "survivors": null,
+              "occluded": null
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 948418700,
+            "vramTex": 660107644,
+            "vramSb": 265772952,
+            "rendererBytes": null,
+            "survivors": 4399819
+          }
+        }
+      ]
+    },
+    "stochastic": {
+      "resident": 4399819,
+      "poses": [
+        {
+          "name": "framed",
+          "variants": {
+            "cull:off": {
+              "median": 1.572864,
+              "min": 1.507328,
+              "samples": 540,
+              "passes": {
+                "sse-splat-project": 0.458752,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.9830399999999999,
+                "RenderPassForward": 0.9830399999999999
+              },
+              "survivors": 139188,
+              "occluded": 0
+            },
+            "cull:l2": {
+              "median": 1.3107199999999999,
+              "min": 1.2451839999999998,
+              "samples": 540,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 0.524288,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.6553599999999999,
+                "RenderPassForward": 0.6553599999999999
+              },
+              "survivors": 77944,
+              "occluded": 61244
+            }
+          },
+          "images": {
+            "cull:off": {
+              "vsSorted": {
+                "changedPct": 0.607397762345679,
+                "meanAbs": 0.10761638374485596,
+                "rms": 1.3495123004530467
+              },
+              "noiseFloor": {
+                "changedPct": 0.6988329475308642,
+                "meanAbs": 0.11151089891975309,
+                "rms": 1.351972878746558
+              }
+            },
+            "cull:l2": {
+              "vsSorted": {
+                "changedPct": 0.6069637345679012,
+                "meanAbs": 0.10760786394032922,
+                "rms": 1.349444580245636
+              },
+              "noiseFloor": null
+            }
+          },
+          "memory": {
+            "vramTotal": 930060720,
+            "vramTex": 676696396,
+            "vramSb": 230919872,
+            "rendererBytes": 193065140,
+            "survivors": 77944
+          }
+        },
+        {
+          "name": "subject",
+          "variants": {
+            "cull:off": {
+              "median": 3.014656,
+              "min": 2.9491199999999997,
+              "samples": 540,
+              "passes": {
+                "sse-splat-project": 0.917504,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.065536,
+                "sse-splat-raster": 1.900544,
+                "RenderPassForward": 1.114112
+              },
+              "survivors": 1377720,
+              "occluded": 0
+            },
+            "cull:l2": {
+              "median": 1.769472,
+              "min": 1.769472,
+              "samples": 540,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 0.786432,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0,
+                "sse-splat-raster": 0.851968,
+                "RenderPassForward": 0.6553599999999999
+              },
+              "survivors": 290808,
+              "occluded": 1086912
+            }
+          },
+          "images": {
+            "cull:off": {
+              "vsSorted": {
+                "changedPct": 53.456886574074076,
+                "meanAbs": 9.42445987654321,
+                "rms": 12.54525009304794
+              },
+              "noiseFloor": {
+                "changedPct": 59.82470100308642,
+                "meanAbs": 12.01274112654321,
+                "rms": 16.43479822183992
+              }
+            },
+            "cull:l2": {
+              "vsSorted": {
+                "changedPct": 53.456886574074076,
+                "meanAbs": 9.424413740997942,
+                "rms": 12.54519139977324
+              },
+              "noiseFloor": null
+            }
+          },
+          "memory": {
+            "vramTotal": 930163120,
+            "vramTex": 676696396,
+            "vramSb": 230919872,
+            "rendererBytes": 193065140,
+            "survivors": 290808
+          }
+        }
+      ]
+    }
+  },
+  "target": {
+    "width": 1920,
+    "height": 1080
+  }
+}

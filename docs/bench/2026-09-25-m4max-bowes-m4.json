@@ -1,0 +1,352 @@
+{
+  "note": "M4 ordering: order:bucket against append, with and without the level-2 occlusion cull. Poses from docs/bench/poses/bowes.json. The default order was append when this ran, so a variant string without an order key means append.",
+  "date": "2026-09-25T16:50:03.158Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.7032.0 Chrome/152.0.7977.130 Safari/537.36",
+  "adapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "content": "./bowes.ply",
+  "dpr": 2,
+  "host": {
+    "width": 1280,
+    "height": 720
+  },
+  "rounds": 3,
+  "warmup": 40,
+  "frames": 180,
+  "budget": 20,
+  "modes": {
+    "sorted": {
+      "resident": 17493093,
+      "poses": [
+        {
+          "name": "wide",
+          "variants": {
+            "sorted": {
+              "median": 13.43488,
+              "min": 13.238272,
+              "samples": 331,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 1.2451839999999998,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 1.769472,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.262144,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.786432,
+                "RenderPassForward": 9.17504
+              },
+              "survivors": null,
+              "occluded": null
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 2150958736,
+            "vramTex": 1111865644,
+            "vramSb": 1002218988,
+            "rendererBytes": null,
+            "survivors": 17493093
+          }
+        },
+        {
+          "name": "facade",
+          "variants": {
+            "sorted": {
+              "median": 19.070975999999998,
+              "min": 18.743296,
+              "samples": 225,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 1.2451839999999998,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 1.835008,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.45875199999999994,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 1.3107199999999999,
+                "RenderPassForward": 14.09024
+              },
+              "survivors": null,
+              "occluded": null
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 2158945936,
+            "vramTex": 1111865644,
+            "vramSb": 1002218988,
+            "rendererBytes": null,
+            "survivors": 17493093
+          }
+        },
+        {
+          "name": "aerial",
+          "variants": {
+            "sorted": {
+              "median": 10.027008,
+              "min": 9.895935999999999,
+              "samples": 456,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 1.2451839999999998,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 1.6383999999999999,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.196608,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.45875199999999994,
+                "RenderPassForward": 6.291456
+              },
+              "survivors": null,
+              "occluded": null
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 2158945936,
+            "vramTex": 1111865644,
+            "vramSb": 1002218988,
+            "rendererBytes": null,
+            "survivors": 17493093
+          }
+        }
+      ]
+    },
+    "stochastic": {
+      "resident": 17493093,
+      "poses": [
+        {
+          "name": "wide",
+          "variants": {
+            "cull:off": {
+              "median": 5.963775999999999,
+              "min": 5.832704,
+              "samples": 543,
+              "passes": {
+                "sse-splat-project": 1.441792,
+                "sse-splat-args": 0,
+                "sse-splat-raster": 4.489216,
+                "RenderPassForward": 3.2767999999999997
+              },
+              "survivors": 2503612,
+              "occluded": 0
+            },
+            "cull:off,order:bucket": {
+              "median": 6.094848,
+              "min": 5.832704,
+              "samples": 540,
+              "passes": {
+                "sse-splat-project": 1.507328,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.196608,
+                "sse-splat-raster": 4.325375999999999,
+                "RenderPassForward": 3.080192
+              },
+              "survivors": 2503612,
+              "occluded": 0
+            },
+            "cull:l2": {
+              "median": 6.422528,
+              "min": 6.160384,
+              "samples": 536,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.900544,
+                "sse-splat-args": 0,
+                "sse-splat-raster": 4.390912,
+                "RenderPassForward": 3.211264
+              },
+              "survivors": 2334100,
+              "occluded": 169512
+            },
+            "cull:l2,order:bucket": {
+              "median": 6.553599999999999,
+              "min": 6.356992,
+              "samples": 544,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 2.031616,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.131072,
+                "sse-splat-raster": 4.194304,
+                "RenderPassForward": 3.014656
+              },
+              "survivors": 2334100,
+              "occluded": 169512
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 2017678004,
+            "vramTex": 1131360452,
+            "vramSb": 863258188,
+            "rendererBytes": 720750528,
+            "survivors": 2334100
+          }
+        },
+        {
+          "name": "facade",
+          "variants": {
+            "cull:off": {
+              "median": 8.978432,
+              "min": 8.781824,
+              "samples": 479,
+              "passes": {
+                "sse-splat-project": 1.507328,
+                "sse-splat-args": 0,
+                "sse-splat-raster": 7.405568,
+                "RenderPassForward": 4.980735999999999
+              },
+              "survivors": 4633548,
+              "occluded": 0
+            },
+            "cull:off,order:bucket": {
+              "median": 8.84736,
+              "min": 8.650751999999999,
+              "samples": 546,
+              "passes": {
+                "sse-splat-project": 1.572864,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.32767999999999997,
+                "sse-splat-raster": 6.881279999999999,
+                "RenderPassForward": 4.456448
+              },
+              "survivors": 4633548,
+              "occluded": 0
+            },
+            "cull:l2": {
+              "median": 8.323072,
+              "min": 8.126464,
+              "samples": 534,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 2.031616,
+                "sse-splat-args": 0,
+                "sse-splat-raster": 6.160384,
+                "RenderPassForward": 4.390912
+              },
+              "survivors": 3418006,
+              "occluded": 1215542
+            },
+            "cull:l2,order:bucket": {
+              "median": 8.323072,
+              "min": 8.126464,
+              "samples": 538,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 2.1626879999999997,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.262144,
+                "sse-splat-raster": 5.767168,
+                "RenderPassForward": 3.997696
+              },
+              "survivors": 3418006,
+              "occluded": 1215542
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 2023719604,
+            "vramTex": 1131360452,
+            "vramSb": 863258188,
+            "rendererBytes": 720750528,
+            "survivors": 3418006
+          }
+        },
+        {
+          "name": "aerial",
+          "variants": {
+            "cull:off": {
+              "median": 4.58752,
+              "min": 4.521984,
+              "samples": 541,
+              "passes": {
+                "sse-splat-project": 1.3107199999999999,
+                "sse-splat-args": 0,
+                "sse-splat-raster": 3.145728,
+                "RenderPassForward": 2.424832
+              },
+              "survivors": 1585156,
+              "occluded": 0
+            },
+            "cull:off,order:bucket": {
+              "median": 4.653055999999999,
+              "min": 4.58752,
+              "samples": 540,
+              "passes": {
+                "sse-splat-project": 1.376256,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.131072,
+                "sse-splat-raster": 3.080192,
+                "RenderPassForward": 2.359296
+              },
+              "survivors": 1585156,
+              "occluded": 0
+            },
+            "cull:l2": {
+              "median": 4.980735999999999,
+              "min": 4.9152,
+              "samples": 540,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.703936,
+                "sse-splat-args": 0,
+                "sse-splat-raster": 3.145728,
+                "RenderPassForward": 2.424832
+              },
+              "survivors": 1560701,
+              "occluded": 24455
+            },
+            "cull:l2,order:bucket": {
+              "median": 5.177344,
+              "min": 5.046272,
+              "samples": 540,
+              "passes": {
+                "sse-splat-reduce1": 0.065536,
+                "sse-splat-reduce2": 0,
+                "sse-splat-project": 1.769472,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.131072,
+                "sse-splat-raster": 3.080192,
+                "RenderPassForward": 2.359296
+              },
+              "survivors": 1560701,
+              "occluded": 24455
+            }
+          },
+          "images": null,
+          "memory": {
+            "vramTotal": 2023719604,
+            "vramTex": 1131360452,
+            "vramSb": 863258188,
+            "rendererBytes": 720750528,
+            "survivors": 1560701
+          }
+        }
+      ]
+    }
+  },
+  "target": {
+    "width": 2081,
+    "height": 1171
+  }
+}

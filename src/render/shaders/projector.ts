@@ -327,8 +327,44 @@ ${
         : ''
 }
     result.words[4] = rgb.r | (rgb.g << 10u) | (rgb.b << 20u) | (exponent << 30u);
-    // popless depth gradient (plan M5); flat until then
-    result.words[5] = 0u;
+    // Popless depth (StochasticSplats 3.4): the quad is tilted onto the plane through the
+    // centre with normal adj(Sigma) mu (view space; adj rather than the inverse, so a flat
+    // splat needs no division by its tiny determinant), and the raster gives each corner the
+    // depth where its own view ray meets that plane, so hardware interpolation hands every
+    // fragment the depth of the Gaussian's peak along its ray instead of the centre's. Stored
+    // as g = n.xy / (n . mu): a corner at view offset d (in the plane z = -depth) lands at
+    // depth / (1 + g . d). Orthographic rays are parallel, so there n = adj(Sigma) e_z and
+    // the corner depth is depth + g . d with g = n.xy / n.z. Bounded so every corner stays
+    // within 2 sqrt(2) sigma_z of the centre (the occlusion cull's front margin) and the
+    // perspective scale stays positive.
+    let ortho = uniforms.isOrtho != 0u;
+    let a00 = c11 * c22 - c12 * c12;
+    let a01 = c02 * c12 - c01 * c22;
+    let a02 = c01 * c12 - c02 * c11;
+    let a11 = c00 * c22 - c02 * c02;
+    let a12 = c01 * c02 - c00 * c12;
+    let a22 = c00 * c11 - c01 * c01;
+    let toward = select(viewCenter.xyz, vec3f(0.0, 0.0, -1.0), ortho);
+    let n = vec3f(
+        a00 * toward.x + a01 * toward.y + a02 * toward.z,
+        a01 * toward.x + a11 * toward.y + a12 * toward.z,
+        a02 * toward.x + a12 * toward.y + a22 * toward.z
+    );
+    let denom = select(dot(n, viewCenter.xyz), n.z, ortho);
+    var g = vec2f(0.0);
+    if (abs(denom) > 1e-20) {
+        g = n.xy / denom;
+        // view units per pixel at the centre's depth, and the quad's half extents in them
+        let viewScale = select(depth, 1.0, ortho) / focal;
+        let ext = (abs(axis1) + abs(axis2)) * viewScale;
+        let bound = abs(g.x) * ext.x + abs(g.y) * ext.y;
+        let margin = 2.8284 * sqrt(max(c22, 0.0));
+        let limit = select(min(0.25, margin / max(depth, 1e-6)), margin, ortho);
+        if (bound > limit) {
+            g *= limit / max(bound, 1e-20);
+        }
+    }
+    result.words[5] = pack2x16float(g);
     // the stable id the coverage hash seeds from: the slot, salted by the file for sources
     // whose indices restart per file
     result.words[6] = slot ^ (file * 2654435761u);

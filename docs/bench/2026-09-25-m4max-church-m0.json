@@ -1,0 +1,169 @@
+{
+  "date": "2026-09-25T13:40:24.088Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.7032.0 Chrome/152.0.7977.130 Safari/537.36",
+  "adapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "content": "./church.ply",
+  "dpr": 2,
+  "host": {
+    "width": 1280,
+    "height": 720
+  },
+  "rounds": 3,
+  "warmup": 40,
+  "frames": 180,
+  "budget": 8,
+  "modes": {
+    "sorted": {
+      "resident": 4399819,
+      "poses": [
+        {
+          "name": "framed",
+          "variants": {
+            "sorted": {
+              "median": 4.096,
+              "min": 3.997696,
+              "samples": 540,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 0.32767999999999997,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 0.393216,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.065536,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.065536,
+                "RenderPassForward": 3.145728
+              }
+            }
+          },
+          "image": null,
+          "memory": {
+            "vramTotal": 951324708,
+            "vramTex": 663013652,
+            "vramSb": 265772952,
+            "rendererBytes": null,
+            "survivors": 4399819
+          }
+        },
+        {
+          "name": "subject",
+          "variants": {
+            "sorted": {
+              "median": 8.912896,
+              "min": 8.716288,
+              "samples": 540,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.065536,
+                "GSplatIntervalScatter": 0.32767999999999997,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 0.458752,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.131072,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.262144,
+                "RenderPassForward": 7.602176
+              }
+            }
+          },
+          "image": null,
+          "memory": {
+            "vramTotal": 951427108,
+            "vramTex": 663013652,
+            "vramSb": 265772952,
+            "rendererBytes": null,
+            "survivors": 4399819
+          }
+        }
+      ]
+    },
+    "stochastic": {
+      "resident": 4399819,
+      "poses": [
+        {
+          "name": "framed",
+          "variants": {
+            "spp:quad": {
+              "median": 2.555904,
+              "min": 2.4903679999999997,
+              "samples": 540,
+              "passes": {
+                "sse-splat-project": 0.32767999999999997,
+                "sse-splat-args": 0,
+                "sse-splat-raster": 2.1626879999999997,
+                "RenderPassForward": 2.1626879999999997
+              }
+            }
+          },
+          "image": {
+            "variant": "spp:quad",
+            "vsSorted": {
+              "changedPct": 0.5878898627778227,
+              "meanAbs": 0.10504089088746091,
+              "rms": 1.325832929659685
+            },
+            "noiseFloor": {
+              "changedPct": 0.6956929250085458,
+              "meanAbs": 0.11095535454021056,
+              "rms": 1.3558342507097512
+            }
+          },
+          "memory": {
+            "vramTotal": 913937800,
+            "vramTex": 682508412,
+            "vramSb": 208780968,
+            "rendererBytes": 173832244,
+            "survivors": 161245
+          }
+        },
+        {
+          "name": "subject",
+          "variants": {
+            "spp:quad": {
+              "median": 4.9152,
+              "min": 4.784128,
+              "samples": 540,
+              "passes": {
+                "sse-splat-project": 0.393216,
+                "sse-splat-args": 0,
+                "sse-splat-raster": 4.390912,
+                "RenderPassForward": 3.670016
+              }
+            }
+          },
+          "image": {
+            "variant": "spp:quad",
+            "vsSorted": {
+              "changedPct": 52.65808209036991,
+              "meanAbs": 9.348813010452151,
+              "rms": 12.529262130654349
+            },
+            "noiseFloor": {
+              "changedPct": 58.840815462250255,
+              "meanAbs": 11.898047931531309,
+              "rms": 16.35084470256243
+            }
+          },
+          "memory": {
+            "vramTotal": 913937848,
+            "vramTex": 682508460,
+            "vramSb": 208780968,
+            "rendererBytes": 173832244,
+            "survivors": 1439137
+          }
+        }
+      ]
+    }
+  },
+  "target": {
+    "width": 2081,
+    "height": 1171
+  },
+  "note": "M0 skeleton (append order, no occlusion cull, no popless) with the M2 harness; poses: whole-scene framing and the subject pose (median of the splat centres, 1.5 spreads away). Supersedes the earlier church file."
+}
