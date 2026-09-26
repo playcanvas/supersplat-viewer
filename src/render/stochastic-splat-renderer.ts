@@ -121,6 +121,10 @@ type Variant = {
     taaDebug: number;
     /** Overrides the row-order sign of the reprojection (-1 or 1); 0 derives it from the target. */
     taaFlip: number;
+    /** Per-channel colour ceiling in the projected cache: 8 (the cache's range) or 1 (the engine's 8-bit cache clamps there). */
+    colorMax: number;
+    /** Covariance units: true pixels, or the engine's doubled-focal convention (its dilation and culls scale with it). */
+    units: 'px' | 'engine';
 };
 
 const defaultVariant = (): Variant => ({
@@ -140,7 +144,9 @@ const defaultVariant = (): Variant => ({
     taaReproj: 'sample',
     taaMotion: 4,
     taaDebug: 0,
-    taaFlip: 0
+    taaFlip: 0,
+    colorMax: 8,
+    units: 'engine'
 });
 
 const parseVariant = (text: string | undefined): Variant => {
@@ -162,6 +168,8 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'taaReproj' && (value === 'sample' || value === 'history')) variant.taaReproj = value;
         if (key === 'taaMotion' && Number.isFinite(Number(value))) variant.taaMotion = Math.max(0, Number(value));
         if (key === 'taaFlip' && Number.isFinite(Number(value))) variant.taaFlip = Number(value);
+        if (key === 'colorMax' && Number.isFinite(Number(value))) variant.colorMax = Math.max(0, Number(value));
+        if (key === 'units' && (value === 'px' || value === 'engine')) variant.units = value;
         if (key === 'cull' && (value === 'off' || value === 'l1' || value === 'l2' || value === 'auto')) {
             variant.cull = value;
         }
@@ -1111,6 +1119,8 @@ class StochasticSplatRenderer {
             projector.setParameter('minPixelSize', gsplat.minPixelSize);
             projector.setParameter('alphaClip', gsplat.alphaClipForward);
             projector.setParameter('minContribution', minContribution);
+            projector.setParameter('colorMax', this.variant.colorMax);
+            projector.setParameter('unitScale', this.variant.units === 'engine' ? 2 : 1);
             projector.setParameter('occBlocksX1', this.occBlocks.x1);
             projector.setParameter('occBlocksY1', this.occBlocks.y1);
             projector.setParameter('occBlocksX2', this.occBlocks.x2);
@@ -1440,7 +1450,9 @@ class StochasticSplatRenderer {
                     new UniformFormat('model', UNIFORMTYPE_MAT4),
                     new UniformFormat('modelRotation', UNIFORMTYPE_VEC4),
                     new UniformFormat('modelScale', UNIFORMTYPE_VEC4),
-                    new UniformFormat('cameraPosition', UNIFORMTYPE_VEC4)
+                    new UniformFormat('cameraPosition', UNIFORMTYPE_VEC4),
+                    new UniformFormat('colorMax', UNIFORMTYPE_FLOAT),
+                    new UniformFormat('unitScale', UNIFORMTYPE_FLOAT)
                 ])
             },
             computeBindGroupFormat: this.projectorBindGroupFormat

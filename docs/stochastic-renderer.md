@@ -38,7 +38,7 @@ The raster pass draws an explicit mesh-instance list through `renderForwardLayer
 | ------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `stochastic`  | opt in (creation time, WebGPU only)                                                                                   |
 | `splatSource` | data path: `workbuffer` (default); `direct` and `light` are not implemented yet                                       |
-| `variant`     | comma-separated `key:value` experiment switches: `spp` (1, quad), `compose` (blend, none, depth), `cull` (off, l1, l2, auto), `order` (append, bucket), `contribution` (threshold while moving, 0 off), `popless` (on, off), `taa` (on, off) with `taaMax`, `taaMoveMax`, `taaMotion`, `taaClip`, `taaFilter`, `taaReproj`, `taaRun`, `taaDebug` |
+| `variant`     | comma-separated `key:value` experiment switches: `spp` (1, quad), `compose` (blend, none, depth), `cull` (off, l1, l2, auto), `order` (append, bucket), `contribution` (threshold while moving, 0 off), `popless` (on, off), `taa` (on, off) with `taaMax`, `taaMoveMax`, `taaMotion`, `taaClip`, `taaFilter`, `taaReproj`, `taaRun`, `taaDebug`, `units` (engine, px), `colorMax` |
 
 ## Occlusion cull (M3)
 
@@ -109,7 +109,26 @@ The projector drops a splat whose footprint radius `sqrt(2 lambda1)` (with the 0
 | subject | 2 px |    989 k  | 2.29 |              10.8 |               3.9 |                    9.2 |
 | subject | 1 px |   1.64 M  | 2.88 |              10.7 |               3.7 |                    9.1 |
 
-The bench takes `minPixelSize=<px>` for the stochastic mode only, so the threshold can be varied against a fixed sorted reference. The remaining converged-TAA difference to the sorted frame (6 rms on the church subject, 4 on the bicycle) is the same at both thresholds and belongs to the correctness pass (M1).
+The bench takes `minPixelSize=<px>` for the stochastic mode only (and `minPixelSizeAll=<px>` for both), so the threshold can be varied against a fixed sorted reference. The threshold's units are the engine's since M1 (below): the radius the cull tests is the engine's `sqrt(2 lambda)`, which is 2 sqrt(2) sigma in true pixels.
+
+## Correctness against the sorted image (M1)
+
+Judged with the bench's converged accumulation against the sorted frame at the same pose, with the mean of 64 raw frames beside it (the renderer's own expectation) and a signed per-channel bias (`docs/bench/2026-09-26-m4max-{church,lion,hog,garden}-m1.json`, 1920x1080). The whole-scene framings the bench makes up are not representative on scenes with a sky, so the PROD scenes use their settings' start pose (`docs/bench/poses/`).
+
+The one systematic difference found was units. The engine's projector works with `focal = viewport * projection[0][0]`, twice the pixel focal length, so its 2D covariance is in units of 4 px^2: its `+ 0.3` dilation is 0.075 px^2 in true pixels, its size cull at `minPixelSize / 2` cuts at a 2 sqrt(2) sigma radius of 1 px, and its contribution cull `opacity 2 pi sqrt(det) < 1` is four times as lenient as the same rule in true pixels. The stochastic projector used true pixels (the reference rasteriser's convention), which makes every small splat a little larger and drops more of the faint ones: nothing on a still interior of large splats, a brighter image on fur and grass, a darker one where faint small splats dominate. `units:engine` (the default now) reproduces the engine's convention; `units:px` keeps true pixels for comparison. Converged accumulation against the sorted frame, rms in 8-bit units and mean signed bias (r/g/b):
+
+| scene, pose                | units:px rms | bias             | units:engine rms | bias                |
+| -------------------------- | -----------: | ---------------- | ---------------: | ------------------- |
+| church framed (PLY)        |         0.79 | 0.00/0.00/0.00   |             0.49 | -0.01/-0.01/0.00    |
+| church subject (interior)  |         6.08 | -0.54/0.27/0.10  |             6.07 | -0.55/0.26/0.09     |
+| lion start (SOG LOD)       |        10.52 | 1.49/1.61/1.76   |             3.43 | -0.02/0.00/0.04     |
+| hog framed (SOG)           |         8.18 | -1.54/-1.65/-1.64 |            2.66 | -0.26/-0.22/-0.19   |
+| hog subject                |         4.47 | 0.61/0.73/0.67   |             3.92 | -0.21/-0.08/-0.14   |
+| garden start (SOG LOD)     |         9.84 | 1.40/1.85/1.48   |             5.44 | -1.62/-0.91/-0.48   |
+
+The church subject pose sits inside the geometry among large interpenetrating splats; its residual is the sort order, radial distance in the engine against the raster's depth test: sorting the engine by view depth (`radial=0` in the bench) and turning popless off brings it to 3.7. The garden keeps a residual of 5.4 with a red bias spread over the foliage that the units, the far clamp, the sort order and the streaming state do not explain; open. Ruled out along the way, each by measurement: the sampler (`spp:1` and `spp:quad` accumulate to the same image), colour clamping (the work buffer's colour is already 8-bit), 8-bit blending in the sorted path, tonemapping (the default `linear` is the identity), stale work-buffer colour (the direct data path gives the same numbers), the LOD selection, and splats beyond the far plane (the raster now clamps clip z just inside it, as the engine clamps to it, since the compose reads depth 1 as empty; no visible change).
+
+Two notes for the engine. Its dilation of 0.075 px^2 is a quarter of the reference rasteriser's, and its `minContribution` is in units of 4 px^2, so the same `minPixelSize` and `minContribution` values mean different things to the engine's splat renderer and to a renderer in true pixels. And the whole-scene framings and interior poses show that an rms against the sorted frame needs a signed bias beside it to mean anything: the noise floors of a converged accumulation are 0.2 to 0.5, the raw mean of 64 frames 1.5 to 6, so a 3 rms residual with zero bias is order and noise, a 1.6 bias is a renderer difference.
 
 ## Picking from the frame (M6)
 
@@ -211,4 +230,4 @@ Two harness caveats: whole-scene framing size-culls most splats, so the subject 
 
 ## Status
 
-M0 (skeleton), M2 (bench harness and baselines), M3 (occlusion cull), M4 (ordering, the direct data path, the moving-camera contribution cull, a moving-camera bench mode) and M5 (popless depth) are done, with the work-buffer against direct decision deferred until PROD scenes and the engine's external mode allow a memory comparison: the renderer draws, captures at another size, composes under CameraFrame, tears down cleanly, culls against the previous frame with an adaptive switch that stays on while a scene streams in, draws front to back through depth buckets, and reads either the work buffer or the resident files directly. Temporal accumulation (M8) is implemented, measured and on by default. Picking from the frame depth (M6) replaces the pick pass in stochastic mode. Not yet: `cache:off` and `clipCorner`, the light work buffer (iii), the correctness pass proper (M1), the engine changes that remove the interim patches (M7), and the TAA memory and jitter work above. PROD streamed scenes await content urls.
+M0 (skeleton), M2 (bench harness and baselines), M3 (occlusion cull), M4 (ordering, the direct data path, the moving-camera contribution cull, a moving-camera bench mode) and M5 (popless depth) are done, with the work-buffer against direct decision deferred until PROD scenes and the engine's external mode allow a memory comparison: the renderer draws, captures at another size, composes under CameraFrame, tears down cleanly, culls against the previous frame with an adaptive switch that stays on while a scene streams in, draws front to back through depth buckets, and reads either the work buffer or the resident files directly. Temporal accumulation (M8) is implemented, measured and on by default. Picking from the frame depth (M6) replaces the pick pass in stochastic mode. The correctness pass (M1) found and removed the one systematic difference to the sorted image, the covariance units; the garden's residual is open. Not yet: `cache:off` and `clipCorner`, the light work buffer (iii), the engine changes that remove the interim patches (M7), and the TAA memory and jitter work above. PROD streamed scenes await content urls.

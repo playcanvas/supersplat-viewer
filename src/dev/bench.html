@@ -66,12 +66,15 @@
               dpr=1.5                       pin the pixel ratio and screen size: target = host * dpr
               move=0.25                     orbit the camera this many degrees per measured frame (0: still)
               truth=32                      raw frames averaged into the stochastic expectation each variant is judged against
+              truthVariant=<variant>        the variant those raw frames render with (default cull:off,spp:1,taa:off)
               rounds=3 warmup=40 frames=180
               width=1280 height=720         host size in css pixels (the canvas follows the dpr rule)
               budget=<millions>             default 8; the engine allocates its work buffer for the whole budget
               nodiff                        skip the image comparison
               fx hpr                        post effects / high precision rendering, off by default
               minPixelSize=<px>             scene.gsplat.minPixelSize for the stochastic mode only (default 2)
+              radial=0                      sort the sorted renderer by view depth instead of radial distance
+              minPixelSizeAll=<px>          scene.gsplat.minPixelSize for both modes
         -->
         <div id="host"></div>
         <div id="panel">
@@ -310,10 +313,13 @@
             };
             // 8-bit rgb metrics: pixels changed by more than 8/255 in any channel, mean absolute
             // and rms difference (the editor's convention)
+            // and rms difference (the editor's convention), and the signed mean (a - b) per
+            // channel: an intensity or tint bias
             const imageDiff = (a, b) => {
                 let changed = 0;
                 let sumAbs = 0;
                 let sumSq = 0;
+                const bias = [0, 0, 0];
                 const pixels = a.length / 4;
                 for (let i = 0; i < a.length; i += 4) {
                     let pixelChanged = false;
@@ -322,15 +328,28 @@
                         if (Math.abs(d) > 8) pixelChanged = true;
                         sumAbs += Math.abs(d);
                         sumSq += d * d;
+                        bias[c] += d;
                     }
                     if (pixelChanged) changed++;
                 }
                 return {
                     changedPct: (100 * changed) / pixels,
                     meanAbs: sumAbs / (pixels * 3),
-                    rms: Math.sqrt(sumSq / (pixels * 3))
+                    rms: Math.sqrt(sumSq / (pixels * 3)),
+                    bias: bias.map((v) => v / pixels)
                 };
             };
+            // |a - b| times 4, as an image: where the difference lives
+            const diffImage = (a, b) => {
+                const out = new Uint8ClampedArray(a.length);
+                for (let i = 0; i < a.length; i += 4) {
+                    for (let c = 0; c < 3; c++) out[i + c] = Math.abs(a[i + c] - b[i + c]) * 4;
+                    out[i + 3] = 255;
+                }
+                return out;
+            };
+            const diffText = (d) =>
+                `${d.changedPct.toFixed(2)}% changed, meanAbs ${d.meanAbs.toFixed(2)}, rms ${d.rms.toFixed(2)}, bias ${d.bias.map((v) => v.toFixed(2)).join('/')}`;
             const preview = (bytes, w, h, title) => {
                 const canvas = document.createElement('canvas');
                 canvas.className = 'preview';
@@ -371,6 +390,15 @@
                 if (mode === 'stochastic' && params.has('minPixelSize')) {
                     app.scene.gsplat.minPixelSize = Number(params.get('minPixelSize'));
                 }
+                // both renderers: which splat sizes carry a difference between them
+                if (params.has('minPixelSizeAll')) {
+                    app.scene.gsplat.minPixelSize = Number(params.get('minPixelSizeAll'));
+                }
+                // the sorted renderer's order: radial distance (the viewer's setting) or view depth,
+                // the depth the stochastic raster tests when popless is off
+                if (mode === 'sorted' && params.get('radial') === '0') {
+                    app.scene.gsplat.radialSorting = false;
+                }
                 app.graphicsDevice.wgpu?.addEventListener('uncapturederror', (event) =>
                     log(`GPU ERROR ${event.error.message}`, true)
                 );
@@ -387,13 +415,28 @@
                         original();
                     };
                 }
+                // the engine reports each frame whether all the detail it wants is resident: a
+                // pose change on a streamed scene starts loading again, and both modes must be
+                // captured with the same resident detail
+                const streaming = { ready: false, loading: 0 };
+                app.systems.gsplat.on('frame:ready', (cam, layer, ready, loading) => {
+                    streaming.ready = ready;
+                    streaming.loading = loading;
+                });
+                const settle = async () => {
+                    await pump(app, 3);
+                    if (!(await pumpUntil(app, () => streaming.ready && streaming.loading === 0, 120000))) {
+                        log(`${mode}: streaming did not settle within 120s`, true);
+                    }
+                    await pump(app, 10);
+                };
                 stopTicker(app);
                 if (!(await pumpUntil(app, () => viewer.state.loaded, 300000))) {
                     throw new Error(`${mode}: did not load within 300s`);
                 }
                 // let streaming and the first sorts settle
                 await pump(app, 30);
-                return { viewer, app, renderer };
+                return { viewer, app, renderer, settle };
             };
 
             // A moving camera exercises the work-buffer colour refresh, lod changes, the occlusion
@@ -472,7 +515,7 @@
 
             for (const mode of modes) {
                 log(`loading ${mode}...`);
-                const { viewer, app, renderer } = await loadViewer(mode);
+                const { viewer, app, renderer, settle } = await loadViewer(mode);
                 const device = app.graphicsDevice;
                 target = { width: device.width, height: device.height };
                 results.target = target;
@@ -541,7 +584,9 @@
                 for (const pose of poseList) {
                     window.setCameraState(pose.snapshot);
                     for (let i = 0; i < 3; i++) await renderFrame(app);
-                    const poseResult = { name: pose.name, variants: {}, images: null };
+                    await settle();
+                    log(`${mode} ${pose.name}: ${app.stats.frame.gsplats} splats active`);
+                    const poseResult = { name: pose.name, variants: {}, images: null, active: app.stats.frame.gsplats };
                     modeResult.poses.push(poseResult);
 
                     // the frame at orbit step k, for the moving comparison: the camera moves into
@@ -581,7 +626,7 @@
                             // judged against this; its difference to the sorted frame is the
                             // renderer's, not the accumulation's
                             const TRUTH_FRAMES = Number(params.get('truth') ?? 32);
-                            renderer.setVariant('cull:off,spp:1');
+                            renderer.setVariant(params.get('truthVariant') ?? 'cull:off,spp:1,taa:off');
                             renderer.seed = 0;
                             window.setCameraState(pose.snapshot);
                             for (let f = 0; f < 2; f++) await renderFrame(app);
@@ -597,8 +642,16 @@
                             preview(truth, target.width, target.height, `${pose.name} truth`);
                             const truthVsSorted = reference ? imageDiff(truth, reference) : null;
                             poseResult.truthVsSorted = truthVsSorted;
+                            if (reference) {
+                                preview(
+                                    diffImage(truth, reference),
+                                    target.width,
+                                    target.height,
+                                    `${pose.name} |truth - sorted| x4`
+                                );
+                            }
                             log(
-                                `${mode} ${pose.name}: mean of ${TRUTH_FRAMES} raw frames vs sorted ${truthVsSorted ? `${truthVsSorted.changedPct.toFixed(2)}% changed, meanAbs ${truthVsSorted.meanAbs.toFixed(2)}, rms ${truthVsSorted.rms.toFixed(2)}` : 'n/a'}`
+                                `${mode} ${pose.name}: mean of ${TRUTH_FRAMES} raw frames vs sorted ${truthVsSorted ? diffText(truthVsSorted) : 'n/a'}`
                             );
                             for (const [i, variant] of variants.entries()) {
                                 renderer.setVariant(variant);
@@ -618,6 +671,14 @@
                                     renderer.seed = 0;
                                     noiseFloor = imageDiff(a, b);
                                     preview(a, target.width, target.height, `${pose.name} ${variant}`);
+                                    if (reference && taa) {
+                                        preview(
+                                            diffImage(a, reference),
+                                            target.width,
+                                            target.height,
+                                            `${pose.name} ${variant} |a - sorted| x4`
+                                        );
+                                    }
                                 }
                                 let moving = null;
                                 if (move && !variant.includes('compose:depth')) {
@@ -646,7 +707,7 @@
                                 const rough = poseResult.images[variant].depthRoughness;
                                 const vt = poseResult.images[variant].vsTruth;
                                 log(
-                                    `${mode} ${pose.name} ${variant}: ${depthView ? `depth roughness ${rough.toFixed(3)}` : `vs sorted ${v ? `${v.changedPct.toFixed(2)}% changed, meanAbs ${v.meanAbs.toFixed(2)}, rms ${v.rms.toFixed(2)}` : 'n/a'}; vs truth rms ${vt.rms.toFixed(2)}`}${noiseFloor ? `; noise floor rms ${noiseFloor.rms.toFixed(2)}` : ''}`
+                                    `${mode} ${pose.name} ${variant}: ${depthView ? `depth roughness ${rough.toFixed(3)}` : `vs sorted ${v ? diffText(v) : 'n/a'}; vs truth rms ${vt.rms.toFixed(2)}`}${noiseFloor ? `; noise floor rms ${noiseFloor.rms.toFixed(2)}` : ''}`
                                 );
                             }
                         }

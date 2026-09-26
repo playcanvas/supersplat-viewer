@@ -51,7 +51,12 @@ struct ProjectorUniforms {
     model: mat4x4f,
     modelRotation: vec4f,
     modelScale: vec4f,
-    cameraPosition: vec4f
+    cameraPosition: vec4f,
+    // colour ceiling per channel: 8 keeps the cache's range, 1 clamps like the engine's 8-bit cache
+    colorMax: f32,
+    // 1: covariance in true pixels. 2: the engine's convention (its focal is viewport * proj[0][0],
+    // twice the pixel focal), which makes its 0.3 dilation 0.075 px^2 and scales its culls
+    unitScale: f32
 }
 
 // chunk table entry: slotBase, count, node, lod | file << 16
@@ -189,9 +194,10 @@ fn project(slot: u32, file: u32) -> Projected {
         cov11 = u11 * jy1 + u12 * jy2;
     }
 
-    // the low-pass dilation every splat renderer applies
-    cov00 += 0.3;
-    cov11 += 0.3;
+    // the low-pass dilation every splat renderer applies, 0.3 in the chosen units
+    let us2 = uniforms.unitScale * uniforms.unitScale;
+    cov00 += 0.3 / us2;
+    cov11 += 0.3 / us2;
     let determinant = cov00 * cov11 - cov01 * cov01;
     if (determinant <= 0.0) {
         return result;
@@ -200,17 +206,17 @@ fn project(slot: u32, file: u32) -> Projected {
     let mid = 0.5 * (cov00 + cov11);
     let radius = length(vec2f(0.5 * (cov00 - cov11), cov01));
     let lambda1 = mid + radius;
-    let lambda2 = max(mid - radius, 0.1);
+    let lambda2 = max(mid - radius, 0.1 / us2);
 
     // size cull on the footprint's radius in pixels. minPixelSize is a diameter: the engine's
     // projector is dispatched with half of it, and its quad path tests the full extent
     // (2 sqrt(2 lambda)) against the whole value, so both cut at the same place
-    if (sqrt(2.0 * lambda1) < 0.5 * uniforms.minPixelSize) {
+    if (uniforms.unitScale * sqrt(2.0 * lambda1) < 0.5 * uniforms.minPixelSize) {
         return result;
     }
 
     // contribution cull: the splat's alpha mass in pixels (the engine's minContribution rule)
-    if (opacity * 6.283185 * sqrt(determinant) < uniforms.minContribution) {
+    if (opacity * 6.283185 * sqrt(determinant) * us2 < uniforms.minContribution) {
         return result;
     }
 
@@ -296,7 +302,7 @@ ${
 `
         : ''
 }
-    let color = max(srcColor(), vec3f(0.0));
+    let color = clamp(srcColor(), vec3f(0.0), vec3f(uniforms.colorMax));
 
     // rgb: 10/10/10 unorm with a 2-bit shared exponent (scale 1/2/4/8, range [0, 8])
     let maxChannel = max(color.r, max(color.g, color.b));

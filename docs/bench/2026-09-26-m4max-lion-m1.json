@@ -1,0 +1,238 @@
+{
+  "date": "2026-09-26T12:23:59.925Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.7032.0 Chrome/152.0.7977.130 Safari/537.36",
+  "adapter": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": ""
+  },
+  "content": "https://d28zzqy0iyovbz.cloudfront.net/7e4e9bcb/v1/lod-meta.json",
+  "dpr": 1.5,
+  "host": {
+    "width": 1280,
+    "height": 720
+  },
+  "splatSource": "workbuffer",
+  "move": 0,
+  "rounds": 1,
+  "warmup": 20,
+  "frames": 60,
+  "budget": 8,
+  "modes": {
+    "sorted": {
+      "resident": 1855777,
+      "poses": [
+        {
+          "name": "start",
+          "variants": {
+            "sorted": {
+              "median": 9.273343999999998,
+              "min": 5.5705599999999995,
+              "samples": 60,
+              "passes": {
+                "GSplatIntervalCull": 0,
+                "PrefixSumScan": 0.131072,
+                "GSplatIntervalScatter": 0.065536,
+                "GSplatIntervalWriteIndirectArgs": 0,
+                "GSplatProjector": 0.32767999999999997,
+                "GSplatProjectorWriteIndirectArgs": 0,
+                "RadixSort4bit-Histogram-Indirect": 0.196608,
+                "PrefixSumAddBlock": 0,
+                "RadixSort4bit-Reorder-Indirect": 0.32767999999999997,
+                "RenderPassForward": 7.929856
+              },
+              "survivors": null,
+              "occluded": null
+            }
+          },
+          "images": null,
+          "active": 0,
+          "memory": {
+            "vramTotal": 455602948,
+            "vramTex": 277338028,
+            "vramSb": 133403488,
+            "rendererBytes": null,
+            "survivors": 0
+          }
+        }
+      ]
+    },
+    "stochastic": {
+      "resident": 1855777,
+      "poses": [
+        {
+          "name": "start",
+          "variants": {
+            "cull:off,taa:on": {
+              "median": 9.240575999999999,
+              "min": 4.653055999999999,
+              "samples": 55,
+              "passes": {
+                "sse-splat-project": 0.32767999999999997,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.196608,
+                "sse-splat-raster": 3.538944,
+                "sse-splat-taa": 4.521984,
+                "RenderPassForward": 4.58752
+              },
+              "survivors": 1806748,
+              "occluded": 0
+            },
+            "cull:off,taa:on,units:px": {
+              "median": 9.66656,
+              "min": 4.456448,
+              "samples": 60,
+              "passes": {
+                "sse-splat-project": 0.32767999999999997,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.196608,
+                "sse-splat-raster": 3.866624,
+                "sse-splat-taa": 4.653055999999999,
+                "RenderPassForward": 4.718592
+              },
+              "survivors": 1645339,
+              "occluded": 0
+            },
+            "cull:off,taa:off": {
+              "median": 8.84736,
+              "min": 4.58752,
+              "samples": 55,
+              "passes": {
+                "sse-splat-project": 0.32767999999999997,
+                "sse-splat-args": 0,
+                "sse-splat-order-scan": 0,
+                "sse-splat-order-scatter": 0.196608,
+                "sse-splat-raster": 3.997696,
+                "sse-splat-taa": 3.866624,
+                "RenderPassForward": 4.128768
+              },
+              "survivors": 1806748,
+              "occluded": 0
+            }
+          },
+          "images": {
+            "cull:off,taa:on": {
+              "vsSorted": {
+                "changedPct": 2.7589699074074074,
+                "meanAbs": 0.8391353202160494,
+                "rms": 3.4292250521933574,
+                "bias": [
+                  -0.020707947530864197,
+                  0.0028226273148148147,
+                  0.0408130787037037
+                ]
+              },
+              "vsTruth": {
+                "changedPct": 13.468315972222221,
+                "meanAbs": 3.223190586419753,
+                "rms": 9.898261365547972,
+                "bias": [
+                  0.03971064814814815,
+                  0.03932243441358025,
+                  0.04170090663580247
+                ]
+              },
+              "noiseFloor": {
+                "changedPct": 0.022858796296296297,
+                "meanAbs": 0.041419110082304526,
+                "rms": 0.34845614085386045,
+                "bias": [
+                  3.375771604938271e-05,
+                  -4.484953703703704e-05,
+                  0.00021556712962962963
+                ]
+              },
+              "moving": null,
+              "depthRoughness": null
+            },
+            "cull:off,taa:on,units:px": {
+              "vsSorted": {
+                "changedPct": 12.723572530864198,
+                "meanAbs": 3.2601067386831275,
+                "rms": 10.521931246954518,
+                "bias": [
+                  1.4867997685185186,
+                  1.6098273533950618,
+                  1.7576292438271606
+                ]
+              },
+              "vsTruth": {
+                "changedPct": 13.495900848765432,
+                "meanAbs": 3.313863007973251,
+                "rms": 10.279684484360102,
+                "bias": [
+                  1.5472183641975308,
+                  1.6463271604938272,
+                  1.7585170717592593
+                ]
+              },
+              "noiseFloor": {
+                "changedPct": 0.013213734567901234,
+                "meanAbs": 0.03884371784979424,
+                "rms": 0.27820713345444303,
+                "bias": [
+                  0.00012924382716049382,
+                  0.00027102623456790124,
+                  0.0001953125
+                ]
+              },
+              "moving": null,
+              "depthRoughness": null
+            },
+            "cull:off,taa:off": {
+              "vsSorted": {
+                "changedPct": 14.90576774691358,
+                "meanAbs": 3.6902414480452674,
+                "rms": 11.166522623218741,
+                "bias": [
+                  -0.04896122685185185,
+                  -0.026161265432098766,
+                  0.011340663580246914
+                ]
+              },
+              "vsTruth": {
+                "changedPct": 9.154899691358025,
+                "meanAbs": 1.7339125192901235,
+                "rms": 5.0210283598975085,
+                "bias": [
+                  0.011457368827160494,
+                  0.010338541666666666,
+                  0.012228491512345679
+                ]
+              },
+              "noiseFloor": null,
+              "moving": null,
+              "depthRoughness": null
+            }
+          },
+          "active": 0,
+          "truthVsSorted": {
+            "changedPct": 13.559654706790123,
+            "meanAbs": 3.249884420010288,
+            "rms": 10.031988950770668,
+            "bias": [
+              -0.060418595679012345,
+              -0.036499807098765435,
+              -0.0008878279320987655
+            ]
+          },
+          "memory": {
+            "vramTotal": 580102400,
+            "vramTex": 426637228,
+            "vramSb": 111360484,
+            "rendererBytes": 223815204,
+            "survivors": 1806748
+          }
+        }
+      ]
+    }
+  },
+  "target": {
+    "width": 1920,
+    "height": 1080
+  },
+  "note": "M1 correctness: the lion (7e4e9bcb) at its settings start pose (docs/bench/poses/lion-7e4e9bcb.json). units:engine (default) against units:px: the true-pixel dilation of 0.3 px^2 is four times the engine's (its focal is doubled, so its 0.3 is 0.075 px^2) and its culls scale the same way; in engine units the converged image is within 3.4 rms of the sorted frame with no bias, in true pixels 10.5 rms and 1.6 brighter. Timings are not usable: three bench pages ran on the GPU at once."
+}

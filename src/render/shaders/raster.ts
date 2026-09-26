@@ -73,7 +73,9 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
     #endif
     let w = select(cornerDepth, 1.0, ortho);
     let ndcCorner = ndc + pixelOffset * uniform.viewportSize.zw;
-    let pos = vec4f(ndcCorner * w, clamp(uniform.clipZParams.x * cornerDepth + uniform.clipZParams.y, 0.0, w), w);
+    // clip z clamped into range like the engine's splat shader, so splats beyond the far plane
+    // still draw; just inside it, since the compose and the accumulation read depth 1 as empty
+    let pos = vec4f(ndcCorner * w, clamp(uniform.clipZParams.x * cornerDepth + uniform.clipZParams.y, 0.0, w * 0.999999), w);
     output.position = vec4f(pos.x, pos.y * uniform.projectionFlipY, pos.z, pos.w);
     output.gaussianUV = corner;
     output.packedColor = splatCache[base + 4u];
