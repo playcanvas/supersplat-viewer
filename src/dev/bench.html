@@ -71,6 +71,7 @@
               budget=<millions>             default 8; the engine allocates its work buffer for the whole budget
               nodiff                        skip the image comparison
               fx hpr                        post effects / high precision rendering, off by default
+              minPixelSize=<px>             scene.gsplat.minPixelSize for the stochastic mode only (default 2)
         -->
         <div id="host"></div>
         <div id="panel">
@@ -366,6 +367,10 @@
                     renderer.allowQueryTaa = true;
                 });
                 const { app } = viewer;
+                // the size cull experiment: the stochastic projector's threshold, sorted untouched
+                if (mode === 'stochastic' && params.has('minPixelSize')) {
+                    app.scene.gsplat.minPixelSize = Number(params.get('minPixelSize'));
+                }
                 app.graphicsDevice.wgpu?.addEventListener('uncapturederror', (event) =>
                     log(`GPU ERROR ${event.error.message}`, true)
                 );

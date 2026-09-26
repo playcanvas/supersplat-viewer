@@ -438,6 +438,17 @@ class StochasticSplatRenderer {
     // frames since the camera or the scene last changed, for converging at rest
     private restFrames = 0;
 
+    // a frame requested from inside the render: the engine clears app.renderNextFrame right
+    // after render(), so the request is applied on frameend instead
+    private frameWanted = false;
+
+    private onFrameEnd = () => {
+        if (this.frameWanted) {
+            this.frameWanted = false;
+            this.app.renderNextFrame = true;
+        }
+    };
+
     private frameIndex = 0;
 
     // the seed the harness sets; the frame index replaces it while taa accumulates
@@ -825,6 +836,10 @@ class StochasticSplatRenderer {
         this.composeInstance.cull = false;
         this.composeInstance.castShadow = false;
         this.composeInstance.receiveShadow = false;
+        // the picker pass draws every pickable instance of the layer into a target without a
+        // depth attachment; this shader writes frag_depth, which makes that pipeline invalid
+        // and drops the whole submit, the frame's command buffer included
+        this.composeInstance.pick = false;
         // first among the transparents, whichever way the layer sorts them
         this.composeInstance.drawOrder = -1000;
         this.composeInstance.calculateSortDistance = () => Number.MAX_VALUE;
@@ -833,6 +848,7 @@ class StochasticSplatRenderer {
 
         this.provider = new EngineResidentSetProvider(app, camera, worldLayer);
         this.unsubscribe = this.provider.onFrame((set, changed, manager) => this.frame(set, changed, manager));
+        app.on('frameend', this.onFrameEnd);
 
         this.attach();
     }
@@ -963,7 +979,7 @@ class StochasticSplatRenderer {
         const minContribution = raised
             ? Math.max(gsplat.minContribution, this.variant.contribution)
             : gsplat.minContribution;
-        if (raised) this.app.renderNextFrame = true;
+        if (raised) this.frameWanted = true;
 
         // Temporal accumulation runs on on-screen frames (and, for the harness, on a capture at
         // the same size); the history is only trusted when it holds the previous such frame at
@@ -984,7 +1000,7 @@ class StochasticSplatRenderer {
             this.frameSeed = this.frameIndex++ >>> 0;
             if (moved || changed) this.restFrames = 0;
             else this.restFrames++;
-            if (this.restFrames < this.variant.taaMax + 2) this.app.renderNextFrame = true;
+            if (this.restFrames < this.variant.taaMax + 2) this.frameWanted = true;
         } else {
             this.frameSeed = this.userSeed;
             this.taaHistoryValid = false;
@@ -1408,6 +1424,7 @@ class StochasticSplatRenderer {
 
     destroy() {
         this.unsubscribe();
+        this.app.off('frameend', this.onFrameEnd);
         this.detach();
         this.provider.destroy();
         this.source.destroy();

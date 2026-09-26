@@ -202,10 +202,10 @@ fn project(slot: u32, file: u32) -> Projected {
     let lambda1 = mid + radius;
     let lambda2 = max(mid - radius, 0.1);
 
-    // size cull on the footprint's radius in pixels, as the engine's projector does (its quad
-    // path tests the full extent, twice as lenient; the sorted reference on WebGPU is the
-    // projector path)
-    if (sqrt(2.0 * lambda1) < uniforms.minPixelSize) {
+    // size cull on the footprint's radius in pixels. minPixelSize is a diameter: the engine's
+    // projector is dispatched with half of it, and its quad path tests the full extent
+    // (2 sqrt(2 lambda)) against the whole value, so both cut at the same place
+    if (sqrt(2.0 * lambda1) < 0.5 * uniforms.minPixelSize) {
         return result;
     }
 
