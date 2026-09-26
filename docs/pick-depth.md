@@ -23,7 +23,7 @@ One stochastic render per camera pose, shared by every pick until the camera mov
 - The target has one pixel per css pixel, capped at the backbuffer, so picking behaves the same in performance mode and at any device pixel ratio, and the pixel sizes below are css pixels. The splat budget still differs between modes, so picks can differ slightly with the resident detail.
 - **Annotations** (`pickVisibility`): the share of samples over the hotspot's disc nearer than the annotation's depth less 10%. Hidden at 50% or more.
 - **Navigation** (`pick`, `pickSurface`): the depth where the opacity in front first reaches 0.3, the 0.3 quantile over a 2 px disc (13 pixels × 4 trials). 0.5 was too strict: this capture's deck is only about 63% opaque with default streaming (75% at full detail), and a median went through it to the ground. Returns null where the opacity never reaches 0.3.
-- **Debug view:** the debug panel's Pick depth button shows the navigation depth at every pixel, log distance with the palette repeating per doubling, magenta where no surface is found. It picks and resolves after each frame, only when the pick render changed, and trails the camera by a frame while it moves. Offscreen renders (`captureFrame`) do not show it: it follows the on-screen camera, whose framing a capture need not share.
+- **Debug view:** the debug panel's Show depth button shows the navigation depth at every pixel, log distance with the palette repeating per doubling, magenta where no surface is found. It picks and resolves after each frame, only when the pick render changed, and trails the camera by a frame while it moves. Offscreen renders (`captureFrame`) do not show it: it follows the on-screen camera, whose framing a capture need not share.
 
 ## 3. Measurements
 

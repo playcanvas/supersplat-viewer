@@ -29,6 +29,7 @@ import {
     PickQueue,
     SURFACE_RADIUS_PX,
     clampPixel,
+    createPickCameraSnapshot,
     estimateSurface,
     getWorldPoint,
     half2Float,
@@ -83,6 +84,22 @@ const cameraMatches = (frame: PickCameraSnapshot, camera: Entity) => {
     );
 };
 
+const sameCamera = (a: PickCameraSnapshot, b: PickCameraSnapshot) =>
+    a.viewMatrix.equals(b.viewMatrix) &&
+    a.projectionMatrix.equals(b.projectionMatrix) &&
+    a.nearClip === b.nearClip &&
+    a.farClip === b.farClip &&
+    a.projection === b.projection;
+
+const copyCameraSnapshot = (from: PickCameraSnapshot, to: PickCameraSnapshot) => {
+    to.position.copy(from.position);
+    to.viewMatrix.copy(from.viewMatrix);
+    to.projectionMatrix.copy(from.projectionMatrix);
+    to.nearClip = from.nearClip;
+    to.farClip = from.farClip;
+    to.projection = from.projection;
+};
+
 class FrameDepthPicker implements ScenePicker {
     private app: AppBase;
 
@@ -96,8 +113,10 @@ class FrameDepthPicker implements ScenePicker {
 
     private target: RenderTarget | null = null;
 
-    // the renderer frame the snapshot was taken from
+    // the renderer frame the snapshot was taken from, and the camera it was drawn with
     private snapshotFrame = -1;
+
+    private snapshotCamera = createPickCameraSnapshot();
 
     private renders = 0;
 
@@ -131,8 +150,10 @@ class FrameDepthPicker implements ScenePicker {
         });
     }
 
-    // Snapshot the renderer's frame at css resolution, unless the snapshot already is of it.
-    private snapshot(frame: DepthFrame) {
+    // Snapshot the renderer's frame at css resolution, unless the snapshot already is of it. With
+    // `latest` false a snapshot of an earlier frame from the same camera serves: every stochastic
+    // frame is a new sample, so the debug overlay would otherwise ask for frames without end.
+    private snapshot(frame: DepthFrame, latest: boolean) {
         const device = this.app.graphicsDevice;
         const size = pickTargetSize(device);
         if (!size) return null;
@@ -161,7 +182,10 @@ class FrameDepthPicker implements ScenePicker {
             this.snapshotFrame = -1;
         }
 
-        if (this.snapshotFrame !== frame.id) {
+        const current =
+            this.snapshotFrame === frame.id ||
+            (!latest && this.snapshotFrame >= 0 && sameCamera(this.snapshotCamera, frame.camera));
+        if (!current) {
             const { scope } = device;
             const { camera } = frame;
             scope.resolve('splatDepth').setValue(this.renderer.frameDepthTexture);
@@ -179,6 +203,7 @@ class FrameDepthPicker implements ScenePicker {
             device.setBlendState(BlendState.NOBLEND);
             drawQuadWithShader(device, this.target!, this.shader);
             this.snapshotFrame = frame.id;
+            copyCameraSnapshot(frame.camera, this.snapshotCamera);
             this.renders++;
         }
 
@@ -196,7 +221,7 @@ class FrameDepthPicker implements ScenePicker {
             frame = this.renderer.depthFrame;
             if (!frame || this.queue.released) return null;
         }
-        return this.snapshot(frame);
+        return this.snapshot(frame, true);
     }
 
     // Read the snapshot around a pixel, `margin` pixels each way, clamped to it.
@@ -289,7 +314,7 @@ class FrameDepthPicker implements ScenePicker {
     renderView() {
         if (this.queue.released) return null;
         const frame = this.renderer.depthFrame;
-        if (!frame || !this.snapshot(frame)) return null;
+        if (!frame || !this.snapshot(frame, false)) return null;
         return { texture: this.texture!, renders: this.renders };
     }
 

@@ -253,7 +253,7 @@ class DebugPanel {
             </div>
             <div class="sse-debug-buttons">
                 <button data-id="screenshot">Screenshot</button>
-                <button data-id="pick-depth" title="Show the depth a navigation pick finds at every pixel">Pick depth</button>
+                <button data-id="pick-depth" title="Show the depth a navigation pick finds at every pixel">Show depth</button>
             </div>
             ${
                 this._splatRenderer
