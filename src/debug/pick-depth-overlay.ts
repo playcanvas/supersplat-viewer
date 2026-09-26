@@ -16,7 +16,7 @@ import {
 import type { AppBase, Entity, Shader } from 'playcanvas';
 
 import { PICK_TRIALS, SURFACE_OPACITY, SURFACE_RADIUS_PX } from '../picker';
-import type { Picker } from '../picker';
+import type { ScenePicker } from '../picker';
 
 // the pick render's samples in a surface disc, and how many of the nearest the quantile needs
 let discPixels = 0;
@@ -185,7 +185,7 @@ class PickDepthOverlay {
 
     private readonly camera: Entity;
 
-    private readonly picker: Picker;
+    private readonly picker: ScenePicker;
 
     private readonly resolveShader: Shader;
 
@@ -202,7 +202,7 @@ class PickDepthOverlay {
 
     private _enabled = false;
 
-    constructor(app: AppBase, camera: Entity, picker: Picker) {
+    constructor(app: AppBase, camera: Entity, picker: ScenePicker) {
         this.app = app;
         this.camera = camera;
         this.picker = picker;

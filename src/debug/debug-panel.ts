@@ -1,7 +1,8 @@
 import { Vec3 } from 'playcanvas';
 
 import type { CameraManager } from '../camera-manager';
-import type { Picker } from '../picker';
+import type { ScenePicker } from '../picker';
+import type { StochasticSplatRenderer } from '../render/stochastic-splat-renderer';
 import type { Global } from '../types';
 
 import { captureCameraState, restoreCameraState } from './camera-state';
@@ -108,7 +109,20 @@ class DebugPanel {
 
     private readonly _cameraManager: CameraManager;
 
-    private readonly _picker: Picker;
+    private readonly _picker: ScenePicker;
+
+    // the stochastic renderer when this viewer opted in, for its depth cull toggle and counts
+    private readonly _splatRenderer: StochasticSplatRenderer | null;
+
+    private _cullButton: HTMLButtonElement | null = null;
+
+    private _taaButton: HTMLButtonElement | null = null;
+
+    private _culledValue: HTMLSpanElement | null = null;
+
+    private _cullStatsFrames = 0;
+
+    private _cullStatsPending = false;
 
     private _pickDepthOverlay: PickDepthOverlay | null = null;
 
@@ -138,6 +152,9 @@ class DebugPanel {
 
     private _onPrerender = () => this._render();
 
+    // the cull state is decided inside the frame, so its row refreshes after it
+    private _onFrameEnd = () => this._renderCull();
+
     private _onKeyDown = (event: KeyboardEvent) => {
         // Ctrl+Shift+D — also accept Meta+Shift+D on macOS for parity
         if (!this._global.state.inputEnabled) return;
@@ -147,10 +164,16 @@ class DebugPanel {
         }
     };
 
-    constructor(global: Global, cameraManager: CameraManager, picker: Picker) {
+    constructor(
+        global: Global,
+        cameraManager: CameraManager,
+        picker: ScenePicker,
+        splatRenderer: StochasticSplatRenderer | null = null
+    ) {
         this._global = global;
         this._cameraManager = cameraManager;
         this._picker = picker;
+        this._splatRenderer = splatRenderer;
         window.addEventListener('keydown', this._onKeyDown);
         if (global.config.debug) {
             this.show();
@@ -165,6 +188,7 @@ class DebugPanel {
         }
         this._root!.style.display = '';
         this._global.app.on('prerender', this._onPrerender);
+        this._global.app.on('frameend', this._onFrameEnd);
         if (this._global.config.exposeGlobals) {
             window.getCameraState = () => captureCameraState(this._cameraManager, this._global.state);
             window.setCameraState = (snapshot) => restoreCameraState(this._cameraManager, this._global.state, snapshot);
@@ -181,6 +205,7 @@ class DebugPanel {
         // the view is only reachable from the panel, so it goes with it
         this._setPickDepth(false);
         this._global.app.off('prerender', this._onPrerender);
+        this._global.app.off('frameend', this._onFrameEnd);
         if (this._global.config.exposeGlobals) {
             delete window.getCameraState;
             delete window.setCameraState;
@@ -228,8 +253,18 @@ class DebugPanel {
             </div>
             <div class="sse-debug-buttons">
                 <button data-id="screenshot">Screenshot</button>
-                <button data-id="pick-depth" title="Show the depth a navigation pick finds at every pixel">Pick depth</button>
+                <button data-id="pick-depth" title="Show the depth a navigation pick finds at every pixel">Show depth</button>
             </div>
+            ${
+                this._splatRenderer
+                    ? `
+            <div class="sse-debug-buttons">
+                <button data-id="depth-cull" title="Stochastic renderer: cull splats hidden in the previous frame's depth (auto suspends the test when it removes too little)">Depth cull</button>
+                <button data-id="taa" title="Stochastic renderer: accumulate the samples over frames (reprojected while the camera moves)">TAA</button>
+            </div>
+            <div class="sse-debug-row"><span class="sse-debug-label">culled</span><span class="sse-debug-value" data-id="culled">—</span></div>`
+                    : ''
+            }
         `;
         host.appendChild(root);
 
@@ -247,6 +282,26 @@ class DebugPanel {
         this._pickDepthButton.addEventListener('click', () => {
             this._setPickDepth(!this._pickDepthOverlay?.enabled);
         });
+        if (this._splatRenderer) {
+            this._cullButton = root.querySelector('[data-id="depth-cull"]')!;
+            this._taaButton = root.querySelector('[data-id="taa"]')!;
+            this._culledValue = root.querySelector('[data-id="culled"]')!;
+            this._taaButton.addEventListener('click', () => {
+                const renderer = this._splatRenderer!;
+                renderer.variant.taa = renderer.variant.taa === 'on' ? 'off' : 'on';
+                renderer.applyVariant();
+                this._renderCull();
+            });
+            // cycles the cull mode: auto (the default) -> on (both grid levels) -> off
+            this._cullButton.addEventListener('click', () => {
+                const renderer = this._splatRenderer!;
+                const next = { auto: 'l2', l2: 'off', l1: 'off', off: 'auto' } as const;
+                renderer.variant.cull = next[renderer.variant.cull];
+                renderer.applyVariant();
+                this._renderCull();
+            });
+            this._renderCull();
+        }
         this._wireEditable(this._positionValue, 'position');
         this._wireEditable(this._focusValue, 'focus');
     }
@@ -343,6 +398,44 @@ class DebugPanel {
         if (this._editing !== this._focusValue) {
             this._focusValue.textContent = fmt(this._focusTmp);
         }
+    }
+
+    // the cull button shows the mode; the counts come back from the gpu every few frames
+    private _renderCull() {
+        const renderer = this._splatRenderer;
+        if (!renderer || !this._cullButton || !this._culledValue) return;
+        const mode = renderer.variant.cull;
+        this._cullButton.textContent = `Depth cull: ${mode === 'off' ? 'off' : mode === 'auto' ? 'auto' : 'on'}`;
+        this._cullButton.classList.toggle('sse-debug-on', mode !== 'off');
+        if (this._taaButton) {
+            this._taaButton.textContent = `TAA: ${renderer.variant.taa}`;
+            this._taaButton.classList.toggle('sse-debug-on', renderer.variant.taa === 'on');
+        }
+        if (mode === 'off') {
+            this._culledValue.textContent = 'off';
+            return;
+        }
+        if (!renderer.culling) {
+            this._culledValue.textContent = renderer.cullSuspended ? 'suspended' : 'no previous frame';
+            return;
+        }
+        if (this._cullStatsPending || this._cullStatsFrames++ % 15 !== 0) return;
+        this._cullStatsPending = true;
+        renderer
+            .readStats()
+            .then(({ survivors, occluded }) => {
+                const total = survivors + occluded;
+                const pct = total > 0 ? ((100 * occluded) / total).toFixed(0) : '0';
+                if (this._culledValue && renderer.culling) {
+                    this._culledValue.textContent = `${pct}% (${occluded.toLocaleString()} of ${total.toLocaleString()})`;
+                }
+            })
+            .catch(() => {
+                // a destroyed buffer or lost device; the next refresh tries again
+            })
+            .finally(() => {
+                this._cullStatsPending = false;
+            });
     }
 
     private async _copy() {

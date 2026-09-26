@@ -38,6 +38,9 @@ import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
 import { NavCursor } from './nav-cursor';
 import { Picker } from './picker';
+import type { ScenePicker } from './picker';
+import { FrameDepthPicker } from './picker-frame-depth';
+import { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { CaptureOptions, Config, Global, XrMode } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
@@ -70,6 +73,18 @@ fn prepareOutputFromGamma(gammaColor: vec3f, depth: f32) -> vec3f {
 const rendererTable: Record<Config['renderer'], number> = {
     webgl: GSPLAT_RENDERER_RASTER_CPU_SORT,
     webgpu: GSPLAT_RENDERER_RASTER_GPU_SORT
+};
+
+// quality budget, millions of splats
+const budgets = {
+    mobile: {
+        low: 1,
+        high: 2
+    },
+    desktop: {
+        low: 2,
+        high: 4
+    }
 };
 
 type GSplatOctreeResourceLike = {
@@ -178,7 +193,7 @@ class Viewer {
 
     cameraManager: CameraManager;
 
-    picker: Picker;
+    picker: ScenePicker;
 
     voxelOverlay: VoxelDebugOverlay | null = null;
 
@@ -187,6 +202,9 @@ class Viewer {
     navCursor: NavCursor | null = null;
 
     debugPanel: DebugPanel | null = null;
+
+    /** The opt-in stochastic renderer (WebGPU only); null when the engine's sorted renderer draws. */
+    splatRenderer: StochasticSplatRenderer | null = null;
 
     /** Set once {@link destroy} has run. Load continuations check it and bail. */
     destroyed = false;
@@ -283,9 +301,37 @@ class Viewer {
         // configure the camera
         this.configureCamera(settings);
 
-        // reconfigure camera when entering/exiting XR
+        // The stochastic renderer, when opted in. Created before the first frame so it can
+        // switch the engine's own splat renderer off as soon as the engine creates it. An
+        // instance without the flag never constructs it, and the sorted path is untouched.
+        if (config.stochastic && renderer === 'webgpu') {
+            const worldLayer = app.scene.layers.getLayerByName('World');
+            // the largest budget this instance can ask for must fit the device's storage binding
+            const budget =
+                (config.budget && config.budget > 0
+                    ? config.budget
+                    : (platform.mobile ? budgets.mobile : budgets.desktop).high) * 1000000;
+            if (!StochasticSplatRenderer.cacheFits(app.graphicsDevice, budget)) {
+                console.warn(
+                    `stochastic renderer: a ${budget / 1000000}M splat budget exceeds this device's storage binding limit; the sorted renderer draws`
+                );
+            } else if (worldLayer) {
+                this.splatRenderer = new StochasticSplatRenderer(app, camera.camera, worldLayer, {
+                    source: config.splatSource,
+                    variant: config.variant
+                });
+                // announced on the first frame rather than here: createViewer resolves after this
+                // constructor, so a page can only subscribe once loading is under way
+                events.once('firstFrame', () => events.fire('splatRenderer:ready', this.splatRenderer));
+            }
+        }
+
+        // reconfigure camera when entering/exiting XR. The stochastic renderer has no stereo
+        // path yet, so the engine's renderer draws the splats for the session
         const configureXrCamera = () => {
-            if (!this.destroyed) this.configureCamera(settings);
+            if (this.destroyed) return;
+            this.configureCamera(settings);
+            this.splatRenderer?.setEnabled(!app.xr.active);
         };
         const xrStart = app.xr.on('start', configureXrCamera);
         const xrEnd = app.xr.on('end', configureXrCamera);
@@ -545,7 +591,10 @@ class Viewer {
                 sceneBound.setFromTransformedAabb(gsplatBbox, results[0].getWorldTransform());
             }
 
-            this.picker = new Picker(app, camera);
+            // the stochastic renderer leaves its frame's depth behind, so no pick pass is needed
+            this.picker = this.splatRenderer
+                ? new FrameDepthPicker(app, camera, this.splatRenderer)
+                : new Picker(app, camera);
             this.inputController = new InputController(global, this.picker);
 
             this.cameraManager = new CameraManager(global, sceneBound);
@@ -601,19 +650,7 @@ class Viewer {
             // collision may already have landed while the splats were still streaming
             if (collisionReady) attachCollision(collisionReady);
 
-            this.debugPanel = new DebugPanel(global, this.cameraManager, this.picker);
-
-            // quality budget
-            const budgets = {
-                mobile: {
-                    low: 1,
-                    high: 2
-                },
-                desktop: {
-                    low: 2,
-                    high: 4
-                }
-            };
+            this.debugPanel = new DebugPanel(global, this.cameraManager, this.picker, this.splatRenderer);
 
             const applyPerfSettings = () => {
                 const budget = () => {
@@ -681,7 +718,12 @@ class Viewer {
                     events.on('performanceMode:changed', applyPerfSettings);
                     applyPerfSettings();
 
-                    gsplat.renderer = rendererTable[renderer];
+                    // the stochastic renderer consumes the engine's world under whatever
+                    // renderer mode the engine resolved; switching modes here would rebuild
+                    // the work buffer for nothing
+                    if (!this.splatRenderer) {
+                        gsplat.renderer = rendererTable[renderer];
+                    }
 
                     // wait for the first valid frame to complete rendering
                     app.once('frameend', () => {
@@ -886,6 +928,8 @@ class Viewer {
         this.voxelOverlay?.destroy();
         this.meshOverlay?.destroy();
         this.picker?.release();
+        this.splatRenderer?.destroy();
+        this.splatRenderer = null;
         this.capture?.destroy();
         this.capture = null;
         if (this.cameraFrame) {

@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>SuperSplat Viewer — renderer bench</title>
+        <link rel="stylesheet" href="./index.css" />
+        <style>
+            body {
+                margin: 0;
+                background: #181818;
+                color: #ddd;
+                font: 12px/1.5 monospace;
+            }
+            #host {
+                position: relative;
+            }
+            #panel {
+                padding: 8px 12px;
+            }
+            #log {
+                white-space: pre-wrap;
+                margin: 0;
+            }
+            #log .fail {
+                color: #f66;
+            }
+            table {
+                border-collapse: collapse;
+                margin: 8px 0;
+            }
+            td,
+            th {
+                border: 1px solid #444;
+                padding: 2px 8px;
+                text-align: right;
+            }
+            th:first-child,
+            td:first-child {
+                text-align: left;
+            }
+            canvas.preview {
+                width: 240px;
+                margin: 4px;
+                outline: 1px solid #444;
+            }
+        </style>
+    </head>
+    <body>
+        <!--
+            Bench harness for the splat renderers (docs/stochastic-renderer.md). Loads the scene once
+            per mode (the engine's sorted renderer, then the opt-in stochastic renderer), sets each
+            camera pose, and measures every variant with the engine's gpu timestamp profiler while a
+            MessageChannel pump drives frames as fast as the gpu takes them, so the queue stays
+            saturated regardless of vsync or tab visibility. Three round-robin rounds per pose;
+            median-of-medians and min-of-mins are reported. Stochastic frames are diffed against the
+            sorted frame at the same pose, and against a second stochastic frame with another seed
+            for the noise floor. Results download as json.
+
+            Params:
+              content=<url> settings=<url>  the scene (fullload and a large budget keep the resident set fixed)
+              poses=<url>                   json array of { name, snapshot } (window.getCameraState shape)
+                                            or { name, position, target, fov }; default: the start pose
+              modes=sorted,stochastic       which renderers to load
+              variants=cull:off;cull:l2     stochastic variant strings, ; separated (keys: spp, compose, cull, order, contribution)
+              splatSource=workbuffer        stochastic data path: workbuffer or direct
+              dpr=1.5                       pin the pixel ratio and screen size: target = host * dpr
+              move=0.25                     orbit the camera this many degrees per measured frame (0: still)
+              truth=32                      raw frames averaged into the stochastic expectation each variant is judged against
+              truthVariant=<variant>        the variant those raw frames render with (default cull:off,spp:1,taa:off)
+              rounds=3 warmup=40 frames=180
+              width=1280 height=720         host size in css pixels (the canvas follows the dpr rule)
+              budget=<millions>             default 8; the engine allocates its work buffer for the whole budget
+              nodiff                        skip the image comparison
+              fx hpr                        post effects / high precision rendering, off by default
+              minPixelSize=<px>             scene.gsplat.minPixelSize for the stochastic mode only (default 2)
+              radial=0                      sort the sorted renderer by view depth instead of radial distance
+              minPixelSizeAll=<px>          scene.gsplat.minPixelSize for both modes
+        -->
+        <div id="host"></div>
+        <div id="panel">
+            <button id="download" disabled>Download json</button>
+            <div id="tables"></div>
+            <div id="previews"></div>
+            <pre id="log"></pre>
+        </div>
+        <script type="module">
+            import { createViewer } from './index.js';
+
+            const params = new URL(location.href).searchParams;
+            const host = document.getElementById('host');
+            const logEl = document.getElementById('log');
+            const log = (message, fail = false) => {
+                const line = document.createElement('div');
+                line.textContent = message;
+                if (fail) line.className = 'fail';
+                logEl.appendChild(line);
+                console.log(message);
+            };
+            window.addEventListener('error', (event) => log(`ERROR ${event.error?.stack ?? event.message}`, true));
+            window.addEventListener('unhandledrejection', (event) =>
+                log(`ERROR ${event.reason?.stack ?? event.reason}`, true)
+            );
+
+            const median = (values) => {
+                const sorted = [...values].sort((a, b) => a - b);
+                const mid = sorted.length >> 1;
+                return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+            };
+
+            const width = Number(params.get('width') ?? 1280);
+            const height = Number(params.get('height') ?? 720);
+            host.style.width = `${width}px`;
+            host.style.height = `${height}px`;
+
+            const modes = (params.get('modes') ?? 'sorted,stochastic').split(',').filter(Boolean);
+            const variants = (params.get('variants') ?? 'cull:off;cull:l2').split(';').filter(Boolean);
+            const rounds = Number(params.get('rounds') ?? 3);
+            const warmup = Number(params.get('warmup') ?? 40);
+            const frames = Number(params.get('frames') ?? 180);
+            // the engine allocates its work buffer for the whole budget up front (budget x 1.15 slots
+            // x 24 bytes), so keep it just above the scene's splat count
+            const budget = Number(params.get('budget') ?? 8);
+            const splatSource = params.get('splatSource') ?? 'workbuffer';
+            // degrees of orbit per measured frame; 0 measures a still camera
+            const move = Number(params.get('move') ?? 0);
+            // the pane's device pixel ratio and screen size follow tab visibility, so pin them for
+            // repeatable targets: the viewer caps its ratio from the screen's short side, and a
+            // host-sized screen leaves the ratio at dpr (target = host * dpr)
+            if (params.has('dpr')) {
+                Object.defineProperty(window, 'devicePixelRatio', {
+                    value: Number(params.get('dpr')),
+                    configurable: true
+                });
+                Object.defineProperty(screen, 'width', { value: width, configurable: true });
+                Object.defineProperty(screen, 'height', { value: height, configurable: true });
+            }
+            const diff = !params.has('nodiff');
+            const contentUrl = params.get('content') ?? './shoe.ply';
+            const settings = await (await fetch(params.get('settings') ?? './settings.json')).json();
+
+            // poses: the debug panel's snapshot shape, or position/target/fov converted the way
+            // Camera.look does (see src/core/math.ts vecToAngles)
+            const toSnapshot = (pose) => {
+                if (pose.snapshot) return pose.snapshot;
+                const [px, py, pz] = pose.position;
+                const [tx, ty, tz] = pose.target;
+                let dx = tx - px;
+                let dy = ty - py;
+                let dz = tz - pz;
+                const distance = Math.hypot(dx, dy, dz);
+                dx /= distance;
+                dy /= distance;
+                dz /= distance;
+                const radToDeg = 180 / Math.PI;
+                const horizLenSq = dx * dx + dz * dz;
+                return {
+                    position: [px, py, pz],
+                    angles: [
+                        Math.asin(Math.max(-1, Math.min(1, dy))) * radToDeg,
+                        horizLenSq > 1e-8 ? Math.atan2(-dx, -dz) * radToDeg : 0,
+                        0
+                    ],
+                    distance,
+                    fov: pose.fov ?? 85,
+                    mode: 'orbit'
+                };
+            };
+            const posesUrl = params.get('poses');
+            const poses = posesUrl
+                ? (await (await fetch(posesUrl)).json()).map((p) => ({ name: p.name, snapshot: toSnapshot(p) }))
+                : null;
+
+            // one frame, sequenced as AppBase.tick does it, without waiting for the display
+            const pumpFrame = (app, dt) => {
+                app.fire('frameupdate', dt * 1000);
+                app.update(dt);
+                app.fire('framerender');
+                app.render();
+                app.renderNextFrame = false;
+                app.fire('frameend');
+            };
+            const pump = (app, count, onFrame) =>
+                new Promise((resolve) => {
+                    const channel = new MessageChannel();
+                    let i = 0;
+                    channel.port1.onmessage = () => {
+                        if (i >= count) {
+                            channel.port1.close();
+                            resolve();
+                            return;
+                        }
+                        pumpFrame(app, 1 / 60);
+                        onFrame?.(i);
+                        i++;
+                        channel.port2.postMessage(0);
+                    };
+                    channel.port2.postMessage(0);
+                });
+            // a yield that a hidden tab does not throttle (timers there fire once a second at best)
+            const yieldTask = () =>
+                new Promise((resolve) => {
+                    const channel = new MessageChannel();
+                    channel.port1.onmessage = () => {
+                        channel.port1.close();
+                        resolve();
+                    };
+                    channel.port2.postMessage(0);
+                });
+            // pump frames until the test passes, at real elapsed time so streaming and animation
+            // see sane deltas; false on timeout
+            const pumpUntil = async (app, test, timeoutMs) => {
+                const deadline = performance.now() + timeoutMs;
+                let last = performance.now();
+                while (!test()) {
+                    if (performance.now() > deadline) return false;
+                    const now = performance.now();
+                    pumpFrame(app, Math.min(0.1, Math.max(1 / 240, (now - last) / 1000)));
+                    last = now;
+                    await yieldTask();
+                }
+                return true;
+            };
+            const stopTicker = (app) => {
+                if (app.frameRequestId) {
+                    cancelAnimationFrame(app.frameRequestId);
+                    app.frameRequestId = null;
+                }
+            };
+            // The page's own frame loop is stopped once the viewer exists and every frame is pumped
+            // from here: the desktop app's browser pane hides the page whenever it is not in front,
+            // and a hidden page gets no requestAnimationFrame, which would stall every wait below.
+            const nextFrame = (app) => pump(app, 1);
+            // the viewer renders on demand, and frameend fires whether or not a frame rendered
+            const renderFrame = (app) => {
+                app.renderNextFrame = true;
+                return pump(app, 1);
+            };
+
+            // gpu spans: the engine's timestamp profiler reports asynchronously, a few frames late;
+            // the pass names live in pastFrameAllocations and are consumed by report(), so copy
+            // them first
+            const attachProfiler = (device) => {
+                const profiler = device.gpuProfiler;
+                profiler.enabled = true;
+                const samples = [];
+                const original = profiler.report;
+                profiler.report = function (renderVersion, timings, frameTime) {
+                    const names = this.pastFrameAllocations.get(renderVersion);
+                    if (timings && names) {
+                        const passes = {};
+                        let sum = 0;
+                        names.forEach((name, i) => {
+                            passes[name] = (passes[name] ?? 0) + timings[i];
+                            sum += timings[i];
+                        });
+                        samples.push({ frame: frameTime ?? sum, passes });
+                    }
+                    return original.call(this, renderVersion, timings, frameTime);
+                };
+                return {
+                    samples,
+                    detach() {
+                        profiler.report = original;
+                        profiler.enabled = false;
+                    }
+                };
+            };
+
+            // The frame as shown: one more frame is rendered and the canvas read back in the same
+            // task (WebGPU keeps no drawing buffer past it). Not viewer.captureFrame(): that renders
+            // a query frame into its own target with a horizontal fov, which the temporal history
+            // would have to be resampled into, and it would enter the history as an extra sample
+            let readback = null;
+            const capture = async (viewer, w, h) => {
+                const { app } = viewer;
+                const canvas = app.graphicsDevice.canvas;
+                if (!readback || readback.width !== w || readback.height !== h) {
+                    readback = document.createElement('canvas');
+                    readback.width = w;
+                    readback.height = h;
+                }
+                app.renderNextFrame = true;
+                pumpFrame(app, 1 / 60);
+                const ctx = readback.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(canvas, 0, 0, w, h);
+                await yieldTask();
+                return ctx.getImageData(0, 0, w, h).data;
+            };
+            // Mean absolute horizontal and vertical step of the depth view (24-bit log depth in
+            // rgb, see the compose) between neighbouring covered pixels, in thousandths of the
+            // near-to-far log range: a depth surface's roughness, where plates show as steps
+            const depthRoughness = (a, w, h) => {
+                const t = (i) => (a[i] * 65536 + a[i + 1] * 256 + a[i + 2]) / 16777215;
+                const covered = (i) => a[i] + a[i + 1] + a[i + 2] > 0;
+                let sum = 0;
+                let count = 0;
+                for (let y = 0; y < h - 1; y++) {
+                    for (let x = 0; x < w - 1; x++) {
+                        const i = (y * w + x) * 4;
+                        if (!covered(i)) continue;
+                        if (covered(i + 4)) {
+                            sum += Math.abs(t(i) - t(i + 4));
+                            count++;
+                        }
+                        const j = i + w * 4;
+                        if (covered(j)) {
+                            sum += Math.abs(t(i) - t(j));
+                            count++;
+                        }
+                    }
+                }
+                return count ? (1000 * sum) / count : 0;
+            };
+            // 8-bit rgb metrics: pixels changed by more than 8/255 in any channel, mean absolute
+            // and rms difference (the editor's convention)
+            // and rms difference (the editor's convention), and the signed mean (a - b) per
+            // channel: an intensity or tint bias
+            const imageDiff = (a, b) => {
+                let changed = 0;
+                let sumAbs = 0;
+                let sumSq = 0;
+                const bias = [0, 0, 0];
+                const pixels = a.length / 4;
+                for (let i = 0; i < a.length; i += 4) {
+                    let pixelChanged = false;
+                    for (let c = 0; c < 3; c++) {
+                        const d = a[i + c] - b[i + c];
+                        if (Math.abs(d) > 8) pixelChanged = true;
+                        sumAbs += Math.abs(d);
+                        sumSq += d * d;
+                        bias[c] += d;
+                    }
+                    if (pixelChanged) changed++;
+                }
+                return {
+                    changedPct: (100 * changed) / pixels,
+                    meanAbs: sumAbs / (pixels * 3),
+                    rms: Math.sqrt(sumSq / (pixels * 3)),
+                    bias: bias.map((v) => v / pixels)
+                };
+            };
+            // |a - b| times 4, as an image: where the difference lives
+            const diffImage = (a, b) => {
+                const out = new Uint8ClampedArray(a.length);
+                for (let i = 0; i < a.length; i += 4) {
+                    for (let c = 0; c < 3; c++) out[i + c] = Math.abs(a[i + c] - b[i + c]) * 4;
+                    out[i + 3] = 255;
+                }
+                return out;
+            };
+            const diffText = (d) =>
+                `${d.changedPct.toFixed(2)}% changed, meanAbs ${d.meanAbs.toFixed(2)}, rms ${d.rms.toFixed(2)}, bias ${d.bias.map((v) => v.toFixed(2)).join('/')}`;
+            const preview = (bytes, w, h, title) => {
+                const canvas = document.createElement('canvas');
+                canvas.className = 'preview';
+                canvas.width = w;
+                canvas.height = h;
+                canvas.title = title;
+                canvas.getContext('2d').putImageData(new ImageData(bytes, w, h), 0, 0);
+                document.getElementById('previews').appendChild(canvas);
+            };
+
+            const loadViewer = async (mode) => {
+                const viewer = await createViewer({
+                    container: host,
+                    settings,
+                    contentUrl,
+                    stochastic: mode === 'stochastic',
+                    splatSource,
+                    renderer: 'webgpu',
+                    ui: false,
+                    noanim: true,
+                    nofx: !params.has('fx'),
+                    hpr: params.has('hpr'),
+                    fullload: true,
+                    budget,
+                    // the debug panel publishes window.setCameraState, which the poses use
+                    debug: true,
+                    exposeGlobals: true
+                });
+                let renderer = null;
+                viewer.events.once('splatRenderer:ready', (r) => {
+                    renderer = r;
+                    // captures photograph the culled frame, so the image diff covers the cull
+                    renderer.allowQueryCull = true;
+                    renderer.allowQueryTaa = true;
+                });
+                const { app } = viewer;
+                // the size cull experiment: the stochastic projector's threshold, sorted untouched
+                if (mode === 'stochastic' && params.has('minPixelSize')) {
+                    app.scene.gsplat.minPixelSize = Number(params.get('minPixelSize'));
+                }
+                // both renderers: which splat sizes carry a difference between them
+                if (params.has('minPixelSizeAll')) {
+                    app.scene.gsplat.minPixelSize = Number(params.get('minPixelSizeAll'));
+                }
+                // the sorted renderer's order: radial distance (the viewer's setting) or view depth,
+                // the depth the stochastic raster tests when popless is off
+                if (mode === 'sorted' && params.get('radial') === '0') {
+                    app.scene.gsplat.radialSorting = false;
+                }
+                app.graphicsDevice.wgpu?.addEventListener('uncapturederror', (event) =>
+                    log(`GPU ERROR ${event.error.message}`, true)
+                );
+                // a submit inside a pass invalidates the frame's command buffer (a texture
+                // uploaded at bind time does it); report the first two with their stacks
+                {
+                    const dev = app.graphicsDevice;
+                    const original = dev.submit.bind(dev);
+                    let logged = 0;
+                    dev.submit = () => {
+                        if (dev.insideRenderPass && logged++ < 2) {
+                            log(`SUBMIT INSIDE PASS\n${new Error().stack}`, true);
+                        }
+                        original();
+                    };
+                }
+                // the engine reports each frame whether all the detail it wants is resident: a
+                // pose change on a streamed scene starts loading again, and both modes must be
+                // captured with the same resident detail
+                const streaming = { ready: false, loading: 0 };
+                app.systems.gsplat.on('frame:ready', (cam, layer, ready, loading) => {
+                    streaming.ready = ready;
+                    streaming.loading = loading;
+                });
+                const settle = async () => {
+                    await pump(app, 3);
+                    if (!(await pumpUntil(app, () => streaming.ready && streaming.loading === 0, 120000))) {
+                        log(`${mode}: streaming did not settle within 120s`, true);
+                    }
+                    await pump(app, 10);
+                };
+                stopTicker(app);
+                if (!(await pumpUntil(app, () => viewer.state.loaded, 300000))) {
+                    throw new Error(`${mode}: did not load within 300s`);
+                }
+                // let streaming and the first sorts settle
+                await pump(app, 30);
+                return { viewer, app, renderer, settle };
+            };
+
+            // A moving camera exercises the work-buffer colour refresh, lod changes, the occlusion
+            // cull's reprojection and the temporal history: the camera orbits its focus point
+            // (position + forward * distance, the snapshot's own convention) by `move` degrees a
+            // frame, restarting from the pose every round
+            const orbitStep = (snapshot, i) => {
+                const degToRad = Math.PI / 180;
+                const forward = (pitch, yaw) => [
+                    -Math.sin(yaw * degToRad) * Math.cos(pitch * degToRad),
+                    Math.sin(pitch * degToRad),
+                    -Math.cos(yaw * degToRad) * Math.cos(pitch * degToRad)
+                ];
+                const [pitch, yaw] = snapshot.angles;
+                const f0 = forward(pitch, yaw);
+                const focus = snapshot.position.map((p, k) => p + f0[k] * snapshot.distance);
+                const f1 = forward(pitch, yaw + i * move);
+                window.setCameraState({
+                    ...snapshot,
+                    position: focus.map((c, k) => c - f1[k] * snapshot.distance),
+                    angles: [pitch, yaw + i * move, snapshot.angles[2]]
+                });
+            };
+            // the orbit frames photographed for the moving-image comparison
+            const MOVE_FRAMES = [60, 180];
+
+            const measure = async (app, profiler, label, snapshot) => {
+                profiler.samples.length = 0;
+                const orbit = move ? (i) => orbitStep(snapshot, i) : undefined;
+                await pump(app, warmup + frames, orbit);
+                // reports trail the frames by a few; pump until they have arrived
+                await pumpUntil(app, () => profiler.samples.length >= warmup + frames - 5, 2000);
+                const samples = profiler.samples.slice(warmup, warmup + frames);
+                const frameTimes = samples.map((s) => s.frame);
+                const passNames = new Set();
+                samples.forEach((s) => Object.keys(s.passes).forEach((n) => passNames.add(n)));
+                const passes = {};
+                for (const name of passNames) {
+                    passes[name] = median(samples.map((s) => s.passes[name] ?? 0));
+                }
+                return {
+                    label,
+                    samples: samples.length,
+                    median: median(frameTimes),
+                    min: Math.min(...frameTimes),
+                    passes
+                };
+            };
+
+            const adapter = await navigator.gpu?.requestAdapter();
+            const adapterInfo = adapter?.info ?? (await adapter?.requestAdapterInfo?.()) ?? {};
+            const results = {
+                date: new Date().toISOString(),
+                userAgent: navigator.userAgent,
+                adapter: {
+                    vendor: adapterInfo.vendor,
+                    architecture: adapterInfo.architecture,
+                    device: adapterInfo.device,
+                    description: adapterInfo.description
+                },
+                content: contentUrl,
+                dpr: window.devicePixelRatio,
+                host: { width, height },
+                splatSource,
+                move,
+                rounds,
+                warmup,
+                frames,
+                budget,
+                modes: {}
+            };
+
+            const references = new Map(); // pose name -> sorted frame bytes
+            let target = null;
+            let poseList = poses;
+
+            for (const mode of modes) {
+                log(`loading ${mode}...`);
+                const { viewer, app, renderer, settle } = await loadViewer(mode);
+                const device = app.graphicsDevice;
+                target = { width: device.width, height: device.height };
+                results.target = target;
+                log(
+                    `${mode}: loaded, ${app.stats.frame.gsplats} splats resident, target ${target.width}x${target.height}`
+                );
+                if (mode === 'stochastic' && !renderer) {
+                    log('stochastic renderer not created (webgl fallback?)', true);
+                    viewer.destroy();
+                    continue;
+                }
+
+                // the frame stat is only filled by a rendered frame; fall back to the resource
+                const resident =
+                    app.stats.frame.gsplats || app.root.findByName('gsplat')?.gsplat?.resource?.numSplats || 0;
+                const modeResult = { resident, poses: [] };
+                results.modes[mode] = modeResult;
+                const profiler = attachProfiler(device);
+                // No poses: frame the whole scene, plus a pose at the subject. The subject is the
+                // per-axis median of the splat centres (robust to the sky and background that
+                // dominate a capture's bound), viewed from 1.5 spreads away, the spread being the
+                // median absolute deviation. Centres exist on the cpu only for the sorted mode
+                // (the stochastic mode switches them off), so poses are computed once and reused.
+                if (!poseList) {
+                    viewer.frameScene();
+                    await pump(app, 120);
+                    poseList = [{ name: 'framed', snapshot: window.getCameraState() }];
+                    const gsplat = app.root.findByName('gsplat')?.gsplat;
+                    const centers = gsplat?.resource?.centers;
+                    if (centers && centers.length >= 3) {
+                        const count = centers.length / 3;
+                        const step = Math.max(1, Math.floor(count / 200000));
+                        const axis = (k) => {
+                            const values = [];
+                            for (let i = 0; i < count; i += step) values.push(centers[i * 3 + k]);
+                            const med = median(values);
+                            const mad = median(values.map((v) => Math.abs(v - med)));
+                            return { med, mad };
+                        };
+                        const [x, y, z] = [axis(0), axis(1), axis(2)];
+                        const transform = gsplat.entity.getWorldTransform();
+                        const local = new (app.root.getPosition().constructor)(x.med, y.med, z.med);
+                        const subject = transform.transformPoint(local);
+                        const spread = Math.hypot(x.mad, y.mad, z.mad) * transform.getScale().x;
+                        const dir = [0.5, 0.35, 1];
+                        const len = Math.hypot(...dir);
+                        const distance = 1.5 * spread;
+                        poseList.push({
+                            name: 'subject',
+                            snapshot: toSnapshot({
+                                position: [
+                                    subject.x + (dir[0] / len) * distance,
+                                    subject.y + (dir[1] / len) * distance,
+                                    subject.z + (dir[2] / len) * distance
+                                ],
+                                target: [subject.x, subject.y, subject.z],
+                                fov: 85
+                            })
+                        });
+                    } else {
+                        log('no cpu centres: run the sorted mode first for a subject pose');
+                    }
+                }
+                const modeVariants = mode === 'stochastic' ? variants : ['sorted'];
+
+                for (const pose of poseList) {
+                    window.setCameraState(pose.snapshot);
+                    for (let i = 0; i < 3; i++) await renderFrame(app);
+                    await settle();
+                    log(`${mode} ${pose.name}: ${app.stats.frame.gsplats} splats active`);
+                    const poseResult = { name: pose.name, variants: {}, images: null, active: app.stats.frame.gsplats };
+                    modeResult.poses.push(poseResult);
+
+                    // the frame at orbit step k, for the moving comparison: the camera moves into
+                    // step k inside the captured frame itself, so it is a moving frame
+                    const movingCapture = async (k) => {
+                        window.setCameraState(pose.snapshot);
+                        for (let f = 0; f < 2; f++) await renderFrame(app);
+                        for (let i = 0; i < k; i++) {
+                            orbitStep(pose.snapshot, i);
+                            pumpFrame(app, 1 / 60);
+                        }
+                        orbitStep(pose.snapshot, k);
+                        return capture(viewer, target.width, target.height);
+                    };
+
+                    if (diff) {
+                        if (mode === 'sorted') {
+                            const bytes = await capture(viewer, target.width, target.height);
+                            references.set(pose.name, bytes);
+                            preview(bytes, target.width, target.height, `${pose.name} sorted`);
+                            if (move) {
+                                for (const k of MOVE_FRAMES) {
+                                    const frame = await movingCapture(k);
+                                    references.set(`${pose.name}@${k}`, frame);
+                                    preview(frame, target.width, target.height, `${pose.name}@${k} sorted`);
+                                }
+                                window.setCameraState(pose.snapshot);
+                            }
+                        } else {
+                            // every variant against the sorted frame; the noise floor once, from a
+                            // second frame of the first variant with another seed (for a taa
+                            // variant: the converged frame, and the next frame as its residual)
+                            const reference = references.get(pose.name);
+                            poseResult.images = {};
+                            // The stochastic renderer's own expectation at this pose: the mean of
+                            // many raw frames with different seeds. A converged accumulation is
+                            // judged against this; its difference to the sorted frame is the
+                            // renderer's, not the accumulation's
+                            const TRUTH_FRAMES = Number(params.get('truth') ?? 32);
+                            renderer.setVariant(params.get('truthVariant') ?? 'cull:off,spp:1,taa:off');
+                            renderer.seed = 0;
+                            window.setCameraState(pose.snapshot);
+                            for (let f = 0; f < 2; f++) await renderFrame(app);
+                            const sum = new Float32Array(target.width * target.height * 4);
+                            for (let k = 1; k <= TRUTH_FRAMES; k++) {
+                                renderer.seed = k;
+                                const frame = await capture(viewer, target.width, target.height);
+                                for (let i = 0; i < sum.length; i++) sum[i] += frame[i];
+                            }
+                            const truth = new Uint8ClampedArray(sum.length);
+                            for (let i = 0; i < sum.length; i++) truth[i] = Math.round(sum[i] / TRUTH_FRAMES);
+                            renderer.seed = 0;
+                            preview(truth, target.width, target.height, `${pose.name} truth`);
+                            const truthVsSorted = reference ? imageDiff(truth, reference) : null;
+                            poseResult.truthVsSorted = truthVsSorted;
+                            if (reference) {
+                                preview(
+                                    diffImage(truth, reference),
+                                    target.width,
+                                    target.height,
+                                    `${pose.name} |truth - sorted| x4`
+                                );
+                            }
+                            log(
+                                `${mode} ${pose.name}: mean of ${TRUTH_FRAMES} raw frames vs sorted ${truthVsSorted ? diffText(truthVsSorted) : 'n/a'}`
+                            );
+                            for (const [i, variant] of variants.entries()) {
+                                renderer.setVariant(variant);
+                                renderer.seed = 0;
+                                const taa = renderer.variant.taa === 'on';
+                                window.setCameraState(pose.snapshot);
+                                // rendered frames first, so the cull has a previous on-screen frame
+                                // and the history has converged
+                                for (let f = 0; f < (taa ? renderer.variant.taaMax + 4 : 2); f++)
+                                    await renderFrame(app);
+                                const a = await capture(viewer, target.width, target.height);
+                                let noiseFloor = null;
+                                if (i === 0 || taa) {
+                                    if (!taa) renderer.seed = 1;
+                                    for (let f = 0; f < 2; f++) await renderFrame(app);
+                                    const b = await capture(viewer, target.width, target.height);
+                                    renderer.seed = 0;
+                                    noiseFloor = imageDiff(a, b);
+                                    preview(a, target.width, target.height, `${pose.name} ${variant}`);
+                                    if (reference && taa) {
+                                        preview(
+                                            diffImage(a, reference),
+                                            target.width,
+                                            target.height,
+                                            `${pose.name} ${variant} |a - sorted| x4`
+                                        );
+                                    }
+                                }
+                                let moving = null;
+                                if (move && !variant.includes('compose:depth')) {
+                                    moving = {};
+                                    for (const k of MOVE_FRAMES) {
+                                        const ref = references.get(`${pose.name}@${k}`);
+                                        const frame = await movingCapture(k);
+                                        moving[k] = ref ? imageDiff(frame, ref) : null;
+                                        if (taa)
+                                            preview(frame, target.width, target.height, `${pose.name}@${k} ${variant}`);
+                                    }
+                                    window.setCameraState(pose.snapshot);
+                                    log(
+                                        `${mode} ${pose.name} ${variant}: moving vs sorted rms ${MOVE_FRAMES.map((k) => `@${k} ${moving[k] ? moving[k].rms.toFixed(2) : 'n/a'}`).join(', ')}`
+                                    );
+                                }
+                                const depthView = variant.includes('compose:depth');
+                                poseResult.images[variant] = {
+                                    vsSorted: reference && !depthView ? imageDiff(a, reference) : null,
+                                    vsTruth: !depthView ? imageDiff(a, truth) : null,
+                                    noiseFloor,
+                                    moving,
+                                    depthRoughness: depthView ? depthRoughness(a, target.width, target.height) : null
+                                };
+                                const v = poseResult.images[variant].vsSorted;
+                                const rough = poseResult.images[variant].depthRoughness;
+                                const vt = poseResult.images[variant].vsTruth;
+                                log(
+                                    `${mode} ${pose.name} ${variant}: ${depthView ? `depth roughness ${rough.toFixed(3)}` : `vs sorted ${v ? diffText(v) : 'n/a'}; vs truth rms ${vt.rms.toFixed(2)}`}${noiseFloor ? `; noise floor rms ${noiseFloor.rms.toFixed(2)}` : ''}`
+                                );
+                            }
+                        }
+                    }
+
+                    // three round-robin rounds so drift affects every variant equally
+                    const runs = new Map();
+                    for (let round = 0; round < rounds; round++) {
+                        for (const variant of modeVariants) {
+                            if (renderer) renderer.setVariant(variant);
+                            const run = await measure(app, profiler, variant, pose.snapshot);
+                            if (!runs.has(variant)) runs.set(variant, []);
+                            runs.get(variant).push(run);
+                        }
+                    }
+                    for (const [variant, list] of runs) {
+                        // survivors and culled count of a fresh frame in this variant
+                        let stats = null;
+                        if (renderer) {
+                            renderer.setVariant(variant);
+                            await pump(app, 3);
+                            stats = await renderer.readStats();
+                        }
+                        const passes = {};
+                        for (const name of Object.keys(list[0].passes)) {
+                            passes[name] = median(list.map((r) => r.passes[name] ?? 0));
+                        }
+                        poseResult.variants[variant] = {
+                            median: median(list.map((r) => r.median)),
+                            min: Math.min(...list.map((r) => r.min)),
+                            samples: list.reduce((s, r) => s + r.samples, 0),
+                            passes,
+                            survivors: stats?.survivors ?? null,
+                            occluded: stats?.occluded ?? null
+                        };
+                        const passText = Object.entries(passes)
+                            .filter(([, ms]) => ms >= 0.01)
+                            .map(([name, ms]) => `${name} ${ms.toFixed(3)}`)
+                            .join(', ');
+                        const counts = stats ? ` survivors ${stats.survivors}, occluded ${stats.occluded};` : '';
+                        log(
+                            `${mode} ${pose.name} ${variant}: ${poseResult.variants[variant].median.toFixed(3)} / ${poseResult.variants[variant].min.toFixed(3)} ms (${poseResult.variants[variant].samples} samples)${counts} [${passText}]`
+                        );
+                    }
+                    await nextFrame(app);
+
+                    const vram = app.stats.vram;
+                    poseResult.memory = {
+                        vramTotal: vram.tex + vram.vb + vram.ib + vram.sb + vram.ub,
+                        vramTex: vram.tex,
+                        vramSb: vram.sb,
+                        rendererBytes: renderer ? renderer.gpuBytes : null,
+                        survivors: renderer ? (await renderer.readStats()).survivors : app.stats.frame.gsplats
+                    };
+                }
+
+                profiler.detach();
+                viewer.destroy();
+            }
+
+            // summary table
+            const tables = document.getElementById('tables');
+            const table = document.createElement('table');
+            const header = document.createElement('tr');
+            [
+                'pose',
+                'mode',
+                'variant',
+                'median ms',
+                'min ms',
+                'survivors',
+                'occluded',
+                'vram MB',
+                'renderer MB',
+                'vs sorted rms',
+                'vs truth rms',
+                'noise rms',
+                'moving rms'
+            ].forEach((h) => {
+                const th = document.createElement('th');
+                th.textContent = h;
+                header.appendChild(th);
+            });
+            table.appendChild(header);
+            for (const [mode, modeResult] of Object.entries(results.modes)) {
+                for (const pose of modeResult.poses) {
+                    for (const [variant, run] of Object.entries(pose.variants)) {
+                        const row = document.createElement('tr');
+                        const cells = [
+                            pose.name,
+                            mode,
+                            variant,
+                            run.median.toFixed(3),
+                            run.min.toFixed(3),
+                            String(run.survivors ?? pose.memory?.survivors ?? ''),
+                            run.occluded != null ? String(run.occluded) : '',
+                            ((pose.memory?.vramTotal ?? 0) / 1048576).toFixed(1),
+                            pose.memory?.rendererBytes != null ? (pose.memory.rendererBytes / 1048576).toFixed(1) : '',
+                            pose.images?.[variant]?.vsSorted ? pose.images[variant].vsSorted.rms.toFixed(2) : '',
+                            pose.images?.[variant]?.vsTruth ? pose.images[variant].vsTruth.rms.toFixed(2) : '',
+                            pose.images?.[variant]?.noiseFloor ? pose.images[variant].noiseFloor.rms.toFixed(2) : '',
+                            pose.images?.[variant]?.moving
+                                ? Object.values(pose.images[variant].moving)
+                                      .map((m) => (m ? m.rms.toFixed(2) : 'n/a'))
+                                      .join(' / ')
+                                : ''
+                        ];
+                        cells.forEach((c) => {
+                            const td = document.createElement('td');
+                            td.textContent = c;
+                            row.appendChild(td);
+                        });
+                        table.appendChild(row);
+                    }
+                }
+            }
+            tables.appendChild(table);
+            window.benchResults = results;
+            const download = document.getElementById('download');
+            download.disabled = false;
+            download.onclick = () => {
+                const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `bench-${contentUrl.split('/').pop()}-${Date.now()}.json`;
+                a.click();
+            };
+            log('done');
+        </script>
+    </body>
+</html>

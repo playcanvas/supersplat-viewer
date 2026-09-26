@@ -4,3 +4,6 @@ public
 .DS_Store
 .npmrc
 .cursor
+docs/bench
+docs/pick-depth.md
+docs/stochastic-renderer.md

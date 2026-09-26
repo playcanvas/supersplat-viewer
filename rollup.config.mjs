@@ -17,6 +17,7 @@ function htmlPlugin() {
             this.addWatchFile('src/index.html');
             this.addWatchFile('src/dev/mount-loop.html');
             this.addWatchFile('src/dev/custom-ui.html');
+            this.addWatchFile('src/dev/bench.html');
         },
         generateBundle() {
             const contents = readFileSync('src/index.html', 'utf-8');
@@ -45,6 +46,13 @@ function htmlPlugin() {
                 type: 'asset',
                 fileName: 'custom-ui.html',
                 source: readFileSync('src/dev/custom-ui.html', 'utf-8')
+            });
+
+            // Development page that measures the splat renderers (docs/stochastic-renderer.md).
+            this.emitFile({
+                type: 'asset',
+                fileName: 'bench.html',
+                source: readFileSync('src/dev/bench.html', 'utf-8')
             });
         }
     };

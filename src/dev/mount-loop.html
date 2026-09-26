@@ -96,7 +96,7 @@
             Browser mode supplies fullscreen/XR host controls and delayed-request teardown checks.
             XR callback simulations check cancellation without claiming to test a native session.
 
-            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser|input  ?instances=2  ?webgl  ?content=  ?settings=
+            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser|input  ?instances=2  ?webgl  ?stochastic  ?content=  ?settings=
         -->
         <div id="hosts"></div>
         <pre id="harness"></pre>
@@ -201,6 +201,10 @@
             const createOptions = () => ({
                 contentUrl,
                 renderer,
+                // the opt-in stochastic renderer: its own passes, buffers and textures must go
+                // with the viewer
+                stochastic: url.searchParams.has('stochastic'),
+                splatSource: url.searchParams.get('splatSource') ?? undefined,
                 exposeGlobals: false,
                 collisionUrl: url.searchParams.get('collision') ?? undefined,
                 ui: !url.searchParams.has('noui')
@@ -1128,17 +1132,30 @@
                             mode === 'loaded' && url.searchParams.has('overlay')
                                 ? await enableVoxelOverlay(viewer)
                                 : null;
+                        // the stochastic renderer's own textures, named sse-splat-*; every one
+                        // must be destroyed (device nulled) by the viewer's destroy
+                        const splatTextures = url.searchParams.has('stochastic')
+                            ? [...handles.device.textures].filter((t) => t.name.startsWith('sse-splat-'))
+                            : null;
                         viewer.destroy();
                         const removed = host.childElementCount === 0;
 
                         const freed = await released(handles);
                         const captured = capture ? await Promise.race([capture, timeout(2000, 'hung')]) : 'n/a';
                         const overlayFreed = overlayReleased ? overlayReleased() : true;
+                        const splatFreed = splatTextures
+                            ? splatTextures.length > 0 && splatTextures.every((t) => t.device === null)
+                            : true;
                         const ok =
-                            freed && removed && overlayFreed && captured !== 'hung' && (mode !== 'loaded' || loaded);
+                            freed &&
+                            removed &&
+                            overlayFreed &&
+                            splatFreed &&
+                            captured !== 'hung' &&
+                            (mode !== 'loaded' || loaded);
                         if (!ok) failures++;
                         log(
-                            `#${i} ${handles.device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed} removed=${removed} capture=${captured} overlay=${overlayReleased ? overlayFreed : 'n/a'}`,
+                            `#${i} ${handles.device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed} removed=${removed} capture=${captured} overlay=${overlayReleased ? overlayFreed : 'n/a'} splat=${splatTextures ? `${splatFreed} (${splatTextures.length})` : 'n/a'}`,
                             !ok
                         );
                     } catch (err) {

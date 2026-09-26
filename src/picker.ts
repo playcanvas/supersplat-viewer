@@ -26,7 +26,15 @@ import {
     Vec4,
     BlendState
 } from 'playcanvas';
-import type { AppBase, CameraComponent, Entity, GSplatComponent, Layer, MeshInstance } from 'playcanvas';
+import type {
+    AppBase,
+    CameraComponent,
+    Entity,
+    GraphicsDevice,
+    GSplatComponent,
+    Layer,
+    MeshInstance
+} from 'playcanvas';
 
 // Override global picking to output stochastic splat depth instead of meshInstance id.
 const pickDepthGlsl = /* glsl */ `
@@ -658,6 +666,172 @@ const fitPlaneNormal = (points: Vec3[], toCamera: Vec3, outNormal: Vec3): boolea
     return true;
 };
 
+// A pixel's nearest surviving normalised depth in one of its trials, 1 where nothing survived,
+// or null outside the block that was read
+type DepthAt = (x: number, y: number, trial: number) => number | null;
+
+// The surface at a pixel: the SURFACE_OPACITY quantile of the nearest survivors over a small
+// disc, which is the depth where the opacity in front reaches that. Null where it never does.
+const surfaceDepth = (depthAt: DepthAt, x: number, y: number) => {
+    const samples: number[] = [];
+    for (let dy = -SURFACE_RADIUS_PX; dy <= SURFACE_RADIUS_PX; dy++) {
+        for (let dx = -SURFACE_RADIUS_PX; dx <= SURFACE_RADIUS_PX; dx++) {
+            if (dx * dx + dy * dy > SURFACE_RADIUS_PX * SURFACE_RADIUS_PX) continue;
+            for (let trial = 0; trial < PICK_TRIALS; trial++) {
+                const depth = depthAt(x + dx, y + dy, trial);
+                if (depth !== null) samples.push(depth);
+            }
+        }
+    }
+    if (samples.length === 0) {
+        return null;
+    }
+    samples.sort((a, b) => a - b);
+    const depth = samples[Math.max(0, Math.ceil(samples.length * SURFACE_OPACITY) - 1)];
+    return Number.isFinite(depth) && depth < 1 ? depth : null;
+};
+
+// The surface under a pixel and its normal, fitted through surface points on rings around it.
+// `depthAt` must cover NORMAL_SAMPLE_MAX_PX + SURFACE_RADIUS_PX around the pixel.
+const estimateSurface = (
+    depthAt: DepthAt,
+    pickCamera: PickCameraSnapshot,
+    width: number,
+    height: number,
+    screenX: number,
+    screenY: number
+): PickSurface | null => {
+    const surfacePoint = (px: number, py: number) => {
+        const depth = surfaceDepth(depthAt, px, py);
+        return depth === null ? null : getWorldPoint(pickCamera, px, py, width, height, depth);
+    };
+
+    const position = surfacePoint(screenX, screenY);
+    if (!position) {
+        return null;
+    }
+
+    const samplePixel = (px: number, py: number) => {
+        if (px < 0 || px >= width || py < 0 || py >= height) {
+            return null;
+        }
+        return surfacePoint(px, py);
+    };
+
+    // Pixel radius corresponding to a fixed world radius at the
+    // picked-point's depth. Clamped so distant picks still sample
+    // enough pixels and very-close picks stay inside the block read.
+    const pixelRadius = Math.max(
+        NORMAL_SAMPLE_MIN_PX,
+        Math.min(
+            NORMAL_SAMPLE_MAX_PX,
+            worldRadiusToPixelRadius(pickCamera, position, height, NORMAL_SAMPLE_WORLD_RADIUS)
+        )
+    );
+    const ringPixelRadii = NORMAL_RING_FRACTIONS.map((f) => Math.max(1, Math.round(f * pixelRadius)));
+    const sampleRings = ringPixelRadii.map((radius) => {
+        return NORMAL_SAMPLE_DIRECTIONS.map(([dx, dy]) => {
+            return samplePixel(screenX + dx * radius, screenY + dy * radius);
+        });
+    });
+
+    const toCamera = setCameraFacingNormal(pickCamera.position, position, new Vec3());
+
+    // Collect every valid 3D sample: the picked position plus all ring
+    // samples that didn't fall off-screen or find no surface.
+    const fitPoints: Vec3[] = [position];
+    for (let i = 0; i < sampleRings.length; i++) {
+        const ring = sampleRings[i];
+        for (let j = 0; j < ring.length; j++) {
+            const pt = ring[j];
+            if (pt) fitPoints.push(pt);
+        }
+    }
+
+    const normal = new Vec3();
+    if (!fitPlaneNormal(fitPoints, toCamera, normal)) {
+        normal.copy(toCamera);
+    }
+
+    return {
+        position,
+        normal
+    };
+};
+
+// The share of samples over a disc of `r` pixels whose nearest survivor is nearer than the view
+// depth `depth`; null where the disc has no samples. `depthAt` must cover the disc.
+const opacityInFront = (
+    depthAt: DepthAt,
+    pickCamera: PickCameraSnapshot,
+    screenX: number,
+    screenY: number,
+    r: number,
+    depth: number
+) => {
+    const threshold = (depth - pickCamera.nearClip) / (pickCamera.farClip - pickCamera.nearClip);
+
+    let total = 0;
+    let inFront = 0;
+    for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+            if (dx * dx + dy * dy > r * r) continue;
+            for (let trial = 0; trial < PICK_TRIALS; trial++) {
+                const nearest = depthAt(screenX + dx, screenY + dy, trial);
+                if (nearest === null) continue;
+                total++;
+                if (nearest < threshold) inFront++;
+            }
+        }
+    }
+    return total > 0 ? inFront / total : null;
+};
+
+// One pick pixel per css pixel, never more than the backbuffer has: picking then behaves the
+// same in performance mode and at any device pixel ratio, since the pixel sizes above are css
+// pixels, and a high-density display does not multiply the pass's cost. Null before the device
+// or the canvas has been sized.
+const pickTargetSize = (graphicsDevice: GraphicsDevice) => {
+    const canvas = graphicsDevice.canvas as HTMLCanvasElement;
+    const width = Math.min(Math.floor(graphicsDevice.width), Math.round(canvas.clientWidth));
+    const height = Math.min(Math.floor(graphicsDevice.height), Math.round(canvas.clientHeight));
+    return width > 0 && height > 0 ? { width, height } : null;
+};
+
+const clampPixel = (v: number, size: number) => Math.min(size - 1, Math.max(0, Math.floor(v * size)));
+
+// Picks run one at a time, since they share one render. `fallback` is the result for a pick
+// that release overtakes: one queued behind another pick, or one whose read-back is cut short
+// as the device goes.
+class PickQueue {
+    released = false;
+
+    private queue = Promise.resolve();
+
+    run<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
+        const guarded = (): Promise<T> => {
+            if (this.released) {
+                return Promise.resolve(fallback);
+            }
+            return operation().catch((error: unknown) => {
+                if (this.released) {
+                    return fallback;
+                }
+                throw error;
+            });
+        };
+        const result = this.queue.then(guarded, guarded);
+        this.queue = result.then(
+            (): void => undefined,
+            (): void => undefined
+        );
+        return result;
+    }
+}
+
+/** What the viewer's picking consumers use, implemented by the pass picker here and by the stochastic renderer's frame-depth picker. */
+type ScenePicker = Pick<Picker, 'pick' | 'pickSurface' | 'pickVisibility' | 'renderView' | 'release'>;
+
 class Picker {
     pick: (x: number, y: number) => Promise<Vec3 | null>;
 
@@ -695,10 +869,7 @@ class Picker {
         let pickTarget: RenderTarget;
         let pickPass: RenderPassPicker;
         let chunksPatched = false;
-        // set by release: queued and in-flight picks then resolve to nothing, rather than render
-        // with released resources or reach an app that is being destroyed
-        let released = false;
-        let pickQueue = Promise.resolve();
+        const queue = new PickQueue();
         let cacheValid = false;
         let renders = 0;
         let cacheWidth = 0;
@@ -768,9 +939,13 @@ class Picker {
         };
 
         // Read the pick render around a pixel, `margin` pixels each way, clamped to the render.
-        // The accessor returns a pixel's nearest surviving normalised depth in one of its
-        // PICK_TRIALS trials, 1 where no fragment survived, or null outside the block.
-        const readAround = async (screenX: number, screenY: number, margin: number, width: number, height: number) => {
+        const readAround = async (
+            screenX: number,
+            screenY: number,
+            margin: number,
+            width: number,
+            height: number
+        ): Promise<DepthAt> => {
             const blockX = Math.max(0, screenX - margin);
             const blockY = Math.max(0, screenY - margin);
             const blockWidth = Math.min(width - 1, screenX + margin) - blockX + 1;
@@ -792,32 +967,6 @@ class Picker {
                 const row = graphicsDevice.isWebGL2 ? blockHeight - localY - 1 : localY;
                 return half2Float(pixels[(row * blockWidth + localX) * 4 + trial]);
             };
-        };
-
-        // The surface at a pixel: the SURFACE_OPACITY quantile of the nearest survivors over a
-        // small disc, which is the depth where the opacity in front reaches that. Null where it
-        // never does.
-        const surfaceDepth = (
-            depthAt: (x: number, y: number, trial: number) => number | null,
-            x: number,
-            y: number
-        ) => {
-            const samples: number[] = [];
-            for (let dy = -SURFACE_RADIUS_PX; dy <= SURFACE_RADIUS_PX; dy++) {
-                for (let dx = -SURFACE_RADIUS_PX; dx <= SURFACE_RADIUS_PX; dx++) {
-                    if (dx * dx + dy * dy > SURFACE_RADIUS_PX * SURFACE_RADIUS_PX) continue;
-                    for (let trial = 0; trial < PICK_TRIALS; trial++) {
-                        const depth = depthAt(x + dx, y + dy, trial);
-                        if (depth !== null) samples.push(depth);
-                    }
-                }
-            }
-            if (samples.length === 0) {
-                return null;
-            }
-            samples.sort((a, b) => a - b);
-            const depth = samples[Math.max(0, Math.ceil(samples.length * SURFACE_OPACITY) - 1)];
-            return Number.isFinite(depth) && depth < 1 ? depth : null;
         };
 
         const ensureRendered = (width: number, height: number, worldLayer: Layer) => {
@@ -856,58 +1005,28 @@ class Picker {
         };
 
         const prepareSample = (x: number, y: number) => {
-            if (released) {
+            if (queue.released) {
                 return null;
             }
 
-            // One pick pixel per css pixel, never more than the backbuffer has: picking then
-            // behaves the same in performance mode and at any device pixel ratio, since the
-            // pixel sizes above are css pixels, and a high-density display does not multiply
-            // the pass's cost
-            const canvas = graphicsDevice.canvas as HTMLCanvasElement;
-            const width = Math.min(Math.floor(graphicsDevice.width), Math.round(canvas.clientWidth));
-            const height = Math.min(Math.floor(graphicsDevice.height), Math.round(canvas.clientHeight));
-
-            // bail out if the device or the canvas hasn't been sized yet
-            if (width <= 0 || height <= 0) {
+            const size = pickTargetSize(graphicsDevice);
+            if (!size) {
                 return null;
             }
+            const { width, height } = size;
 
             const worldLayer = app.scene.layers.getLayerByName('World');
             if (!worldLayer) {
                 return null;
             }
 
-            const screenX = Math.min(width - 1, Math.max(0, Math.floor(x * width)));
-            const screenY = Math.min(height - 1, Math.max(0, Math.floor(y * height)));
+            const screenX = clampPixel(x, width);
+            const screenY = clampPixel(y, height);
 
             ensureRendered(width, height, worldLayer);
             const pickCamera = getCacheCameraSnapshot();
 
             return { width, height, screenX, screenY, pickCamera };
-        };
-
-        // `fallback` is the result for a pick that release overtakes: one queued behind another
-        // pick, or one whose read-back is cut short as the device goes
-        const serializePick = <T>(operation: () => Promise<T>, fallback: T): Promise<T> => {
-            const guarded = (): Promise<T> => {
-                if (released) {
-                    return Promise.resolve(fallback);
-                }
-                return operation().catch((error: unknown) => {
-                    if (released) {
-                        return fallback;
-                    }
-                    throw error;
-                });
-            };
-            // The render target is shared by all picks on this instance.
-            const result = pickQueue.then(guarded, guarded);
-            pickQueue = result.then(
-                (): void => undefined,
-                (): void => undefined
-            );
-            return result;
         };
 
         const pick = async (x: number, y: number) => {
@@ -933,62 +1052,7 @@ class Picker {
             // Sized to the maximum possible ring pixel-radius, plus the surface disc around each
             // sample, so the dynamic ring offsets always lie inside the buffer we read.
             const depthAt = await readAround(screenX, screenY, NORMAL_SAMPLE_MAX_PX + SURFACE_RADIUS_PX, width, height);
-            const surfacePoint = (px: number, py: number) => {
-                const depth = surfaceDepth(depthAt, px, py);
-                return depth === null ? null : getWorldPoint(pickCamera, px, py, width, height, depth);
-            };
-
-            const position = surfacePoint(screenX, screenY);
-            if (!position) {
-                return null;
-            }
-
-            const samplePixel = (px: number, py: number) => {
-                if (px < 0 || px >= width || py < 0 || py >= height) {
-                    return null;
-                }
-                return surfacePoint(px, py);
-            };
-
-            // Pixel radius corresponding to a fixed world radius at the
-            // picked-point's depth. Clamped so distant picks still sample
-            // enough pixels and very-close picks stay inside the block read.
-            const pixelRadius = Math.max(
-                NORMAL_SAMPLE_MIN_PX,
-                Math.min(
-                    NORMAL_SAMPLE_MAX_PX,
-                    worldRadiusToPixelRadius(pickCamera, position, height, NORMAL_SAMPLE_WORLD_RADIUS)
-                )
-            );
-            const ringPixelRadii = NORMAL_RING_FRACTIONS.map((f) => Math.max(1, Math.round(f * pixelRadius)));
-            const sampleRings = ringPixelRadii.map((radius) => {
-                return NORMAL_SAMPLE_DIRECTIONS.map(([dx, dy]) => {
-                    return samplePixel(screenX + dx * radius, screenY + dy * radius);
-                });
-            });
-
-            const toCamera = setCameraFacingNormal(pickCamera.position, position, new Vec3());
-
-            // Collect every valid 3D sample: the picked position plus all ring
-            // samples that didn't fall off-screen or find no surface.
-            const fitPoints: Vec3[] = [position];
-            for (let i = 0; i < sampleRings.length; i++) {
-                const ring = sampleRings[i];
-                for (let j = 0; j < ring.length; j++) {
-                    const pt = ring[j];
-                    if (pt) fitPoints.push(pt);
-                }
-            }
-
-            const normal = new Vec3();
-            if (!fitPlaneNormal(fitPoints, toCamera, normal)) {
-                normal.copy(toCamera);
-            }
-
-            return {
-                position,
-                normal
-            };
+            return estimateSurface(depthAt, pickCamera, width, height, screenX, screenY);
         };
 
         const pickVisibility = async (points: readonly { x: number; y: number; depth: number }[], radius: number) => {
@@ -1007,32 +1071,17 @@ class Picker {
 
                     const r = Math.max(1, Math.round(radius * height));
                     const depthAt = await readAround(screenX, screenY, r, width, height);
-                    const threshold = (depth - pickCamera.nearClip) / (pickCamera.farClip - pickCamera.nearClip);
-
-                    let total = 0;
-                    let inFront = 0;
-                    for (let dy = -r; dy <= r; dy++) {
-                        for (let dx = -r; dx <= r; dx++) {
-                            if (dx * dx + dy * dy > r * r) continue;
-                            for (let trial = 0; trial < PICK_TRIALS; trial++) {
-                                const nearest = depthAt(screenX + dx, screenY + dy, trial);
-                                if (nearest === null) continue;
-                                total++;
-                                if (nearest < threshold) inFront++;
-                            }
-                        }
-                    }
-                    return total > 0 ? inFront / total : null;
+                    return opacityInFront(depthAt, pickCamera, screenX, screenY, r, depth);
                 })
             );
         };
 
-        this.pick = (x: number, y: number) => serializePick(() => pick(x, y), null);
+        this.pick = (x: number, y: number) => queue.run(() => pick(x, y), null);
 
-        this.pickSurface = (x: number, y: number) => serializePick(() => pickSurface(x, y), null);
+        this.pickSurface = (x: number, y: number) => queue.run(() => pickSurface(x, y), null);
 
         this.pickVisibility = (points, radius) =>
-            serializePick(
+            queue.run(
                 () => pickVisibility(points, radius),
                 points.map((): null => null)
             );
@@ -1056,7 +1105,7 @@ class Picker {
         gsplatSystem.on('frame:ready', onFrameReady);
 
         this.release = () => {
-            released = true;
+            queue.released = true;
             gsplatSystem.off('frame:ready', onFrameReady);
             if (chunksPatched) {
                 unregisterPickerShaderPatches(app);
@@ -1070,5 +1119,21 @@ class Picker {
     }
 }
 
-export type { PickSurface, PickCameraSnapshot };
-export { Picker, getWorldPoint, captureCameraSnapshot, PICK_TRIALS, SURFACE_RADIUS_PX, SURFACE_OPACITY };
+export type { DepthAt, PickSurface, PickCameraSnapshot, ScenePicker };
+export {
+    Picker,
+    PickQueue,
+    captureCameraSnapshot,
+    clampPixel,
+    createPickCameraSnapshot,
+    estimateSurface,
+    getWorldPoint,
+    half2Float,
+    opacityInFront,
+    pickTargetSize,
+    surfaceDepth,
+    NORMAL_SAMPLE_MAX_PX,
+    PICK_TRIALS,
+    SURFACE_RADIUS_PX,
+    SURFACE_OPACITY
+};

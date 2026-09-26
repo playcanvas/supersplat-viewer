@@ -21,39 +21,42 @@ The app supports a number of URL parameters (these are subject to change):
 
 ### Content
 
-| Parameter | Description | Default |
-| --------- | ----------- | ------- |
-| `settings` | URL of the `settings.json` file | `./settings.json` |
-| `content` | URL of the scene file (`.ply`, `.sog`, `.compressed.ply`, `.meta.json`, `.lod-meta.json`) | `./scene.compressed.ply` |
-| `skybox` | URL of an equirectangular skybox image | |
-| `poster` | URL of an image to show while loading | |
-| `collision` | URL of a collision asset (`.glb` mesh, or voxel data). `voxel` is accepted as an alias. | |
+| Parameter   | Description                                                                               | Default                  |
+| ----------- | ----------------------------------------------------------------------------------------- | ------------------------ |
+| `settings`  | URL of the `settings.json` file                                                           | `./settings.json`        |
+| `content`   | URL of the scene file (`.ply`, `.sog`, `.compressed.ply`, `.meta.json`, `.lod-meta.json`) | `./scene.compressed.ply` |
+| `skybox`    | URL of an equirectangular skybox image                                                    |                          |
+| `poster`    | URL of an image to show while loading                                                     |                          |
+| `collision` | URL of a collision asset (`.glb` mesh, or voxel data). `voxel` is accepted as an alias.   |                          |
 
 ### UI
 
-| Parameter | Description |
-| --------- | ----------- |
-| `noui` | Hide the UI overlay (the programmatic form is `ui: false`, which skips building it) |
-| `reticle` | Show the centre reticle in captured desktop fly/walk mode (off by default; programmatic form: `reticle: true`) |
-| `noanim` | Start with animation paused |
-| `ministats` | Show runtime CPU/GPU performance graphs |
-| `lang` | Override the UI language (`de`, `en`, `es`, `fr`, `ja`, `ko`, `pt-BR`, `ru`, `zh-CN`; default: detect from browser) |
+| Parameter   | Description                                                                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------------------------- |
+| `noui`      | Hide the UI overlay (the programmatic form is `ui: false`, which skips building it)                                 |
+| `reticle`   | Show the centre reticle in captured desktop fly/walk mode (off by default; programmatic form: `reticle: true`)      |
+| `noanim`    | Start with animation paused                                                                                         |
+| `ministats` | Show runtime CPU/GPU performance graphs                                                                             |
+| `lang`      | Override the UI language (`de`, `en`, `es`, `fr`, `ja`, `ko`, `pt-BR`, `ru`, `zh-CN`; default: detect from browser) |
 
 ### Renderer
 
 By default the viewer uses WebGPU when available (falling back automatically when not). The flag below forces the WebGL renderer (also required for WebXR / AR / VR):
 
-| Parameter | Description |
-| --------- | ----------- |
-| `webgl` | Force the WebGL renderer (required for AR/VR) |
-| `aa` | Enable antialiasing (WebGL only) |
-| `nofx` | Disable post effects |
-| `hpr` | Override `highPrecisionRendering` from settings (`?hpr`, `?hpr=1`, `?hpr=true`, `?hpr=enable` to enable) |
-| `budget` | Override the splat budget, in millions of splats |
-| `colorize` | Render with LOD colorization |
-| `fullload` | Load all streaming LOD data before the first frame |
-| `heatmap` | Use heatmap mode for the voxel collision debug overlay. Requires WebGPU and voxel collision data; press `V` or use **Show Collision** in the settings panel to show the overlay. |
-| `debug` | Open the developer debug panel on load (`Ctrl+Shift+D` to toggle) |
+| Parameter     | Description                                                                                                                                                                      |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `webgl`       | Force the WebGL renderer (required for AR/VR)                                                                                                                                    |
+| `aa`          | Enable antialiasing (WebGL only)                                                                                                                                                 |
+| `stochastic`  | Experimental: opt in to the stochastic splat renderer (unsorted, depth-tested splats). WebGPU only; the sorted renderer draws on WebGL and in XR.                                |
+| `splatSource` | Developer knob for the stochastic renderer: the data path feeding it (`workbuffer`, the default)                                                                                 |
+| `variant`     | Developer knob for the stochastic renderer: comma-separated `key:value` experiment switches, e.g. `spp:1,compose:none`                                                           |
+| `nofx`        | Disable post effects                                                                                                                                                             |
+| `hpr`         | Override `highPrecisionRendering` from settings (`?hpr`, `?hpr=1`, `?hpr=true`, `?hpr=enable` to enable)                                                                         |
+| `budget`      | Override the splat budget, in millions of splats                                                                                                                                 |
+| `colorize`    | Render with LOD colorization                                                                                                                                                     |
+| `fullload`    | Load all streaming LOD data before the first frame                                                                                                                               |
+| `heatmap`     | Use heatmap mode for the voxel collision debug overlay. Requires WebGPU and voxel collision data; press `V` or use **Show Collision** in the settings panel to show the overlay. |
+| `debug`       | Open the developer debug panel on load (`Ctrl+Shift+D` to toggle)                                                                                                                |
 
 ## NPM Package
 
@@ -65,22 +68,22 @@ To initialize a local development environment for SuperSplat Viewer, ensure you 
 
 1. Clone the repository:
 
-   ```sh
-   git clone https://github.com/playcanvas/supersplat-viewer.git
-   cd supersplat-viewer
-   ```
+    ```sh
+    git clone https://github.com/playcanvas/supersplat-viewer.git
+    cd supersplat-viewer
+    ```
 
 2. Install dependencies:
 
-   ```sh
-   npm install
-   ```
+    ```sh
+    npm install
+    ```
 
 3. Start the development build and local web server:
 
-   ```sh
-   npm run develop
-   ```
+    ```sh
+    npm run develop
+    ```
 
 4. Open your browser at http://localhost:3000.
 
