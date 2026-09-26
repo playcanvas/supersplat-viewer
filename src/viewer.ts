@@ -75,6 +75,18 @@ const rendererTable: Record<Config['renderer'], number> = {
     webgpu: GSPLAT_RENDERER_RASTER_GPU_SORT
 };
 
+// quality budget, millions of splats
+const budgets = {
+    mobile: {
+        low: 1,
+        high: 2
+    },
+    desktop: {
+        low: 2,
+        high: 4
+    }
+};
+
 type GSplatOctreeResourceLike = {
     octree?: {
         lodLevels: number;
@@ -294,7 +306,16 @@ class Viewer {
         // instance without the flag never constructs it, and the sorted path is untouched.
         if (config.stochastic && renderer === 'webgpu') {
             const worldLayer = app.scene.layers.getLayerByName('World');
-            if (worldLayer) {
+            // the largest budget this instance can ask for must fit the device's storage binding
+            const budget =
+                (config.budget && config.budget > 0
+                    ? config.budget
+                    : (platform.mobile ? budgets.mobile : budgets.desktop).high) * 1000000;
+            if (!StochasticSplatRenderer.cacheFits(app.graphicsDevice, budget)) {
+                console.warn(
+                    `stochastic renderer: a ${budget / 1000000}M splat budget exceeds this device's storage binding limit; the sorted renderer draws`
+                );
+            } else if (worldLayer) {
                 this.splatRenderer = new StochasticSplatRenderer(app, camera.camera, worldLayer, {
                     source: config.splatSource,
                     variant: config.variant
@@ -630,18 +651,6 @@ class Viewer {
             if (collisionReady) attachCollision(collisionReady);
 
             this.debugPanel = new DebugPanel(global, this.cameraManager, this.picker, this.splatRenderer);
-
-            // quality budget
-            const budgets = {
-                mobile: {
-                    low: 1,
-                    high: 2
-                },
-                desktop: {
-                    low: 2,
-                    high: 4
-                }
-            };
 
             const applyPerfSettings = () => {
                 const budget = () => {

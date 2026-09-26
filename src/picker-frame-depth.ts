@@ -207,7 +207,11 @@ class FrameDepthPicker implements ScenePicker {
             this.renders++;
         }
 
-        return { width, height, pickCamera: frame.camera };
+        // the renderer rewrites its snapshot every frame, and frames render while a pick awaits
+        // its readback: the pick unprojects with a copy of the camera its depth was drawn with
+        const pickCamera = createPickCameraSnapshot();
+        copyCameraSnapshot(frame.camera, pickCamera);
+        return { width, height, pickCamera };
     }
 
     // The frame to pick from: the last one rendered if the camera has not moved since, else

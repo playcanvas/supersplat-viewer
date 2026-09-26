@@ -351,6 +351,8 @@ class StochasticSplatRenderer {
 
     private prevView = new Mat4();
 
+    private prevProjection = new Mat4();
+
     private prevClipZ = [0, 0, 0, 0];
 
     private prevViewport = [0, 0];
@@ -393,6 +395,17 @@ class StochasticSplatRenderer {
     private cullStatsPending = false;
 
     /** Frames the test stays off after culling too little (cull:auto). */
+    /**
+     * Whether the projected cache for `splats` resident splats fits one storage binding on this
+     * device. The cache reserves 25% over the resident count; adapters differ in the limit
+     * (128 MiB is the WebGPU default), so a viewer checks before opting in.
+     */
+    static cacheFits(device: GraphicsDevice, splats: number) {
+        const limit = (device as { wgpu?: { limits?: { maxStorageBufferBindingSize?: number } } }).wgpu?.limits
+            ?.maxStorageBufferBindingSize;
+        return !limit || Math.ceil(splats * 1.25) * CACHE_WORDS * 4 <= limit;
+    }
+
     static CULL_SUSPEND_FRAMES = 60;
 
     /** The culled fraction below which cull:auto suspends the test. */
@@ -952,7 +965,7 @@ class StochasticSplatRenderer {
             const index = passes.indexOf(pass);
             if (index >= 0) passes.splice(index, 1);
         }
-        this.taaHistoryValid = false;
+        this.resetHistory();
         this.depthFrame = null;
         this.worldLayer.removeMeshInstances([this.composeInstance]);
         this.provider.setActive(false);
@@ -1010,7 +1023,7 @@ class StochasticSplatRenderer {
 
         // the moving-camera contribution cull: a raised threshold while the view changes, then
         // one more frame at the scene's threshold once it has stopped
-        const moved = this.viewMoved(view);
+        const moved = this.viewMoved(view, projection);
         const raised = moved && this.variant.contribution > 0;
         const minContribution = raised
             ? Math.max(gsplat.minContribution, this.variant.contribution)
@@ -1032,6 +1045,7 @@ class StochasticSplatRenderer {
                 this.taaWidth = width;
                 this.taaHeight = height;
                 this.taaHistoryValid = false;
+                this.restFrames = 0;
             }
             this.frameSeed = this.frameIndex++ >>> 0;
             if (moved || changed) this.restFrames = 0;
@@ -1039,7 +1053,9 @@ class StochasticSplatRenderer {
             if (this.restFrames < this.variant.taaMax + 2) this.frameWanted = true;
         } else {
             this.frameSeed = this.userSeed;
+            // a capture at another size does not accumulate; the next on-screen frame starts over
             this.taaHistoryValid = false;
+            this.restFrames = 0;
         }
         this.taaActive = taaOn;
 
@@ -1059,7 +1075,7 @@ class StochasticSplatRenderer {
         if (cullMode === 'auto' && !isQuery) {
             if (this.cullSuspendedFrames > 0) {
                 // a moving camera changes what is occluded, so the probe comes sooner
-                const moved = this.viewMoved(view);
+                const moved = this.viewMoved(view, projection);
                 this.cullSuspendedFrames = Math.max(0, this.cullSuspendedFrames - (moved ? 4 : 1));
                 wanted = false;
             } else if (!this.cullActive) {
@@ -1200,8 +1216,10 @@ class StochasticSplatRenderer {
                 isOrtho ? 1 : 0,
                 0
             ]);
+            // a changed resident set (detail streamed in) keeps the history but caps its weight,
+            // so the new content shows within taaMoveMax frames rather than 1 / taaMax a frame
             taa.setParameter('taaParams', [
-                moved ? this.variant.taaMoveMax : this.variant.taaMax,
+                moved || changed ? this.variant.taaMoveMax : this.variant.taaMax,
                 this.variant.taaTol,
                 this.taaHistoryValid ? 1 : 0,
                 moved ? 1 : 0
@@ -1282,6 +1300,7 @@ class StochasticSplatRenderer {
         };
         this.prevViewProjection.copy(this.viewProjection);
         this.prevView.copy(view);
+        this.prevProjection.copy(projection);
         this.prevClipZ = [-shaderProjection.data[10], shaderProjection.data[14], isOrtho ? 1 : 0, 0];
         this.prevViewport = [width, height];
         this.prevFocal = focal;
@@ -1295,11 +1314,13 @@ class StochasticSplatRenderer {
         this.setReady(true);
     }
 
-    // whether the view differs from the previous on-screen frame's beyond float noise (the
-    // camera controllers settle over many frames)
-    private viewMoved(view: Mat4) {
+    // whether the view or the projection differs from the previous on-screen frame's beyond
+    // float noise (the camera controllers settle over many frames; a fov animation moves the
+    // image without moving the camera)
+    private viewMoved(view: Mat4, projection: Mat4) {
         for (let i = 0; i < 16; i++) {
             if (Math.abs(view.data[i] - this.prevView.data[i]) > 1e-6) return true;
+            if (Math.abs(projection.data[i] - this.prevProjection.data[i]) > 1e-6) return true;
         }
         return false;
     }
