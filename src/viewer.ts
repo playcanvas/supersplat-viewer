@@ -624,7 +624,7 @@ class Viewer {
             // collision may already have landed while the splats were still streaming
             if (collisionReady) attachCollision(collisionReady);
 
-            this.debugPanel = new DebugPanel(global, this.cameraManager, this.picker);
+            this.debugPanel = new DebugPanel(global, this.cameraManager, this.picker, this.splatRenderer);
 
             // quality budget
             const budgets = {

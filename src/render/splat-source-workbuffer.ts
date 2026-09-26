@@ -4,7 +4,7 @@
 // from the engine and is the functional baseline for the others.
 import type { Compute } from 'playcanvas';
 
-import type { EngineManager, EngineWorkBuffer, ResidentSet } from './resident-set';
+import type { EngineManager, EngineWorkBuffer, ResidentNode, ResidentSet } from './resident-set';
 import type { DispatchGroup, SplatSource } from './splat-source';
 
 class WorkBufferSplatSource implements SplatSource {
@@ -19,12 +19,33 @@ class WorkBufferSplatSource implements SplatSource {
     readChunk(bindingBase: number) {
         const format = this.require().format;
         // the engine's declarations bind one texture per stream from bindingBase and define
-        // loadDataX(); its read code decodes them into getCenter() and friends
-        return `${format.getComputeInputDeclarations(bindingBase)}\n${format.getReadCode()}`;
+        // loadDataX(); its read code decodes them into getCenter() and friends, already in
+        // world space with the sh colour baked for this camera
+        return /* wgsl */ `
+${format.getComputeInputDeclarations(bindingBase)}
+${format.getReadCode()}
+fn srcCenter() -> vec3f { return getCenter(); }
+fn srcOpacity() -> f32 { return getOpacity(); }
+fn srcRotation() -> vec4f { return getRotation(); }
+fn srcScale() -> vec3f { return getScale(); }
+fn srcColor() -> vec3f { return getColor(); }
+`;
     }
 
     bindFormats() {
         return this.require().format.getComputeBindFormats();
+    }
+
+    shaderIncludes(): Map<string, string> | undefined {
+        return undefined;
+    }
+
+    shaderDefines(): Map<string, string> | undefined {
+        return undefined;
+    }
+
+    chunkBase(node: ResidentNode) {
+        return node.slotBase;
     }
 
     dispatchPlan(set: ResidentSet, numChunks: number): DispatchGroup[] {

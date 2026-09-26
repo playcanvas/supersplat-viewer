@@ -4,7 +4,7 @@
 // swapped and profiled against each other.
 import type { Compute, GraphicsDevice } from 'playcanvas';
 
-import type { EngineManager, ResidentSet } from './resident-set';
+import type { EngineManager, ResidentNode, ResidentSet } from './resident-set';
 
 type SplatSourceKind = 'workbuffer' | 'direct' | 'light';
 
@@ -21,13 +21,22 @@ type SplatSource = {
 
     /**
      * Wgsl declaring this source's bindings from `bindingBase` upward and defining
-     * `getCenter()` (world space; call first), `getOpacity()`, `getColor()`, `getRotation()`
-     * (w, x, y, z) and `getScale()` for the splat set by `setSplat(index)`.
+     * `srcCenter()` (world space; call first), `srcOpacity()` (second), `srcRotation()`
+     * (w, x, y, z), `srcScale()` and `srcColor()` (last) for the splat set by `setSplat(index)`.
      */
     readChunk(bindingBase: number): string;
 
     /** The bind group entries matching {@link readChunk}, in binding order. */
     bindFormats(): unknown[];
+
+    /** Shader includes {@link readChunk} needs resolved, if any. */
+    shaderIncludes(): Map<string, string> | undefined;
+
+    /** Preprocessor defines {@link readChunk} needs, if any. */
+    shaderDefines(): Map<string, string> | undefined;
+
+    /** The index `setSplat` receives for a node's first splat: its work-buffer slot or its index in its file. */
+    chunkBase(node: ResidentNode): number;
 
     /** Called once per world-state version, before the frame's dispatch. */
     update(set: ResidentSet, manager: EngineManager): void;

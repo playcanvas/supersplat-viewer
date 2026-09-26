@@ -10,16 +10,30 @@ import { Vec3 } from 'playcanvas';
 import type { AppBase, BoundingBox, CameraComponent, EventHandle, Layer, Mat4, Texture } from 'playcanvas';
 
 type EngineFormat = {
+    hash: number;
     getComputeInputDeclarations(startBinding: number): string;
     getReadCode(): string;
     getComputeBindFormats(): unknown[];
-    streams: { name: string }[];
+    streams: { name: string; format: number }[];
 };
 
 type EngineWorkBuffer = {
     format: EngineFormat;
     textureSize: number;
     getTexture(name: string): Texture;
+    // the copy passes: every changed node, and the colour-only sh refresh
+    render: (...args: unknown[]) => void;
+    renderColor: (...args: unknown[]) => void;
+};
+
+// a loaded splat file (sog, ply or compressed ply): its textures, format and decode constants
+type EngineResource = {
+    numSplats: number;
+    format: EngineFormat;
+    streams: { textures: Map<string, Texture> };
+    textureDimensions: { x: number; y: number };
+    parameters: Map<string, unknown>;
+    configureMaterialDefines(defines: Map<string, string>): void;
 };
 
 type EngineOctreeNode = {
@@ -27,7 +41,7 @@ type EngineOctreeNode = {
 };
 
 type EngineSplatInfo = {
-    resource: { numSplats: number };
+    resource: EngineResource;
     node: { getWorldTransform(): Mat4 };
     lodIndex: number;
     activeSplats: number;
@@ -71,6 +85,8 @@ type EngineDirector = {
 type ResidentNode = {
     /** Index into {@link ResidentSet.files}. */
     fileIndex: number;
+    /** Index into {@link ResidentSet.nodes} and the visibility bitmask. */
+    nodeIndex: number;
     lodIndex: number;
     /** First splat of the range in the file's own textures. */
     sourceBase: number;
@@ -85,6 +101,7 @@ type ResidentFile = {
     lodIndex: number;
     nodes: ResidentNode[];
     modelMatrix: Mat4;
+    resource: EngineResource;
 };
 
 type ResidentSet = {
@@ -255,13 +272,20 @@ const buildResidentSet = (state: EngineWorldState): ResidentSet => {
         const modelMatrix = info.node.getWorldTransform().clone();
         const scale = modelMatrix.getScale(tmpVec2);
         const maxScale = Math.max(Math.abs(scale.x), Math.abs(scale.y), Math.abs(scale.z));
-        const file: ResidentFile = { fileIndex, lodIndex: info.lodIndex, nodes: [], modelMatrix };
+        const file: ResidentFile = {
+            fileIndex,
+            lodIndex: info.lodIndex,
+            nodes: [],
+            modelMatrix,
+            resource: info.resource
+        };
         const numIntervals = info.intervals.length / 2;
 
         if (numIntervals === 0) {
             // a single-file resource: one range covering it whole, bounded by its aabb
             const node: ResidentNode = {
                 fileIndex,
+                nodeIndex: nodes.length,
                 lodIndex: info.lodIndex,
                 sourceBase: 0,
                 count: info.activeSplats,
@@ -279,6 +303,7 @@ const buildResidentSet = (state: EngineWorldState): ResidentSet => {
                 const nodeIndex = info.intervalNodeIndices[j];
                 const node: ResidentNode = {
                     fileIndex,
+                    nodeIndex: nodes.length,
                     lodIndex: info.lodIndex,
                     sourceBase: start,
                     count: end - start,
@@ -313,4 +338,4 @@ const buildResidentSet = (state: EngineWorldState): ResidentSet => {
 };
 
 export { EngineResidentSetProvider };
-export type { EngineManager, EngineWorkBuffer, ResidentFile, ResidentNode, ResidentSet };
+export type { EngineManager, EngineResource, EngineWorkBuffer, ResidentFile, ResidentNode, ResidentSet };

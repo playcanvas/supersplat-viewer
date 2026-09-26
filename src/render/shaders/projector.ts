@@ -44,7 +44,14 @@ struct ProjectorUniforms {
     prevFlip: f32,
     // the order key: bucket = (log(depth) - keyLogNear) * keyInvLogRange, over [0, 1)
     keyLogNear: f32,
-    keyInvLogRange: f32
+    keyInvLogRange: f32,
+    // first chunk-table entry of this dispatch (per-file sources dispatch one run each)
+    chunkBase: u32,
+    // the file's model transform, for sources that read splats in the file's own space
+    model: mat4x4f,
+    modelRotation: vec4f,
+    modelScale: vec4f,
+    cameraPosition: vec4f
 }
 
 // chunk table entry: slotBase, count, node, lod | file << 16
@@ -114,14 +121,14 @@ fn farthestL2(block: vec2i, gather: i32, blocks: vec2i) -> u32 {
     return farthest;
 }
 
-fn project(slot: u32) -> Projected {
+fn project(slot: u32, file: u32) -> Projected {
     var result: Projected;
     result.valid = false;
     result.occluded = false;
 
     setSplat(slot);
-    let center = getCenter();
-    let opacity = getOpacity();
+    let center = srcCenter();
+    let opacity = srcOpacity();
     if (opacity < uniforms.alphaClip) {
         return result;
     }
@@ -140,8 +147,8 @@ fn project(slot: u32) -> Projected {
     let focal = uniforms.focal;
 
     // the work buffer holds world-space splats, so the view matrix is the model-view
-    let rot = getRotation();
-    let scale = getScale();
+    let rot = srcRotation();
+    let scale = srcScale();
     let linear = mat3x3f(uniforms.view[0].xyz, uniforms.view[1].xyz, uniforms.view[2].xyz);
     let gaussian = linear * rotationMatrix(vec4f(rot.yzw, rot.x)) * mat3x3f(
         vec3f(scale.x, 0.0, 0.0),
@@ -287,7 +294,7 @@ ${
 `
         : ''
 }
-    let color = max(getColor(), vec3f(0.0));
+    let color = max(srcColor(), vec3f(0.0));
 
     // rgb: 10/10/10 unorm with a 2-bit shared exponent (scale 1/2/4/8, range [0, 8])
     let maxChannel = max(color.r, max(color.g, color.b));
@@ -322,8 +329,9 @@ ${
     result.words[4] = rgb.r | (rgb.g << 10u) | (rgb.b << 20u) | (exponent << 30u);
     // popless depth gradient (plan M5); flat until then
     result.words[5] = 0u;
-    // the stable id: the work-buffer slot, which the coverage hash seeds from
-    result.words[6] = slot;
+    // the stable id the coverage hash seeds from: the slot, salted by the file for sources
+    // whose indices restart per file
+    result.words[6] = slot ^ (file * 2654435761u);
     return result;
 }
 
@@ -345,10 +353,10 @@ ${order ? `    atomicStore(&wgBuckets[local], 0u);` : ''}
     projected.valid = false;
     projected.occluded = false;
     if (chunkIndex < uniforms.numChunks) {
-        let chunk = chunks[chunkIndex];
+        let chunk = chunks[uniforms.chunkBase + chunkIndex];
         let visible = (nodeVisible[chunk.z >> 5u] >> (chunk.z & 31u)) & 1u;
         if (visible != 0u && local < chunk.y) {
-            projected = project(chunk.x + local);
+            projected = project(chunk.x + local, chunk.w >> 16u);
         }
     }
 

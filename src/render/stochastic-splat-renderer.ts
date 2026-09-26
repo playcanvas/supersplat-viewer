@@ -64,7 +64,8 @@ import { orderScanWGSL, orderScatterWGSL } from './shaders/order';
 import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, projectorWGSL } from './shaders/projector';
 import { QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
-import type { SplatSource, SplatSourceKind } from './splat-source';
+import type { DispatchGroup, SplatSource, SplatSourceKind } from './splat-source';
+import { DirectSplatSource } from './splat-source-direct';
 import { WorkBufferSplatSource } from './splat-source-workbuffer';
 
 /** Experiment switches, all flippable at runtime; `?variant=key:value,key:value` seeds them. */
@@ -214,9 +215,13 @@ class StochasticSplatRenderer {
     private counter: StorageBuffer;
 
     // compute
-    // one projector per source shader and occlusion specialisation: the test's code costs a
-    // little even when a uniform disables it, so a disabled or suspended cull runs without it
-    private projectors = new Map<string, Compute>();
+    // one projector shader per source and occlusion / order specialisation: the test's code
+    // costs a little even when a uniform disables it, so a disabled or suspended cull runs
+    // without it. One compute per shader and dispatch group, since a compute owns the uniform
+    // buffer its dispatch reads and per-file sources dispatch once per file
+    private projectorShaders = new Map<string, Shader>();
+
+    private projectorComputes = new Map<string, Compute>();
 
     private projectorBindGroupFormat: BindGroupFormat | null = null;
 
@@ -276,6 +281,11 @@ class StochasticSplatRenderer {
 
     /** Whether the last frame ran the occlusion cull, for the debug panel and the harness. */
     culling = false;
+
+    /** Whether cull:auto currently has the test switched off for culling too little. */
+    get cullSuspended() {
+        return this.variant.cull === 'auto' && (!this.cullActive || this.cullSuspendedFrames > 0);
+    }
 
     // cull:auto bookkeeping. The last decision holds while a readback is in flight: while the
     // test is active every culled frame's counts are read back and a poor one suspends it;
@@ -418,14 +428,18 @@ class StochasticSplatRenderer {
         this.worldLayer = worldLayer;
         this.variant = parseVariant(options.variant);
 
-        if (options.source && options.source !== 'workbuffer') {
-            console.warn(
-                `StochasticSplatRenderer: splat source '${options.source}' is not implemented yet, using the work buffer`
-            );
-        }
-        this.source = new WorkBufferSplatSource();
-
         const { device } = this;
+
+        if (options.source === 'direct') {
+            this.source = new DirectSplatSource(device);
+        } else {
+            if (options.source && options.source !== 'workbuffer') {
+                console.warn(
+                    `StochasticSplatRenderer: splat source '${options.source}' is not implemented yet, using the work buffer`
+                );
+            }
+            this.source = new WorkBufferSplatSource();
+        }
 
         this.counter = new StorageBuffer(device, 16, BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC);
 
@@ -692,6 +706,7 @@ class StochasticSplatRenderer {
             this.rebuildChunkTable(set);
             this.ensureCache(set.activeSplats);
             this.activeSplats = set.activeSplats;
+            this.pruneProjectorComputes(set);
             // recorded last, so a rebuild that throws is retried next frame
             this.set = set;
         }
@@ -768,9 +783,12 @@ class StochasticSplatRenderer {
         const logNear = Math.log(Math.max(cam.nearClip, 1e-6));
         const invLogRange = 1 / Math.max(Math.log(Math.max(cam.farClip, 1e-6)) - logNear, 1e-6);
 
-        const projector = this.ensureProjector(culling, ordered);
+        const cameraPosition = camera.entity.getPosition();
         const groups = this.source.dispatchPlan(set, this.numChunks);
         for (const group of groups) {
+            // a file with no node in the frustum has nothing to dispatch
+            if (group.fileIndex >= 0 && !this.anyNodeVisible(set.files[group.fileIndex].nodes)) continue;
+            const projector = this.ensureProjector(culling, ordered, group);
             this.source.bind(projector, group, set);
             projector.setParameter('chunks', this.chunkBuffer!);
             projector.setParameter('nodeVisible', this.nodeVisibleBuffer!);
@@ -789,6 +807,8 @@ class StochasticSplatRenderer {
             projector.setParameter('prevViewport', this.prevViewport);
             projector.setParameter('prevFocal', this.prevFocal);
             projector.setParameter('numChunks', group.chunkCount);
+            projector.setParameter('chunkBase', group.chunkBase);
+            projector.setParameter('cameraPosition', [cameraPosition.x, cameraPosition.y, cameraPosition.z, 0]);
             projector.setParameter('splatTextureSize', this.source.textureSize(group));
             projector.setParameter('isOrtho', isOrtho ? 1 : 0);
             projector.setParameter('minPixelSize', gsplat.minPixelSize);
@@ -911,8 +931,9 @@ class StochasticSplatRenderer {
         const data = this.chunkData;
         let k = 0;
         set.nodes.forEach((node, nodeIndex) => {
+            const base = this.source.chunkBase(node);
             for (let offset = 0; offset < node.count; offset += CHUNK_SIZE) {
-                data[k++] = node.slotBase + offset;
+                data[k++] = base + offset;
                 data[k++] = Math.min(CHUNK_SIZE, node.count - offset);
                 data[k++] = nodeIndex;
                 data[k++] = (node.lodIndex & 0xffff) | (node.fileIndex << 16);
@@ -959,7 +980,12 @@ class StochasticSplatRenderer {
         this.nodeVisibleBuffer!.write(0, bits, 0, words);
     }
 
-    private ensureProjector(occlusion: boolean, ordered: boolean) {
+    private anyNodeVisible(nodes: ResidentSet['nodes']) {
+        const bits = this.nodeVisibleData;
+        return nodes.some((node) => (bits[node.nodeIndex >> 5] >>> (node.nodeIndex & 31)) & 1);
+    }
+
+    private ensureProjector(occlusion: boolean, ordered: boolean, group: DispatchGroup) {
         const sourceKey = this.source.shaderKey();
         if (this.projectorSourceKey !== sourceKey) {
             // a different source: every specialisation and the bind group format go
@@ -967,7 +993,28 @@ class StochasticSplatRenderer {
             this.projectorSourceKey = sourceKey;
         }
         const key = `${occlusion ? 'occlusion' : 'plain'}-${ordered ? 'bucket' : 'append'}`;
-        const existing = this.projectors.get(key);
+        const computeKey = `${key}:${group.fileIndex}`;
+        const existing = this.projectorComputes.get(computeKey);
+        if (existing) return existing;
+        const shader = this.ensureProjectorShader(key, occlusion, ordered);
+        const compute = new Compute(this.device, shader, 'sse-splat-project');
+        this.projectorComputes.set(computeKey, compute);
+        return compute;
+    }
+
+    // drop the computes of files that left the resident set
+    private pruneProjectorComputes(set: ResidentSet) {
+        for (const [key, compute] of this.projectorComputes) {
+            const fileIndex = Number(key.slice(key.lastIndexOf(':') + 1));
+            if (fileIndex >= 0 && !set.files[fileIndex]) {
+                compute.destroy();
+                this.projectorComputes.delete(key);
+            }
+        }
+    }
+
+    private ensureProjectorShader(key: string, occlusion: boolean, ordered: boolean) {
+        const existing = this.projectorShaders.get(key);
         if (existing) return existing;
         const { device } = this;
         const fixed = [
@@ -986,6 +1033,8 @@ class StochasticSplatRenderer {
             name: `sse-splat-project-${key}`,
             shaderLanguage: SHADERLANGUAGE_WGSL,
             cshader: projectorWGSL(this.source.readChunk(fixed.length), occlusion, ordered),
+            cincludes: this.source.shaderIncludes(),
+            cdefines: this.source.shaderDefines(),
             computeUniformBufferFormats: {
                 // the same order as the wgsl struct; both follow the same alignment rules
                 uniforms: new UniformBufferFormat(device, [
@@ -1011,22 +1060,25 @@ class StochasticSplatRenderer {
                     new UniformFormat('occlusionMode', UNIFORMTYPE_UINT),
                     new UniformFormat('prevFlip', UNIFORMTYPE_FLOAT),
                     new UniformFormat('keyLogNear', UNIFORMTYPE_FLOAT),
-                    new UniformFormat('keyInvLogRange', UNIFORMTYPE_FLOAT)
+                    new UniformFormat('keyInvLogRange', UNIFORMTYPE_FLOAT),
+                    new UniformFormat('chunkBase', UNIFORMTYPE_UINT),
+                    new UniformFormat('model', UNIFORMTYPE_MAT4),
+                    new UniformFormat('modelRotation', UNIFORMTYPE_VEC4),
+                    new UniformFormat('modelScale', UNIFORMTYPE_VEC4),
+                    new UniformFormat('cameraPosition', UNIFORMTYPE_VEC4)
                 ])
             },
             computeBindGroupFormat: this.projectorBindGroupFormat
         });
-        const projector = new Compute(device, shader, 'sse-splat-project');
-        this.projectors.set(key, projector);
-        return projector;
+        this.projectorShaders.set(key, shader);
+        return shader;
     }
 
     private destroyProjector() {
-        for (const projector of this.projectors.values()) {
-            projector.shader.destroy();
-            projector.destroy();
-        }
-        this.projectors.clear();
+        for (const compute of this.projectorComputes.values()) compute.destroy();
+        this.projectorComputes.clear();
+        for (const shader of this.projectorShaders.values()) shader.destroy();
+        this.projectorShaders.clear();
         this.projectorBindGroupFormat?.destroy();
         this.projectorBindGroupFormat = null;
         this.projectorSourceKey = '';

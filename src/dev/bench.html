@@ -62,6 +62,8 @@
                                             or { name, position, target, fov }; default: the start pose
               modes=sorted,stochastic       which renderers to load
               variants=cull:off;cull:l2     stochastic variant strings, ; separated (keys: spp, compose, cull, order)
+              splatSource=workbuffer        stochastic data path: workbuffer or direct
+              dpr=1.5                       pin the pixel ratio and screen size: target = host * dpr
               rounds=3 warmup=40 frames=180
               width=1280 height=720         host size in css pixels (the canvas follows the dpr rule)
               budget=<millions>             default 8; the engine allocates its work buffer for the whole budget
@@ -121,6 +123,18 @@
             // the engine allocates its work buffer for the whole budget up front (budget x 1.15 slots
             // x 24 bytes), so keep it just above the scene's splat count
             const budget = Number(params.get('budget') ?? 8);
+            const splatSource = params.get('splatSource') ?? 'workbuffer';
+            // the pane's device pixel ratio and screen size follow tab visibility, so pin them for
+            // repeatable targets: the viewer caps its ratio from the screen's short side, and a
+            // host-sized screen leaves the ratio at dpr (target = host * dpr)
+            if (params.has('dpr')) {
+                Object.defineProperty(window, 'devicePixelRatio', {
+                    value: Number(params.get('dpr')),
+                    configurable: true
+                });
+                Object.defineProperty(screen, 'width', { value: width, configurable: true });
+                Object.defineProperty(screen, 'height', { value: height, configurable: true });
+            }
             const diff = !params.has('nodiff');
             const contentUrl = params.get('content') ?? './shoe.ply';
             const settings = await (await fetch(params.get('settings') ?? './settings.json')).json();
@@ -272,6 +286,7 @@
                     settings,
                     contentUrl,
                     stochastic: mode === 'stochastic',
+                    splatSource,
                     renderer: 'webgpu',
                     ui: false,
                     noanim: true,
@@ -337,6 +352,7 @@
                 content: contentUrl,
                 dpr: window.devicePixelRatio,
                 host: { width, height },
+                splatSource,
                 rounds,
                 warmup,
                 frames,
