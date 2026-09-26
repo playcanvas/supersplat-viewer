@@ -38,6 +38,8 @@ import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
 import { NavCursor } from './nav-cursor';
 import { Picker } from './picker';
+import type { ScenePicker } from './picker';
+import { FrameDepthPicker } from './picker-frame-depth';
 import { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { CaptureOptions, Config, Global, XrMode } from './types';
@@ -179,7 +181,7 @@ class Viewer {
 
     cameraManager: CameraManager;
 
-    picker: Picker;
+    picker: ScenePicker;
 
     voxelOverlay: VoxelDebugOverlay | null = null;
 
@@ -568,7 +570,10 @@ class Viewer {
                 sceneBound.setFromTransformedAabb(gsplatBbox, results[0].getWorldTransform());
             }
 
-            this.picker = new Picker(app, camera);
+            // the stochastic renderer leaves its frame's depth behind, so no pick pass is needed
+            this.picker = this.splatRenderer
+                ? new FrameDepthPicker(app, camera, this.splatRenderer)
+                : new Picker(app, camera);
             this.inputController = new InputController(global, this.picker);
 
             this.cameraManager = new CameraManager(global, sceneBound);

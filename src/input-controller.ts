@@ -10,7 +10,7 @@ import { KeyboardMouseDevice } from './input/devices/keyboard-mouse';
 import { TouchDevice } from './input/devices/touch';
 import { TrackpadDevice } from './input/devices/trackpad';
 import type { UpdateContext } from './input/shared';
-import type { Picker } from './picker';
+import type { ScenePicker } from './picker';
 import type { Global } from './types';
 
 /**
@@ -69,7 +69,7 @@ class InputController {
         return this._navInteraction.collision;
     }
 
-    constructor(global: Global, picker: Picker) {
+    constructor(global: Global, picker: ScenePicker) {
         this._global = global;
         this._navInteraction = new NavInteraction(picker);
 

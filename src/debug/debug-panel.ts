@@ -1,7 +1,7 @@
 import { Vec3 } from 'playcanvas';
 
 import type { CameraManager } from '../camera-manager';
-import type { Picker } from '../picker';
+import type { ScenePicker } from '../picker';
 import type { StochasticSplatRenderer } from '../render/stochastic-splat-renderer';
 import type { Global } from '../types';
 
@@ -109,7 +109,7 @@ class DebugPanel {
 
     private readonly _cameraManager: CameraManager;
 
-    private readonly _picker: Picker;
+    private readonly _picker: ScenePicker;
 
     // the stochastic renderer when this viewer opted in, for its depth cull toggle and counts
     private readonly _splatRenderer: StochasticSplatRenderer | null;
@@ -167,7 +167,7 @@ class DebugPanel {
     constructor(
         global: Global,
         cameraManager: CameraManager,
-        picker: Picker,
+        picker: ScenePicker,
         splatRenderer: StochasticSplatRenderer | null = null
     ) {
         this._global = global;

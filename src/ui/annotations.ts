@@ -1,7 +1,7 @@
 import { Entity, Mat4 } from 'playcanvas';
 import type { CameraComponent, EventHandle, ScriptComponent } from 'playcanvas';
 
-import type { Picker } from '../picker';
+import type { ScenePicker } from '../picker';
 import type { ViewerHandle } from '../types';
 
 import { Annotation, AnnotationContext } from './annotation';
@@ -36,7 +36,7 @@ class Annotations {
         viewer: Pick<ViewerHandle, 'app' | 'state' | 'events' | 'annotations' | 'selectAnnotation'>,
         root: HTMLElement,
         camera: Entity,
-        getPicker: () => Picker | undefined
+        getPicker: () => ScenePicker | undefined
     ) {
         const { app, state, events, annotations } = viewer;
         const parentDom = document.createElement('div');

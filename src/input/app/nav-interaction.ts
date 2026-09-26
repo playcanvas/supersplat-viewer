@@ -1,7 +1,7 @@
 import { Vec3 } from 'playcanvas';
 
 import type { Collision } from '../../collision';
-import type { Picker } from '../../picker';
+import type { ScenePicker } from '../../picker';
 import type { Global } from '../../types';
 import { TAP_EPSILON } from '../shared';
 
@@ -37,7 +37,7 @@ type PickTarget = {
 class NavInteraction {
     collision: Collision | null = null;
 
-    private _picker: Picker;
+    private _picker: ScenePicker;
 
     private _global: Global | null = null;
 
@@ -57,7 +57,7 @@ class NavInteraction {
 
     private _lastTap = { time: 0, x: 0, y: 0 };
 
-    constructor(picker: Picker) {
+    constructor(picker: ScenePicker) {
         this._picker = picker;
     }
 

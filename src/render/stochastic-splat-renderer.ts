@@ -58,6 +58,9 @@ import {
 } from 'playcanvas';
 import type { AppBase, CameraComponent, GraphicsDevice, Layer } from 'playcanvas';
 
+import { captureCameraSnapshot, createPickCameraSnapshot } from '../picker';
+import type { PickCameraSnapshot } from '../picker';
+
 import { EngineResidentSetProvider } from './resident-set';
 import type { EngineManager, ResidentSet } from './resident-set';
 import { argsWGSL } from './shaders/args';
@@ -214,6 +217,18 @@ class SplatRasterPass extends RenderPass {
         });
     }
 }
+
+/** The on-screen frame the renderer's depth texture holds: what a pick reads. */
+type DepthFrame = {
+    /** Changes with every frame drawn to the on-screen target. */
+    id: number;
+    /** The camera it was drawn with; unprojects its depths whatever the live camera does. */
+    camera: PickCameraSnapshot;
+    width: number;
+    height: number;
+    /** clip z = a * viewDepth + b over w = viewDepth, for the depth texture's values. */
+    clipZ: [number, number];
+};
 
 const createQuadMesh = (device: GraphicsDevice, quads: number) => {
     const positions = new Float32Array(quads * 4 * 3);
@@ -438,6 +453,13 @@ class StochasticSplatRenderer {
     // frames since the camera or the scene last changed, for converging at rest
     private restFrames = 0;
 
+    /** The frame the depth texture holds, null while it holds a capture's or nothing. */
+    depthFrame: DepthFrame | null = null;
+
+    private depthFrameCount = 0;
+
+    private depthFrameCamera = createPickCameraSnapshot();
+
     // a frame requested from inside the render: the engine clears app.renderNextFrame right
     // after render(), so the request is applied on frameend instead
     private frameWanted = false;
@@ -483,6 +505,11 @@ class StochasticSplatRenderer {
     private ready = false;
 
     /** Byte sizes of the buffers this renderer owns, for the bench harness and the debug panel. */
+    /** The renderer's depth texture: the nearest surviving sample per pixel of `depthFrame`. */
+    get frameDepthTexture() {
+        return this.depthTexture;
+    }
+
     get gpuBytes() {
         const buffers = [
             this.chunkBuffer,
@@ -918,6 +945,7 @@ class StochasticSplatRenderer {
             if (index >= 0) passes.splice(index, 1);
         }
         this.taaHistoryValid = false;
+        this.depthFrame = null;
         this.worldLayer.removeMeshInstances([this.composeInstance]);
         this.provider.setActive(false);
     }
@@ -1230,9 +1258,18 @@ class StochasticSplatRenderer {
         if (isQuery) {
             // the capture drew elsewhere; the on-screen depth texture is no longer this frame's
             this.prevValid = false;
+            this.depthFrame = null;
             this.setReady(true);
             return;
         }
+        captureCameraSnapshot(camera.entity, this.depthFrameCamera);
+        this.depthFrame = {
+            id: ++this.depthFrameCount,
+            camera: this.depthFrameCamera,
+            width,
+            height,
+            clipZ: [-shaderProjection.data[10], shaderProjection.data[14]]
+        };
         this.prevViewProjection.copy(this.viewProjection);
         this.prevView.copy(view);
         this.prevClipZ = [-shaderProjection.data[10], shaderProjection.data[14], isOrtho ? 1 : 0, 0];
@@ -1479,4 +1516,4 @@ class StochasticSplatRenderer {
 }
 
 export { StochasticSplatRenderer };
-export type { StochasticRendererOptions, Variant };
+export type { DepthFrame, StochasticRendererOptions, Variant };
