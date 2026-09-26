@@ -1,5 +1,0 @@
-[
-    { "name": "wide", "position": [0, 15, -50], "target": [0, 2, 5], "fov": 85 },
-    { "name": "facade", "position": [0, 4, -16], "target": [0, 2, 3], "fov": 85 },
-    { "name": "aerial", "position": [30, 65, -55], "target": [0, 0, 10], "fov": 70 }
-]
