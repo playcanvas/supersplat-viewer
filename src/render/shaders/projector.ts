@@ -56,7 +56,10 @@ struct ProjectorUniforms {
     colorMax: f32,
     // 1: covariance in true pixels. 2: the engine's convention (its focal is viewport * proj[0][0],
     // twice the pixel focal), which makes its 0.3 dilation 0.075 px^2 and scales its culls
-    unitScale: f32
+    unitScale: f32,
+    // the view depths of the near plane and of the raster's far clamp
+    depthNear: f32,
+    depthFar: f32
 }
 
 // chunk table entry: slotBase, count, node, lod | file << 16
@@ -344,7 +347,10 @@ ${
     // depth / (1 + g . d). Orthographic rays are parallel, so there n = adj(Sigma) e_z and
     // the corner depth is depth + g . d with g = n.xy / n.z. Bounded so every corner stays
     // within 2 sqrt(2) sigma_z of the centre (the occlusion cull's front margin) and the
-    // perspective scale stays positive.
+    // perspective scale stays positive, and so no corner crosses the near plane or the
+    // raster's far clamp: a corner clamped there while the others are not bends the quad, whose
+    // two triangles then take different depths and show as polygons (large far splats, the
+    // sky, sit right at a far plane fitted to the scene). A centre beyond the clamp stays flat.
     let ortho = uniforms.isOrtho != 0u;
     let a00 = c11 * c22 - c12 * c12;
     let a01 = c02 * c12 - c01 * c22;
@@ -367,7 +373,12 @@ ${
         let ext = (abs(axis1) + abs(axis2)) * viewScale;
         let bound = abs(g.x) * ext.x + abs(g.y) * ext.y;
         let margin = 2.8284 * sqrt(max(c22, 0.0));
-        let limit = select(min(0.25, margin / max(depth, 1e-6)), margin, ortho);
+        let inRange = select(
+            min(1.0 - depth / uniforms.depthFar, depth / max(uniforms.depthNear, 1e-6) - 1.0),
+            min(uniforms.depthFar - depth, depth - uniforms.depthNear),
+            ortho
+        );
+        let limit = max(0.0, min(select(min(0.25, margin / max(depth, 1e-6)), margin, ortho), 0.999 * inRange));
         if (bound > limit) {
             g *= limit / max(bound, 1e-20);
         }

@@ -68,7 +68,7 @@ import { argsWGSL } from './shaders/args';
 import { composeFragmentWGSL, composeVertexWGSL } from './shaders/compose';
 import { orderScanWGSL, orderScatterWGSL } from './shaders/order';
 import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, projectorWGSL } from './shaders/projector';
-import { QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
+import { FAR_CLIP_Z, QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
 import { TAA_MAX_COUNT, taaFragmentWGSL, taaVertexWGSL } from './shaders/taa';
 import type { DispatchGroup, SplatSource, SplatSourceKind } from './splat-source';
@@ -1114,6 +1114,12 @@ class StochasticSplatRenderer {
         // the order key spans the fitted clip range, log-spaced
         const logNear = Math.log(Math.max(cam.nearClip, 1e-6));
         const invLogRange = 1 / Math.max(Math.log(Math.max(cam.farClip, 1e-6)) - logNear, 1e-6);
+        // the view depths where the raster's clip z reaches 0 and its far clamp (FAR_CLIP_Z), from
+        // clip z = a * depth + b (over w = depth for a perspective camera)
+        const clipA = -shaderProjection.data[10];
+        const clipB = shaderProjection.data[14];
+        const depthNear = -clipB / clipA;
+        const depthFar = isOrtho ? (FAR_CLIP_Z - clipB) / clipA : clipB / (FAR_CLIP_Z - clipA);
 
         const cameraPosition = camera.entity.getPosition();
         const groups = this.source.dispatchPlan(set, this.numChunks);
@@ -1156,6 +1162,8 @@ class StochasticSplatRenderer {
             projector.setParameter('prevFlip', this.prevFlip);
             projector.setParameter('keyLogNear', logNear);
             projector.setParameter('keyInvLogRange', invLogRange);
+            projector.setParameter('depthNear', depthNear);
+            projector.setParameter('depthFar', depthFar);
             Compute.calcDispatchSize(group.chunkCount, tmpVec2);
             projector.setupDispatch(tmpVec2.x, tmpVec2.y, 1);
             device.computeDispatch([projector], 'sse-splat-project');
@@ -1490,7 +1498,9 @@ class StochasticSplatRenderer {
                     new UniformFormat('modelScale', UNIFORMTYPE_VEC4),
                     new UniformFormat('cameraPosition', UNIFORMTYPE_VEC4),
                     new UniformFormat('colorMax', UNIFORMTYPE_FLOAT),
-                    new UniformFormat('unitScale', UNIFORMTYPE_FLOAT)
+                    new UniformFormat('unitScale', UNIFORMTYPE_FLOAT),
+                    new UniformFormat('depthNear', UNIFORMTYPE_FLOAT),
+                    new UniformFormat('depthFar', UNIFORMTYPE_FLOAT)
                 ])
             },
             computeBindGroupFormat: this.projectorBindGroupFormat
