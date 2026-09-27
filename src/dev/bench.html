@@ -75,6 +75,10 @@
               minPixelSize=<px>             scene.gsplat.minPixelSize for the stochastic mode only (default 2)
               radial=0                      sort the sorted renderer by view depth instead of radial distance
               minPixelSizeAll=<px>          scene.gsplat.minPixelSize for both modes
+              save=<tag>                    keep every stochastic variant's captures (converged and moving) under a tag
+              against=<tag>                 diff every capture against the one saved under that tag by an earlier run,
+                                            usually another build: a variant accumulates the same seeds each time, so
+                                            an unchanged renderer differs by nothing
         -->
         <div id="host"></div>
         <div id="panel">
@@ -348,6 +352,43 @@
                 }
                 return out;
             };
+            // captures kept between runs (save= / against=), in IndexedDB since a run's worth of
+            // 1080p frames is far beyond localStorage
+            const saveTag = params.get('save');
+            const againstTag = params.get('against');
+            const captureStore = (() => {
+                let db = null;
+                const open = () =>
+                    (db ??= new Promise((resolve, reject) => {
+                        const request = indexedDB.open('sse-bench', 1);
+                        request.onupgradeneeded = () => request.result.createObjectStore('captures');
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
+                    }));
+                const run = async (mode, operation) => {
+                    const store = (await open()).transaction('captures', mode).objectStore('captures');
+                    return new Promise((resolve, reject) => {
+                        const request = operation(store);
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
+                    });
+                };
+                return {
+                    put: (key, value) => run('readwrite', (store) => store.put(value, key)),
+                    get: (key) => run('readonly', (store) => store.get(key))
+                };
+            })();
+            // save this capture under the run's tag, and diff it against the one under `against`
+            const keepCapture = async (key, bytes, w, h) => {
+                if (saveTag) await captureStore.put(`${saveTag}|${key}`, { width: w, height: h, bytes });
+                if (!againstTag) return null;
+                const saved = await captureStore.get(`${againstTag}|${key}`);
+                if (!saved || saved.width !== w || saved.height !== h) {
+                    log(`no capture saved under ${againstTag} for ${key}`, true);
+                    return null;
+                }
+                return { diff: imageDiff(bytes, saved.bytes), saved: saved.bytes };
+            };
             const diffText = (d) =>
                 `${d.changedPct.toFixed(2)}% changed, meanAbs ${d.meanAbs.toFixed(2)}, rms ${d.rms.toFixed(2)}, bias ${d.bias.map((v) => v.toFixed(2)).join('/')}`;
             const preview = (bytes, w, h, title) => {
@@ -482,6 +523,9 @@
                     samples: samples.length,
                     median: median(frameTimes),
                     min: Math.min(...frameTimes),
+                    // timestamps come in 65.5 us ticks: a mean over many frames resolves the
+                    // differences smaller than one, which the median and minimum cannot
+                    mean: frameTimes.reduce((s, t) => s + t, 0) / frameTimes.length,
                     passes
                 };
             };
@@ -506,6 +550,9 @@
                 warmup,
                 frames,
                 budget,
+                variants,
+                save: saveTag,
+                against: againstTag,
                 modes: {}
             };
 
@@ -680,13 +727,32 @@
                                         );
                                     }
                                 }
+                                const captureKey = (suffix) => `${contentUrl}|${pose.name}|${variant}|${suffix}`;
+                                const kept = await keepCapture(captureKey('rest'), a, target.width, target.height);
+                                if (kept) {
+                                    preview(
+                                        diffImage(a, kept.saved),
+                                        target.width,
+                                        target.height,
+                                        `${pose.name} ${variant} |a - ${againstTag}| x4`
+                                    );
+                                }
                                 let moving = null;
+                                let movingVsSaved = null;
                                 if (move && !variant.includes('compose:depth')) {
                                     moving = {};
+                                    movingVsSaved = againstTag ? {} : null;
                                     for (const k of MOVE_FRAMES) {
                                         const ref = references.get(`${pose.name}@${k}`);
                                         const frame = await movingCapture(k);
                                         moving[k] = ref ? imageDiff(frame, ref) : null;
+                                        const keptMoving = await keepCapture(
+                                            captureKey(`@${k}`),
+                                            frame,
+                                            target.width,
+                                            target.height
+                                        );
+                                        if (movingVsSaved) movingVsSaved[k] = keptMoving?.diff ?? null;
                                         if (taa)
                                             preview(frame, target.width, target.height, `${pose.name}@${k} ${variant}`);
                                     }
@@ -699,16 +765,26 @@
                                 poseResult.images[variant] = {
                                     vsSorted: reference && !depthView ? imageDiff(a, reference) : null,
                                     vsTruth: !depthView ? imageDiff(a, truth) : null,
+                                    vsSaved: kept?.diff ?? null,
                                     noiseFloor,
                                     moving,
+                                    movingVsSaved,
                                     depthRoughness: depthView ? depthRoughness(a, target.width, target.height) : null
                                 };
                                 const v = poseResult.images[variant].vsSorted;
                                 const rough = poseResult.images[variant].depthRoughness;
                                 const vt = poseResult.images[variant].vsTruth;
                                 log(
-                                    `${mode} ${pose.name} ${variant}: ${depthView ? `depth roughness ${rough.toFixed(3)}` : `vs sorted ${v ? diffText(v) : 'n/a'}; vs truth rms ${vt.rms.toFixed(2)}`}${noiseFloor ? `; noise floor rms ${noiseFloor.rms.toFixed(2)}` : ''}`
+                                    `${mode} ${pose.name} ${variant}: ${depthView ? `depth roughness ${rough.toFixed(3)}` : `vs sorted ${v ? diffText(v) : 'n/a'}; vs truth ${diffText(vt)}`}${noiseFloor ? `; noise floor rms ${noiseFloor.rms.toFixed(2)}` : ''}`
                                 );
+                                if (kept) {
+                                    log(`${mode} ${pose.name} ${variant}: vs ${againstTag} ${diffText(kept.diff)}`);
+                                }
+                                if (movingVsSaved) {
+                                    log(
+                                        `${mode} ${pose.name} ${variant}: moving vs ${againstTag} ${MOVE_FRAMES.map((k) => `@${k} ${movingVsSaved[k] ? diffText(movingVsSaved[k]) : 'n/a'}`).join('; ')}`
+                                    );
+                                }
                             }
                         }
                     }
@@ -738,6 +814,7 @@
                         poseResult.variants[variant] = {
                             median: median(list.map((r) => r.median)),
                             min: Math.min(...list.map((r) => r.min)),
+                            mean: list.reduce((s, r) => s + r.mean, 0) / list.length,
                             samples: list.reduce((s, r) => s + r.samples, 0),
                             passes,
                             survivors: stats?.survivors ?? null,
@@ -749,7 +826,7 @@
                             .join(', ');
                         const counts = stats ? ` survivors ${stats.survivors}, occluded ${stats.occluded};` : '';
                         log(
-                            `${mode} ${pose.name} ${variant}: ${poseResult.variants[variant].median.toFixed(3)} / ${poseResult.variants[variant].min.toFixed(3)} ms (${poseResult.variants[variant].samples} samples)${counts} [${passText}]`
+                            `${mode} ${pose.name} ${variant}: ${poseResult.variants[variant].median.toFixed(3)} / ${poseResult.variants[variant].min.toFixed(3)} ms, mean ${poseResult.variants[variant].mean.toFixed(3)} (${poseResult.variants[variant].samples} samples)${counts} [${passText}]`
                         );
                     }
                     await nextFrame(app);
@@ -777,6 +854,7 @@
                 'mode',
                 'variant',
                 'median ms',
+                'mean ms',
                 'min ms',
                 'survivors',
                 'occluded',
@@ -785,7 +863,8 @@
                 'vs sorted rms',
                 'vs truth rms',
                 'noise rms',
-                'moving rms'
+                'moving rms',
+                'vs saved rms'
             ].forEach((h) => {
                 const th = document.createElement('th');
                 th.textContent = h;
@@ -801,6 +880,7 @@
                             mode,
                             variant,
                             run.median.toFixed(3),
+                            run.mean.toFixed(3),
                             run.min.toFixed(3),
                             String(run.survivors ?? pose.memory?.survivors ?? ''),
                             run.occluded != null ? String(run.occluded) : '',
@@ -813,7 +893,8 @@
                                 ? Object.values(pose.images[variant].moving)
                                       .map((m) => (m ? m.rms.toFixed(2) : 'n/a'))
                                       .join(' / ')
-                                : ''
+                                : '',
+                            pose.images?.[variant]?.vsSaved ? pose.images[variant].vsSaved.rms.toFixed(3) : ''
                         ];
                         cells.forEach((c) => {
                             const td = document.createElement('td');

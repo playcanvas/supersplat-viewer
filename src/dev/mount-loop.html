@@ -96,7 +96,7 @@
             Browser mode supplies fullscreen/XR host controls and delayed-request teardown checks.
             XR callback simulations check cancellation without claiming to test a native session.
 
-            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser|input  ?instances=2  ?webgl  ?stochastic  ?content=  ?settings=
+            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser|input  ?instances=2  ?webgl  ?stochastic  ?pump (frames without the display, for a hidden tab)  ?content=  ?settings=
         -->
         <div id="hosts"></div>
         <pre id="harness"></pre>
@@ -134,6 +134,28 @@
             const renderer = url.searchParams.has('webgl') ? 'webgl' : 'webgpu';
             const contentUrl = url.searchParams.get('content') ?? './scene.compressed.ply';
             const settingsUrl = url.searchParams.get('settings') ?? './settings.json';
+
+            // ?pump: animation frames from a MessageChannel instead of the display, as fast as the
+            // page takes them. A hidden page gets no requestAnimationFrame at all (the desktop
+            // app's browser pane hides it whenever it is not in front), so without this the loop
+            // stalls at its first frame there
+            if (url.searchParams.has('pump')) {
+                const channel = new MessageChannel();
+                let callbacks = new Map();
+                let nextId = 1;
+                channel.port1.onmessage = () => {
+                    const due = callbacks;
+                    callbacks = new Map();
+                    const now = performance.now();
+                    due.forEach((callback) => callback(now));
+                };
+                window.requestAnimationFrame = (callback) => {
+                    if (callbacks.size === 0) channel.port2.postMessage(0);
+                    callbacks.set(nextId, callback);
+                    return nextId++;
+                };
+                window.cancelAnimationFrame = (id) => callbacks.delete(id);
+            }
 
             const harness = document.getElementById('harness');
             const log = (line, fail = false) => {

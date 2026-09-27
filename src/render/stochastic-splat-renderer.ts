@@ -31,7 +31,8 @@ import {
     MeshInstance,
     FILTER_NEAREST,
     PIXELFORMAT_DEPTH,
-    PIXELFORMAT_RGBA32F,
+    PIXELFORMAT_R32U,
+    PIXELFORMAT_RGBA16U,
     PIXELFORMAT_RGBA8,
     PRIMITIVE_TRIANGLES,
     PROJECTION_ORTHOGRAPHIC,
@@ -69,7 +70,7 @@ import { orderScanWGSL, orderScatterWGSL } from './shaders/order';
 import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, projectorWGSL } from './shaders/projector';
 import { QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
-import { taaFragmentWGSL, taaVertexWGSL } from './shaders/taa';
+import { TAA_MAX_COUNT, taaFragmentWGSL, taaVertexWGSL } from './shaders/taa';
 import type { DispatchGroup, SplatSource, SplatSourceKind } from './splat-source';
 import { DirectSplatSource } from './splat-source-direct';
 import { WorkBufferSplatSource } from './splat-source-workbuffer';
@@ -101,16 +102,15 @@ type Variant = {
     popless: 'on' | 'off';
     /** Temporal accumulation of the stochastic samples (shaders/taa.ts). */
     taa: 'on' | 'off';
-    /** Sample cap of the accumulation at rest: the history weight never drops below 1 / taaMax. */
+    /**
+     * Sample cap of the accumulation at rest: the history weight never drops below 1 / taaMax.
+     * At most TAA_MAX_COUNT, the most the history's count field holds.
+     */
     taaMax: number;
     /** Sample cap while the camera moves, so the history keeps up with the view. */
     taaMoveMax: number;
-    /** Relative depth tolerance of the history test, plus 2 sigma of the pixel's depth distribution. */
-    taaTol: number;
     /** Colour clamp while moving, in neighbourhood standard deviations (0 disables it). */
     taaClip: number;
-    /** Consecutive out-of-distribution samples on one side that reset a pixel while moving; 0 disables the depth test. */
-    taaRun: number;
     /** History filter while moving: bilinear or Catmull-Rom. */
     taaFilter: 'linear' | 'cubic';
     /** Depth the moving reprojection goes through: this frame's sample or the pixel's accumulated mean. */
@@ -137,9 +137,7 @@ const defaultVariant = (): Variant => ({
     taa: 'on',
     taaMax: 256,
     taaMoveMax: 16,
-    taaTol: 0.02,
     taaClip: 1.25,
-    taaRun: 0,
     taaFilter: 'cubic',
     taaReproj: 'sample',
     taaMotion: 4,
@@ -148,6 +146,8 @@ const defaultVariant = (): Variant => ({
     colorMax: 8,
     units: 'engine'
 });
+
+const taaCount = (value: number) => Math.min(TAA_MAX_COUNT, Math.max(1, Math.round(value)));
 
 const parseVariant = (text: string | undefined): Variant => {
     const variant = defaultVariant();
@@ -158,12 +158,10 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'compose' && (value === 'blend' || value === 'none' || value === 'depth')) variant.compose = value;
         if (key === 'popless' && (value === 'on' || value === 'off')) variant.popless = value;
         if (key === 'taa' && (value === 'on' || value === 'off')) variant.taa = value;
-        if (key === 'taaMax' && Number.isFinite(Number(value))) variant.taaMax = Math.max(1, Number(value));
-        if (key === 'taaMoveMax' && Number.isFinite(Number(value))) variant.taaMoveMax = Math.max(1, Number(value));
-        if (key === 'taaTol' && Number.isFinite(Number(value))) variant.taaTol = Math.max(0, Number(value));
+        if (key === 'taaMax' && Number.isFinite(Number(value))) variant.taaMax = taaCount(Number(value));
+        if (key === 'taaMoveMax' && Number.isFinite(Number(value))) variant.taaMoveMax = taaCount(Number(value));
         if (key === 'taaDebug' && Number.isFinite(Number(value))) variant.taaDebug = Number(value);
         if (key === 'taaClip' && Number.isFinite(Number(value))) variant.taaClip = Math.max(0, Number(value));
-        if (key === 'taaRun' && Number.isFinite(Number(value))) variant.taaRun = Math.max(0, Number(value));
         if (key === 'taaFilter' && (value === 'linear' || value === 'cubic')) variant.taaFilter = value;
         if (key === 'taaReproj' && (value === 'sample' || value === 'history')) variant.taaReproj = value;
         if (key === 'taaMotion' && Number.isFinite(Number(value))) variant.taaMotion = Math.max(0, Number(value));
@@ -433,8 +431,9 @@ class StochasticSplatRenderer {
 
     private rasterPass: SplatRasterPass;
 
-    // taa: ping-pong history (premultiplied colour + coverage, and depth mean / variance /
-    // count), resolved by a fullscreen pass after the raster
+    // taa: ping-pong history (premultiplied colour + coverage as unorm16, and the depth mean and
+    // sample count packed in 32 bits; shaders/taa.ts), resolved by a fullscreen pass after the
+    // raster. Sized with the target on the first accumulating frame, and shrunk back while taa is off
     private taaColor: Texture[] = [];
 
     private taaInfo: Texture[] = [];
@@ -803,7 +802,7 @@ class StochasticSplatRenderer {
                     name: `sse-splat-taa-color-${i}`,
                     width: 4,
                     height: 4,
-                    format: PIXELFORMAT_RGBA32F,
+                    format: PIXELFORMAT_RGBA16U,
                     mipmaps: false,
                     minFilter: FILTER_NEAREST,
                     magFilter: FILTER_NEAREST,
@@ -816,7 +815,7 @@ class StochasticSplatRenderer {
                     name: `sse-splat-taa-info-${i}`,
                     width: 4,
                     height: 4,
-                    format: PIXELFORMAT_RGBA32F,
+                    format: PIXELFORMAT_R32U,
                     mipmaps: false,
                     minFilter: FILTER_NEAREST,
                     magFilter: FILTER_NEAREST,
@@ -838,7 +837,8 @@ class StochasticSplatRenderer {
             uniqueName: 'sse-splat-taa',
             vertexWGSL: taaVertexWGSL,
             fragmentWGSL: taaFragmentWGSL,
-            attributes: { vertex_position: SEMANTIC_POSITION }
+            attributes: { vertex_position: SEMANTIC_POSITION },
+            fragmentOutputTypes: ['uvec4', 'uint']
         });
         this.taaMaterial.blendType = BLEND_NONE;
         this.taaMaterial.depthWrite = false;
@@ -876,6 +876,7 @@ class StochasticSplatRenderer {
         // engine create and upload a placeholder inside the forward pass, which submits the
         // command buffer mid-pass on WebGPU
         this.composeMaterial.setParameter('taaColor', this.taaColor[0]);
+        this.composeMaterial.setParameter('taaInfo', this.taaInfo[0]);
         this.composeInstance = new MeshInstance(
             this.composeMesh,
             this.composeMaterial,
@@ -922,10 +923,15 @@ class StochasticSplatRenderer {
         this.applyVariant();
     }
 
-    /** Drop the temporal history; the next frame starts accumulating from its own sample. */
+    /**
+     * Drop the temporal history; the next frame starts accumulating from its own sample. The
+     * coverage seeds restart too, so a variant accumulates the same samples every time (the
+     * harness compares builds image for image).
+     */
     resetHistory() {
         this.taaHistoryValid = false;
         this.restFrames = 0;
+        this.frameIndex = 0;
     }
 
     /** Re-read {@link variant} after a field changed. */
@@ -1040,8 +1046,7 @@ class StochasticSplatRenderer {
             (!isQuery || (this.allowQueryTaa && width === this.taaWidth && height === this.taaHeight));
         if (taaOn) {
             if (this.taaWidth !== width || this.taaHeight !== height) {
-                for (const texture of [...this.taaColor, ...this.taaInfo]) texture.resize(width, height);
-                for (const target of this.taaTargets) target.resize(width, height);
+                this.resizeHistory(width, height);
                 this.taaWidth = width;
                 this.taaHeight = height;
                 this.taaHistoryValid = false;
@@ -1056,6 +1061,12 @@ class StochasticSplatRenderer {
             // a capture at another size does not accumulate; the next on-screen frame starts over
             this.taaHistoryValid = false;
             this.restFrames = 0;
+            // switched off: the history goes back to its placeholder size until it is wanted
+            if (this.variant.taa === 'off' && this.taaWidth !== 0) {
+                this.resizeHistory(4, 4);
+                this.taaWidth = 0;
+                this.taaHeight = 0;
+            }
         }
         this.taaActive = taaOn;
 
@@ -1220,16 +1231,16 @@ class StochasticSplatRenderer {
             // so the new content shows within taaMoveMax frames rather than 1 / taaMax a frame
             taa.setParameter('taaParams', [
                 moved || changed ? this.variant.taaMoveMax : this.variant.taaMax,
-                this.variant.taaTol,
                 this.taaHistoryValid ? 1 : 0,
-                moved ? 1 : 0
+                moved ? 1 : 0,
+                0
             ]);
             taa.setParameter('taaViewport', [width, height, 1 / width, 1 / height]);
             taa.setParameter('taaControl', [
                 this.variant.taaFlip || (this.target.flipY ? -1 : 1),
                 this.variant.taaClip,
-                this.variant.taaRun,
-                this.variant.spp === 'quad' ? 1 : 0
+                this.variant.spp === 'quad' ? 1 : 0,
+                0
             ]);
             taa.setParameter('taaDebug', this.variant.taaDebug);
             taa.setParameter('taaFilter', [
@@ -1240,6 +1251,7 @@ class StochasticSplatRenderer {
             ]);
             this.taaPass.renderTarget = this.taaTargets[this.taaWrite];
             this.composeMaterial.setParameter('taaColor', this.taaColor[this.taaWrite]);
+            this.composeMaterial.setParameter('taaInfo', this.taaInfo[this.taaWrite]);
             this.taaLastViewProjection.copy(this.viewProjection);
             this.taaLastView.copy(view);
             this.taaHistoryValid = true;
@@ -1312,6 +1324,11 @@ class StochasticSplatRenderer {
         this.prevValid = !isQuery;
 
         this.setReady(true);
+    }
+
+    private resizeHistory(width: number, height: number) {
+        for (const texture of [...this.taaColor, ...this.taaInfo]) texture.resize(width, height);
+        for (const target of this.taaTargets) target.resize(width, height);
     }
 
     // whether the view or the projection differs from the previous on-screen frame's beyond
