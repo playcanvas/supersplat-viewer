@@ -232,7 +232,10 @@ type DepthFrame = {
     camera: PickCameraSnapshot;
     width: number;
     height: number;
-    /** clip z = a * viewDepth + b over w = viewDepth, for the depth texture's values. */
+    /**
+     * clip z = a * viewDepth + b (over w = viewDepth for a perspective camera), for the depth
+     * texture's values: the renderer's own mapping, whose far plane is at infinity.
+     */
     clipZ: [number, number];
 };
 
@@ -519,6 +522,11 @@ class StochasticSplatRenderer {
     private shaderProjection = new Mat4();
 
     private viewProjection = new Mat4();
+
+    // the raster's own depth mapping (see frame()), and its view-projection
+    private rasterProjection = new Mat4();
+
+    private rasterViewProjection = new Mat4();
 
     private frameSeed = 0;
 
@@ -1021,6 +1029,21 @@ class StochasticSplatRenderer {
         // the clip z the raster shader reconstructs must match the engine's WebGPU depth range
         const shaderProjection = Camera.applyShaderProjectionTransform(projection, this.shaderProjection, false, true);
         this.viewProjection.mul2(shaderProjection, view);
+        // The splats' own depth: clip z = a * depth + b (over w = depth for a perspective
+        // camera). The camera's far plane is fitted to the scene bound, which can leave a sky
+        // outside it, and splats clamped there share one depth and lose their order; so a
+        // perspective raster puts its far plane at infinity (z = 1 - near / depth), with the same
+        // near plane and, near where precision matters, the same resolution. The compose converts
+        // back to the camera's depth where the splats meet the rest of the scene. An orthographic
+        // camera keeps its own mapping: a linear depth has no far plane at infinity.
+        const cameraClipZ = [-shaderProjection.data[10], shaderProjection.data[14]];
+        const clipZ = isOrtho ? cameraClipZ : [1, cameraClipZ[1] / cameraClipZ[0]];
+        const clipZParams = [clipZ[0], clipZ[1], isOrtho ? 1 : 0, 0];
+        // the raster's view-projection, for reconstructing world points from its depth
+        this.rasterProjection.copy(shaderProjection);
+        this.rasterProjection.data[10] = -clipZ[0];
+        this.rasterProjection.data[14] = clipZ[1];
+        this.rasterViewProjection.mul2(this.rasterProjection, view);
 
         this.cullNodes(set, this.viewProjection);
 
@@ -1116,8 +1139,7 @@ class StochasticSplatRenderer {
         const invLogRange = 1 / Math.max(Math.log(Math.max(cam.farClip, 1e-6)) - logNear, 1e-6);
         // the view depths where the raster's clip z reaches 0 and its far clamp (FAR_CLIP_Z), from
         // clip z = a * depth + b (over w = depth for a perspective camera)
-        const clipA = -shaderProjection.data[10];
-        const clipB = shaderProjection.data[14];
+        const [clipA, clipB] = clipZ;
         const depthNear = -clipB / clipA;
         const depthFar = isOrtho ? (FAR_CLIP_Z - clipB) / clipA : clipB / (FAR_CLIP_Z - clipA);
 
@@ -1204,13 +1226,7 @@ class StochasticSplatRenderer {
         material.setParameter('splatCount', this.counter);
         if (ordered) material.setParameter('orderedSlots', this.orderedBuffer!);
         material.setParameter('viewportSize', [width, height, 2 / width, 2 / height]);
-        // clip z is affine in view depth: z = -m22 * depth + m23 of the shader projection
-        material.setParameter('clipZParams', [
-            -shaderProjection.data[10],
-            shaderProjection.data[14],
-            isOrtho ? 1 : 0,
-            0
-        ]);
+        material.setParameter('clipZParams', clipZParams);
         material.setParameter('focalParams', [focal[0], focal[1], 0, 0]);
         material.setParameter('sseAlphaClip', gsplat.alphaClipForward);
         material.setParameter('frameSeed', this.frameSeed);
@@ -1221,7 +1237,7 @@ class StochasticSplatRenderer {
             const taa = this.taaMaterial;
             this.taaPrevViewProjection.copy(this.taaLastViewProjection);
             this.taaPrevView.copy(this.taaLastView);
-            this.invViewProjection.copy(this.viewProjection).invert();
+            this.invViewProjection.copy(this.rasterViewProjection).invert();
             taa.setParameter('curColor', this.colorTexture);
             taa.setParameter('curDepth', this.depthTexture);
             taa.setParameter('histColor', this.taaColor[read]);
@@ -1229,12 +1245,7 @@ class StochasticSplatRenderer {
             taa.setParameter('invViewProj', this.invViewProjection.data);
             taa.setParameter('prevViewProj', this.taaPrevViewProjection.data);
             taa.setParameter('prevView', this.taaPrevView.data);
-            taa.setParameter('clipZParams', [
-                -shaderProjection.data[10],
-                shaderProjection.data[14],
-                isOrtho ? 1 : 0,
-                0
-            ]);
+            taa.setParameter('clipZParams', clipZParams);
             // a changed resident set (detail streamed in) keeps the history but caps its weight,
             // so the new content shows within taaMoveMax frames rather than 1 / taaMax a frame
             taa.setParameter('taaParams', [
@@ -1275,11 +1286,12 @@ class StochasticSplatRenderer {
             0
         ]);
         this.composeMaterial.setParameter('depthViewParams', [
-            -shaderProjection.data[10],
-            shaderProjection.data[14],
+            clipZ[0],
+            clipZ[1],
             Math.max(cam.nearClip, 1e-4),
             Math.max(cam.farClip, cam.nearClip * 2)
         ]);
+        this.composeMaterial.setParameter('cameraClipZ', [cameraClipZ[0], cameraClipZ[1], isOrtho ? 1 : 0, 0]);
 
         // cull:auto: read this culled frame's counts back (asynchronously, off the frame) and
         // keep the test only while it removes enough to pay for itself
@@ -1316,12 +1328,12 @@ class StochasticSplatRenderer {
             camera: this.depthFrameCamera,
             width,
             height,
-            clipZ: [-shaderProjection.data[10], shaderProjection.data[14]]
+            clipZ: [clipZ[0], clipZ[1]]
         };
         this.prevViewProjection.copy(this.viewProjection);
         this.prevView.copy(view);
         this.prevProjection.copy(projection);
-        this.prevClipZ = [-shaderProjection.data[10], shaderProjection.data[14], isOrtho ? 1 : 0, 0];
+        this.prevClipZ = clipZParams;
         this.prevViewport = [width, height];
         this.prevFocal = focal;
         this.prevFlip = this.target.flipY ? -1 : 1;
