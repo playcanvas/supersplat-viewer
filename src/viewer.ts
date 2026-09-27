@@ -206,6 +206,9 @@ class Viewer {
     /** The opt-in stochastic renderer (WebGPU only); null when the engine's sorted renderer draws. */
     splatRenderer: StochasticSplatRenderer | null = null;
 
+    /** The engine's MiniStats panel while shown (`?ministats` or the debug panel), else null. */
+    miniStats: MiniStats | null = null;
+
     /** Set once {@link destroy} has run. Load continuations check it and bail. */
     destroyed = false;
 
@@ -340,32 +343,9 @@ class Viewer {
             xrEnd.off();
         });
 
-        // construct debug ministats
-        if (config.ministats) {
-            const options = MiniStats.getDefaultOptions() as NonNullable<ConstructorParameters<typeof MiniStats>[1]>;
-            options.cpu.enabled = false;
-            options.stats = options.stats.filter((s) => s.name !== 'DrawCalls');
-            options.stats.push(
-                {
-                    name: 'VRAM',
-                    stats: ['vram.tex'],
-                    decimalPlaces: 1,
-                    multiplier: 1 / (1024 * 1024),
-                    unitsName: 'MB',
-                    watermark: 1024
-                } as (typeof options.stats)[number],
-                {
-                    name: 'Splats',
-                    stats: ['frame.gsplats'],
-                    decimalPlaces: 3,
-                    multiplier: 1 / 1000000,
-                    unitsName: 'M',
-                    watermark: 5
-                } as (typeof options.stats)[number]
-            );
-
-            new MiniStats(app, options);
-        }
+        // debug ministats, from the flag at start and the debug panel's toggle after
+        this.setMiniStats(config.ministats);
+        this.onDestroy(() => this.setMiniStats(false));
 
         const prevProj = new Mat4();
         const prevWorld = new Mat4();
@@ -378,7 +358,7 @@ class Viewer {
 
             if (!app.renderNextFrame) {
                 if (
-                    config.ministats ||
+                    this.miniStats ||
                     !nearlyEquals(world.data, prevWorld.data) ||
                     !nearlyEquals(proj.data, prevProj.data)
                 ) {
@@ -595,6 +575,8 @@ class Viewer {
             this.picker = this.splatRenderer
                 ? new FrameDepthPicker(app, camera, this.splatRenderer)
                 : new Picker(app, camera);
+            // for development pages (the bench measures pick noise), as splatRenderer:ready
+            events.fire('picker:ready', this.picker);
             this.inputController = new InputController(global, this.picker);
 
             this.cameraManager = new CameraManager(global, sceneBound);
@@ -650,7 +632,10 @@ class Viewer {
             // collision may already have landed while the splats were still streaming
             if (collisionReady) attachCollision(collisionReady);
 
-            this.debugPanel = new DebugPanel(global, this.cameraManager, this.picker, this.splatRenderer);
+            this.debugPanel = new DebugPanel(global, this.cameraManager, this.picker, this.splatRenderer, {
+                shown: () => !!this.miniStats,
+                show: (value) => this.setMiniStats(value)
+            });
 
             const applyPerfSettings = () => {
                 const budget = () => {
@@ -903,6 +888,42 @@ class Viewer {
      * Finally removes the instance root, and with it the canvas and ui subtree createViewer
      * built. Their element listeners go with them.
      */
+    /**
+     * Show or hide the engine's MiniStats panel. While shown the viewer renders every frame, so
+     * the graphs keep moving.
+     */
+    setMiniStats(value: boolean) {
+        if (value === !!this.miniStats) return;
+        if (!value) {
+            this.miniStats!.destroy();
+            this.miniStats = null;
+            return;
+        }
+        const options = MiniStats.getDefaultOptions() as NonNullable<ConstructorParameters<typeof MiniStats>[1]>;
+        options.cpu.enabled = false;
+        options.stats = options.stats.filter((s) => s.name !== 'DrawCalls');
+        options.stats.push(
+            {
+                name: 'VRAM',
+                stats: ['vram.tex'],
+                decimalPlaces: 1,
+                multiplier: 1 / (1024 * 1024),
+                unitsName: 'MB',
+                watermark: 1024
+            } as (typeof options.stats)[number],
+            {
+                name: 'Splats',
+                stats: ['frame.gsplats'],
+                decimalPlaces: 3,
+                multiplier: 1 / 1000000,
+                unitsName: 'M',
+                watermark: 5
+            } as (typeof options.stats)[number]
+        );
+        this.miniStats = new MiniStats(this.global.app, options);
+        this.global.app.renderNextFrame = true;
+    }
+
     destroy() {
         if (this.destroyed) return;
         this.destroyed = true;

@@ -85,10 +85,30 @@ const STYLES = `
 .${PANEL_CLASS} button.sse-flash {
     background: rgba(120, 220, 140, 0.35);
 }
+.${PANEL_CLASS} button.sse-flash-bad {
+    background: rgba(220, 100, 100, 0.45);
+}
+.${PANEL_CLASS} input.sse-debug-paste {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #eee;
+    border: 1px solid rgba(120, 180, 255, 0.6);
+    border-radius: 3px;
+    padding: 4px 8px;
+    font: inherit;
+}
 .${PANEL_CLASS} button.sse-debug-on {
     background: rgba(120, 180, 255, 0.35);
 }
 `;
+
+/** Show and query the viewer's MiniStats panel. */
+type MiniStatsSwitch = {
+    shown(): boolean;
+    show(value: boolean): void;
+};
 
 const fmt = (v: Vec3) => `${v.x.toFixed(3)}, ${v.y.toFixed(3)}, ${v.z.toFixed(3)}`;
 
@@ -118,6 +138,8 @@ class DebugPanel {
 
     private _taaButton: HTMLButtonElement | null = null;
 
+    private _poplessButton: HTMLButtonElement | null = null;
+
     private _culledValue: HTMLSpanElement | null = null;
 
     private _cullStatsFrames = 0;
@@ -139,6 +161,15 @@ class DebugPanel {
     private _copyButton: HTMLButtonElement | null = null;
 
     private _pasteButton: HTMLButtonElement | null = null;
+
+    // shown when the clipboard cannot be read (a cross-origin iframe without clipboard-read):
+    // the paste event of a focused field carries the text without that permission
+    private _pasteField: HTMLInputElement | null = null;
+
+    private _miniStatsButton: HTMLButtonElement | null = null;
+
+    // the viewer's MiniStats switch
+    private readonly _miniStats: MiniStatsSwitch | null;
 
     private _screenshotButton: HTMLButtonElement | null = null;
 
@@ -168,12 +199,14 @@ class DebugPanel {
         global: Global,
         cameraManager: CameraManager,
         picker: ScenePicker,
-        splatRenderer: StochasticSplatRenderer | null = null
+        splatRenderer: StochasticSplatRenderer | null = null,
+        miniStats: MiniStatsSwitch | null = null
     ) {
         this._global = global;
         this._cameraManager = cameraManager;
         this._picker = picker;
         this._splatRenderer = splatRenderer;
+        this._miniStats = miniStats;
         window.addEventListener('keydown', this._onKeyDown);
         if (global.config.debug) {
             this.show();
@@ -254,13 +287,16 @@ class DebugPanel {
             <div class="sse-debug-buttons">
                 <button data-id="screenshot">Screenshot</button>
                 <button data-id="pick-depth" title="Show the depth a navigation pick finds at every pixel">Show depth</button>
+                <button data-id="ministats" title="Show the engine's MiniStats graphs (the viewer then renders every frame)">MiniStats</button>
             </div>
+            <input class="sse-debug-paste" data-id="paste-field" placeholder="Clipboard blocked here: paste with Ctrl/Cmd+V" spellcheck="false" style="display: none">
             ${
                 this._splatRenderer
                     ? `
             <div class="sse-debug-buttons">
                 <button data-id="depth-cull" title="Stochastic renderer: cull splats hidden in the previous frame's depth (auto suspends the test when it removes too little)">Depth cull</button>
                 <button data-id="taa" title="Stochastic renderer: accumulate the samples over frames (reprojected while the camera moves)">TAA</button>
+                <button data-id="popless" title="Stochastic renderer: give each fragment the depth of the Gaussian's peak along its ray, rather than the splat centre's">Popless</button>
             </div>
             <div class="sse-debug-row"><span class="sse-debug-label">culled</span><span class="sse-debug-value" data-id="culled">—</span></div>`
                     : ''
@@ -275,6 +311,18 @@ class DebugPanel {
         this._pasteButton = root.querySelector('[data-id="paste"]')!;
         this._screenshotButton = root.querySelector('[data-id="screenshot"]')!;
         this._pickDepthButton = root.querySelector('[data-id="pick-depth"]')!;
+        this._miniStatsButton = root.querySelector('[data-id="ministats"]')!;
+        this._pasteField = root.querySelector('[data-id="paste-field"]')!;
+        this._wirePasteField(this._pasteField);
+        if (this._miniStats) {
+            this._miniStatsButton.addEventListener('click', () => {
+                this._miniStats!.show(!this._miniStats!.shown());
+                this._renderMiniStats();
+            });
+            this._renderMiniStats();
+        } else {
+            this._miniStatsButton.remove();
+        }
 
         this._copyButton.addEventListener('click', () => this._copy());
         this._pasteButton.addEventListener('click', () => this._paste());
@@ -285,6 +333,13 @@ class DebugPanel {
         if (this._splatRenderer) {
             this._cullButton = root.querySelector('[data-id="depth-cull"]')!;
             this._taaButton = root.querySelector('[data-id="taa"]')!;
+            this._poplessButton = root.querySelector('[data-id="popless"]')!;
+            this._poplessButton.addEventListener('click', () => {
+                const renderer = this._splatRenderer!;
+                renderer.variant.popless = renderer.variant.popless === 'on' ? 'off' : 'on';
+                renderer.applyVariant();
+                this._renderCull();
+            });
             this._culledValue = root.querySelector('[data-id="culled"]')!;
             this._taaButton.addEventListener('click', () => {
                 const renderer = this._splatRenderer!;
@@ -411,6 +466,10 @@ class DebugPanel {
             this._taaButton.textContent = `TAA: ${renderer.variant.taa}`;
             this._taaButton.classList.toggle('sse-debug-on', renderer.variant.taa === 'on');
         }
+        if (this._poplessButton) {
+            this._poplessButton.textContent = `Popless: ${renderer.variant.popless}`;
+            this._poplessButton.classList.toggle('sse-debug-on', renderer.variant.popless === 'on');
+        }
         if (mode === 'off') {
             this._culledValue.textContent = 'off';
             return;
@@ -438,25 +497,99 @@ class DebugPanel {
             });
     }
 
+    // The clipboard api, else a selection copied with execCommand: the api is refused in a
+    // cross-origin iframe without clipboard-write (superspl.at's local-frontend frame), while
+    // the command still works there inside the click
     private async _copy() {
-        const snapshot = captureCameraState(this._cameraManager, this._global.state);
+        const text = JSON.stringify(captureCameraState(this._cameraManager, this._global.state));
+        let copied = false;
         try {
-            await navigator.clipboard.writeText(JSON.stringify(snapshot));
+            await navigator.clipboard.writeText(text);
+            copied = true;
+        } catch {
+            const area = document.createElement('textarea');
+            area.value = text;
+            area.style.cssText = 'position: fixed; opacity: 0; pointer-events: none';
+            this._root!.appendChild(area);
+            area.select();
+            try {
+                copied = document.execCommand('copy');
+            } catch {
+                copied = false;
+            }
+            area.remove();
+        }
+        if (copied) {
             this._flash(this._copyButton);
-        } catch (err) {
-            console.warn('[debug-panel] copy failed', err);
+        } else {
+            console.warn('[debug-panel] copy failed');
+            this._flashBad(this._copyButton!);
         }
     }
 
+    // The clipboard api, else the paste field: reading needs clipboard-read, which a
+    // cross-origin iframe only has when its embedder grants it
     private async _paste() {
+        let text: string;
         try {
-            const text = await navigator.clipboard.readText();
+            text = await navigator.clipboard.readText();
+        } catch {
+            this._showPasteField(true);
+            return;
+        }
+        this._applyPasted(text);
+    }
+
+    private _applyPasted(text: string) {
+        try {
             const snapshot = JSON.parse(text) as CameraStateSnapshot;
             restoreCameraState(this._cameraManager, this._global.state, snapshot);
             this._flash(this._pasteButton);
         } catch (err) {
             console.warn('[debug-panel] paste failed', err);
+            this._flashBad(this._pasteButton!);
         }
+    }
+
+    private _showPasteField(value: boolean) {
+        const field = this._pasteField;
+        if (!field) return;
+        field.value = '';
+        field.style.display = value ? '' : 'none';
+        if (value) field.focus();
+    }
+
+    private _wirePasteField(field: HTMLInputElement) {
+        // keys typed here are text, not camera controls (see _wireEditable)
+        const stopKey = (e: KeyboardEvent) => e.stopPropagation();
+        field.addEventListener('keydown', (e) => {
+            stopKey(e);
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const text = field.value;
+                this._showPasteField(false);
+                this._applyPasted(text);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                this._showPasteField(false);
+            }
+        });
+        field.addEventListener('keyup', stopKey);
+        field.addEventListener('keypress', stopKey);
+        field.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const text = e.clipboardData?.getData('text/plain') ?? '';
+            this._showPasteField(false);
+            this._applyPasted(text);
+        });
+        field.addEventListener('blur', () => this._showPasteField(false));
+    }
+
+    private _renderMiniStats() {
+        if (!this._miniStats || !this._miniStatsButton) return;
+        const shown = this._miniStats.shown();
+        this._miniStatsButton.textContent = `MiniStats: ${shown ? 'on' : 'off'}`;
+        this._miniStatsButton.classList.toggle('sse-debug-on', shown);
     }
 
     private _screenshot() {
