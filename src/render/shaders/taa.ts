@@ -77,7 +77,11 @@ var histColor: texture_2d<u32>;
 // depths (decodeInfo)
 var histInfo: texture_2d<u32>;
 
-uniform invViewProj: mat4x4f;
+// the camera's world transform (the inverse view), and its projection's x and y terms: x, y the
+// scales, z, w the offsets (the column that multiplies view z for a perspective camera, the
+// translation for an orthographic one)
+uniform cameraWorld: mat4x4f;
+uniform unproject: vec4f;
 uniform prevViewProj: mat4x4f;
 uniform prevView: mat4x4f;
 // clip z = a * viewDepth + b over w = viewDepth (x, y); z: 1 for an orthographic camera
@@ -108,26 +112,26 @@ fn viewDepthOf(z: f32) -> f32 {
     return select(p.y / safeDz, (z - p.y) / p.x, p.z != 0.0);
 }
 
-fn clipZOf(viewDepth: f32) -> f32 {
-    let p = uniform.clipZParams;
-    let w = select(viewDepth, 1.0, p.z != 0.0);
-    return clamp(p.x * viewDepth + p.y, 0.0, w) / w;
-}
-
 struct Reprojected {
     valid: bool,
     uv: vec2f,
     prevDepth: f32
 }
 
-// the previous frame's view depth and texture coordinate of this pixel's point at clip depth z
-fn reproject(pix: vec2i, z: f32) -> Reprojected {
+// The previous frame's view depth and texture coordinate of this pixel's point at a view
+// depth. The point is built in view space from the depth and the projection's x and y terms,
+// then moved by the camera's rigid transform: through the inverse view-projection instead, a
+// near plane at 1e-4 of the depth (the viewer's floor once the camera is inside the scene
+// bound) leaves a 32-bit float about three digits of the point, a pixel of error that changes
+// with every frame's sample depths and shakes the history.
+fn reproject(pix: vec2i, viewDepth: f32) -> Reprojected {
     var r: Reprojected;
     let flip = uniform.taaControl.x;
     let uv = (vec2f(pix) + vec2f(0.5)) * uniform.taaViewport.zw;
     let ndc = vec2f(uv.x * 2.0 - 1.0, flip * (1.0 - 2.0 * uv.y));
-    let worldH = uniform.invViewProj * vec4f(ndc, z, 1.0);
-    let world = worldH.xyz / worldH.w;
+    let u = uniform.unproject;
+    let viewXY = select((ndc + u.zw) * viewDepth, ndc - u.zw, uniform.clipZParams.z != 0.0) / u.xy;
+    let world = (uniform.cameraWorld * vec4f(viewXY, -viewDepth, 1.0)).xyz;
     let prevClip = uniform.prevViewProj * vec4f(world, 1.0);
     r.prevDepth = -(uniform.prevView * vec4f(world, 1.0)).z;
     r.valid = prevClip.w > 0.0;
@@ -242,13 +246,13 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         // through the depth the pixel's history has settled on: one stochastic sample's depth
         // is one layer of the mixture the history holds, and reprojecting the mixture through
         // a different layer every frame smears it by their parallax
-        r = reproject(pix, clipZOf(own.depth));
+        r = reproject(pix, own.depth);
         carryDepth = own.depth;
     } else if (hit) {
-        r = reproject(pix, z);
+        r = reproject(pix, d);
         carryDepth = d;
     } else if (own.count > 0.5) {
-        r = reproject(pix, clipZOf(own.depth));
+        r = reproject(pix, own.depth);
         carryDepth = own.depth;
     }
     r.valid = r.valid && historyValid;

@@ -471,7 +471,8 @@ class StochasticSplatRenderer {
 
     private taaHeight = 0;
 
-    private invViewProjection = new Mat4();
+    // the camera's world transform, for the accumulation's reprojection
+    private cameraWorld = new Mat4();
 
     // frames since the camera or the scene last changed, for converging at rest
     private restFrames = 0;
@@ -522,11 +523,6 @@ class StochasticSplatRenderer {
     private shaderProjection = new Mat4();
 
     private viewProjection = new Mat4();
-
-    // the raster's own depth mapping (see frame()), and its view-projection
-    private rasterProjection = new Mat4();
-
-    private rasterViewProjection = new Mat4();
 
     private frameSeed = 0;
 
@@ -1039,11 +1035,6 @@ class StochasticSplatRenderer {
         const cameraClipZ = [-shaderProjection.data[10], shaderProjection.data[14]];
         const clipZ = isOrtho ? cameraClipZ : [1, cameraClipZ[1] / cameraClipZ[0]];
         const clipZParams = [clipZ[0], clipZ[1], isOrtho ? 1 : 0, 0];
-        // the raster's view-projection, for reconstructing world points from its depth
-        this.rasterProjection.copy(shaderProjection);
-        this.rasterProjection.data[10] = -clipZ[0];
-        this.rasterProjection.data[14] = clipZ[1];
-        this.rasterViewProjection.mul2(this.rasterProjection, view);
 
         this.cullNodes(set, this.viewProjection);
 
@@ -1237,12 +1228,15 @@ class StochasticSplatRenderer {
             const taa = this.taaMaterial;
             this.taaPrevViewProjection.copy(this.taaLastViewProjection);
             this.taaPrevView.copy(this.taaLastView);
-            this.invViewProjection.copy(this.rasterViewProjection).invert();
+            this.cameraWorld.copy(view).invert();
             taa.setParameter('curColor', this.colorTexture);
             taa.setParameter('curDepth', this.depthTexture);
             taa.setParameter('histColor', this.taaColor[read]);
             taa.setParameter('histInfo', this.taaInfo[read]);
-            taa.setParameter('invViewProj', this.invViewProjection.data);
+            taa.setParameter('cameraWorld', this.cameraWorld.data);
+            // x_ndc = (m00 x + m02 z) / -z for a perspective camera, m00 x + m03 for an orthographic one
+            const sp = shaderProjection.data;
+            taa.setParameter('unproject', isOrtho ? [sp[0], sp[5], sp[12], sp[13]] : [sp[0], sp[5], sp[8], sp[9]]);
             taa.setParameter('prevViewProj', this.taaPrevViewProjection.data);
             taa.setParameter('prevView', this.taaPrevView.data);
             taa.setParameter('clipZParams', clipZParams);
