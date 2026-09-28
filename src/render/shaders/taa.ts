@@ -87,7 +87,8 @@ uniform prevView: mat4x4f;
 // clip z = a * viewDepth + b over w = viewDepth (x, y); z: 1 for an orthographic camera
 uniform clipZParams: vec4f;
 // x: sample cap, y: 1 when the history holds the previous frame, z: 1 when the camera moved
-// since that frame
+// since that frame, w: the frames the camera has rested, this one included (0 on a frame whose
+// resident set changed)
 uniform taaParams: vec4f;
 // width, height, 1 / width, 1 / height
 uniform taaViewport: vec4f;
@@ -285,6 +286,13 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         color = sample;
         mean = d;
         count = select(0.0, 1.0, hit);
+        // at rest a pixel with no hit yet has still been sampled on every rest frame, so its
+        // first hit is one of that many samples: at full weight a rare hit would flash to full
+        // coverage, and freeze there once the viewer stops rendering. Its depth is the hit's
+        if (hit && !moving && historyValid) {
+            count = clamp(uniform.taaParams.w, 1.0, maxCount);
+            color = sample / count;
+        }
     } else {
         // moving, the history is clamped to the colours this frame's neighbourhood holds, so a
         // stale colour cannot survive where nothing like it is drawn any more

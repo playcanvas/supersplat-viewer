@@ -1246,7 +1246,7 @@ class StochasticSplatRenderer {
                 moved || changed ? this.variant.taaMoveMax : this.variant.taaMax,
                 this.taaHistoryValid ? 1 : 0,
                 moved ? 1 : 0,
-                0
+                this.restFrames
             ]);
             taa.setParameter('taaViewport', [width, height, 1 / width, 1 / height]);
             taa.setParameter('taaControl', [
