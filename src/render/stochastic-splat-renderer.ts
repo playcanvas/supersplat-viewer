@@ -31,7 +31,8 @@ import {
     MeshInstance,
     FILTER_NEAREST,
     PIXELFORMAT_DEPTH,
-    PIXELFORMAT_RGBA32F,
+    PIXELFORMAT_R32U,
+    PIXELFORMAT_RGBA16U,
     PIXELFORMAT_RGBA8,
     PRIMITIVE_TRIANGLES,
     PROJECTION_ORTHOGRAPHIC,
@@ -67,9 +68,9 @@ import { argsWGSL } from './shaders/args';
 import { composeFragmentWGSL, composeVertexWGSL } from './shaders/compose';
 import { orderScanWGSL, orderScatterWGSL } from './shaders/order';
 import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, projectorWGSL } from './shaders/projector';
-import { QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
+import { FAR_CLIP_Z, QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
-import { taaFragmentWGSL, taaVertexWGSL } from './shaders/taa';
+import { TAA_MAX_COUNT, taaFragmentWGSL, taaVertexWGSL } from './shaders/taa';
 import type { DispatchGroup, SplatSource, SplatSourceKind } from './splat-source';
 import { DirectSplatSource } from './splat-source-direct';
 import { WorkBufferSplatSource } from './splat-source-workbuffer';
@@ -101,16 +102,15 @@ type Variant = {
     popless: 'on' | 'off';
     /** Temporal accumulation of the stochastic samples (shaders/taa.ts). */
     taa: 'on' | 'off';
-    /** Sample cap of the accumulation at rest: the history weight never drops below 1 / taaMax. */
+    /**
+     * Sample cap of the accumulation at rest: the history weight never drops below 1 / taaMax.
+     * At most TAA_MAX_COUNT, the most the history's count field holds.
+     */
     taaMax: number;
     /** Sample cap while the camera moves, so the history keeps up with the view. */
     taaMoveMax: number;
-    /** Relative depth tolerance of the history test, plus 2 sigma of the pixel's depth distribution. */
-    taaTol: number;
     /** Colour clamp while moving, in neighbourhood standard deviations (0 disables it). */
     taaClip: number;
-    /** Consecutive out-of-distribution samples on one side that reset a pixel while moving; 0 disables the depth test. */
-    taaRun: number;
     /** History filter while moving: bilinear or Catmull-Rom. */
     taaFilter: 'linear' | 'cubic';
     /** Depth the moving reprojection goes through: this frame's sample or the pixel's accumulated mean. */
@@ -137,9 +137,7 @@ const defaultVariant = (): Variant => ({
     taa: 'on',
     taaMax: 256,
     taaMoveMax: 16,
-    taaTol: 0.02,
     taaClip: 1.25,
-    taaRun: 0,
     taaFilter: 'cubic',
     taaReproj: 'sample',
     taaMotion: 4,
@@ -148,6 +146,8 @@ const defaultVariant = (): Variant => ({
     colorMax: 8,
     units: 'engine'
 });
+
+const taaCount = (value: number) => Math.min(TAA_MAX_COUNT, Math.max(1, Math.round(value)));
 
 const parseVariant = (text: string | undefined): Variant => {
     const variant = defaultVariant();
@@ -158,12 +158,10 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'compose' && (value === 'blend' || value === 'none' || value === 'depth')) variant.compose = value;
         if (key === 'popless' && (value === 'on' || value === 'off')) variant.popless = value;
         if (key === 'taa' && (value === 'on' || value === 'off')) variant.taa = value;
-        if (key === 'taaMax' && Number.isFinite(Number(value))) variant.taaMax = Math.max(1, Number(value));
-        if (key === 'taaMoveMax' && Number.isFinite(Number(value))) variant.taaMoveMax = Math.max(1, Number(value));
-        if (key === 'taaTol' && Number.isFinite(Number(value))) variant.taaTol = Math.max(0, Number(value));
+        if (key === 'taaMax' && Number.isFinite(Number(value))) variant.taaMax = taaCount(Number(value));
+        if (key === 'taaMoveMax' && Number.isFinite(Number(value))) variant.taaMoveMax = taaCount(Number(value));
         if (key === 'taaDebug' && Number.isFinite(Number(value))) variant.taaDebug = Number(value);
         if (key === 'taaClip' && Number.isFinite(Number(value))) variant.taaClip = Math.max(0, Number(value));
-        if (key === 'taaRun' && Number.isFinite(Number(value))) variant.taaRun = Math.max(0, Number(value));
         if (key === 'taaFilter' && (value === 'linear' || value === 'cubic')) variant.taaFilter = value;
         if (key === 'taaReproj' && (value === 'sample' || value === 'history')) variant.taaReproj = value;
         if (key === 'taaMotion' && Number.isFinite(Number(value))) variant.taaMotion = Math.max(0, Number(value));
@@ -234,7 +232,10 @@ type DepthFrame = {
     camera: PickCameraSnapshot;
     width: number;
     height: number;
-    /** clip z = a * viewDepth + b over w = viewDepth, for the depth texture's values. */
+    /**
+     * clip z = a * viewDepth + b (over w = viewDepth for a perspective camera), for the depth
+     * texture's values: the renderer's own mapping, whose far plane is at infinity.
+     */
     clipZ: [number, number];
 };
 
@@ -433,8 +434,9 @@ class StochasticSplatRenderer {
 
     private rasterPass: SplatRasterPass;
 
-    // taa: ping-pong history (premultiplied colour + coverage, and depth mean / variance /
-    // count), resolved by a fullscreen pass after the raster
+    // taa: ping-pong history (premultiplied colour + coverage as unorm16, and the depth mean and
+    // sample count packed in 32 bits; shaders/taa.ts), resolved by a fullscreen pass after the
+    // raster. Sized with the target on the first accumulating frame, and shrunk back while taa is off
     private taaColor: Texture[] = [];
 
     private taaInfo: Texture[] = [];
@@ -469,7 +471,8 @@ class StochasticSplatRenderer {
 
     private taaHeight = 0;
 
-    private invViewProjection = new Mat4();
+    // the camera's world transform, for the accumulation's reprojection
+    private cameraWorld = new Mat4();
 
     // frames since the camera or the scene last changed, for converging at rest
     private restFrames = 0;
@@ -803,7 +806,7 @@ class StochasticSplatRenderer {
                     name: `sse-splat-taa-color-${i}`,
                     width: 4,
                     height: 4,
-                    format: PIXELFORMAT_RGBA32F,
+                    format: PIXELFORMAT_RGBA16U,
                     mipmaps: false,
                     minFilter: FILTER_NEAREST,
                     magFilter: FILTER_NEAREST,
@@ -816,7 +819,7 @@ class StochasticSplatRenderer {
                     name: `sse-splat-taa-info-${i}`,
                     width: 4,
                     height: 4,
-                    format: PIXELFORMAT_RGBA32F,
+                    format: PIXELFORMAT_R32U,
                     mipmaps: false,
                     minFilter: FILTER_NEAREST,
                     magFilter: FILTER_NEAREST,
@@ -838,7 +841,8 @@ class StochasticSplatRenderer {
             uniqueName: 'sse-splat-taa',
             vertexWGSL: taaVertexWGSL,
             fragmentWGSL: taaFragmentWGSL,
-            attributes: { vertex_position: SEMANTIC_POSITION }
+            attributes: { vertex_position: SEMANTIC_POSITION },
+            fragmentOutputTypes: ['uvec4', 'uint']
         });
         this.taaMaterial.blendType = BLEND_NONE;
         this.taaMaterial.depthWrite = false;
@@ -876,6 +880,7 @@ class StochasticSplatRenderer {
         // engine create and upload a placeholder inside the forward pass, which submits the
         // command buffer mid-pass on WebGPU
         this.composeMaterial.setParameter('taaColor', this.taaColor[0]);
+        this.composeMaterial.setParameter('taaInfo', this.taaInfo[0]);
         this.composeInstance = new MeshInstance(
             this.composeMesh,
             this.composeMaterial,
@@ -922,10 +927,15 @@ class StochasticSplatRenderer {
         this.applyVariant();
     }
 
-    /** Drop the temporal history; the next frame starts accumulating from its own sample. */
+    /**
+     * Drop the temporal history; the next frame starts accumulating from its own sample. The
+     * coverage seeds restart too, so a variant accumulates the same samples every time (the
+     * harness compares builds image for image).
+     */
     resetHistory() {
         this.taaHistoryValid = false;
         this.restFrames = 0;
+        this.frameIndex = 0;
     }
 
     /** Re-read {@link variant} after a field changed. */
@@ -1015,6 +1025,16 @@ class StochasticSplatRenderer {
         // the clip z the raster shader reconstructs must match the engine's WebGPU depth range
         const shaderProjection = Camera.applyShaderProjectionTransform(projection, this.shaderProjection, false, true);
         this.viewProjection.mul2(shaderProjection, view);
+        // The splats' own depth: clip z = a * depth + b (over w = depth for a perspective
+        // camera). The camera's far plane is fitted to the scene bound, which can leave a sky
+        // outside it, and splats clamped there share one depth and lose their order; so a
+        // perspective raster puts its far plane at infinity (z = 1 - near / depth), with the same
+        // near plane and, near where precision matters, the same resolution. The compose converts
+        // back to the camera's depth where the splats meet the rest of the scene. An orthographic
+        // camera keeps its own mapping: a linear depth has no far plane at infinity.
+        const cameraClipZ = [-shaderProjection.data[10], shaderProjection.data[14]];
+        const clipZ = isOrtho ? cameraClipZ : [1, cameraClipZ[1] / cameraClipZ[0]];
+        const clipZParams = [clipZ[0], clipZ[1], isOrtho ? 1 : 0, 0];
 
         this.cullNodes(set, this.viewProjection);
 
@@ -1040,8 +1060,7 @@ class StochasticSplatRenderer {
             (!isQuery || (this.allowQueryTaa && width === this.taaWidth && height === this.taaHeight));
         if (taaOn) {
             if (this.taaWidth !== width || this.taaHeight !== height) {
-                for (const texture of [...this.taaColor, ...this.taaInfo]) texture.resize(width, height);
-                for (const target of this.taaTargets) target.resize(width, height);
+                this.resizeHistory(width, height);
                 this.taaWidth = width;
                 this.taaHeight = height;
                 this.taaHistoryValid = false;
@@ -1056,6 +1075,12 @@ class StochasticSplatRenderer {
             // a capture at another size does not accumulate; the next on-screen frame starts over
             this.taaHistoryValid = false;
             this.restFrames = 0;
+            // switched off: the history goes back to its placeholder size until it is wanted
+            if (this.variant.taa === 'off' && this.taaWidth !== 0) {
+                this.resizeHistory(4, 4);
+                this.taaWidth = 0;
+                this.taaHeight = 0;
+            }
         }
         this.taaActive = taaOn;
 
@@ -1103,6 +1128,11 @@ class StochasticSplatRenderer {
         // the order key spans the fitted clip range, log-spaced
         const logNear = Math.log(Math.max(cam.nearClip, 1e-6));
         const invLogRange = 1 / Math.max(Math.log(Math.max(cam.farClip, 1e-6)) - logNear, 1e-6);
+        // the view depths where the raster's clip z reaches 0 and its far clamp (FAR_CLIP_Z), from
+        // clip z = a * depth + b (over w = depth for a perspective camera)
+        const [clipA, clipB] = clipZ;
+        const depthNear = -clipB / clipA;
+        const depthFar = isOrtho ? (FAR_CLIP_Z - clipB) / clipA : clipB / (FAR_CLIP_Z - clipA);
 
         const cameraPosition = camera.entity.getPosition();
         const groups = this.source.dispatchPlan(set, this.numChunks);
@@ -1145,6 +1175,8 @@ class StochasticSplatRenderer {
             projector.setParameter('prevFlip', this.prevFlip);
             projector.setParameter('keyLogNear', logNear);
             projector.setParameter('keyInvLogRange', invLogRange);
+            projector.setParameter('depthNear', depthNear);
+            projector.setParameter('depthFar', depthFar);
             Compute.calcDispatchSize(group.chunkCount, tmpVec2);
             projector.setupDispatch(tmpVec2.x, tmpVec2.y, 1);
             device.computeDispatch([projector], 'sse-splat-project');
@@ -1185,13 +1217,7 @@ class StochasticSplatRenderer {
         material.setParameter('splatCount', this.counter);
         if (ordered) material.setParameter('orderedSlots', this.orderedBuffer!);
         material.setParameter('viewportSize', [width, height, 2 / width, 2 / height]);
-        // clip z is affine in view depth: z = -m22 * depth + m23 of the shader projection
-        material.setParameter('clipZParams', [
-            -shaderProjection.data[10],
-            shaderProjection.data[14],
-            isOrtho ? 1 : 0,
-            0
-        ]);
+        material.setParameter('clipZParams', clipZParams);
         material.setParameter('focalParams', [focal[0], focal[1], 0, 0]);
         material.setParameter('sseAlphaClip', gsplat.alphaClipForward);
         material.setParameter('frameSeed', this.frameSeed);
@@ -1202,34 +1228,32 @@ class StochasticSplatRenderer {
             const taa = this.taaMaterial;
             this.taaPrevViewProjection.copy(this.taaLastViewProjection);
             this.taaPrevView.copy(this.taaLastView);
-            this.invViewProjection.copy(this.viewProjection).invert();
+            this.cameraWorld.copy(view).invert();
             taa.setParameter('curColor', this.colorTexture);
             taa.setParameter('curDepth', this.depthTexture);
             taa.setParameter('histColor', this.taaColor[read]);
             taa.setParameter('histInfo', this.taaInfo[read]);
-            taa.setParameter('invViewProj', this.invViewProjection.data);
+            taa.setParameter('cameraWorld', this.cameraWorld.data);
+            // x_ndc = (m00 x + m02 z) / -z for a perspective camera, m00 x + m03 for an orthographic one
+            const sp = shaderProjection.data;
+            taa.setParameter('unproject', isOrtho ? [sp[0], sp[5], sp[12], sp[13]] : [sp[0], sp[5], sp[8], sp[9]]);
             taa.setParameter('prevViewProj', this.taaPrevViewProjection.data);
             taa.setParameter('prevView', this.taaPrevView.data);
-            taa.setParameter('clipZParams', [
-                -shaderProjection.data[10],
-                shaderProjection.data[14],
-                isOrtho ? 1 : 0,
-                0
-            ]);
+            taa.setParameter('clipZParams', clipZParams);
             // a changed resident set (detail streamed in) keeps the history but caps its weight,
             // so the new content shows within taaMoveMax frames rather than 1 / taaMax a frame
             taa.setParameter('taaParams', [
                 moved || changed ? this.variant.taaMoveMax : this.variant.taaMax,
-                this.variant.taaTol,
                 this.taaHistoryValid ? 1 : 0,
-                moved ? 1 : 0
+                moved ? 1 : 0,
+                this.restFrames
             ]);
             taa.setParameter('taaViewport', [width, height, 1 / width, 1 / height]);
             taa.setParameter('taaControl', [
                 this.variant.taaFlip || (this.target.flipY ? -1 : 1),
                 this.variant.taaClip,
-                this.variant.taaRun,
-                this.variant.spp === 'quad' ? 1 : 0
+                this.variant.spp === 'quad' ? 1 : 0,
+                0
             ]);
             taa.setParameter('taaDebug', this.variant.taaDebug);
             taa.setParameter('taaFilter', [
@@ -1240,6 +1264,7 @@ class StochasticSplatRenderer {
             ]);
             this.taaPass.renderTarget = this.taaTargets[this.taaWrite];
             this.composeMaterial.setParameter('taaColor', this.taaColor[this.taaWrite]);
+            this.composeMaterial.setParameter('taaInfo', this.taaInfo[this.taaWrite]);
             this.taaLastViewProjection.copy(this.viewProjection);
             this.taaLastView.copy(view);
             this.taaHistoryValid = true;
@@ -1255,11 +1280,12 @@ class StochasticSplatRenderer {
             0
         ]);
         this.composeMaterial.setParameter('depthViewParams', [
-            -shaderProjection.data[10],
-            shaderProjection.data[14],
+            clipZ[0],
+            clipZ[1],
             Math.max(cam.nearClip, 1e-4),
             Math.max(cam.farClip, cam.nearClip * 2)
         ]);
+        this.composeMaterial.setParameter('cameraClipZ', [cameraClipZ[0], cameraClipZ[1], isOrtho ? 1 : 0, 0]);
 
         // cull:auto: read this culled frame's counts back (asynchronously, off the frame) and
         // keep the test only while it removes enough to pay for itself
@@ -1296,12 +1322,12 @@ class StochasticSplatRenderer {
             camera: this.depthFrameCamera,
             width,
             height,
-            clipZ: [-shaderProjection.data[10], shaderProjection.data[14]]
+            clipZ: [clipZ[0], clipZ[1]]
         };
         this.prevViewProjection.copy(this.viewProjection);
         this.prevView.copy(view);
         this.prevProjection.copy(projection);
-        this.prevClipZ = [-shaderProjection.data[10], shaderProjection.data[14], isOrtho ? 1 : 0, 0];
+        this.prevClipZ = clipZParams;
         this.prevViewport = [width, height];
         this.prevFocal = focal;
         this.prevFlip = this.target.flipY ? -1 : 1;
@@ -1312,6 +1338,11 @@ class StochasticSplatRenderer {
         this.prevValid = !isQuery;
 
         this.setReady(true);
+    }
+
+    private resizeHistory(width: number, height: number) {
+        for (const texture of [...this.taaColor, ...this.taaInfo]) texture.resize(width, height);
+        for (const target of this.taaTargets) target.resize(width, height);
     }
 
     // whether the view or the projection differs from the previous on-screen frame's beyond
@@ -1473,7 +1504,9 @@ class StochasticSplatRenderer {
                     new UniformFormat('modelScale', UNIFORMTYPE_VEC4),
                     new UniformFormat('cameraPosition', UNIFORMTYPE_VEC4),
                     new UniformFormat('colorMax', UNIFORMTYPE_FLOAT),
-                    new UniformFormat('unitScale', UNIFORMTYPE_FLOAT)
+                    new UniformFormat('unitScale', UNIFORMTYPE_FLOAT),
+                    new UniformFormat('depthNear', UNIFORMTYPE_FLOAT),
+                    new UniformFormat('depthFar', UNIFORMTYPE_FLOAT)
                 ])
             },
             computeBindGroupFormat: this.projectorBindGroupFormat

@@ -3,6 +3,8 @@
 // its depth, so everything drawn later depth-tests against the splats. The colour transform
 // the engine's own splat shader applies (gsplatOutputVS: tonemap and gamma, or the viewer's
 // pass-through patch under CameraFrame) runs here, once per pixel instead of once per splat.
+import { taaHistoryWGSL } from './taa';
+
 const composeVertexWGSL = /* wgsl */ `
 attribute vertex_position: vec2f;
 
@@ -21,12 +23,47 @@ var splatColor: texture_2d<f32>;
 var splatColorSampler: sampler;
 var splatDepth: texture_depth_2d;
 // the temporally accumulated frame (premultiplied colour, coverage), when taa ran this frame
-var taaColor: texture_2d<uff>;
+var taaColor: texture_2d<u32>;
+// its depth record: the mean view depth of the pixel's samples and their count
+var taaInfo: texture_2d<u32>;
 // x: 1 when the splat target's rows run the other way to the camera target's; y: 1 for an
 // orthographic camera; z: 1 to read the taa history instead of the raw frame
 uniform composeParams: vec4f;
-// clip z = a * viewDepth + b over w = viewDepth (x, y), near and far (z, w): the depth view
+// the splat target's depth: clip z = a * viewDepth + b over w = viewDepth (x, y), and the
+// camera's near and far (z, w) for the depth view
 uniform depthViewParams: vec4f;
+// the camera's own depth, the one written for the rest of the scene: clip z = a * viewDepth + b
+// (x, y). The splat target's far plane is at infinity where the camera's is fitted to the scene
+uniform cameraClipZ: vec4f;
+
+${taaHistoryWGSL}
+
+const FAR_DEPTH = 0.999999;
+
+// the splat target's depth texel of a view depth, just inside its far plane at most: the
+// raster clamps there too, since a depth of 1 reads as no sample
+fn clipZOf(viewDepth: f32) -> f32 {
+    let p = uniform.depthViewParams;
+    let w = select(viewDepth, 1.0, uniform.composeParams.y > 0.5);
+    return min(clamp(p.x * viewDepth + p.y, 0.0, w) / w, FAR_DEPTH);
+}
+
+// the view depth of a splat target depth texel
+fn viewDepthOf(z: f32) -> f32 {
+    let p = uniform.depthViewParams;
+    let dz = z - p.x;
+    let safeDz = select(dz, sign(dz) * 1e-9 + 1e-12, abs(dz) < 1e-9);
+    return select(p.y / safeDz, (z - p.y) / p.x, uniform.composeParams.y > 0.5);
+}
+
+// A splat target depth in the camera's depth, clamped just inside the camera's far plane as the
+// engine clamps its splats: splats beyond it stay behind everything the scene draws
+fn cameraDepthOf(z: f32) -> f32 {
+    let viewDepth = viewDepthOf(z);
+    let c = uniform.cameraClipZ;
+    let w = select(viewDepth, 1.0, uniform.composeParams.y > 0.5);
+    return min(clamp(c.x * viewDepth + c.y, 0.0, w) / w, FAR_DEPTH);
+}
 
 @fragment
 fn fragmentMain(input: FragmentInput) -> FragmentOutput {
@@ -42,14 +79,20 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     var color: vec4f;
     if (uniform.composeParams.z > 0.5) {
         // the accumulated history: coverage in alpha, colour premultiplied by it
-        color = textureLoad(taaColor, pix, 0);
+        color = decodeColor(textureLoad(taaColor, pix, 0));
         if (depth >= 1.0 && color.a > 0.001) {
-            // covered by the history but no sample this frame: the depth of the nearest
-            // sampled neighbour, so the pixel still occludes what is behind the splats
-            depth = 1.0;
-            for (var dy = -1; dy <= 1; dy++) {
-                for (var dx = -1; dx <= 1; dx++) {
-                    depth = min(depth, textureLoad(splatDepth, clamp(pix + vec2i(dx, dy), vec2i(0), dims - vec2i(1)), 0));
+            // covered by the history but no sample this frame, which a faint pixel sees on
+            // most frames: the mean depth of the pixel's own samples, or, for a history this
+            // frame started (moving, from the quad's samples), the nearest sampled neighbour's,
+            // so the pixel still occludes what is behind the splats
+            let info = decodeInfo(textureLoad(taaInfo, pix, 0).x);
+            if (info.count > 0.5) {
+                depth = clipZOf(info.depth);
+            } else {
+                for (var dy = -1; dy <= 1; dy++) {
+                    for (var dx = -1; dx <= 1; dx++) {
+                        depth = min(depth, textureLoad(splatDepth, clamp(pix + vec2i(dx, dy), vec2i(0), dims - vec2i(1)), 0));
+                    }
                 }
             }
         }
@@ -81,16 +124,16 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             color = textureLoad(splatColor, pix, 0);
         #endif
     }
-    if (color.a <= 0.001 || depth >= 1.0) {
+    if (color.a <= 0.001) {
         discard;
     }
+    // coverage with no depth anywhere near: shown, behind everything the scene drew
+    depth = min(depth, FAR_DEPTH);
 
     #ifdef SSE_SHOW_DEPTH
         // the nearest sample's view depth, log-spaced between near and far, as grey
         let p = uniform.depthViewParams;
-        let dz = depth - p.x;
-        let safeDz = select(dz, sign(dz) * 1e-9 + 1e-12, abs(dz) < 1e-9);
-        let viewDepth = select(p.y / safeDz, (depth - p.y) / p.x, uniform.composeParams.y > 0.5);
+        let viewDepth = viewDepthOf(depth);
         let t = clamp(log(max(viewDepth, p.z) / p.z) / log(p.w / p.z), 0.0, 1.0);
         // 24-bit fixed point across rgb (high byte in red), so a capture can read it precisely
         let fixed = floor(t * 16777215.0);
@@ -98,7 +141,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         let mid = floor((fixed - hi * 65536.0) / 256.0);
         let lo = fixed - hi * 65536.0 - mid * 256.0;
         output.color = vec4f(vec3f(hi, mid, lo) / 255.0, 1.0);
-        output.fragDepth = depth;
+        output.fragDepth = cameraDepthOf(depth);
         return output;
     #endif
 
@@ -106,7 +149,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     let gamma = color.rgb / color.a;
     let rgb = prepareOutputFromGamma(gamma, 0.0);
     output.color = vec4f(rgb * color.a, color.a);
-    output.fragDepth = depth;
+    output.fragDepth = cameraDepthOf(depth);
     return output;
 }
 `;

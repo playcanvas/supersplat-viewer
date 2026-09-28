@@ -81,7 +81,7 @@
   },
   "scripts": {
     "build": "rollup -c",
-    "develop": "concurrently --kill-others \"npm run watch\" \"npm run serve\"",
+    "develop": "concurrently --kill-others \"npm run watch\" \"npm run serve\" \"npm run type:watch\"",
     "fmt": "prettier --check src test rollup.config.mjs eslint.config.mjs prettier.config.mjs",
     "fmt:fix": "prettier --write src test rollup.config.mjs eslint.config.mjs prettier.config.mjs",
     "lint": "eslint src test rollup.config.mjs eslint.config.mjs prettier.config.mjs",
@@ -91,6 +91,7 @@
     "test": "npm run build && npm run test:unit",
     "test:unit": "node --test",
     "type:check": "tsc --noEmit",
+    "type:watch": "tsc --noEmit --watch --preserveWatchOutput",
     "watch": "rollup -c -w"
   },
   "engines": {

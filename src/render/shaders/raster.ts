@@ -7,6 +7,9 @@ import { CACHE_WORDS } from './projector';
 /** Quads per draw instance; the mesh holds this many quads. */
 const QUADS_PER_INSTANCE = 128;
 
+/** The raster's far clamp in normalised depth: just inside 1, which the compose reads as empty. */
+const FAR_CLIP_Z = 0.999999;
+
 const rasterVertexWGSL = /* wgsl */ `
 attribute vertex_position: vec3f;
 
@@ -75,7 +78,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
     let ndcCorner = ndc + pixelOffset * uniform.viewportSize.zw;
     // clip z clamped into range like the engine's splat shader, so splats beyond the far plane
     // still draw; just inside it, since the compose and the accumulation read depth 1 as empty
-    let pos = vec4f(ndcCorner * w, clamp(uniform.clipZParams.x * cornerDepth + uniform.clipZParams.y, 0.0, w * 0.999999), w);
+    let pos = vec4f(ndcCorner * w, clamp(uniform.clipZParams.x * cornerDepth + uniform.clipZParams.y, 0.0, w * ${FAR_CLIP_Z}), w);
     output.position = vec4f(pos.x, pos.y * uniform.projectionFlipY, pos.z, pos.w);
     output.gaussianUV = corner;
     output.packedColor = splatCache[base + 4u];
@@ -154,4 +157,4 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
 }
 `;
 
-export { QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL };
+export { FAR_CLIP_Z, QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL };

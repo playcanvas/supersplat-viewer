@@ -96,7 +96,10 @@
             Browser mode supplies fullscreen/XR host controls and delayed-request teardown checks.
             XR callback simulations check cancellation without claiming to test a native session.
 
-            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser|input  ?instances=2  ?webgl  ?stochastic  ?content=  ?settings=
+            MiniStats mode toggles the panel through the debug panel, checks the toggles add no
+            engine listeners and that destroy removes it, then destroys during a refused copy.
+
+            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser|input|ministats  ?instances=2  ?webgl  ?stochastic  ?pump (frames without the display, for a hidden tab)  ?content=  ?settings=
         -->
         <div id="hosts"></div>
         <pre id="harness"></pre>
@@ -134,6 +137,28 @@
             const renderer = url.searchParams.has('webgl') ? 'webgl' : 'webgpu';
             const contentUrl = url.searchParams.get('content') ?? './scene.compressed.ply';
             const settingsUrl = url.searchParams.get('settings') ?? './settings.json';
+
+            // ?pump: animation frames from a MessageChannel instead of the display, as fast as the
+            // page takes them. A hidden page gets no requestAnimationFrame at all (the desktop
+            // app's browser pane hides it whenever it is not in front), so without this the loop
+            // stalls at its first frame there
+            if (url.searchParams.has('pump')) {
+                const channel = new MessageChannel();
+                let callbacks = new Map();
+                let nextId = 1;
+                channel.port1.onmessage = () => {
+                    const due = callbacks;
+                    callbacks = new Map();
+                    const now = performance.now();
+                    due.forEach((callback) => callback(now));
+                };
+                window.requestAnimationFrame = (callback) => {
+                    if (callbacks.size === 0) channel.port2.postMessage(0);
+                    callbacks.set(nextId, callback);
+                    return nextId++;
+                };
+                window.cancelAnimationFrame = (id) => callbacks.delete(id);
+            }
 
             const harness = document.getElementById('harness');
             const log = (line, fail = false) => {
@@ -936,6 +961,74 @@
                     document.getElementById('playback').hidden = true;
                     await reportUnhandled();
                 };
+            } else if (mode === 'ministats') {
+                // The debug panel's MiniStats toggle. The engine's MiniStats.destroy() leaves its
+                // stats timers reading every frame, so the viewer keeps one panel and hides it:
+                // toggling must add no frameupdate listeners, and destroy must remove its div.
+                // Then a copy whose clipboard refuses only once the viewer has gone stays quiet
+                log(`ministats, renderer=${renderer}, tab ${document.visibilityState}`);
+                let failures = 0;
+                const check = (name, ok, detail = '') => {
+                    if (!ok) failures++;
+                    log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`, !ok);
+                };
+                const host = addHost();
+                try {
+                    const viewer = await createViewer({
+                        container: host,
+                        settings,
+                        ...createOptions(),
+                        ministats: true,
+                        debug: true
+                    });
+                    const handles = handlesOf(viewer);
+                    const listeners = () => viewer.app._callbacks.get('frameupdate')?.length ?? 0;
+                    const button = () => host.querySelector('.sse-debug-panel [data-id="ministats"]');
+                    const panels = () => document.querySelectorAll('#mini-stats');
+                    const shown = () => panels().length === 1 && panels()[0].style.display !== 'none';
+
+                    // the debug panel is built once the content has loaded
+                    check('debug panel built', await until(() => !!button(), 120000));
+                    check('shown from the flag', shown() && button().textContent === 'MiniStats: on');
+                    const before = listeners();
+                    button().click();
+                    check(
+                        'hidden by the toggle',
+                        panels().length === 1 && !shown() && button().textContent === 'MiniStats: off'
+                    );
+                    for (let i = 0; i < 9; i++) button().click();
+                    check('shown again after ten toggles', shown());
+                    check(
+                        'toggling adds no frameupdate listeners',
+                        listeners() === before,
+                        `${before} -> ${listeners()}`
+                    );
+
+                    const clipboard = navigator.clipboard;
+                    clipboard.writeText = () =>
+                        timeout(100).then(() => {
+                            throw new Error('refused');
+                        });
+                    try {
+                        host.querySelector('.sse-debug-panel [data-id="copy"]').click();
+                        viewer.destroy();
+                        await timeout(200);
+                    } finally {
+                        delete clipboard.writeText;
+                    }
+                    check('panel div removed', panels().length === 0);
+                    check(
+                        'context released and subtree removed',
+                        (await released(handles)) && host.childElementCount === 0
+                    );
+                } catch (err) {
+                    failures++;
+                    log(`failed: ${err?.message ?? err}`, true);
+                    console.error(err);
+                }
+                host.remove();
+                failures += await reportUnhandled();
+                log(failures ? `done, ${failures} failed` : 'done, ministats toggles cleanly', failures > 0);
                 // Several viewers at once, each in its own host so each has a distinct root.
             } else if (instances > 1) {
                 log(`${instances} instances, renderer=${renderer}, tab ${document.visibilityState}`);

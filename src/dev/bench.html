@@ -75,6 +75,14 @@
               minPixelSize=<px>             scene.gsplat.minPixelSize for the stochastic mode only (default 2)
               radial=0                      sort the sorted renderer by view depth instead of radial distance
               minPixelSizeAll=<px>          scene.gsplat.minPixelSize for both modes
+              save=<tag>                    keep every stochastic variant's captures (converged and moving) under a tag
+              closeup                       add an automatic pose at 0.3 of the subject pose's distance (no poses file)
+              pick                          pick noise: surface picks over a 9 x 5 grid on 8 frames, spread and offset from the sorted pick
+              far=<m>                       fix the camera's far plane (both modes) instead of the viewer's fit to the scene bound
+              keep                          leave the last viewer alive as window.bench { viewer, app, renderer, pump(n) }
+              against=<tag>                 diff every capture against the one saved under that tag by an earlier run,
+                                            usually another build: a variant accumulates the same seeds each time, so
+                                            an unchanged renderer differs by nothing
         -->
         <div id="host"></div>
         <div id="panel">
@@ -348,6 +356,43 @@
                 }
                 return out;
             };
+            // captures kept between runs (save= / against=), in IndexedDB since a run's worth of
+            // 1080p frames is far beyond localStorage
+            const saveTag = params.get('save');
+            const againstTag = params.get('against');
+            const captureStore = (() => {
+                let db = null;
+                const open = () =>
+                    (db ??= new Promise((resolve, reject) => {
+                        const request = indexedDB.open('sse-bench', 1);
+                        request.onupgradeneeded = () => request.result.createObjectStore('captures');
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
+                    }));
+                const run = async (mode, operation) => {
+                    const store = (await open()).transaction('captures', mode).objectStore('captures');
+                    return new Promise((resolve, reject) => {
+                        const request = operation(store);
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
+                    });
+                };
+                return {
+                    put: (key, value) => run('readwrite', (store) => store.put(value, key)),
+                    get: (key) => run('readonly', (store) => store.get(key))
+                };
+            })();
+            // save this capture under the run's tag, and diff it against the one under `against`
+            const keepCapture = async (key, bytes, w, h) => {
+                if (saveTag) await captureStore.put(`${saveTag}|${key}`, { width: w, height: h, bytes });
+                if (!againstTag) return null;
+                const saved = await captureStore.get(`${againstTag}|${key}`);
+                if (!saved || saved.width !== w || saved.height !== h) {
+                    log(`no capture saved under ${againstTag} for ${key}`, true);
+                    return null;
+                }
+                return { diff: imageDiff(bytes, saved.bytes), saved: saved.bytes };
+            };
             const diffText = (d) =>
                 `${d.changedPct.toFixed(2)}% changed, meanAbs ${d.meanAbs.toFixed(2)}, rms ${d.rms.toFixed(2)}, bias ${d.bias.map((v) => v.toFixed(2)).join('/')}`;
             const preview = (bytes, w, h, title) => {
@@ -379,6 +424,10 @@
                     exposeGlobals: true
                 });
                 let renderer = null;
+                const picking = { picker: null };
+                viewer.events.once('picker:ready', (p) => {
+                    picking.picker = p;
+                });
                 viewer.events.once('splatRenderer:ready', (r) => {
                     renderer = r;
                     // captures photograph the culled frame, so the image diff covers the cull
@@ -393,6 +442,15 @@
                 // both renderers: which splat sizes carry a difference between them
                 if (params.has('minPixelSizeAll')) {
                     app.scene.gsplat.minPixelSize = Number(params.get('minPixelSizeAll'));
+                }
+                // a far plane fixed after the viewer fits its own to the scene bound, for scenes
+                // whose splats reach past that bound (a sky)
+                if (params.has('far')) {
+                    const farClip = Number(params.get('far'));
+                    app.on('framerender', () => {
+                        const cam = app.root.findComponents('camera')[0];
+                        if (cam) cam.farClip = farClip;
+                    });
                 }
                 // the sorted renderer's order: radial distance (the viewer's setting) or view depth,
                 // the depth the stochastic raster tests when popless is off
@@ -436,7 +494,7 @@
                 }
                 // let streaming and the first sorts settle
                 await pump(app, 30);
-                return { viewer, app, renderer, settle };
+                return { viewer, app, renderer, settle, picking };
             };
 
             // A moving camera exercises the work-buffer colour refresh, lod changes, the occlusion
@@ -463,6 +521,61 @@
             // the orbit frames photographed for the moving-image comparison
             const MOVE_FRAMES = [60, 180];
 
+            // pick noise: a 9 x 5 grid of normalised screen points, picked on this many frames
+            const PICK_POINTS = [];
+            for (let j = 0; j < 5; j++) {
+                for (let i = 0; i < 9; i++) PICK_POINTS.push([0.1 + i * 0.1, 0.1 + j * 0.2]);
+            }
+            const PICK_FRAMES = 8;
+            const sortedPicks = new Map(); // pose name -> mean pick positions of the sorted mode
+            // Per point: the mean position, the rms distance of the frames' positions from it and
+            // the mean angle of their normals from the mean normal; distances in % of the distance
+            // from the camera. With the sorted means, each point's offset from the sorted pick
+            const pickStats = (samples, cam, reference) => {
+                const means = [];
+                let hits = 0;
+                let spread = 0;
+                let angle = 0;
+                let counted = 0;
+                const offsets = [];
+                samples.forEach((list, i) => {
+                    hits += list.length;
+                    if (list.length === 0) {
+                        means.push(null);
+                        return;
+                    }
+                    const m = list[0].p.clone().set(0, 0, 0);
+                    const nm = m.clone();
+                    list.forEach(({ p, n }) => {
+                        m.add(p);
+                        nm.add(n);
+                    });
+                    m.mulScalar(1 / list.length);
+                    nm.normalize();
+                    means.push(m);
+                    const dist = m.distance(cam);
+                    let sq = 0;
+                    let deg = 0;
+                    list.forEach(({ p, n }) => {
+                        sq += p.distance(m) ** 2;
+                        deg += (Math.acos(Math.max(-1, Math.min(1, n.dot(nm)))) * 180) / Math.PI;
+                    });
+                    spread += (100 * Math.sqrt(sq / list.length)) / dist;
+                    angle += deg / list.length;
+                    counted++;
+                    if (reference?.[i]) offsets.push((100 * m.distance(reference[i])) / dist);
+                });
+                offsets.sort((a, b) => a - b);
+                return {
+                    hitRate: hits / (samples.length * PICK_FRAMES),
+                    spreadPct: counted ? spread / counted : 0,
+                    normalSpreadDeg: counted ? angle / counted : 0,
+                    biasPct: offsets.length ? offsets.reduce((s, v) => s + v, 0) / offsets.length : null,
+                    biasMedianPct: offsets.length ? offsets[offsets.length >> 1] : null,
+                    means
+                };
+            };
+
             const measure = async (app, profiler, label, snapshot) => {
                 profiler.samples.length = 0;
                 const orbit = move ? (i) => orbitStep(snapshot, i) : undefined;
@@ -482,6 +595,9 @@
                     samples: samples.length,
                     median: median(frameTimes),
                     min: Math.min(...frameTimes),
+                    // timestamps come in 65.5 us ticks: a mean over many frames resolves the
+                    // differences smaller than one, which the median and minimum cannot
+                    mean: frameTimes.reduce((s, t) => s + t, 0) / frameTimes.length,
                     passes
                 };
             };
@@ -506,6 +622,9 @@
                 warmup,
                 frames,
                 budget,
+                variants,
+                save: saveTag,
+                against: againstTag,
                 modes: {}
             };
 
@@ -515,7 +634,7 @@
 
             for (const mode of modes) {
                 log(`loading ${mode}...`);
-                const { viewer, app, renderer, settle } = await loadViewer(mode);
+                const { viewer, app, renderer, settle, picking } = await loadViewer(mode);
                 const device = app.graphicsDevice;
                 target = { width: device.width, height: device.height };
                 results.target = target;
@@ -562,9 +681,8 @@
                         const spread = Math.hypot(x.mad, y.mad, z.mad) * transform.getScale().x;
                         const dir = [0.5, 0.35, 1];
                         const len = Math.hypot(...dir);
-                        const distance = 1.5 * spread;
-                        poseList.push({
-                            name: 'subject',
+                        const subjectPose = (name, distance) => ({
+                            name,
                             snapshot: toSnapshot({
                                 position: [
                                     subject.x + (dir[0] / len) * distance,
@@ -575,6 +693,9 @@
                                 fov: 85
                             })
                         });
+                        poseList.push(subjectPose('subject', 1.5 * spread));
+                        // closer in, where overlapping splats meet at grazing angles
+                        if (params.has('closeup')) poseList.push(subjectPose('closeup', 0.3 * spread));
                     } else {
                         log('no cpu centres: run the sorted mode first for a subject pose');
                     }
@@ -653,6 +774,9 @@
                             log(
                                 `${mode} ${pose.name}: mean of ${TRUTH_FRAMES} raw frames vs sorted ${truthVsSorted ? diffText(truthVsSorted) : 'n/a'}`
                             );
+                            // the first variant's captures, which the others are diffed against
+                            // (vsFirst): at the same seeds, the difference is the switch alone
+                            const first = { rest: null, moving: {} };
                             for (const [i, variant] of variants.entries()) {
                                 renderer.setVariant(variant);
                                 renderer.seed = 0;
@@ -680,13 +804,38 @@
                                         );
                                     }
                                 }
+                                const captureKey = (suffix) => `${contentUrl}|${pose.name}|${variant}|${suffix}`;
+                                const kept = await keepCapture(captureKey('rest'), a, target.width, target.height);
+                                if (kept) {
+                                    preview(
+                                        diffImage(a, kept.saved),
+                                        target.width,
+                                        target.height,
+                                        `${pose.name} ${variant} |a - ${againstTag}| x4`
+                                    );
+                                }
+                                if (i === 0) first.rest = a;
+                                const vsFirst =
+                                    i > 0 && !variant.includes('compose:depth') ? imageDiff(a, first.rest) : null;
+                                let movingVsFirst = null;
                                 let moving = null;
+                                let movingVsSaved = null;
                                 if (move && !variant.includes('compose:depth')) {
                                     moving = {};
+                                    movingVsSaved = againstTag ? {} : null;
                                     for (const k of MOVE_FRAMES) {
                                         const ref = references.get(`${pose.name}@${k}`);
                                         const frame = await movingCapture(k);
                                         moving[k] = ref ? imageDiff(frame, ref) : null;
+                                        const keptMoving = await keepCapture(
+                                            captureKey(`@${k}`),
+                                            frame,
+                                            target.width,
+                                            target.height
+                                        );
+                                        if (movingVsSaved) movingVsSaved[k] = keptMoving?.diff ?? null;
+                                        if (i === 0) first.moving[k] = frame;
+                                        else (movingVsFirst ??= {})[k] = imageDiff(frame, first.moving[k]);
                                         if (taa)
                                             preview(frame, target.width, target.height, `${pose.name}@${k} ${variant}`);
                                     }
@@ -699,17 +848,64 @@
                                 poseResult.images[variant] = {
                                     vsSorted: reference && !depthView ? imageDiff(a, reference) : null,
                                     vsTruth: !depthView ? imageDiff(a, truth) : null,
+                                    vsSaved: kept?.diff ?? null,
+                                    vsFirst,
+                                    movingVsFirst,
                                     noiseFloor,
                                     moving,
+                                    movingVsSaved,
                                     depthRoughness: depthView ? depthRoughness(a, target.width, target.height) : null
                                 };
                                 const v = poseResult.images[variant].vsSorted;
                                 const rough = poseResult.images[variant].depthRoughness;
                                 const vt = poseResult.images[variant].vsTruth;
                                 log(
-                                    `${mode} ${pose.name} ${variant}: ${depthView ? `depth roughness ${rough.toFixed(3)}` : `vs sorted ${v ? diffText(v) : 'n/a'}; vs truth rms ${vt.rms.toFixed(2)}`}${noiseFloor ? `; noise floor rms ${noiseFloor.rms.toFixed(2)}` : ''}`
+                                    `${mode} ${pose.name} ${variant}: ${depthView ? `depth roughness ${rough.toFixed(3)}` : `vs sorted ${v ? diffText(v) : 'n/a'}; vs truth ${diffText(vt)}`}${noiseFloor ? `; noise floor rms ${noiseFloor.rms.toFixed(2)}` : ''}`
                                 );
+                                if (kept) {
+                                    log(`${mode} ${pose.name} ${variant}: vs ${againstTag} ${diffText(kept.diff)}`);
+                                }
+                                if (vsFirst) {
+                                    log(
+                                        `${mode} ${pose.name} ${variant}: vs ${variants[0]} ${diffText(vsFirst)}${movingVsFirst ? `; moving ${MOVE_FRAMES.map((k) => `@${k} rms ${movingVsFirst[k].rms.toFixed(2)}`).join(', ')}` : ''}`
+                                    );
+                                }
+                                if (movingVsSaved) {
+                                    log(
+                                        `${mode} ${pose.name} ${variant}: moving vs ${againstTag} ${MOVE_FRAMES.map((k) => `@${k} ${movingVsSaved[k] ? diffText(movingVsSaved[k]) : 'n/a'}`).join('; ')}`
+                                    );
+                                }
                             }
+                        }
+                    }
+
+                    // Pick noise (pick): surface picks over a grid of screen points on consecutive
+                    // frames. A stochastic frame is a fresh sample while the accumulation runs, so
+                    // the spread across frames is the pick's own noise; the sorted pass picker is
+                    // the reference its mean positions are measured against
+                    if (params.has('pick') && picking.picker) {
+                        poseResult.picks = {};
+                        for (const variant of modeVariants) {
+                            if (renderer) renderer.setVariant(variant);
+                            window.setCameraState(pose.snapshot);
+                            for (let f = 0; f < 4; f++) await renderFrame(app);
+                            const cam = app.root.findComponents('camera')[0].entity.getPosition();
+                            const samples = PICK_POINTS.map(() => []);
+                            for (let k = 0; k < PICK_FRAMES; k++) {
+                                await renderFrame(app);
+                                const results = await Promise.all(
+                                    PICK_POINTS.map(([x, y]) => picking.picker.pickSurface(x, y))
+                                );
+                                results.forEach((r, i) => {
+                                    if (r) samples[i].push({ p: r.position.clone(), n: r.normal.clone() });
+                                });
+                            }
+                            poseResult.picks[variant] = pickStats(samples, cam, sortedPicks.get(pose.name));
+                            if (mode === 'sorted') sortedPicks.set(pose.name, poseResult.picks[variant].means);
+                            const st = poseResult.picks[variant];
+                            log(
+                                `${mode} ${pose.name} ${variant}: picks hit ${(100 * st.hitRate).toFixed(0)}%, position spread ${st.spreadPct.toFixed(3)}% of distance, normal spread ${st.normalSpreadDeg.toFixed(1)} deg${st.biasPct != null ? `, offset from sorted ${st.biasPct.toFixed(3)}% (median ${st.biasMedianPct.toFixed(3)}%)` : ''}`
+                            );
                         }
                     }
 
@@ -738,6 +934,7 @@
                         poseResult.variants[variant] = {
                             median: median(list.map((r) => r.median)),
                             min: Math.min(...list.map((r) => r.min)),
+                            mean: list.reduce((s, r) => s + r.mean, 0) / list.length,
                             samples: list.reduce((s, r) => s + r.samples, 0),
                             passes,
                             survivors: stats?.survivors ?? null,
@@ -749,7 +946,7 @@
                             .join(', ');
                         const counts = stats ? ` survivors ${stats.survivors}, occluded ${stats.occluded};` : '';
                         log(
-                            `${mode} ${pose.name} ${variant}: ${poseResult.variants[variant].median.toFixed(3)} / ${poseResult.variants[variant].min.toFixed(3)} ms (${poseResult.variants[variant].samples} samples)${counts} [${passText}]`
+                            `${mode} ${pose.name} ${variant}: ${poseResult.variants[variant].median.toFixed(3)} / ${poseResult.variants[variant].min.toFixed(3)} ms, mean ${poseResult.variants[variant].mean.toFixed(3)} (${poseResult.variants[variant].samples} samples)${counts} [${passText}]`
                         );
                     }
                     await nextFrame(app);
@@ -765,7 +962,13 @@
                 }
 
                 profiler.detach();
-                viewer.destroy();
+                if (params.has('keep') && mode === modes[modes.length - 1]) {
+                    // left alive for inspection from the console: frames only render when pumped
+                    window.bench = { viewer, app, renderer, pump: (count = 1) => pump(app, count) };
+                    log('keep: window.bench holds the last viewer');
+                } else {
+                    viewer.destroy();
+                }
             }
 
             // summary table
@@ -777,6 +980,7 @@
                 'mode',
                 'variant',
                 'median ms',
+                'mean ms',
                 'min ms',
                 'survivors',
                 'occluded',
@@ -785,7 +989,8 @@
                 'vs sorted rms',
                 'vs truth rms',
                 'noise rms',
-                'moving rms'
+                'moving rms',
+                'vs saved rms'
             ].forEach((h) => {
                 const th = document.createElement('th');
                 th.textContent = h;
@@ -801,6 +1006,7 @@
                             mode,
                             variant,
                             run.median.toFixed(3),
+                            run.mean.toFixed(3),
                             run.min.toFixed(3),
                             String(run.survivors ?? pose.memory?.survivors ?? ''),
                             run.occluded != null ? String(run.occluded) : '',
@@ -813,7 +1019,8 @@
                                 ? Object.values(pose.images[variant].moving)
                                       .map((m) => (m ? m.rms.toFixed(2) : 'n/a'))
                                       .join(' / ')
-                                : ''
+                                : '',
+                            pose.images?.[variant]?.vsSaved ? pose.images[variant].vsSaved.rms.toFixed(3) : ''
                         ];
                         cells.forEach((c) => {
                             const td = document.createElement('td');
