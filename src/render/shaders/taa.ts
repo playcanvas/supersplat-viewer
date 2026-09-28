@@ -61,6 +61,30 @@ fn decodeInfo(v: u32) -> HistoryInfo {
     return info;
 }
 
+// A unit vector in the octahedral encoding (both components in [-1, 1]) and back
+fn octDecode(e: vec2f) -> vec3f {
+    var n = vec3f(e, 1.0 - abs(e.x) - abs(e.y));
+    let t = max(-n.z, 0.0);
+    n.x += select(t, -t, n.x >= 0.0);
+    n.y += select(t, -t, n.y >= 0.0);
+    return normalize(n);
+}
+
+fn octEncode(n: vec3f) -> vec2f {
+    let p = n.xy / (abs(n.x) + abs(n.y) + abs(n.z));
+    let folded = (vec2f(1.0) - abs(p.yx)) * select(vec2f(-1.0), vec2f(1.0), p >= vec2f(0.0));
+    return select(p, folded, n.z < 0.0);
+}
+
+// The lighting normal the pixel's samples average to, world space, octahedral as unorm16
+fn decodeNormal(v: vec4u) -> vec3f {
+    return octDecode(vec2f(v.xy) / 32767.5 - vec2f(1.0));
+}
+
+fn encodeNormal(n: vec3f) -> vec4u {
+    return vec4u(vec2u(round((octEncode(n) + vec2f(1.0)) * 32767.5)), 0u, 0u);
+}
+
 fn encodeInfo(depth: f32, count: f32) -> u32 {
     let bits = bitcast<u32>(max(depth, 0.0));
     return (((bits + 0x80u) >> 8u) << 9u) | min(u32(count), ${TAA_MAX_COUNT}u);
@@ -76,6 +100,9 @@ var histColor: texture_2d<u32>;
 // the mean view depth of the pixel's samples and their count, in the previous frame's view
 // depths (decodeInfo)
 var histInfo: texture_2d<u32>;
+// this frame's lighting normals (octahedral, world space) and their history (decodeNormal)
+var curNormal: texture_2d<f32>;
+var histNormal: texture_2d<u32>;
 
 // the camera's world transform (the inverse view), and its projection's x and y terms: x, y the
 // scales, z, w the offsets (the column that multiplies view z for a perspective camera, the
@@ -259,6 +286,9 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     r.valid = r.valid && historyValid;
 
     var hist = vec4f(0.0);
+    var histN = vec3f(0.0, 0.0, 1.0);
+    // the sample's normal, where one landed
+    let sampleN = octDecode(textureLoad(curNormal, pix, 0).xy);
     var info: HistoryInfo;
     var accepted = false;
     if (r.valid) {
@@ -266,13 +296,16 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         if (!moving) {
             hist = decodeColor(textureLoad(histColor, pix, 0));
             info = own;
+            histN = decodeNormal(textureLoad(histNormal, pix, 0));
         } else {
             if (uniform.taaFilter.x > 0.5) {
                 hist = historyCubicAt(r.uv, dims);
             } else {
                 hist = historyAt(r.uv, dims);
             }
-            info = decodeInfo(textureLoad(histInfo, clamp(vec2i(r.uv * vec2f(dims)), vec2i(0), dims - vec2i(1)), 0).x);
+            let texel = clamp(vec2i(r.uv * vec2f(dims)), vec2i(0), dims - vec2i(1));
+            info = decodeInfo(textureLoad(histInfo, texel, 0).x);
+            histN = decodeNormal(textureLoad(histNormal, texel, 0));
         }
         // a resting camera cannot disocclude anything, so every sample is accepted and the
         // pixel converges; moving, the colour clamp below keeps a disoccluded history out
@@ -282,6 +315,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     var color: vec4f;
     var mean: f32;
     var count: f32;
+    var normal = sampleN;
     if (!accepted) {
         color = sample;
         mean = d;
@@ -333,6 +367,9 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         // its depth, then the sample joins it
         let shifted = info.depth + (carryDepth - r.prevDepth);
         mean = select(shifted, shifted + w * (d - shifted), hit);
+        // the normals' running mean, renormalised; a miss keeps the history's
+        let mixed = histN + w * (sampleN - histN);
+        normal = select(histN, normalize(select(sampleN, mixed, dot(mixed, mixed) > 1e-8)), hit);
     }
 
     if (uniform.taaDebug > 1.5) {
@@ -344,6 +381,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     }
     output.color = encodeColor(color);
     output.color1 = encodeInfo(mean, count);
+    output.color2 = encodeNormal(normal);
     return output;
 }
 `;

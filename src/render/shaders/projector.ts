@@ -3,8 +3,11 @@
 // themselves to a dense cache with one global atomic per workgroup. The chunk table and node
 // visibility come from the cpu (resident-set rebuild on version change, frustum cull per frame).
 
-/** Words per cache entry. See the layout in the plan: ndc, depth, axis1, len2|alpha|flags, rgb, popless, id. */
-const CACHE_WORDS = 7;
+/**
+ * Words per cache entry. See the layout in the plan: ndc, depth, axis1, len2|alpha|flags, rgb,
+ * popless, id, and the lighting normal (octahedral, world space).
+ */
+const CACHE_WORDS = 8;
 
 const PROJECTOR_WORKGROUP_SIZE = 256;
 
@@ -88,6 +91,13 @@ fn setSplat(idx: u32) {
 
 ${readChunk}
 
+// a unit vector in the octahedral encoding, both components in [-1, 1]
+fn octEncode(n: vec3f) -> vec2f {
+    let p = n.xy / (abs(n.x) + abs(n.y) + abs(n.z));
+    let folded = (vec2f(1.0) - abs(p.yx)) * select(vec2f(-1.0), vec2f(1.0), p >= vec2f(0.0));
+    return select(p, folded, n.z < 0.0);
+}
+
 // quaternion (x, y, z, w) to a rotation matrix (columns)
 fn rotationMatrix(qIn: vec4f) -> mat3x3f {
     let q = normalize(qIn);
@@ -157,8 +167,19 @@ fn project(slot: u32, file: u32) -> Projected {
     // the work buffer holds world-space splats, so the view matrix is the model-view
     let rot = srcRotation();
     let scale = srcScale();
+    let rotation = rotationMatrix(vec4f(rot.yzw, rot.x));
+    // The lighting normal: the splat's shortest axis (the one a flat splat is thin along), turned
+    // to face the camera. World space, since the work buffer's splats are; a source reading the
+    // files' own space would need their model rotation too. A round splat has no telling axis,
+    // and lighting takes whichever comes out
+    let shortest = select(
+        select(rotation[2], rotation[1], scale.y < scale.z),
+        rotation[0],
+        scale.x < min(scale.y, scale.z)
+    );
+    let normal = select(-shortest, shortest, dot(shortest, uniforms.cameraPosition.xyz - center) >= 0.0);
     let linear = mat3x3f(uniforms.view[0].xyz, uniforms.view[1].xyz, uniforms.view[2].xyz);
-    let gaussian = linear * rotationMatrix(vec4f(rot.yzw, rot.x)) * mat3x3f(
+    let gaussian = linear * rotation * mat3x3f(
         vec3f(scale.x, 0.0, 0.0),
         vec3f(0.0, scale.y, 0.0),
         vec3f(0.0, 0.0, scale.z)
@@ -387,6 +408,7 @@ ${
     // the stable id the coverage hash seeds from: the slot, salted by the file for sources
     // whose indices restart per file
     result.words[6] = slot ^ (file * 2654435761u);
+    result.words[7] = pack2x16snorm(octEncode(normal));
     return result;
 }
 

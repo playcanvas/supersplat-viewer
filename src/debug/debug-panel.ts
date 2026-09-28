@@ -99,6 +99,21 @@ const STYLES = `
     padding: 4px 8px;
     font: inherit;
 }
+.${PANEL_CLASS} .sse-debug-slider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+.${PANEL_CLASS} .sse-debug-slider input {
+    flex: 1;
+    min-width: 0;
+    accent-color: rgb(120, 180, 255);
+}
+.${PANEL_CLASS} .sse-debug-slider .sse-debug-value {
+    width: 3.5em;
+    text-align: right;
+}
 .${PANEL_CLASS} button.sse-debug-on {
     background: rgba(120, 180, 255, 0.35);
 }
@@ -109,6 +124,10 @@ type MiniStatsSwitch = {
     shown(): boolean;
     show(value: boolean): void;
 };
+
+// the lighting sliders' log scale: position 0 is 0, the rest spans 0.01 to 10
+const sliderValue = (t: number) => (t <= 0 ? 0 : 10 ** (3 * t - 2));
+const sliderPosition = (value: number) => (value <= 0 ? 0 : Math.min(1, Math.max(0, (Math.log10(value) + 2) / 3)));
 
 const fmt = (v: Vec3) => `${v.x.toFixed(3)}, ${v.y.toFixed(3)}, ${v.z.toFixed(3)}`;
 
@@ -167,6 +186,15 @@ class DebugPanel {
     private _pasteField: HTMLInputElement | null = null;
 
     private _miniStatsButton: HTMLButtonElement | null = null;
+
+    private _lightButtons: Record<'lights' | 'normals' | 'shadows' | 'view', HTMLButtonElement> | null = null;
+
+    private _lightSliders: Record<'ambient' | 'intensity', { input: HTMLInputElement; label: HTMLSpanElement }> | null =
+        null;
+
+    private _lightStart = 0;
+
+    private readonly _lightFocus = new Vec3();
 
     // the viewer's MiniStats switch
     private readonly _miniStats: MiniStatsSwitch | null;
@@ -251,6 +279,7 @@ class DebugPanel {
     }
 
     destroy() {
+        this._global.app.off('frameend', this._animateLights);
         this.hide();
         this._pickDepthOverlay?.destroy();
         this._pickDepthOverlay = null;
@@ -298,7 +327,15 @@ class DebugPanel {
                 <button data-id="taa" title="Stochastic renderer: accumulate the samples over frames (reprojected while the camera moves)">TAA</button>
                 <button data-id="popless" title="Stochastic renderer: give each fragment the depth of the Gaussian's peak along its ray, rather than the splat centre's">Popless</button>
             </div>
-            <div class="sse-debug-row"><span class="sse-debug-label">culled</span><span class="sse-debug-value" data-id="culled">—</span></div>`
+            <div class="sse-debug-row"><span class="sse-debug-label">culled</span><span class="sse-debug-value" data-id="culled">—</span></div>
+            <div class="sse-debug-buttons">
+                <button data-id="lights" title="Stochastic renderer: point lights orbiting the focus point (lighting proof of concept)">Lights</button>
+                <button data-id="light-normals" title="Lighting normals: each splat's shortest axis, the depth's gradient, or none">Normals</button>
+                <button data-id="light-shadows" title="Screen-space shadows marched through the frame's depth">Shadows</button>
+                <button data-id="light-view" title="Show the lit frame, the normals, or the lighting on a white albedo">View</button>
+            </div>
+            <div class="sse-debug-slider" title="Ambient light: 1 is the splats' own colour"><span class="sse-debug-label">ambient</span><input type="range" data-id="light-ambient" min="0" max="1000" step="1"><span class="sse-debug-value" data-id="light-ambient-value">—</span></div>
+            <div class="sse-debug-slider" title="Scale on the point lights' intensity"><span class="sse-debug-label">lights</span><input type="range" data-id="light-intensity" min="0" max="1000" step="1"><span class="sse-debug-value" data-id="light-intensity-value">—</span></div>`
                     : ''
             }
         `;
@@ -355,6 +392,7 @@ class DebugPanel {
                 renderer.applyVariant();
                 this._renderCull();
             });
+            this._wireLights(root);
             this._renderCull();
         }
         this._wireEditable(this._positionValue, 'position');
@@ -466,6 +504,7 @@ class DebugPanel {
             this._taaButton.textContent = `TAA: ${renderer.variant.taa}`;
             this._taaButton.classList.toggle('sse-debug-on', renderer.variant.taa === 'on');
         }
+        this._renderLights();
         if (this._poplessButton) {
             this._poplessButton.textContent = `Popless: ${renderer.variant.popless}`;
             this._poplessButton.classList.toggle('sse-debug-on', renderer.variant.popless === 'on');
@@ -588,6 +627,120 @@ class DebugPanel {
         });
         field.addEventListener('blur', () => this._showPasteField(false));
     }
+
+    // The lighting demo: three coloured point lights orbiting the focus point, animated for as
+    // long as they are on, so the viewer renders every frame meanwhile
+    private _wireLights(root: HTMLElement) {
+        const renderer = this._splatRenderer!;
+        const button = (id: string, click: () => void) => {
+            const el = root.querySelector<HTMLButtonElement>(`[data-id="${id}"]`)!;
+            el.addEventListener('click', () => {
+                click();
+                renderer.applyVariant();
+                this._global.app.renderNextFrame = true;
+                this._renderCull();
+            });
+            return el;
+        };
+        this._lightButtons = {
+            lights: button('lights', () => {
+                const on = renderer.variant.light !== 'on';
+                renderer.variant.light = on ? 'on' : 'off';
+                this._global.app.off('frameend', this._animateLights);
+                if (on) {
+                    this._lightStart = performance.now();
+                    this._global.app.on('frameend', this._animateLights);
+                    this._animateLights();
+                }
+            }),
+            normals: button('light-normals', () => {
+                const next = { splat: 'depth', depth: 'none', none: 'splat' } as const;
+                renderer.variant.lightNormals = next[renderer.variant.lightNormals];
+            }),
+            shadows: button('light-shadows', () => {
+                renderer.variant.lightShadows = renderer.variant.lightShadows === 'on' ? 'off' : 'on';
+            }),
+            view: button('light-view', () => {
+                renderer.variant.lightDebug = (renderer.variant.lightDebug + 1) % 3;
+            })
+        };
+        this._lightSliders = {
+            ambient: this._wireSlider(root, 'light-ambient', (value) => {
+                renderer.variant.lightAmbient = value;
+            }),
+            intensity: this._wireSlider(root, 'light-intensity', (value) => {
+                renderer.variant.lightIntensity = value;
+            })
+        };
+    }
+
+    // A log-scale slider over 0..10: the far left is 0, the rest 0.01 to 10. The lighting reads its
+    // values every frame, so a change needs no rebuild and leaves the accumulation alone
+    private _wireSlider(root: HTMLElement, id: string, apply: (value: number) => void) {
+        const input = root.querySelector<HTMLInputElement>(`[data-id="${id}"]`)!;
+        const label = root.querySelector<HTMLSpanElement>(`[data-id="${id}-value"]`)!;
+        // arrow keys move the slider, not the camera
+        const stopKey = (e: KeyboardEvent) => e.stopPropagation();
+        input.addEventListener('keydown', stopKey);
+        input.addEventListener('keyup', stopKey);
+        input.addEventListener('input', () => {
+            apply(sliderValue(Number(input.value) / 1000));
+            this._global.app.renderNextFrame = true;
+            this._renderLights();
+        });
+        return { input, label };
+    }
+
+    private _renderLights() {
+        const renderer = this._splatRenderer;
+        const b = this._lightButtons;
+        if (!renderer || !b) return;
+        const on = renderer.variant.light === 'on';
+        b.lights.textContent = `Lights: ${on ? 'on' : 'off'}`;
+        b.lights.classList.toggle('sse-debug-on', on);
+        b.normals.textContent = `Normals: ${renderer.variant.lightNormals}`;
+        b.shadows.textContent = `Shadows: ${renderer.variant.lightShadows}`;
+        b.view.textContent = `View: ${['lit', 'normals', 'light'][renderer.variant.lightDebug] ?? 'lit'}`;
+        const sliders = this._lightSliders;
+        if (sliders) {
+            const show = (slider: { input: HTMLInputElement; label: HTMLSpanElement }, value: number) => {
+                if (document.activeElement !== slider.input)
+                    slider.input.value = String(Math.round(sliderPosition(value) * 1000));
+                slider.label.textContent =
+                    value < 0.1 ? value.toFixed(3) : value < 1 ? value.toFixed(2) : value.toFixed(1);
+            };
+            show(sliders.ambient, renderer.variant.lightAmbient);
+            show(sliders.intensity, renderer.variant.lightIntensity);
+        }
+    }
+
+    private _animateLights = () => {
+        const renderer = this._splatRenderer;
+        if (!renderer || renderer.variant.light !== 'on') return;
+        const cam = this._cameraManager.camera;
+        const focus = this._lightFocus;
+        cam.calcFocusPoint(focus);
+        const radius = 0.45 * cam.position.distance(focus);
+        const t = (performance.now() - this._lightStart) / 1000;
+        const colors: [number, number, number][] = [
+            [1, 0.8, 0.55],
+            [0.45, 0.65, 1],
+            [1, 0.45, 0.75]
+        ];
+        renderer.lights = colors.map((color, i) => {
+            const angle = t * 0.6 + (i * 2 * Math.PI) / colors.length;
+            const height = (0.2 + 0.25 * Math.sin(t * 0.9 + i * 2)) * radius;
+            return {
+                position: [focus.x + Math.cos(angle) * radius, focus.y + height, focus.z + Math.sin(angle) * radius],
+                color,
+                intensity: 2.5,
+                range: 2 * radius,
+                marker: 5
+            };
+        });
+        // requested at the end of the frame, since the engine clears the request after rendering
+        this._global.app.renderNextFrame = true;
+    };
 
     private _renderMiniStats() {
         if (!this._miniStats || !this._miniStatsButton) return;

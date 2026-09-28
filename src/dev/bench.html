@@ -78,6 +78,7 @@
               save=<tag>                    keep every stochastic variant's captures (converged and moving) under a tag
               closeup                       add an automatic pose at 0.3 of the subject pose's distance (no poses file)
               pick                          pick noise: surface picks over a 9 x 5 grid on 8 frames, spread and offset from the sorted pick
+              lights=<n>                    n static point lights around each pose's focus, for the light:on variants
               far=<m>                       fix the camera's far plane (both modes) instead of the viewer's fit to the scene bound
               keep                          leave the last viewer alive as window.bench { viewer, app, renderer, pump(n) }
               against=<tag>                 diff every capture against the one saved under that tag by an earlier run,
@@ -518,6 +519,39 @@
                     angles: [pitch, yaw + i * move, snapshot.angles[2]]
                 });
             };
+            // lights=<n>: that many static point lights for the stochastic renderer's lighting variants
+            // (light:on), spread around the pose's focus point at 0.45 of its distance (the debug
+            // panel's demo, frozen)
+            const lightCount = Number(params.get('lights') ?? 0);
+            const placeLights = (renderer, snapshot) => {
+                const degToRad = Math.PI / 180;
+                const [pitch, yaw] = snapshot.angles;
+                const f = [
+                    -Math.sin(yaw * degToRad) * Math.cos(pitch * degToRad),
+                    Math.sin(pitch * degToRad),
+                    -Math.cos(yaw * degToRad) * Math.cos(pitch * degToRad)
+                ];
+                const focus = snapshot.position.map((p, k) => p + f[k] * snapshot.distance);
+                const r = 0.45 * snapshot.distance;
+                const colors = [
+                    [1, 0.8, 0.55],
+                    [0.45, 0.65, 1],
+                    [1, 0.45, 0.75],
+                    [0.6, 1, 0.6]
+                ];
+                renderer.lights = colors.slice(0, lightCount).map((color, i) => {
+                    const angle = 0.6 + (i * 2 * Math.PI) / lightCount;
+                    const height = (0.2 + 0.25 * Math.sin(0.9 + i * 2)) * r;
+                    return {
+                        position: [focus[0] + Math.cos(angle) * r, focus[1] + height, focus[2] + Math.sin(angle) * r],
+                        color,
+                        intensity: 2.5,
+                        range: 2 * r,
+                        marker: 6
+                    };
+                });
+            };
+
             // the orbit frames photographed for the moving-image comparison
             const MOVE_FRAMES = [60, 180];
 
@@ -704,6 +738,7 @@
 
                 for (const pose of poseList) {
                     window.setCameraState(pose.snapshot);
+                    if (renderer && lightCount > 0) placeLights(renderer, pose.snapshot);
                     for (let i = 0; i < 3; i++) await renderFrame(app);
                     await settle();
                     log(`${mode} ${pose.name}: ${app.stats.frame.gsplats} splats active`);

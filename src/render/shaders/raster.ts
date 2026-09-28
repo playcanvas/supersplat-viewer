@@ -34,6 +34,7 @@ varying @interpolate(linear) gaussianUV: vec2f;
 varying @interpolate(flat, either) packedColor: u32;
 varying @interpolate(flat, either) packedAlpha: u32;
 varying @interpolate(flat, either) splatId: u32;
+varying @interpolate(flat, either) packedNormal: u32;
 
 const discardPosition = vec4f(0.0, 0.0, 2.0, 1.0);
 
@@ -84,6 +85,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
     output.packedColor = splatCache[base + 4u];
     output.packedAlpha = word3 >> 16u;
     output.splatId = splatCache[base + 6u];
+    output.packedNormal = splatCache[base + 7u];
     return output;
 }
 `;
@@ -93,6 +95,7 @@ varying @interpolate(linear) gaussianUV: vec2f;
 varying @interpolate(flat, either) packedColor: u32;
 varying @interpolate(flat, either) packedAlpha: u32;
 varying @interpolate(flat, either) splatId: u32;
+varying @interpolate(flat, either) packedNormal: u32;
 
 uniform sseAlphaClip: f32;
 // 0 while the camera rests, so a still frame reproduces itself; the frame index once TAA
@@ -153,6 +156,8 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     let color = vec3f(vec3u(bits, bits >> 10u, bits >> 20u) & vec3u(1023u)) * (f32(1u << (bits >> 30u)) / 1023.0);
     // opaque coverage: the compose reads alpha 1 as "a sample landed here"
     output.color = vec4f(color, 1.0);
+    // the splat's lighting normal, octahedral in world space (the projector's word 7)
+    output.color1 = vec4f(unpack2x16snorm(packedNormal), 0.0, 1.0);
     return output;
 }
 `;

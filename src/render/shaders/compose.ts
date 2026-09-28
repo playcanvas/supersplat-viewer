@@ -3,6 +3,7 @@
 // its depth, so everything drawn later depth-tests against the splats. The colour transform
 // the engine's own splat shader applies (gsplatOutputVS: tonemap and gamma, or the viewer's
 // pass-through patch under CameraFrame) runs here, once per pixel instead of once per splat.
+import { lightingWGSL } from './lighting';
 import { taaHistoryWGSL } from './taa';
 
 const composeVertexWGSL = /* wgsl */ `
@@ -56,14 +57,22 @@ fn viewDepthOf(z: f32) -> f32 {
     return select(p.y / safeDz, (z - p.y) / p.x, uniform.composeParams.y > 0.5);
 }
 
-// A splat target depth in the camera's depth, clamped just inside the camera's far plane as the
-// engine clamps its splats: splats beyond it stay behind everything the scene draws
-fn cameraDepthOf(z: f32) -> f32 {
-    let viewDepth = viewDepthOf(z);
+// A view depth in the camera's depth, clamped just inside the camera's far plane as the engine
+// clamps its splats: splats beyond it stay behind everything the scene draws
+fn cameraDepthOfView(viewDepth: f32) -> f32 {
     let c = uniform.cameraClipZ;
     let w = select(viewDepth, 1.0, uniform.composeParams.y > 0.5);
     return min(clamp(c.x * viewDepth + c.y, 0.0, w) / w, FAR_DEPTH);
 }
+
+// a splat target depth in the camera's depth
+fn cameraDepthOf(z: f32) -> f32 {
+    return cameraDepthOfView(viewDepthOf(z));
+}
+
+#ifdef SSE_LIGHTING
+${lightingWGSL}
+#endif
 
 @fragment
 fn fragmentMain(input: FragmentInput) -> FragmentOutput {
@@ -74,6 +83,16 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         pix.y = dims.y - 1 - pix.y;
     }
     pix = clamp(pix, vec2i(0), dims - vec2i(1));
+
+    #ifdef SSE_LIGHTING
+        // the lights' markers, over whatever is behind them
+        let marker = lightMarker(pix, dims);
+        if (marker.w > 0.0) {
+            output.color = vec4f(prepareOutputFromGamma(marker.rgb, 0.0), 1.0);
+            output.fragDepth = cameraDepthOfView(marker.w);
+            return output;
+        }
+    #endif
 
     var depth = textureLoad(splatDepth, pix, 0);
     var color: vec4f;
@@ -146,7 +165,11 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     #endif
 
     // un-premultiply for the output transform, then premultiply for the blend
-    let gamma = color.rgb / color.a;
+    var gamma = color.rgb / color.a;
+    #ifdef SSE_LIGHTING
+        let surface = surfaceDepthAt(pix);
+        gamma = lightSurface(pix, select(viewDepthOf(depth), surface, surface > 0.0), gamma, dims);
+    #endif
     let rgb = prepareOutputFromGamma(gamma, 0.0);
     output.color = vec4f(rgb * color.a, color.a);
     output.fragDepth = cameraDepthOf(depth);

@@ -32,6 +32,8 @@ import {
     FILTER_NEAREST,
     PIXELFORMAT_DEPTH,
     PIXELFORMAT_R32U,
+    PIXELFORMAT_RG16F,
+    PIXELFORMAT_RG16U,
     PIXELFORMAT_RGBA16U,
     PIXELFORMAT_RGBA8,
     PRIMITIVE_TRIANGLES,
@@ -66,6 +68,7 @@ import { EngineResidentSetProvider } from './resident-set';
 import type { EngineManager, ResidentSet } from './resident-set';
 import { argsWGSL } from './shaders/args';
 import { composeFragmentWGSL, composeVertexWGSL } from './shaders/compose';
+import { MAX_LIGHTS } from './shaders/lighting';
 import { orderScanWGSL, orderScatterWGSL } from './shaders/order';
 import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, projectorWGSL } from './shaders/projector';
 import { FAR_CLIP_Z, QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
@@ -125,6 +128,26 @@ type Variant = {
     colorMax: number;
     /** Covariance units: true pixels, or the engine's doubled-focal convention (its dilation and culls scale with it). */
     units: 'px' | 'engine';
+    /** Point lights (proof of concept, shaders/lighting.ts): the compose lights the frame with {@link StochasticSplatRenderer.lights}. */
+    light: 'on' | 'off';
+    /** The lighting normal: each splat's shortest axis, the depth's gradient, or none (distance falloff only). */
+    lightNormals: 'splat' | 'depth' | 'none';
+    /** Screen-space shadows, marched through the frame's depth. */
+    lightShadows: 'on' | 'off';
+    /** Ambient light: 1 is the splats' own colour, lights add to it. */
+    lightAmbient: number;
+    /** Scale on every point light's intensity. */
+    lightIntensity: number;
+    /** 1 shows the normals, 2 the lighting on a white albedo. */
+    lightDebug: number;
+    /** Baseline of the depth normals, in pixels: longer is smoother, and blurs edges. */
+    normalBaseline: number;
+    /** How much the normals' angle term counts: 0 not at all, 1 fully. */
+    normalStrength: number;
+    /** Steps of a shadow ray. */
+    shadowSteps: number;
+    /** Thickness an occluder is taken to have, as a fraction of its view depth. */
+    shadowThickness: number;
 };
 
 const defaultVariant = (): Variant => ({
@@ -144,7 +167,17 @@ const defaultVariant = (): Variant => ({
     taaDebug: 0,
     taaFlip: 0,
     colorMax: 8,
-    units: 'engine'
+    units: 'engine',
+    light: 'off',
+    lightNormals: 'splat',
+    lightShadows: 'on',
+    lightAmbient: 0.35,
+    lightIntensity: 1,
+    lightDebug: 0,
+    normalBaseline: 3,
+    normalStrength: 1,
+    shadowSteps: 24,
+    shadowThickness: 0.08
 });
 
 const taaCount = (value: number) => Math.min(TAA_MAX_COUNT, Math.max(1, Math.round(value)));
@@ -168,6 +201,28 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'taaFlip' && Number.isFinite(Number(value))) variant.taaFlip = Number(value);
         if (key === 'colorMax' && Number.isFinite(Number(value))) variant.colorMax = Math.max(0, Number(value));
         if (key === 'units' && (value === 'px' || value === 'engine')) variant.units = value;
+        if (key === 'light' && (value === 'on' || value === 'off')) variant.light = value;
+        if (key === 'lightNormals' && (value === 'splat' || value === 'depth' || value === 'none')) {
+            variant.lightNormals = value;
+        }
+        if (key === 'lightShadows' && (value === 'on' || value === 'off')) variant.lightShadows = value;
+        if (key === 'lightAmbient' && Number.isFinite(Number(value))) variant.lightAmbient = Math.max(0, Number(value));
+        if (key === 'lightIntensity' && Number.isFinite(Number(value))) {
+            variant.lightIntensity = Math.max(0, Number(value));
+        }
+        if (key === 'lightDebug' && Number.isFinite(Number(value))) variant.lightDebug = Number(value);
+        if (key === 'normalBaseline' && Number.isFinite(Number(value))) {
+            variant.normalBaseline = Math.max(1, Math.round(Number(value)));
+        }
+        if (key === 'normalStrength' && Number.isFinite(Number(value))) {
+            variant.normalStrength = Math.min(1, Math.max(0, Number(value)));
+        }
+        if (key === 'shadowSteps' && Number.isFinite(Number(value))) {
+            variant.shadowSteps = Math.max(1, Math.round(Number(value)));
+        }
+        if (key === 'shadowThickness' && Number.isFinite(Number(value))) {
+            variant.shadowThickness = Math.max(0, Number(value));
+        }
         if (key === 'cull' && (value === 'off' || value === 'l1' || value === 'l2' || value === 'auto')) {
             variant.cull = value;
         }
@@ -237,6 +292,19 @@ type DepthFrame = {
      * texture's values: the renderer's own mapping, whose far plane is at infinity.
      */
     clipZ: [number, number];
+};
+
+/** A point light for the lighting proof of concept (variant `light:on`). */
+type SplatLight = {
+    /** World position. */
+    position: [number, number, number];
+    /** Linear colour, multiplied by the intensity. */
+    color: [number, number, number];
+    intensity: number;
+    /** Distance at which the light has faded to nothing. */
+    range: number;
+    /** Radius of the light's marker in pixels; 0 hides it. */
+    marker?: number;
 };
 
 const createQuadMesh = (device: GraphicsDevice, quads: number) => {
@@ -424,6 +492,9 @@ class StochasticSplatRenderer {
 
     private depthTexture: Texture;
 
+    // the frame's lighting normals (octahedral, world space), the raster's second target
+    private normalTexture: Texture;
+
     private target: RenderTarget;
 
     private rasterMesh: Mesh;
@@ -440,6 +511,9 @@ class StochasticSplatRenderer {
     private taaColor: Texture[] = [];
 
     private taaInfo: Texture[] = [];
+
+    // the accumulated lighting normals (shaders/taa.ts decodeNormal)
+    private taaNormal: Texture[] = [];
 
     private taaTargets: RenderTarget[] = [];
 
@@ -479,6 +553,9 @@ class StochasticSplatRenderer {
 
     /** The frame the depth texture holds, null while it holds a capture's or nothing. */
     depthFrame: DepthFrame | null = null;
+
+    /** Point lights, at most MAX_LIGHTS, used while variant `light` is on. */
+    lights: SplatLight[] = [];
 
     private depthFrameCount = 0;
 
@@ -547,8 +624,8 @@ class StochasticSplatRenderer {
         ];
         let bytes = 0;
         for (const buffer of buffers) bytes += buffer?.byteSize ?? 0;
-        bytes += this.colorTexture.gpuSize + this.depthTexture.gpuSize;
-        for (const texture of [...this.taaColor, ...this.taaInfo]) bytes += texture.gpuSize;
+        bytes += this.colorTexture.gpuSize + this.depthTexture.gpuSize + this.normalTexture.gpuSize;
+        for (const texture of this.historyTextures()) bytes += texture.gpuSize;
         return bytes + this.source.gpuBytes();
     }
 
@@ -765,9 +842,20 @@ class StochasticSplatRenderer {
             addressU: ADDRESS_CLAMP_TO_EDGE,
             addressV: ADDRESS_CLAMP_TO_EDGE
         });
+        this.normalTexture = new Texture(device, {
+            name: 'sse-splat-normal',
+            width: 4,
+            height: 4,
+            format: PIXELFORMAT_RG16F,
+            mipmaps: false,
+            minFilter: FILTER_NEAREST,
+            magFilter: FILTER_NEAREST,
+            addressU: ADDRESS_CLAMP_TO_EDGE,
+            addressV: ADDRESS_CLAMP_TO_EDGE
+        });
         this.target = new RenderTarget({
             name: 'sse-splat-target',
-            colorBuffer: this.colorTexture,
+            colorBuffers: [this.colorTexture, this.normalTexture],
             depthBuffer: this.depthTexture,
             samples: 1
         });
@@ -827,10 +915,23 @@ class StochasticSplatRenderer {
                     addressV: ADDRESS_CLAMP_TO_EDGE
                 })
             );
+            this.taaNormal.push(
+                new Texture(device, {
+                    name: `sse-splat-taa-normal-${i}`,
+                    width: 4,
+                    height: 4,
+                    format: PIXELFORMAT_RG16U,
+                    mipmaps: false,
+                    minFilter: FILTER_NEAREST,
+                    magFilter: FILTER_NEAREST,
+                    addressU: ADDRESS_CLAMP_TO_EDGE,
+                    addressV: ADDRESS_CLAMP_TO_EDGE
+                })
+            );
             this.taaTargets.push(
                 new RenderTarget({
                     name: `sse-splat-taa-${i}`,
-                    colorBuffers: [this.taaColor[i], this.taaInfo[i]],
+                    colorBuffers: [this.taaColor[i], this.taaInfo[i], this.taaNormal[i]],
                     depth: false,
                     samples: 1
                 })
@@ -842,7 +943,7 @@ class StochasticSplatRenderer {
             vertexWGSL: taaVertexWGSL,
             fragmentWGSL: taaFragmentWGSL,
             attributes: { vertex_position: SEMANTIC_POSITION },
-            fragmentOutputTypes: ['uvec4', 'uint']
+            fragmentOutputTypes: ['uvec4', 'uint', 'uvec4']
         });
         this.taaMaterial.blendType = BLEND_NONE;
         this.taaMaterial.depthWrite = false;
@@ -881,6 +982,8 @@ class StochasticSplatRenderer {
         // command buffer mid-pass on WebGPU
         this.composeMaterial.setParameter('taaColor', this.taaColor[0]);
         this.composeMaterial.setParameter('taaInfo', this.taaInfo[0]);
+        this.composeMaterial.setParameter('taaNormal', this.taaNormal[0]);
+        this.composeMaterial.setParameter('splatNormal', this.normalTexture);
         this.composeInstance = new MeshInstance(
             this.composeMesh,
             this.composeMaterial,
@@ -947,6 +1050,7 @@ class StochasticSplatRenderer {
         this.rasterMaterial.setDefine('SSE_ORDERED', this.variant.order === 'bucket' ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_POPLESS', this.variant.popless === 'on' ? '' : undefined);
         this.composeMaterial.setDefine('SSE_SHOW_DEPTH', this.variant.compose === 'depth' ? '' : undefined);
+        this.composeMaterial.setDefine('SSE_LIGHTING', this.variant.light === 'on' ? '' : undefined);
         this.composeMaterial.setDefine('SSE_SPP_QUAD', quad ? '' : undefined);
         this.rasterMaterial.update();
         this.composeMaterial.update();
@@ -1222,21 +1326,27 @@ class StochasticSplatRenderer {
         material.setParameter('sseAlphaClip', gsplat.alphaClipForward);
         material.setParameter('frameSeed', this.frameSeed);
 
+        // world points from a pixel and its view depth, for the accumulation and the lighting: the
+        // camera's rigid transform and the projection's x and y terms (x_ndc = (m00 x + m02 z) / -z
+        // for a perspective camera, m00 x + m03 for an orthographic one)
+        this.cameraWorld.copy(view).invert();
+        const sp = shaderProjection.data;
+        const unproject = isOrtho ? [sp[0], sp[5], sp[12], sp[13]] : [sp[0], sp[5], sp[8], sp[9]];
+
         this.taaPass.enabled = taaOn;
         if (taaOn) {
             const read = this.taaWrite ^ 1;
             const taa = this.taaMaterial;
             this.taaPrevViewProjection.copy(this.taaLastViewProjection);
             this.taaPrevView.copy(this.taaLastView);
-            this.cameraWorld.copy(view).invert();
             taa.setParameter('curColor', this.colorTexture);
             taa.setParameter('curDepth', this.depthTexture);
+            taa.setParameter('curNormal', this.normalTexture);
             taa.setParameter('histColor', this.taaColor[read]);
             taa.setParameter('histInfo', this.taaInfo[read]);
+            taa.setParameter('histNormal', this.taaNormal[read]);
             taa.setParameter('cameraWorld', this.cameraWorld.data);
-            // x_ndc = (m00 x + m02 z) / -z for a perspective camera, m00 x + m03 for an orthographic one
-            const sp = shaderProjection.data;
-            taa.setParameter('unproject', isOrtho ? [sp[0], sp[5], sp[12], sp[13]] : [sp[0], sp[5], sp[8], sp[9]]);
+            taa.setParameter('unproject', unproject);
             taa.setParameter('prevViewProj', this.taaPrevViewProjection.data);
             taa.setParameter('prevView', this.taaPrevView.data);
             taa.setParameter('clipZParams', clipZParams);
@@ -1265,6 +1375,7 @@ class StochasticSplatRenderer {
             this.taaPass.renderTarget = this.taaTargets[this.taaWrite];
             this.composeMaterial.setParameter('taaColor', this.taaColor[this.taaWrite]);
             this.composeMaterial.setParameter('taaInfo', this.taaInfo[this.taaWrite]);
+            this.composeMaterial.setParameter('taaNormal', this.taaNormal[this.taaWrite]);
             this.taaLastViewProjection.copy(this.viewProjection);
             this.taaLastView.copy(view);
             this.taaHistoryValid = true;
@@ -1286,6 +1397,9 @@ class StochasticSplatRenderer {
             Math.max(cam.farClip, cam.nearClip * 2)
         ]);
         this.composeMaterial.setParameter('cameraClipZ', [cameraClipZ[0], cameraClipZ[1], isOrtho ? 1 : 0, 0]);
+        if (this.variant.light === 'on') {
+            this.setLightParameters(unproject);
+        }
 
         // cull:auto: read this culled frame's counts back (asynchronously, off the frame) and
         // keep the test only while it removes enough to pay for itself
@@ -1340,8 +1454,43 @@ class StochasticSplatRenderer {
         this.setReady(true);
     }
 
+    // the compose's lighting uniforms (shaders/lighting.ts)
+    private setLightParameters(unproject: number[]) {
+        const material = this.composeMaterial;
+        const variant = this.variant;
+        const count = Math.min(this.lights.length, MAX_LIGHTS);
+        const normals = { none: 0, splat: 1, depth: 2 }[variant.lightNormals];
+        material.setParameter('lightParams', [
+            variant.lightAmbient,
+            count,
+            normals,
+            variant.lightShadows === 'on' ? 1 : 0
+        ]);
+        material.setParameter('lightDebug', variant.lightDebug);
+        material.setParameter('normalParams', [variant.normalBaseline, variant.normalStrength, 0, 0]);
+        material.setParameter('shadowParams', [variant.shadowSteps, variant.shadowThickness, 0.01, 0.02]);
+        for (let i = 0; i < MAX_LIGHTS; i++) {
+            const light = this.lights[i];
+            material.setParameter(`lightPos${i}`, light ? [...light.position, light.range] : [0, 0, 0, 1]);
+            material.setParameter(
+                `lightColor${i}`,
+                light
+                    ? [...light.color.map((c) => c * light.intensity * variant.lightIntensity), light.marker ?? 5]
+                    : [0, 0, 0, 0]
+            );
+        }
+        material.setParameter('cameraWorld', this.cameraWorld.data);
+        material.setParameter('unproject', unproject);
+        material.setParameter('viewProj', this.viewProjection.data);
+        material.setParameter('lightFlip', this.target.flipY ? -1 : 1);
+    }
+
+    private historyTextures() {
+        return [...this.taaColor, ...this.taaInfo, ...this.taaNormal];
+    }
+
     private resizeHistory(width: number, height: number) {
-        for (const texture of [...this.taaColor, ...this.taaInfo]) texture.resize(width, height);
+        for (const texture of this.historyTextures()) texture.resize(width, height);
         for (const target of this.taaTargets) target.resize(width, height);
     }
 
@@ -1567,13 +1716,15 @@ class StochasticSplatRenderer {
         this.taaMaterial.destroy();
         this.taaMesh.destroy();
         for (const target of this.taaTargets) target.destroy();
-        for (const texture of [...this.taaColor, ...this.taaInfo]) texture.destroy();
+        for (const texture of this.historyTextures()) texture.destroy();
         this.taaTargets.length = 0;
         this.taaColor.length = 0;
         this.taaInfo.length = 0;
+        this.taaNormal.length = 0;
         this.target.destroy();
         this.colorTexture.destroy();
         this.depthTexture.destroy();
+        this.normalTexture.destroy();
 
         this.composeInstance.destroy();
         this.composeMaterial.destroy();
@@ -1582,4 +1733,4 @@ class StochasticSplatRenderer {
 }
 
 export { StochasticSplatRenderer };
-export type { DepthFrame, StochasticRendererOptions, Variant };
+export type { DepthFrame, SplatLight, StochasticRendererOptions, Variant };
