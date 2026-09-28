@@ -206,7 +206,10 @@ class Viewer {
     /** The opt-in stochastic renderer (WebGPU only); null when the engine's sorted renderer draws. */
     splatRenderer: StochasticSplatRenderer | null = null;
 
-    /** The engine's MiniStats panel while shown (`?ministats` or the debug panel), else null. */
+    /**
+     * The engine's MiniStats panel once first shown (`?ministats` or the debug panel), else null.
+     * Hiding disables it rather than destroying it.
+     */
     miniStats: MiniStats | null = null;
 
     /** Set once {@link destroy} has run. Load continuations check it and bail. */
@@ -345,7 +348,10 @@ class Viewer {
 
         // debug ministats, from the flag at start and the debug panel's toggle after
         this.setMiniStats(config.ministats);
-        this.onDestroy(() => this.setMiniStats(false));
+        this.onDestroy(() => {
+            this.miniStats?.destroy();
+            this.miniStats = null;
+        });
 
         const prevProj = new Mat4();
         const prevWorld = new Mat4();
@@ -358,7 +364,7 @@ class Viewer {
 
             if (!app.renderNextFrame) {
                 if (
-                    this.miniStats ||
+                    this.miniStats?.enabled ||
                     !nearlyEquals(world.data, prevWorld.data) ||
                     !nearlyEquals(proj.data, prevProj.data)
                 ) {
@@ -633,7 +639,7 @@ class Viewer {
             if (collisionReady) attachCollision(collisionReady);
 
             this.debugPanel = new DebugPanel(global, this.cameraManager, this.picker, this.splatRenderer, {
-                shown: () => !!this.miniStats,
+                shown: () => !!this.miniStats?.enabled,
                 show: (value) => this.setMiniStats(value)
             });
 
@@ -881,22 +887,24 @@ class Viewer {
     }
 
     /**
-     * Tear the viewer down: stop rendering, remove every listener it added to the window,
-     * document and canvas, restore the globals it patched, and release the graphics device.
-     * Safe to call before loading has finished, and idempotent.
-     *
-     * Finally removes the instance root, and with it the canvas and ui subtree createViewer
-     * built. Their element listeners go with them.
-     */
-    /**
      * Show or hide the engine's MiniStats panel. While shown the viewer renders every frame, so
      * the graphs keep moving.
      */
     setMiniStats(value: boolean) {
-        if (value === !!this.miniStats) return;
-        if (!value) {
-            this.miniStats!.destroy();
-            this.miniStats = null;
+        if (value === !!this.miniStats?.enabled) return;
+        // hidden by disabling rather than destroying: the engine's destroy() leaves its stats
+        // timers reading every frame and its buffers allocated, so a panel per toggle would pile
+        // them up until teardown
+        if (this.miniStats) {
+            this.miniStats.enabled = value;
+            // the panel's transparent div would keep catching clicks over the canvas
+            this.miniStats.div.style.display = value ? '' : 'none';
+            if (value) {
+                // enabling turns every graph on, the text-only size's too: its size puts them back
+                const size = this.miniStats.activeSizeIndex;
+                this.miniStats.activeSizeIndex = size;
+                this.global.app.renderNextFrame = true;
+            }
             return;
         }
         const options = MiniStats.getDefaultOptions() as NonNullable<ConstructorParameters<typeof MiniStats>[1]>;
@@ -924,6 +932,14 @@ class Viewer {
         this.global.app.renderNextFrame = true;
     }
 
+    /**
+     * Tear the viewer down: stop rendering, remove every listener it added to the window,
+     * document and canvas, restore the globals it patched, and release the graphics device.
+     * Safe to call before loading has finished, and idempotent.
+     *
+     * Finally removes the instance root, and with it the canvas and ui subtree createViewer
+     * built. Their element listeners go with them.
+     */
     destroy() {
         if (this.destroyed) return;
         this.destroyed = true;

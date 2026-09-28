@@ -314,6 +314,13 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         count = min(info.count + 1.0, cap);
         let w = 1.0 / count;
         color = mix(hist, sample, w);
+        // an empty sample takes at least a step off the coverage: rounded to the nearest, a
+        // decay of less than half a step holds (below cap / 2 steps, about 0.002 at the default
+        // cap), so a faint pixel would keep its coverage, and the depth the compose writes for
+        // it, forever. The colour follows, since the encoding keeps it within the coverage
+        if (sample.a == 0.0) {
+            color.a = min(color.a, max(hist.a - 1.0 / TAA_COLOR_SCALE, 0.0));
+        }
         // carry the mean depth into this view: the point moved along the ray by the change in
         // its depth, then the sample joins it
         let shifted = info.depth + (carryDepth - r.prevDepth);

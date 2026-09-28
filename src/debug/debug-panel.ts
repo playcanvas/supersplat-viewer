@@ -507,6 +507,8 @@ class DebugPanel {
             await navigator.clipboard.writeText(text);
             copied = true;
         } catch {
+            // destroyed while the clipboard was refusing
+            if (!this._root) return;
             const area = document.createElement('textarea');
             area.value = text;
             area.style.cssText = 'position: fixed; opacity: 0; pointer-events: none';
@@ -537,6 +539,8 @@ class DebugPanel {
             this._showPasteField(true);
             return;
         }
+        // destroyed while the clipboard was being read
+        if (!this._root) return;
         this._applyPasted(text);
     }
 
