@@ -86,6 +86,10 @@ class CameraManager {
     // visible instantly.
     snap: () => void;
 
+    // How far the current transition has eased toward its destination, from 0 to 1; 1 when
+    // there is none. The annotations time their tooltip to the camera's arrival with it.
+    transitionProgress: () => number;
+
     // Attach (or clear) collision after construction. The viewer reveals the scene without
     // waiting for collision data, which can be larger than the splats themselves, so this
     // arrives late. It re-tests whether walk mode is allowed, which gates the walk toggle
@@ -198,6 +202,8 @@ class CameraManager {
             transitionEase = ease;
             transitionTurnEase = turnEase;
         };
+
+        this.transitionProgress = () => (transitionTimer < 1 ? transitionEase(transitionTimer) : 1);
 
         this.setCollision = (value: Collision | null) => {
             controllers.fly.collision = value;

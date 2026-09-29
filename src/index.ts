@@ -476,7 +476,14 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     };
 
     // The built-in controls use the same handle returned to an embedding host.
-    const disposeUI = config.ui ? initUI(global, handle, () => viewer.picker) : null;
+    const disposeUI = config.ui
+        ? initUI(
+              global,
+              handle,
+              () => viewer.picker,
+              () => viewer.cameraManager?.transitionProgress() ?? 1
+          )
+        : null;
     viewer.onDestroy(() => {
         destroyed = true;
     });

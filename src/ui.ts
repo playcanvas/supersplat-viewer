@@ -56,8 +56,14 @@ const getGpuName = (device: unknown) => {
 // document, screen) and cancels pending timers. Listeners on the subtree's own elements are
 // released with the elements.
 // `getPicker` returns the viewer's picker once the scene has loaded, for the annotation
-// occlusion test
-const initUI = (global: Global, viewer: ViewerHandle, getPicker: () => Picker | undefined) => {
+// occlusion test; `getCameraProgress` how far the camera's current move has eased, 1 when there
+// is none, for the annotation tooltip's timing
+const initUI = (
+    global: Global,
+    viewer: ViewerHandle,
+    getPicker: () => Picker | undefined,
+    getCameraProgress: () => number
+) => {
     const { root, localize } = global;
     const { events, state } = viewer;
     const disposers: (() => void)[] = [];
@@ -470,7 +476,7 @@ const initUI = (global: Global, viewer: ViewerHandle, getPicker: () => Picker | 
 
     disposers.push(initAnnotationControls(viewer, root));
     if (viewer.annotations.length > 0) {
-        const annotations = new Annotations(viewer, root, global.camera, getPicker);
+        const annotations = new Annotations(viewer, root, global.camera, getPicker, getCameraProgress);
         disposers.push(() => annotations.destroy());
     }
 

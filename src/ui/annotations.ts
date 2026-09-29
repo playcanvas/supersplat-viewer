@@ -1,6 +1,7 @@
 import { Entity, Mat4 } from 'playcanvas';
 import type { CameraComponent, EventHandle, ScriptComponent } from 'playcanvas';
 
+import { TAP_EPSILON } from '../input/shared';
 import type { ScenePicker } from '../picker';
 import type { ViewerHandle } from '../types';
 
@@ -20,6 +21,11 @@ const OCCLUSION_TOLERANCE = 0.1;
 // the hotspot's radius in css pixels: the opacity in front is averaged over its whole disc
 const HOTSPOT_RADIUS = 13;
 
+// the selected annotation's tooltip starts fading in once the camera has eased this far along
+// a transition, its move there among them: the move settles slowly, so waiting for it to stop
+// shows the tooltip well after the camera looks to have arrived
+const REVEAL_PROGRESS = 0.9;
+
 // Built-in hotspot and panel presentation. Selection and camera navigation belong to the viewer.
 class Annotations {
     private parentDom: HTMLElement;
@@ -36,7 +42,8 @@ class Annotations {
         viewer: Pick<ViewerHandle, 'app' | 'state' | 'events' | 'annotations' | 'selectAnnotation'>,
         root: HTMLElement,
         camera: Entity,
-        getPicker: () => ScenePicker | undefined
+        getPicker: () => ScenePicker | undefined,
+        getCameraProgress: () => number
     ) {
         const { app, state, events, annotations } = viewer;
         const parentDom = document.createElement('div');
@@ -79,7 +86,7 @@ class Annotations {
         // bumped on every camera move, so a test that resolves after the camera moved again is
         // discarded rather than applied to a pose it was not taken from
         let pose = 0;
-        const lastView = new Mat4();
+        const lastWorld = new Mat4();
         const lastProjection = new Mat4();
 
         const testOcclusion = async () => {
@@ -122,11 +129,44 @@ class Annotations {
             settleTimer = setTimeout(testOcclusion, SETTLE_MS);
         };
 
-        // after each frame, since the hotspots' screen positions are updated in prerender
+        // A new camera transition (a reset, say): the tooltip hides until it nearly ends, as on
+        // the move to an annotation. Checked after the camera update but before the frame
+        // renders, so the tooltip is not laid out for the transition's first frame
+        let lastProgress = 1;
+        const onFrameRender = () => {
+            const progress = getCameraProgress();
+            if (progress < lastProgress) context.revealed = false;
+            lastProgress = progress;
+        };
+        app.on('framerender', onFrameRender);
+
+        // after each frame, since the hotspots' screen positions are updated in prerender. The
+        // camera entity's transform rather than its view matrix, which the engine refreshes only
+        // for frames that render: the viewer skips a frame whose camera moved too little to see,
+        // and a stale view matrix would pass for a camera at rest
         const onFrameEnd = () => {
-            const { viewMatrix, projectionMatrix } = camera.camera;
-            if (lastView.equals(viewMatrix) && lastProjection.equals(projectionMatrix)) return;
-            lastView.copy(viewMatrix);
+            const world = camera.getWorldTransform();
+            const { projectionMatrix } = camera.camera;
+            const still = lastWorld.equals(world) && lastProjection.equals(projectionMatrix);
+            const progress = getCameraProgress();
+
+            // Show the selected annotation's tooltip once the camera is nearly there with the
+            // hotspot on the canvas, fading in as the camera lands, or once the camera is at rest.
+            // A hotspot that ends beyond the canvas gets its tooltip at rest, clamped to the edge,
+            // rather than one that shows and then hides again as the hotspot slides off
+            const { activeAnnotation } = context;
+            const screen = activeAnnotation?.screen;
+            const onCanvas =
+                screen &&
+                screen.x >= 0 &&
+                screen.x <= canvas.clientWidth &&
+                screen.y >= 0 &&
+                screen.y <= canvas.clientHeight;
+            if (activeAnnotation && !context.revealed && (still || (progress >= REVEAL_PROGRESS && onCanvas))) {
+                activeAnnotation.revealTooltip();
+            }
+            if (still) return;
+            lastWorld.copy(world);
             lastProjection.copy(projectionMatrix);
             pose++;
             scheduleOcclusion();
@@ -152,6 +192,7 @@ class Annotations {
         this.removeOcclusion = () => {
             destroyed = true;
             if (settleTimer) clearTimeout(settleTimer);
+            app.off('framerender', onFrameRender);
             app.off('frameend', onFrameEnd);
             gsplatSystem.off('frame:ready', onFrameReady);
         };
@@ -181,11 +222,30 @@ class Annotations {
         ];
         update();
 
-        const onClick = () => {
-            if (state.loaded && state.selectedAnnotation !== null) viewer.selectAnnotation(null);
+        // A click deselects, but a drag ends in a click too, so releasing an orbit would close
+        // the tooltip. A press that moved farther than a tap may is a drag, as the navigation
+        // clicks count it
+        let pressMovement = 0;
+        const onPointerDown = () => {
+            pressMovement = 0;
         };
+        const onPointerMove = (event: PointerEvent) => {
+            if (event.buttons) pressMovement += Math.abs(event.movementX) + Math.abs(event.movementY);
+        };
+        const onClick = () => {
+            // consumed, so a later click from the keyboard is not taken for the drag
+            const dragged = pressMovement >= TAP_EPSILON;
+            pressMovement = 0;
+            if (!dragged && state.loaded && state.selectedAnnotation !== null) viewer.selectAnnotation(null);
+        };
+        root.addEventListener('pointerdown', onPointerDown);
+        root.addEventListener('pointermove', onPointerMove);
         root.addEventListener('click', onClick);
-        this.removeClick = () => root.removeEventListener('click', onClick);
+        this.removeClick = () => {
+            root.removeEventListener('pointerdown', onPointerDown);
+            root.removeEventListener('pointermove', onPointerMove);
+            root.removeEventListener('click', onClick);
+        };
     }
 
     destroy() {
