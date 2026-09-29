@@ -86,7 +86,7 @@ class Annotations {
         // bumped on every camera move, so a test that resolves after the camera moved again is
         // discarded rather than applied to a pose it was not taken from
         let pose = 0;
-        const lastView = new Mat4();
+        const lastWorld = new Mat4();
         const lastProjection = new Mat4();
 
         const testOcclusion = async () => {
@@ -140,10 +140,14 @@ class Annotations {
         };
         app.on('framerender', onFrameRender);
 
-        // after each frame, since the hotspots' screen positions are updated in prerender
+        // after each frame, since the hotspots' screen positions are updated in prerender. The
+        // camera entity's transform rather than its view matrix, which the engine refreshes only
+        // for frames that render: the viewer skips a frame whose camera moved too little to see,
+        // and a stale view matrix would pass for a camera at rest
         const onFrameEnd = () => {
-            const { viewMatrix, projectionMatrix } = camera.camera;
-            const still = lastView.equals(viewMatrix) && lastProjection.equals(projectionMatrix);
+            const world = camera.getWorldTransform();
+            const { projectionMatrix } = camera.camera;
+            const still = lastWorld.equals(world) && lastProjection.equals(projectionMatrix);
             const progress = getCameraProgress();
 
             // Show the selected annotation's tooltip once the camera is nearly there with the
@@ -162,7 +166,7 @@ class Annotations {
                 activeAnnotation.revealTooltip();
             }
             if (still) return;
-            lastView.copy(viewMatrix);
+            lastWorld.copy(world);
             lastProjection.copy(projectionMatrix);
             pose++;
             scheduleOcclusion();
