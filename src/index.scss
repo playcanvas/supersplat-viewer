@@ -1128,19 +1128,14 @@
 
             visibility: hidden;
             opacity: 0;
-            translate: 0 4px;
             transition:
                 visibility 0s 0.2s,
-                opacity 0.2s ease-out,
-                translate 0.2s ease-out;
+                opacity 0.2s ease-out;
 
             &.sse-visible {
                 visibility: visible;
                 opacity: 1;
-                translate: 0 0;
-                transition:
-                    opacity 0.2s ease-out,
-                    translate 0.2s ease-out;
+                transition: opacity 0.2s ease-out;
             }
 
             > .sse-annotation-title {

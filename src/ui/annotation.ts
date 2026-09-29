@@ -91,8 +91,9 @@ export class Annotation extends Script {
 
     /**
      * Update the screen-space elements for this annotation. Called each frame from the
-     * prerender callback, and also directly from showTooltip to ensure the tooltip is positioned
-     * correctly even when the camera hasn't moved (e.g. annotations sharing the same camera pose).
+     * prerender callback, and also directly from revealTooltip to ensure the tooltip is
+     * positioned correctly even when the camera hasn't moved (e.g. annotations sharing the same
+     * camera pose).
      * @private
      */
     _update() {
@@ -124,17 +125,35 @@ export class Annotation extends Script {
     }
 
     /**
+     * Make this the annotation whose tooltip shows. The tooltip itself waits for the camera to
+     * near the end of its move here, when `Annotations` calls `revealTooltip`, rather than
+     * chasing the hotspot across the screen during the flight.
      * @private
      */
     showTooltip() {
         const ctx = this.context;
         ctx.activeAnnotation = this;
-        ctx.titleDom.textContent = this.title;
-        ctx.textDom.textContent = this.text;
-        ctx.tooltipDom.classList.add('sse-visible');
+        ctx.revealed = false;
         this.hotspotDom.classList.add('sse-active');
+    }
 
-        // Immediately update incase the camera doesn't move
+    /**
+     * Show the tooltip beside this annotation, the camera being at or nearly at rest.
+     * @private
+     */
+    revealTooltip() {
+        const ctx = this.context;
+        ctx.revealed = true;
+        if (ctx.tooltipOwner !== this) {
+            // taken over only now, so the tooltip fades out with the previous annotation's text,
+            // beside its hotspot; and with no side yet, rather than the one it left it on
+            ctx.tooltipOwner = this;
+            ctx.titleDom.textContent = this.title;
+            ctx.textDom.textContent = this.text;
+            ctx.tooltipDom.classList.remove('sse-arrow-left', 'sse-arrow-right');
+        }
+
+        // the camera may be still, so no prerender may follow
         this._update();
     }
 
@@ -154,7 +173,7 @@ export class Annotation extends Script {
      */
     _hideElements() {
         this.hotspotDom.style.display = 'none';
-        if (this.context.activeAnnotation === this) {
+        if (this.context.tooltipOwner === this) {
             this.context.tooltipDom.classList.remove('sse-visible');
         }
     }
@@ -175,32 +194,46 @@ export class Annotation extends Script {
         hotspot.style.zIndex = String(Math.round(100000 / (1 + distance)));
 
         const ctx = this.context;
-        if (ctx.activeAnnotation !== this) {
+        if (ctx.tooltipOwner !== this) {
             return;
         }
 
-        // Re-show tooltip if it was hidden while behind camera
+        // Shown while this annotation is selected and revealed, clamped to the canvas when the
+        // hotspot is beyond it, so moving the camera yourself does not lose it. Hidden, it fades
+        // out, moving with the hotspot at the offset it last had rather than standing still while
+        // the camera moves on
         const tooltip = ctx.tooltipDom;
-        tooltip.classList.add('sse-visible');
+        const vw = ctx.canvas.clientWidth;
+        const vh = ctx.canvas.clientHeight;
+        const onCanvas = screenPos.x >= 0 && screenPos.x <= vw && screenPos.y >= 0 && screenPos.y <= vh;
+        if (ctx.activeAnnotation !== this || !ctx.revealed) {
+            tooltip.classList.remove('sse-visible');
+            const offset = ctx.tooltipOffset;
+            if (offset) {
+                tooltip.style.transform = `translate(${screenPos.x + offset.x}px, ${screenPos.y + offset.y}px)`;
+            }
+            return;
+        }
 
-        // Position tooltip, clamped to the canvas (screenPos is in canvas pixels)
+        // Position tooltip, clamped to the canvas (screenPos is in canvas pixels). Measured
+        // before it is shown, which also lets a tooltip that was empty, and so not displayed,
+        // fade in rather than appear at once
         const margin = 8;
         const arrowOffset = 24;
         const tw = tooltip.offsetWidth;
         const th = tooltip.offsetHeight;
-        const vw = ctx.canvas.clientWidth;
-        const vh = ctx.canvas.clientHeight;
 
-        // Default position: to the right of hotspot, vertically centered
-        let left = screenPos.x + arrowOffset;
-        let top = screenPos.y - th / 2;
-        let flipped = false;
-
-        // If tooltip overflows right edge, flip to left side of hotspot
-        if (left + tw > vw - margin) {
-            left = screenPos.x - arrowOffset - tw;
-            flipped = true;
+        // Beside the hotspot, vertically centered, on the side it is already on: changing sides
+        // jumps it across the hotspot, so it does only when it no longer fits there and does on
+        // the other side. With no side yet, the right unless that overflows
+        const onRight = screenPos.x + arrowOffset;
+        const onLeft = screenPos.x - arrowOffset - tw;
+        let flipped = tooltip.classList.contains('sse-arrow-left');
+        if (flipped ? onLeft < margin && onRight + tw <= vw - margin : onRight + tw > vw - margin) {
+            flipped = !flipped;
         }
+        let left = flipped ? onLeft : onRight;
+        let top = screenPos.y - th / 2;
 
         // Clamp horizontal
         left = Math.max(margin, Math.min(left, vw - tw - margin));
@@ -215,6 +248,8 @@ export class Annotation extends Script {
         tooltip.classList.toggle('sse-arrow-right', !flipped);
         tooltip.classList.toggle('sse-arrow-left', flipped);
         tooltip.style.transform = `translate(${left}px, ${top}px)`;
+        tooltip.classList.add('sse-visible');
+        ctx.tooltipOffset = onCanvas ? { x: left - screenPos.x, y: top - screenPos.y } : null;
     }
 }
 
@@ -241,6 +276,18 @@ class AnnotationContext {
     textDom: HTMLDivElement;
 
     activeAnnotation: Annotation | null = null;
+
+    // whether the active annotation's tooltip has been revealed: it hides for each camera
+    // transition, the move to the annotation among them, until the transition nearly ends
+    revealed = false;
+
+    // the annotation the tooltip belongs to: the active one once revealed, until then the one
+    // before it, beside whose hotspot it fades out. And its offset from that hotspot when it
+    // last showed, which it keeps while fading; null when it last showed clamped to the canvas
+    // with the hotspot beyond it, since it is not beside the hotspot, and then it fades in place
+    tooltipOwner: Annotation | null = null;
+
+    tooltipOffset: { x: number; y: number } | null = null;
 
     constructor(canvas: HTMLCanvasElement, camera: Entity, parentDom: HTMLElement) {
         this.parentDom = parentDom;
