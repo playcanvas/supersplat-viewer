@@ -93,6 +93,12 @@ const budgets = {
 // budget it otherwise gets
 const standaloneXrBudget = 1;
 
+// how much further away parts of the scene behind the camera count when choosing their detail,
+// which saves a lot of splats while orbiting. XR sessions use 1, choosing detail by distance
+// alone: detail is only chosen again after a 90 degree turn, so a head turning less than that
+// brought the coarse detail chosen for behind it into view
+const lodBehindPenalty = 5;
+
 type GSplatOctreeResourceLike = {
     octree?: {
         lodLevels: number;
@@ -469,7 +475,7 @@ class Viewer {
 
         // these two allow LOD behind camera to drop, saves lots of splats
         gsplat.lodUpdateAngle = 90;
-        gsplat.lodBehindPenalty = 5;
+        gsplat.lodBehindPenalty = lodBehindPenalty;
         gsplat.lodMode = GSPLAT_LODMODE_DISTANCE;
         gsplat.minContribution = 1;
         gsplat.alphaClip = 1 / 255;
@@ -661,6 +667,7 @@ class Viewer {
 
                 gsplat.splatBudget = budget() * 1000000;
                 gsplat.colorUpdateAngle = state.performanceMode ? 1 : 0.2;
+                gsplat.lodBehindPenalty = state.xrMode === null ? lodBehindPenalty : 1;
                 gsplatComponent.lodRangeMin = 0;
                 gsplatComponent.lodRangeMax = 1000;
 
