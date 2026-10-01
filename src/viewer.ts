@@ -573,6 +573,8 @@ class Viewer {
 
             const gsplatComponent = results[0].gsplat as GSplatComponent;
 
+            this.xr.setManipulationTarget(results[0]);
+
             // get scene bounding box
             const gsplatBbox = gsplatComponent.customAabb;
             if (gsplatBbox) {

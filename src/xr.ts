@@ -1,6 +1,7 @@
 import { DEVICETYPE_WEBGL2, math, Quat, Vec3, XrManager } from 'playcanvas';
 import type { Entity } from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr/xr-controllers.mjs';
+import { XrManipulation } from 'playcanvas/scripts/esm/xr/xr-manipulation.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 
 import type { Global, XrMode } from './types';
@@ -62,6 +63,11 @@ const initXr = (global: Global) => {
     parent.script.create(XrControllers);
     parent.script.create(XrNavigation);
 
+    // Grabbing with both hands drags, turns and scales the scene. Created once the splat entity
+    // it moves has loaded, which is before XR can start, and put back when the session ends, as
+    // the viewer's camera, collision and annotations assume the authored placement.
+    let manipulation: XrManipulation | null = null;
+
     const started = xr.on('start', () => {
         if (destroyed) return;
         app.autoRender = true;
@@ -93,6 +99,10 @@ const initXr = (global: Global) => {
             if (xr.supportedFrameRates?.includes(72)) xr.updateTargetFrameRate(72);
         }
 
+        // AR scales about the hands, for content brought to a tabletop; VR about the feet, so
+        // the user stays standing on the scene
+        if (manipulation) manipulation.scalePivot = xr.type === 'immersive-ar' ? 'hands' : 'feet';
+
         state.xrMode = xr.type === 'immersive-ar' ? 'ar' : 'vr';
     });
 
@@ -105,6 +115,7 @@ const initXr = (global: Global) => {
         parent.setRotation(parentRotation);
         camera.setPosition(cameraPosition);
         camera.setRotation(cameraRotation);
+        manipulation?.reset();
 
         state.xrMode = null;
 
@@ -200,6 +211,11 @@ const initXr = (global: Global) => {
     return {
         start,
         end,
+        setManipulationTarget: (entity: Entity) => {
+            manipulation = parent.script.create(XrManipulation, {
+                properties: { target: entity }
+            }) as unknown as XrManipulation;
+        },
         destroy: () => {
             destroyed = true;
             availability.off();
