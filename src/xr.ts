@@ -1,4 +1,4 @@
-import { Color, DEVICETYPE_WEBGL2, Quat, Vec3, XrManager } from 'playcanvas';
+import { Color, DEVICETYPE_WEBGL2, math, Quat, Vec3, XrManager } from 'playcanvas';
 import type { Entity } from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr/xr-controllers.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
@@ -53,7 +53,6 @@ const initXr = (global: Global) => {
     const parentRotation = new Quat();
     const cameraPosition = new Vec3();
     const cameraRotation = new Quat();
-    const angles = new Vec3();
 
     parent.addComponent('script');
     parent.script.create(XrControllers);
@@ -69,11 +68,21 @@ const initXr = (global: Global) => {
         cameraPosition.copy(camera.getPosition());
         cameraRotation.copy(camera.getRotation());
 
-        cameraRotation.getEulerAngles(angles);
-
-        // copy transform to parent to XR/VR mode starts in the right place
+        // Start the session where the camera is, facing its heading with pitch and roll reset:
+        // where it looks across the ground, or where the top of its view points when it looks
+        // straight up or down. The yaw of getEulerAngles() only covers -90 to 90 degrees, so a
+        // camera facing further round would start the session facing the wrong way.
+        const { forward } = camera;
+        let x = forward.x;
+        let z = forward.z;
+        if (x * x + z * z < 1e-6) {
+            const { up } = camera;
+            const sign = forward.y < 0 ? 1 : -1;
+            x = up.x * sign;
+            z = up.z * sign;
+        }
         parent.setPosition(cameraPosition.x, 0, cameraPosition.z);
-        parent.setEulerAngles(0, angles.y, 0);
+        parent.setEulerAngles(0, Math.atan2(-x, -z) * math.RAD_TO_DEG, 0);
 
         if (xr.type === 'immersive-ar') {
             clearColor.copy(camera.camera.clearColor);
