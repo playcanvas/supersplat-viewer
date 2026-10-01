@@ -5,6 +5,11 @@ import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 
 import type { Global, XrMode } from './types';
 
+// Standalone headsets run XR on a mobile gpu, which draws every splat once per eye, but their
+// browsers report a desktop platform. Their sessions render with fixed foveation and a 72 Hz
+// target, at 0.8x resolution in performance mode, and the viewer lowers the splat budget.
+const standaloneHeadset = /OculusBrowser|PicoBrowser/.test(globalThis.navigator?.userAgent ?? '');
+
 // The viewer reconfigures the camera (clear color, post effects) when state.xrMode changes
 const initXr = (global: Global) => {
     const { app, events, state, camera, renderer, root } = global;
@@ -83,6 +88,11 @@ const initXr = (global: Global) => {
         parent.setPosition(cameraPosition.x, 0, cameraPosition.z);
         parent.setEulerAngles(0, Math.atan2(-x, -z) * math.RAD_TO_DEG, 0);
 
+        if (standaloneHeadset) {
+            xr.fixedFoveation = 1;
+            if (xr.supportedFrameRates?.includes(72)) xr.updateTargetFrameRate(72);
+        }
+
         state.xrMode = xr.type === 'immersive-ar' ? 'ar' : 'vr';
     });
 
@@ -128,6 +138,7 @@ const initXr = (global: Global) => {
             await new Promise<void>((resolve, reject) => {
                 rejectStart = reject;
                 xr.start(camera.camera, type, 'local-floor', {
+                    framebufferScaleFactor: standaloneHeadset && state.performanceMode ? 0.8 : 1,
                     callback: (error) => {
                         if (destroyed) {
                             // Browser session requests cannot be cancelled. Close a late result.
@@ -203,4 +214,4 @@ const initXr = (global: Global) => {
     };
 };
 
-export { initXr };
+export { initXr, standaloneHeadset };
