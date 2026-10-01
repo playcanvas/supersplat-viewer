@@ -200,6 +200,8 @@ Read-only `state.xrMode` is `'ar'`, `'vr'` or `null` and follows both API and br
 
 On standalone headsets (Meta Quest and Pico browsers), sessions render with fixed foveation, a 72 Hz target where supported and a 1 million splat budget, or the `budget` option when it is set. In performance mode they also render at 0.8x resolution, chosen when the session starts. The 2D budget returns when the session ends.
 
+During a session, squeezing both grips, or making fists with tracked hands, drags, turns and scales the scene: about the user's feet in VR, and about their hands in AR. The scene returns to its authored placement when the session ends.
+
 ### Restyling
 
 The colours the UI is built from are CSS custom properties on the instance root, so you can

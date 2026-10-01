@@ -45,6 +45,15 @@ declare module 'playcanvas/scripts/esm/xr/xr-navigation.mjs' {
     export { XrNavigation };
 }
 
+declare module 'playcanvas/scripts/esm/xr/xr-manipulation.mjs' {
+    class XrManipulation extends pc.Script {
+        target: pc.Entity | null;
+        scalePivot: 'feet' | 'hands';
+        reset(): void;
+    }
+    export { XrManipulation };
+}
+
 declare module '*.html' {
     const content: string;
     export default content;
