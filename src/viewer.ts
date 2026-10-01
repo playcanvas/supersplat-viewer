@@ -333,18 +333,14 @@ class Viewer {
         }
 
         // reconfigure camera when entering/exiting XR. The stochastic renderer has no stereo
-        // path yet, so the engine's renderer draws the splats for the session
-        const configureXrCamera = () => {
+        // path yet, so the engine's renderer draws the splats for the session. Follows xrMode
+        // rather than app.xr.active, which still reports the session while its 'end' handlers run
+        const xrModeChanged = events.on('xrMode:changed', () => {
             if (this.destroyed) return;
             this.configureCamera(settings);
-            this.splatRenderer?.setEnabled(!app.xr.active);
-        };
-        const xrStart = app.xr.on('start', configureXrCamera);
-        const xrEnd = app.xr.on('end', configureXrCamera);
-        this.onDestroy(() => {
-            xrStart.off();
-            xrEnd.off();
+            this.splatRenderer?.setEnabled(state.xrMode === null);
         });
+        this.onDestroy(() => xrModeChanged.off());
 
         // debug ministats, from the flag at start and the debug panel's toggle after
         this.setMiniStats(config.ministats);
@@ -1016,7 +1012,7 @@ class Viewer {
     // configure camera based on application mode and post process settings
     configureCamera(settings: ExperienceSettings) {
         const { global } = this;
-        const { app, config, camera } = global;
+        const { app, config, camera, state } = global;
         const { postEffectSettings } = settings;
         const { background } = settings;
 
@@ -1025,7 +1021,8 @@ class Viewer {
 
         const postFxRequested = !config.nofx && (anyPostEffectEnabled(postEffectSettings) || highPrecisionRendering);
 
-        const enableCameraFrame = !app.xr.active && postFxRequested;
+        // CameraFrame has no XR path, so post effects are off for the session
+        const enableCameraFrame = state.xrMode === null && postFxRequested;
 
         if (enableCameraFrame) {
             // create instance
@@ -1087,10 +1084,10 @@ class Viewer {
             // restore original isColorBufferSrgb behavior
             setBackBufferSrgb(app.graphicsDevice, false);
 
-            if (!app.xr.active) {
-                camera.camera.toneMapping = tonemapTable[settings.tonemapping];
-                camera.camera.clearColor = new Color(background.color);
-            }
+            camera.camera.toneMapping = tonemapTable[settings.tonemapping];
+
+            // AR composites the scene over the passthrough view
+            camera.camera.clearColor = state.xrMode === 'ar' ? new Color(0, 0, 0, 0) : new Color(background.color);
         }
 
         // Mesh overlay bakes its vertex colors based on the current gamma
