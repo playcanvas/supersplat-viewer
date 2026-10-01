@@ -198,6 +198,8 @@ Native fullscreen targets this viewer's root. Read-only `state.isFullscreen` fol
 
 Read-only `state.xrMode` is `'ar'`, `'vr'` or `null` and follows both API and browser-initiated session exit. `startXR()` resolves when the session starts; it rejects invalid modes and attempts while a session is active, starting or ending. `endXR()` resolves on session exit, is a no-op while idle, and rejects during startup or another pending exit. All four methods reject after destruction; destruction also rejects outstanding API waits. Browser session requests themselves cannot be cancelled, so native XR teardown while a permission request is open still needs device testing.
 
+On standalone headsets (Meta Quest and Pico browsers), sessions render with fixed foveation, a 72 Hz target where supported and a 1 million splat budget, or the `budget` option when it is set. In performance mode they also render at 0.8x resolution, chosen when the session starts. The 2D budget returns when the session ends.
+
 ### Restyling
 
 The colours the UI is built from are CSS custom properties on the instance root, so you can

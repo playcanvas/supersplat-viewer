@@ -45,7 +45,7 @@ import { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { CaptureOptions, Config, Global, XrMode } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
-import { initXr } from './xr';
+import { initXr, standaloneHeadset } from './xr';
 
 // String.replace wrapper that warns when the source substring is missing, so
 // shader chunk patches against the engine fail loudly instead of silently
@@ -87,6 +87,11 @@ const budgets = {
         high: 4
     }
 };
+
+// budget while an XR session runs on a standalone headset, millions of splats. On a Quest 3,
+// 1M splats render at about 30 fps (40 at 0.8x resolution), against 10 fps at the 4M desktop
+// budget it otherwise gets
+const standaloneXrBudget = 1;
 
 type GSplatOctreeResourceLike = {
     octree?: {
@@ -645,6 +650,9 @@ class Viewer {
                     if (config.budget !== undefined && Number.isFinite(config.budget) && config.budget > 0) {
                         return config.budget;
                     }
+                    if (standaloneHeadset && state.xrMode !== null) {
+                        return standaloneXrBudget;
+                    }
                     const quality = platform.mobile ? budgets.mobile : budgets.desktop;
                     return state.performanceMode ? quality.low : quality.high;
                 };
@@ -704,6 +712,7 @@ class Viewer {
 
                     // handle quality mode changes
                     events.on('performanceMode:changed', applyPerfSettings);
+                    events.on('xrMode:changed', applyPerfSettings);
                     applyPerfSettings();
 
                     // the stochastic renderer consumes the engine's world under whatever
