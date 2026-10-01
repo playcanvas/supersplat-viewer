@@ -21,6 +21,7 @@ import {
     GSPLAT_LODMODE_DISTANCE,
     GSPLAT_RENDERER_RASTER_CPU_SORT,
     GSPLAT_RENDERER_RASTER_GPU_SORT,
+    LAYERID_SKYBOX,
     platform
 } from 'playcanvas';
 import type { CameraComponent, Entity, GraphicsDevice, GSplatComponent, Layer } from 'playcanvas';
@@ -1089,6 +1090,10 @@ class Viewer {
             // AR composites the scene over the passthrough view
             camera.camera.clearColor = state.xrMode === 'ar' ? new Color(0, 0, 0, 0) : new Color(background.color);
         }
+
+        // the sky would cover AR's passthrough view entirely, so it is hidden for the session
+        const skyLayer = app.scene.layers.getLayerById(LAYERID_SKYBOX);
+        if (skyLayer) skyLayer.enabled = state.xrMode !== 'ar';
 
         // Mesh overlay bakes its vertex colors based on the current gamma
         // path; reapply when CameraFrame is created/destroyed (e.g. on XR
