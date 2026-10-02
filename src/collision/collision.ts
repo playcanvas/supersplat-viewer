@@ -21,6 +21,9 @@ type RayHit = {
  * Implementations convert to/from their internal coordinate systems internally.
  */
 type Collision = {
+    /** Whether the horizontal footprint has loaded collision coverage (streamed data only). */
+    isReadyAt?(x: number, z: number, radius?: number): boolean;
+
     queryRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): RayHit | null;
 
     querySphere(cx: number, cy: number, cz: number, radius: number, out: PushOut): boolean;

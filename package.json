@@ -46,6 +46,7 @@
     "public/index.js",
     "public/index.js.map",
     "docs/api.md",
+    "docs/tiled-voxel.md",
     "LICENSE",
     "package.json",
     "README.md"

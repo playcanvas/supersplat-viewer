@@ -26,7 +26,7 @@ type ViewerAssets = {
     posterUrl?: string;
     /** Equirectangular skybox texture url. */
     skyboxUrl?: string;
-    /** Collision data url, for walk mode. A `.glb` is treated as a mesh, otherwise voxels. */
+    /** Collision data url: a `.glb` mesh, single-voxel metadata, or a tiled voxel manifest. */
     collisionUrl?: string;
 };
 

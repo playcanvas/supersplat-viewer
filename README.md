@@ -27,7 +27,7 @@ The app supports a number of URL parameters (these are subject to change):
 | `content`   | URL of the scene file (`.ply`, `.sog`, `.compressed.ply`, `.meta.json`, `.lod-meta.json`) | `./scene.compressed.ply` |
 | `skybox`    | URL of an equirectangular skybox image                                                    |                          |
 | `poster`    | URL of an image to show while loading                                                     |                          |
-| `collision` | URL of a collision asset (`.glb` mesh, or voxel data). `voxel` is accepted as an alias.   |                          |
+| `collision` | URL of a collision asset (`.glb` mesh, voxel data, or a [tiled voxel manifest](docs/tiled-voxel.md)). `voxel` is accepted as an alias. | |
 
 ### UI
 

@@ -129,6 +129,10 @@ Dragging the built-in timeline pauses playback. Releasing or cancelling the drag
 
 ### Controlling the camera
 
+`collisionUrl` also accepts a [tiled voxel manifest](tiled-voxel.md). For tiled collision,
+`walkAllowed` follows coverage under the camera; missing tiles leave the scene visible and
+pause walking at unloaded boundaries. `destroy()` also cancels tile requests and retries.
+
 After loading, set `viewer.state.cameraMode` to select orbit, fly or animation mode. Check `state.walkAllowed` before selecting walk mode; it requires collision data and a scene large enough to walk in. `toggleWalk()` provides the built-in walk button's behavior, returning to the previous mode on the next call, including when the host entered walk by writing the state directly. Mode changes update the built-in buttons automatically.
 
 `frameScene()` switches to orbit and frames the full scene. `resetCamera()` preserves fly/walk mode and restores the spawn recorded when that mode was entered; from orbit or animation it restores the authored initial view in orbit mode, falling back to scene framing when no initial view exists. Both start a camera transition and return immediately. These commands work with the built-in UI or with `ui: false`.
