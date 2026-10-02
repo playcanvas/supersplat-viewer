@@ -12,6 +12,7 @@ import {
     ADDRESS_CLAMP_TO_EDGE,
     BindGroupFormat,
     BindStorageBufferFormat,
+    BindStorageTextureFormat,
     BindTextureFormat,
     BindUniformBufferFormat,
     BLEND_NONE,
@@ -84,7 +85,16 @@ import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, SPLAT_POLYGON_SIDES, projectorW
 import type { CoverageMode } from './shaders/projector';
 import { FAR_CLIP_Z, QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
-import { TAA_MAX_COUNT, taaFragmentWGSL, taaVertexWGSL } from './shaders/taa';
+import {
+    buildSampleTables,
+    sampleArgsWGSL,
+    sampleBatchesWGSL,
+    sampleResolveFragmentWGSL,
+    sampleResolveVertexWGSL,
+    sampleSplatsWGSL
+} from './shaders/samples';
+import { TAA_MAX_COUNT, taaFragmentWGSL, taaHistoryWGSL, taaVertexWGSL } from './shaders/taa';
+import { TILE_SIZE, binCountWGSL, binFillWGSL, tileBlendWGSL, tileScanWGSL } from './shaders/tiles';
 import type { DispatchGroup, SplatSource, SplatSourceKind } from './splat-source';
 import { DirectSplatSource } from './splat-source-direct';
 import { WorkBufferSplatSource } from './splat-source-workbuffer';
@@ -125,6 +135,13 @@ type Variant = {
      * alpha.
      */
     coverage: CoverageMode;
+    /**
+     * How the splats reach the target: the stochastic raster, or `compute`, a tile renderer that
+     * blends every pixel's splats front to back (shaders/tiles.ts), the image the raster
+     * converges to, with no noise and no accumulation; `sample`, the stochastic frame itself made in
+     * compute, each splat scattering only the pixels it keeps (shaders/samples.ts).
+     */
+    pipeline: 'raster' | 'compute' | 'sample';
     /**
      * Bench diagnostic for the raster's cost, by subtraction: `none` draws nothing (the pass only
      * clears), `empty` runs the vertex shader but collapses every quad to its centre (no
@@ -243,6 +260,7 @@ const defaultVariant = (): Variant => ({
     popless: 'on',
     quadClip: 'opacity',
     coverage: 'pixel',
+    pipeline: 'raster',
     raster: 'full',
     alphaClip: 0,
     msaa: 'off',
@@ -281,6 +299,8 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'quadClip' && (value === 'opacity' || value === 'off')) variant.quadClip = value;
         if (key === 'coverage' && (value === 'pixel' || value === 'splat' || value === 'interleaved'))
             variant.coverage = value;
+        if (key === 'pipeline' && (value === 'raster' || value === 'compute' || value === 'sample'))
+            variant.pipeline = value;
         if (
             key === 'raster' &&
             [
@@ -648,6 +668,65 @@ class StochasticSplatRenderer {
     // entries the ordered list holds: a survivor takes one, or one per pixel set it keeps
     private orderedCapacity = 0;
 
+    // variant pipeline:compute (shaders/tiles.ts): built on first use
+    private tilePipeline: {
+        binCount: Compute;
+        binFill: Compute;
+        scan: Compute;
+        blend: Compute;
+        formats: BindGroupFormat[];
+    } | null = null;
+
+    private tiles = { x: 0, y: 0 };
+
+    private tileCounts: StorageBuffer | null = null;
+
+    private tileOffsets: StorageBuffer | null = null;
+
+    private tileEntries: StorageBuffer | null = null;
+
+    private tileEntryCapacity = 0;
+
+    private tileRecordsA: StorageBuffer | null = null;
+
+    private tileRecordsB: StorageBuffer | null = null;
+
+    private tileRecordSlots = 0;
+
+    private tileEntryTotal: StorageBuffer | null = null;
+
+    private tileTotalPending = false;
+
+    private tileColor: Texture | null = null;
+
+    private tileInfo: Texture | null = null;
+
+    // variant pipeline:sample (shaders/samples.ts): built on first use
+    private samplePipeline: {
+        splats: Compute;
+        batches: Compute;
+        args: Compute;
+        formats: BindGroupFormat[];
+        resolveMaterial: ShaderMaterial;
+        resolveInstance: MeshInstance;
+    } | null = null;
+
+    private samplePixels: StorageBuffer | null = null;
+
+    private samplePixelCount = 0;
+
+    private sampleTotals: StorageBuffer | null = null;
+
+    private sampleRadii: StorageBuffer | null = null;
+
+    private sampleTableClip = -1;
+
+    private sampleBatches: StorageBuffer | null = null;
+
+    private sampleBatchCount: StorageBuffer | null = null;
+
+    private static SAMPLE_BATCH_CAPACITY = 1 << 20;
+
     private rasterMaterial: ShaderMaterial;
 
     private rasterInstance: MeshInstance;
@@ -874,9 +953,8 @@ class StochasticSplatRenderer {
         }
     }
 
-    // reduce the previous frame's depth into the two grid levels
-    private reduceDepth(width: number, height: number) {
-        const { device } = this;
+    // the occlusion grid's two levels at this size
+    private ensureOccGrid(width: number, height: number) {
         const x1 = Math.ceil(width / 8);
         const y1 = Math.ceil(height / 8);
         const x2 = Math.ceil(x1 / 4);
@@ -884,18 +962,15 @@ class StochasticSplatRenderer {
         if (this.occBlocks.x1 !== x1 || this.occBlocks.y1 !== y1) {
             this.occL1.destroy();
             this.occL2.destroy();
-            this.occL1 = new StorageBuffer(device, x1 * y1 * 4, BUFFERUSAGE_COPY_DST);
-            this.occL2 = new StorageBuffer(device, x2 * y2 * 4, BUFFERUSAGE_COPY_DST);
+            this.occL1 = new StorageBuffer(this.device, x1 * y1 * 4, BUFFERUSAGE_COPY_DST);
+            this.occL2 = new StorageBuffer(this.device, x2 * y2 * 4, BUFFERUSAGE_COPY_DST);
             this.occBlocks = { x1, y1, x2, y2 };
         }
-        const l1 = this.reduceL1;
-        l1.setParameter('prevDepth', this.depthTexture);
-        l1.setParameter('blockMax', this.occL1);
-        l1.setParameter('width', width);
-        l1.setParameter('height', height);
-        l1.setParameter('blocksX', x1);
-        l1.setParameter('blocksY', y1);
-        l1.setupDispatch(x1, y1, 1);
+    }
+
+    // level 2 from level 1
+    private reduceLevel2() {
+        const { x1, y1, x2, y2 } = this.occBlocks;
         const l2 = this.reduceL2;
         l2.setParameter('level1', this.occL1);
         l2.setParameter('level2', this.occL2);
@@ -905,8 +980,431 @@ class StochasticSplatRenderer {
         l2.setParameter('blocksY2', y2);
         Compute.calcDispatchSize(Math.ceil((x2 * y2) / 64), tmpVec2);
         l2.setupDispatch(tmpVec2.x, tmpVec2.y, 1);
+        this.device.computeDispatch([l2], 'sse-splat-reduce2');
+    }
+
+    // reduce the previous frame's depth into the two grid levels
+    private reduceDepth(width: number, height: number) {
+        const { device } = this;
+        this.ensureOccGrid(width, height);
+        const { x1, y1 } = this.occBlocks;
+        const l1 = this.reduceL1;
+        l1.setParameter('prevDepth', this.depthTexture);
+        l1.setParameter('blockMax', this.occL1);
+        l1.setParameter('width', width);
+        l1.setParameter('height', height);
+        l1.setParameter('blocksX', x1);
+        l1.setParameter('blocksY', y1);
+        l1.setupDispatch(x1, y1, 1);
         device.computeDispatch([l1], 'sse-splat-reduce1');
-        device.computeDispatch([l2], 'sse-splat-reduce2');
+        this.reduceLevel2();
+    }
+
+    // Variant pipeline:compute: the binning, scan and blend passes, built on first use
+    private ensureTilePipeline() {
+        if (this.tilePipeline) return this.tilePipeline;
+        const { device } = this;
+        const binFormat = new BindGroupFormat(device, [
+            new BindStorageBufferFormat('counter', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('cache', SHADERSTAGE_COMPUTE, true),
+            new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('tileCounts', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('orderedSlots', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('recordsA', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('recordsB', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('entries', SHADERSTAGE_COMPUTE)
+        ]);
+        const binUniforms = () =>
+            new UniformBufferFormat(device, [
+                new UniformFormat('viewportW', UNIFORMTYPE_FLOAT),
+                new UniformFormat('viewportH', UNIFORMTYPE_FLOAT),
+                new UniformFormat('tilesX', UNIFORMTYPE_UINT),
+                new UniformFormat('tilesY', UNIFORMTYPE_UINT),
+                new UniformFormat('focalX', UNIFORMTYPE_FLOAT),
+                new UniformFormat('focalY', UNIFORMTYPE_FLOAT),
+                new UniformFormat('flip', UNIFORMTYPE_FLOAT),
+                new UniformFormat('alphaClip', UNIFORMTYPE_FLOAT),
+                new UniformFormat('isOrtho', UNIFORMTYPE_UINT),
+                new UniformFormat('entryCapacity', UNIFORMTYPE_UINT),
+                new UniformFormat('pad0', UNIFORMTYPE_UINT),
+                new UniformFormat('pad1', UNIFORMTYPE_UINT)
+            ]);
+        const bin = (name: string, cshader: string) =>
+            new Compute(
+                device,
+                new Shader(device, {
+                    name,
+                    shaderLanguage: SHADERLANGUAGE_WGSL,
+                    cshader,
+                    computeUniformBufferFormats: { uniforms: binUniforms() },
+                    computeBindGroupFormat: binFormat
+                }),
+                name
+            );
+        const scanFormat = new BindGroupFormat(device, [
+            new BindStorageBufferFormat('tileCounts', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('tileOffsets', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('entryTotal', SHADERSTAGE_COMPUTE),
+            new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE)
+        ]);
+        const blendFormat = new BindGroupFormat(device, [
+            new BindStorageBufferFormat('tileCounts', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('tileOffsets', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('entries', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('recordsA', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('recordsB', SHADERSTAGE_COMPUTE, true),
+            new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE),
+            new BindStorageTextureFormat('outColor', PIXELFORMAT_RGBA16U, TEXTUREDIMENSION_2D),
+            new BindStorageTextureFormat('outInfo', PIXELFORMAT_R32U, TEXTUREDIMENSION_2D),
+            new BindStorageBufferFormat('occL1', SHADERSTAGE_COMPUTE)
+        ]);
+        this.tilePipeline = {
+            binCount: bin('sse-tiles-bin-count', binCountWGSL),
+            binFill: bin('sse-tiles-bin-fill', binFillWGSL),
+            scan: new Compute(
+                device,
+                new Shader(device, {
+                    name: 'sse-tiles-scan',
+                    shaderLanguage: SHADERLANGUAGE_WGSL,
+                    cshader: tileScanWGSL,
+                    computeUniformBufferFormats: {
+                        uniforms: new UniformBufferFormat(device, [new UniformFormat('tileCount', UNIFORMTYPE_UINT)])
+                    },
+                    computeBindGroupFormat: scanFormat
+                }),
+                'sse-tiles-scan'
+            ),
+            blend: new Compute(
+                device,
+                new Shader(device, {
+                    name: 'sse-tiles-blend',
+                    shaderLanguage: SHADERLANGUAGE_WGSL,
+                    cshader: tileBlendWGSL(taaHistoryWGSL),
+                    computeUniformBufferFormats: {
+                        uniforms: new UniformBufferFormat(device, [
+                            new UniformFormat('viewportW', UNIFORMTYPE_UINT),
+                            new UniformFormat('viewportH', UNIFORMTYPE_UINT),
+                            new UniformFormat('tilesX', UNIFORMTYPE_UINT),
+                            new UniformFormat('blocksX1', UNIFORMTYPE_UINT),
+                            new UniformFormat('blocksY1', UNIFORMTYPE_UINT),
+                            new UniformFormat('entryCapacity', UNIFORMTYPE_UINT),
+                            new UniformFormat('isOrtho', UNIFORMTYPE_UINT),
+                            new UniformFormat('alphaClip', UNIFORMTYPE_FLOAT),
+                            new UniformFormat('clipA', UNIFORMTYPE_FLOAT),
+                            new UniformFormat('clipB', UNIFORMTYPE_FLOAT)
+                        ])
+                    },
+                    computeBindGroupFormat: blendFormat
+                }),
+                'sse-tiles-blend'
+            ),
+            formats: [binFormat, scanFormat, blendFormat]
+        };
+        this.tileEntryTotal = new StorageBuffer(device, 16, BUFFERUSAGE_COPY_SRC);
+        return this.tilePipeline;
+    }
+
+    // Variant pipeline:sample: the scatter passes and the resolve, built on first use
+    private ensureSamplePipeline() {
+        if (this.samplePipeline) return this.samplePipeline;
+        const { device } = this;
+        const format = new BindGroupFormat(device, [
+            new BindStorageBufferFormat('counter', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('cache', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('orderedSlots', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('totals', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('radii', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('pixels', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('batches', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('batchCount', SHADERSTAGE_COMPUTE),
+            new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE)
+        ]);
+        const scatter = (name: string, cshader: string) =>
+            new Compute(
+                device,
+                new Shader(device, {
+                    name,
+                    shaderLanguage: SHADERLANGUAGE_WGSL,
+                    cshader,
+                    computeUniformBufferFormats: {
+                        uniforms: new UniformBufferFormat(device, [
+                            new UniformFormat('viewportW', UNIFORMTYPE_FLOAT),
+                            new UniformFormat('viewportH', UNIFORMTYPE_FLOAT),
+                            new UniformFormat('focalX', UNIFORMTYPE_FLOAT),
+                            new UniformFormat('focalY', UNIFORMTYPE_FLOAT),
+                            new UniformFormat('flip', UNIFORMTYPE_FLOAT),
+                            new UniformFormat('isOrtho', UNIFORMTYPE_UINT),
+                            new UniformFormat('frameSeed', UNIFORMTYPE_UINT),
+                            new UniformFormat('batchCapacity', UNIFORMTYPE_UINT)
+                        ])
+                    },
+                    computeBindGroupFormat: format
+                }),
+                name
+            );
+        const argsFormat = new BindGroupFormat(device, [
+            new BindStorageBufferFormat('batchCount', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('indirectDispatchArgs', SHADERSTAGE_COMPUTE),
+            new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE)
+        ]);
+        const resolveMaterial = new ShaderMaterial({
+            uniqueName: 'sse-samples-resolve',
+            vertexWGSL: sampleResolveVertexWGSL,
+            fragmentWGSL: sampleResolveFragmentWGSL(FAR_CLIP_Z),
+            attributes: { vertex_position: SEMANTIC_POSITION }
+        });
+        resolveMaterial.blendType = BLEND_NONE;
+        resolveMaterial.depthWrite = true;
+        resolveMaterial.depthTest = true;
+        resolveMaterial.depthFunc = FUNC_ALWAYS;
+        resolveMaterial.cull = CULLFACE_NONE;
+        const resolveInstance = new MeshInstance(
+            createFullscreenMesh(device),
+            resolveMaterial,
+            new GraphNode('sse-samples-resolve')
+        );
+        resolveInstance.cull = false;
+        resolveInstance.castShadow = false;
+        resolveInstance.receiveShadow = false;
+        this.samplePipeline = {
+            splats: scatter('sse-samples-splats', sampleSplatsWGSL),
+            batches: scatter('sse-samples-batches', sampleBatchesWGSL),
+            args: new Compute(
+                device,
+                new Shader(device, {
+                    name: 'sse-samples-args',
+                    shaderLanguage: SHADERLANGUAGE_WGSL,
+                    cshader: sampleArgsWGSL,
+                    computeUniformBufferFormats: {
+                        uniforms: new UniformBufferFormat(device, [
+                            new UniformFormat('dispatchSlot', UNIFORMTYPE_UINT),
+                            new UniformFormat('batchCapacity', UNIFORMTYPE_UINT)
+                        ])
+                    },
+                    computeBindGroupFormat: argsFormat
+                }),
+                'sse-samples-args'
+            ),
+            formats: [format, argsFormat],
+            resolveMaterial,
+            resolveInstance
+        };
+        this.sampleBatches = new StorageBuffer(device, StochasticSplatRenderer.SAMPLE_BATCH_CAPACITY * 16);
+        this.sampleBatchCount = new StorageBuffer(device, 16, BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC);
+        return this.samplePipeline;
+    }
+
+    // Variant pipeline:sample: every survivor scatters the pixels it keeps into the key buffer,
+    // front to back, and the raster pass resolves the keys into the target (shaders/samples.ts)
+    private dispatchSamples(
+        width: number,
+        height: number,
+        dispatchSlot: number,
+        alphaClip: number,
+        clipZ: number[],
+        isOrtho: boolean,
+        focal: number[]
+    ) {
+        const { device } = this;
+        const pipeline = this.ensureSamplePipeline();
+        if (this.samplePixelCount !== width * height) {
+            this.samplePixels?.destroy();
+            this.samplePixelCount = width * height;
+            this.samplePixels = new StorageBuffer(
+                device,
+                width * height * 4,
+                BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC
+            );
+        }
+        if (this.sampleTableClip !== alphaClip) {
+            const { totals, radii } = buildSampleTables(alphaClip);
+            this.sampleTotals?.destroy();
+            this.sampleRadii?.destroy();
+            this.sampleTotals = new StorageBuffer(device, totals.byteLength, BUFFERUSAGE_COPY_DST);
+            this.sampleRadii = new StorageBuffer(device, radii.byteLength, BUFFERUSAGE_COPY_DST);
+            this.sampleTotals.write(0, totals, 0, totals.length);
+            this.sampleRadii.write(0, radii, 0, radii.length);
+            this.sampleTableClip = alphaClip;
+        }
+        this.samplePixels!.clear();
+        this.sampleBatchCount!.clear();
+        const capacity = StochasticSplatRenderer.SAMPLE_BATCH_CAPACITY;
+        for (const compute of [pipeline.splats, pipeline.batches]) {
+            compute.setParameter('counter', this.counter);
+            compute.setParameter('cache', this.cacheBuffer!);
+            compute.setParameter('orderedSlots', this.orderedBuffer!);
+            compute.setParameter('totals', this.sampleTotals!);
+            compute.setParameter('radii', this.sampleRadii!);
+            compute.setParameter('pixels', this.samplePixels!);
+            compute.setParameter('batches', this.sampleBatches!);
+            compute.setParameter('batchCount', this.sampleBatchCount!);
+            compute.setParameter('viewportW', width);
+            compute.setParameter('viewportH', height);
+            compute.setParameter('focalX', focal[0]);
+            compute.setParameter('focalY', focal[1]);
+            compute.setParameter('flip', this.target.flipY ? -1 : 1);
+            compute.setParameter('isOrtho', isOrtho ? 1 : 0);
+            compute.setParameter('frameSeed', this.frameSeed);
+            compute.setParameter('batchCapacity', capacity);
+        }
+        pipeline.splats.setupIndirectDispatch(dispatchSlot);
+        const batchSlot = device.getIndirectDispatchSlot(1);
+        const args = pipeline.args;
+        args.setParameter('batchCount', this.sampleBatchCount!);
+        args.setParameter('indirectDispatchArgs', device.indirectDispatchBuffer);
+        args.setParameter('dispatchSlot', batchSlot);
+        args.setParameter('batchCapacity', capacity);
+        args.setupDispatch(1, 1, 1);
+        pipeline.batches.setupIndirectDispatch(batchSlot);
+        device.computeDispatch([pipeline.splats], 'sse-samples-splats');
+        device.computeDispatch([args], 'sse-samples-args');
+        device.computeDispatch([pipeline.batches], 'sse-samples-batches');
+        const resolve = pipeline.resolveMaterial;
+        resolve.setParameter('pixels', this.samplePixels!);
+        resolve.setParameter('resolveParams', [width, isOrtho ? 1 : 0, clipZ[0], clipZ[1]]);
+    }
+
+    // the tile renderer's per-size and per-cache buffers, and its output
+    private ensureTileResources(width: number, height: number) {
+        const { device } = this;
+        const tx = Math.ceil(width / TILE_SIZE);
+        const ty = Math.ceil(height / TILE_SIZE);
+        if (this.tiles.x !== tx || this.tiles.y !== ty) {
+            this.tileCounts?.destroy();
+            this.tileOffsets?.destroy();
+            // readable for the bench's tile statistics
+            this.tileCounts = new StorageBuffer(device, tx * ty * 4, BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC);
+            this.tileOffsets = new StorageBuffer(device, tx * ty * 4, BUFFERUSAGE_COPY_SRC);
+            this.tiles = { x: tx, y: ty };
+        }
+        if (this.tileRecordSlots < this.cacheSlots) {
+            this.tileRecordsA?.destroy();
+            this.tileRecordsB?.destroy();
+            this.tileRecordSlots = this.cacheSlots;
+            this.tileRecordsA = new StorageBuffer(device, this.cacheSlots * 16);
+            this.tileRecordsB = new StorageBuffer(device, this.cacheSlots * 16);
+        }
+        if (!this.tileEntries) {
+            // grown from the entry total the gpu reports (see dispatchTiles)
+            this.tileEntryCapacity = 2 * 1024 * 1024;
+            this.tileEntries = new StorageBuffer(device, this.tileEntryCapacity * 16, BUFFERUSAGE_COPY_SRC);
+        }
+        if (!this.tileColor || this.tileColor.width !== width || this.tileColor.height !== height) {
+            this.tileColor?.destroy();
+            this.tileInfo?.destroy();
+            const options = {
+                width,
+                height,
+                mipmaps: false,
+                storage: true,
+                minFilter: FILTER_NEAREST,
+                magFilter: FILTER_NEAREST,
+                addressU: ADDRESS_CLAMP_TO_EDGE,
+                addressV: ADDRESS_CLAMP_TO_EDGE
+            };
+            this.tileColor = new Texture(device, { ...options, name: 'sse-tiles-color', format: PIXELFORMAT_RGBA16U });
+            this.tileInfo = new Texture(device, { ...options, name: 'sse-tiles-info', format: PIXELFORMAT_R32U });
+        }
+    }
+
+    // Variant pipeline:compute: bin the survivors into tiles, sort and blend each tile, and leave
+    // the occlusion grid for the next frame (shaders/tiles.ts)
+    private dispatchTiles(
+        width: number,
+        height: number,
+        dispatchSlot: number,
+        alphaClip: number,
+        clipZ: number[],
+        isOrtho: boolean,
+        focal: number[]
+    ) {
+        const { device } = this;
+        const pipeline = this.ensureTilePipeline();
+        this.ensureTileResources(width, height);
+        this.ensureOccGrid(width, height);
+        const tileCount = this.tiles.x * this.tiles.y;
+        this.tileCounts!.clear();
+
+        for (const bin of [pipeline.binCount, pipeline.binFill]) {
+            bin.setParameter('counter', this.counter);
+            bin.setParameter('cache', this.cacheBuffer!);
+            bin.setParameter('tileCounts', this.tileCounts!);
+            bin.setParameter('orderedSlots', this.orderedBuffer!);
+            bin.setParameter('recordsA', this.tileRecordsA!);
+            bin.setParameter('recordsB', this.tileRecordsB!);
+            bin.setParameter('entries', this.tileEntries!);
+            bin.setParameter('viewportW', width);
+            bin.setParameter('viewportH', height);
+            bin.setParameter('tilesX', this.tiles.x);
+            bin.setParameter('tilesY', this.tiles.y);
+            bin.setParameter('focalX', focal[0]);
+            bin.setParameter('focalY', focal[1]);
+            bin.setParameter('flip', this.target.flipY ? -1 : 1);
+            bin.setParameter('alphaClip', alphaClip);
+            bin.setParameter('isOrtho', isOrtho ? 1 : 0);
+            bin.setParameter('entryCapacity', this.tileEntryCapacity);
+            bin.setParameter('pad0', 0);
+            bin.setParameter('pad1', 0);
+            bin.setupIndirectDispatch(dispatchSlot);
+        }
+        const scan = pipeline.scan;
+        scan.setParameter('tileCounts', this.tileCounts!);
+        scan.setParameter('tileOffsets', this.tileOffsets!);
+        scan.setParameter('entryTotal', this.tileEntryTotal!);
+        scan.setParameter('tileCount', tileCount);
+        scan.setupDispatch(1, 1, 1);
+        const blend = pipeline.blend;
+        blend.setParameter('tileCounts', this.tileCounts!);
+        blend.setParameter('tileOffsets', this.tileOffsets!);
+        blend.setParameter('entries', this.tileEntries!);
+        blend.setParameter('recordsA', this.tileRecordsA!);
+        blend.setParameter('recordsB', this.tileRecordsB!);
+        blend.setParameter('outColor', this.tileColor!);
+        blend.setParameter('outInfo', this.tileInfo!);
+        blend.setParameter('occL1', this.occL1);
+        blend.setParameter('viewportW', width);
+        blend.setParameter('viewportH', height);
+        blend.setParameter('tilesX', this.tiles.x);
+        blend.setParameter('blocksX1', this.occBlocks.x1);
+        blend.setParameter('blocksY1', this.occBlocks.y1);
+        blend.setParameter('entryCapacity', this.tileEntryCapacity);
+        blend.setParameter('isOrtho', isOrtho ? 1 : 0);
+        blend.setParameter('alphaClip', alphaClip);
+        blend.setParameter('clipA', clipZ[0]);
+        blend.setParameter('clipB', clipZ[1]);
+        blend.setupDispatch(this.tiles.x, this.tiles.y, 1);
+
+        device.computeDispatch([pipeline.binCount], 'sse-tiles-bin-count');
+        device.computeDispatch([scan], 'sse-tiles-scan');
+        device.computeDispatch([pipeline.binFill], 'sse-tiles-bin-fill');
+        device.computeDispatch([blend], 'sse-tiles-blend');
+        // the next frame's occlusion cull reads both levels
+        this.reduceLevel2();
+
+        // the entry list grows when a frame needed more than it holds (off the frame, a frame or
+        // two late; until then the tiles past the end draw short)
+        if (!this.tileTotalPending) {
+            this.tileTotalPending = true;
+            const data = new Uint32Array(1);
+            this.tileEntryTotal!.read(0, 4, data, false)
+                .then(() => {
+                    if (data[0] > this.tileEntryCapacity * 0.9) {
+                        this.tileEntries?.destroy();
+                        this.tileEntryCapacity = Math.ceil(data[0] * 1.5);
+                        this.tileEntries = new StorageBuffer(
+                            this.device,
+                            this.tileEntryCapacity * 16,
+                            BUFFERUSAGE_COPY_SRC
+                        );
+                    }
+                })
+                .catch(() => {
+                    // a lost device or a destroyed buffer; the next frame reads again
+                })
+                .finally(() => {
+                    this.tileTotalPending = false;
+                });
+        }
     }
 
     /** Survivors of the last frame's projection are only known to the gpu; this is the resident count. */
@@ -1458,7 +1956,6 @@ class StochasticSplatRenderer {
         this.rasterMaterial.setDefine('SSE_UV_HALF', this.variant.uvHalf === 'on' ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_FALLOFF_POLY', this.variant.falloff === 'poly' ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_EARLY_REJECT', this.variant.earlyReject === 'on' ? '' : undefined);
-        this.rasterPass.skip = this.variant.raster === 'none' || this.variant.raster === 'nocopy';
         for (const pass of this.setPasses) pass.skip = this.variant.raster === 'none';
         this.rasterMaterial.depthWrite = ![
             'testonly',
@@ -1592,8 +2089,11 @@ class StochasticSplatRenderer {
         // this size. While it runs the coverage seed changes every frame, and a resting camera
         // keeps requesting frames until the history has filled its cap
         const isQuery = !!rt;
+        const computePipeline = this.variant.pipeline === 'compute';
+        const sampled = this.variant.pipeline === 'sample';
         const taaOn =
             this.variant.taa === 'on' &&
+            !computePipeline &&
             (!isQuery || (this.allowQueryTaa && width === this.taaWidth && height === this.taaHeight));
         if (taaOn) {
             if (this.taaWidth !== width || this.taaHeight !== height) {
@@ -1656,14 +2156,17 @@ class StochasticSplatRenderer {
             this.prevOrtho === isOrtho;
         this.culling = culling;
         if (culling) {
-            this.reduceDepth(width, height);
+            // the tile renderer wrote level 1 itself, and level 2 from it, at the end of its frame
+            if (!computePipeline) this.reduceDepth(width, height);
         }
 
         this.counter.clear();
-        const { coverage } = this.variant;
+        // the tile renderer takes every survivor as the raster draws them per pixel
+        const coverage = computePipeline || sampled ? 'pixel' : this.variant.coverage;
         const interleaved = coverage === 'interleaved';
-        // interleaved pixel sets need the ordering: it is what splits the draws by set
-        const ordered = this.variant.order === 'bucket' || interleaved;
+        // interleaved pixel sets split their draws by the order, the tile renderer bins in it and
+        // the sampler scatters front to back in it
+        const ordered = computePipeline || sampled || this.variant.order === 'bucket' || interleaved;
         if (ordered) this.orderBuckets.clear();
         this.ensureOrdered(this.cacheSlots * (interleaved ? 4 : 1));
         // the order key spans the fitted clip range, log-spaced
@@ -1741,6 +2244,9 @@ class StochasticSplatRenderer {
         this.args.setupDispatch(1, 1, 1);
         device.computeDispatch([this.args], 'sse-splat-args');
         this.rasterInstance.setIndirect(null, drawSlot, 1);
+        // the raster pass only clears in the tile renderer's frames, so the compose finds no sample
+        // there and reads the tiles' depth record instead
+        this.rasterPass.skip = computePipeline || this.variant.raster === 'none' || this.variant.raster === 'nocopy';
         this.solidInstance.setIndirect(null, drawSlot, 1);
 
         if (ordered) {
@@ -1769,6 +2275,13 @@ class StochasticSplatRenderer {
             scatter.setParameter('ordered', this.orderedBuffer!);
             scatter.setupIndirectDispatch(dispatchSlot);
             device.computeDispatch([scatter], 'sse-splat-order-scatter');
+        }
+        // the tile renderer bins in the order just scattered, and the sampler scatters in it
+        if (computePipeline) {
+            this.dispatchTiles(width, height, dispatchSlot, alphaClip, clipZ, isOrtho, focal);
+        }
+        if (sampled) {
+            this.dispatchSamples(width, height, dispatchSlot, alphaClip, clipZ, isOrtho, focal);
         }
 
         for (const material of [this.rasterMaterial, this.solidMaterial]) {
@@ -1800,13 +2313,17 @@ class StochasticSplatRenderer {
             occ.setParameter('clipZParams', clipZParams);
             this.occluderInstance.instancingCount = Math.ceil((x1 * y1) / QUADS_PER_INSTANCE);
         }
-        this.rasterPass.instances = interleaved
-            ? [this.interleaveInstance]
-            : [
-                  ...(occluding ? [this.occluderInstance] : []),
-                  ...(this.variant.prefill === 'solid' || this.variant.prefill === 'core' ? [this.solidInstance] : []),
-                  this.rasterInstance
-              ];
+        this.rasterPass.instances = sampled
+            ? [this.samplePipeline!.resolveInstance]
+            : interleaved
+              ? [this.interleaveInstance]
+              : [
+                    ...(occluding ? [this.occluderInstance] : []),
+                    ...(this.variant.prefill === 'solid' || this.variant.prefill === 'core'
+                        ? [this.solidInstance]
+                        : []),
+                    this.rasterInstance
+                ];
 
         this.taaPass.enabled = taaOn;
         if (taaOn) {
@@ -1857,12 +2374,17 @@ class StochasticSplatRenderer {
             this.taaWrite ^= 1;
         }
 
+        if (computePipeline) {
+            this.composeMaterial.setParameter('taaColor', this.tileColor!);
+            this.composeMaterial.setParameter('taaInfo', this.tileInfo!);
+        }
+
         // an offscreen target's rows run the other way to the backbuffer's on WebGPU
         const targetFlipY = rt ? rt.flipY : device.backBuffer.flipY;
         this.composeMaterial.setParameter('composeParams', [
             this.target.flipY !== targetFlipY ? 1 : 0,
             isOrtho ? 1 : 0,
-            taaOn ? 1 : 0,
+            taaOn || computePipeline ? 1 : 0,
             0
         ]);
         this.composeMaterial.setParameter('depthViewParams', [
@@ -2168,6 +2690,49 @@ class StochasticSplatRenderer {
             compute.destroy();
         }
         this.setRanges.destroy();
+        if (this.tilePipeline) {
+            const { formats, ...computes } = this.tilePipeline;
+            for (const compute of Object.values(computes)) {
+                compute.shader.destroy();
+                compute.destroy();
+            }
+            for (const format of formats) format.destroy();
+            this.tilePipeline = null;
+        }
+        for (const buffer of [
+            this.tileCounts,
+            this.tileOffsets,
+            this.tileEntries,
+            this.tileRecordsA,
+            this.tileRecordsB,
+            this.tileEntryTotal
+        ]) {
+            buffer?.destroy();
+        }
+        this.tileColor?.destroy();
+        this.tileInfo?.destroy();
+        if (this.samplePipeline) {
+            const { formats, resolveMaterial, resolveInstance, ...computes } = this.samplePipeline;
+            for (const compute of Object.values(computes)) {
+                compute.shader.destroy();
+                compute.destroy();
+            }
+            for (const format of formats) format.destroy();
+            const resolveMesh = resolveInstance.mesh;
+            resolveInstance.destroy();
+            resolveMesh.destroy();
+            resolveMaterial.destroy();
+            this.samplePipeline = null;
+        }
+        for (const buffer of [
+            this.samplePixels,
+            this.sampleTotals,
+            this.sampleRadii,
+            this.sampleBatches,
+            this.sampleBatchCount
+        ]) {
+            buffer?.destroy();
+        }
         for (const format of this.orderFormats) format.destroy();
         this.orderBuckets.destroy();
         this.orderedBuffer?.destroy();
