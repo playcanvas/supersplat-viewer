@@ -286,6 +286,15 @@
                     device.computeDispatch = dispatch;
                 }
 
+                // the composite quad sits in the default draw layer, whose mesh instances the
+                // engine's teardown never destroys
+                const quad = viewer.app.scene.defaultDrawLayer.meshInstances.find(
+                    (meshInstance) => meshInstance.node.name === 'VoxelOverlayComposite'
+                );
+                if (!quad) {
+                    throw new Error('voxel overlay quad is not in the default draw layer');
+                }
+
                 let shaderDestroyed = false;
                 const shader = overlayCompute.shader;
                 const destroy = shader.destroy;
@@ -294,7 +303,10 @@
                     return destroy.call(this);
                 };
                 return () =>
-                    !overlayCompute.impl && shaderDestroyed && !overlayCompute.getParameter('outputTexture').device;
+                    !overlayCompute.impl &&
+                    shaderDestroyed &&
+                    !overlayCompute.getParameter('outputTexture').device &&
+                    !quad.mesh;
             };
 
             // Teardown during a metadata load. `meta.json` content is read with an await before
