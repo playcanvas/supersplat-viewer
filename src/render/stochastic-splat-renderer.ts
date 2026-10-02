@@ -88,10 +88,10 @@ import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
 import {
     buildSampleTables,
     sampleArgsWGSL,
-    sampleBatchesWGSL,
     sampleResolveFragmentWGSL,
     sampleResolveVertexWGSL,
-    sampleSplatsWGSL
+    sampleSplatsWGSL,
+    sampleTilesWGSL
 } from './shaders/samples';
 import { TAA_MAX_COUNT, taaFragmentWGSL, taaHistoryWGSL, taaVertexWGSL } from './shaders/taa';
 import { TILE_SIZE, binCountWGSL, binFillWGSL, tileBlendWGSL, tileScanWGSL } from './shaders/tiles';
@@ -139,9 +139,15 @@ type Variant = {
      * How the splats reach the target: the stochastic raster, or `compute`, a tile renderer that
      * blends every pixel's splats front to back (shaders/tiles.ts), the image the raster
      * converges to, with no noise and no accumulation; `sample`, the stochastic frame itself made in
-     * compute, each splat scattering only the pixels it keeps (shaders/samples.ts).
+     * compute, each splat scattering only the pixels it keeps (shaders/samples.ts); `hybrid`, the
+     * raster for the splats of at least hybridOpacity and the sampler for the fainter ones, whose
+     * quads the raster spends most of its fragments on.
      */
-    pipeline: 'raster' | 'compute' | 'sample';
+    pipeline: 'raster' | 'compute' | 'sample' | 'hybrid';
+    /** pipeline:sample: alpha's ceiling in the point density (-ln(1 - alpha) points a pixel). */
+    sampleMaxAlpha: number;
+    /** pipeline:hybrid: the opacity from which the raster draws a splat rather than the sampler. */
+    hybridOpacity: number;
     /**
      * Bench diagnostic for the raster's cost, by subtraction: `none` draws nothing (the pass only
      * clears), `empty` runs the vertex shader but collapses every quad to its centre (no
@@ -261,6 +267,8 @@ const defaultVariant = (): Variant => ({
     quadClip: 'opacity',
     coverage: 'pixel',
     pipeline: 'raster',
+    sampleMaxAlpha: 0.995,
+    hybridOpacity: 0.5,
     raster: 'full',
     alphaClip: 0,
     msaa: 'off',
@@ -299,8 +307,12 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'quadClip' && (value === 'opacity' || value === 'off')) variant.quadClip = value;
         if (key === 'coverage' && (value === 'pixel' || value === 'splat' || value === 'interleaved'))
             variant.coverage = value;
-        if (key === 'pipeline' && (value === 'raster' || value === 'compute' || value === 'sample'))
-            variant.pipeline = value;
+        if (key === 'hybridOpacity' && Number.isFinite(Number(value)))
+            variant.hybridOpacity = Math.min(1, Math.max(0, Number(value)));
+        if (key === 'pipeline' && ['raster', 'compute', 'sample', 'hybrid'].includes(value))
+            variant.pipeline = value as Variant['pipeline'];
+        if (key === 'sampleMaxAlpha' && Number.isFinite(Number(value)))
+            variant.sampleMaxAlpha = Math.min(0.999, Math.max(0.5, Number(value)));
         if (
             key === 'raster' &&
             [
@@ -704,11 +716,13 @@ class StochasticSplatRenderer {
     // variant pipeline:sample (shaders/samples.ts): built on first use
     private samplePipeline: {
         splats: Compute;
-        batches: Compute;
+        tiles: Compute;
         args: Compute;
         formats: BindGroupFormat[];
         resolveMaterial: ShaderMaterial;
         resolveInstance: MeshInstance;
+        mergeMaterial: ShaderMaterial;
+        mergeInstance: MeshInstance;
     } | null = null;
 
     private samplePixels: StorageBuffer | null = null;
@@ -721,11 +735,12 @@ class StochasticSplatRenderer {
 
     private sampleTableClip = -1;
 
-    private sampleBatches: StorageBuffer | null = null;
+    private sampleItems: StorageBuffer | null = null;
 
-    private sampleBatchCount: StorageBuffer | null = null;
+    private sampleItemCount: StorageBuffer | null = null;
 
-    private static SAMPLE_BATCH_CAPACITY = 1 << 20;
+    // tile work items a frame at most (a splat over one tile each)
+    private static SAMPLE_ITEM_CAPACITY = 1 << 22;
 
     private rasterMaterial: ShaderMaterial;
 
@@ -1115,8 +1130,8 @@ class StochasticSplatRenderer {
             new BindStorageBufferFormat('totals', SHADERSTAGE_COMPUTE, true),
             new BindStorageBufferFormat('radii', SHADERSTAGE_COMPUTE, true),
             new BindStorageBufferFormat('pixels', SHADERSTAGE_COMPUTE),
-            new BindStorageBufferFormat('batches', SHADERSTAGE_COMPUTE),
-            new BindStorageBufferFormat('batchCount', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('items', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('itemCount', SHADERSTAGE_COMPUTE),
             new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE)
         ]);
         const scatter = (name: string, cshader: string) =>
@@ -1130,12 +1145,17 @@ class StochasticSplatRenderer {
                         uniforms: new UniformBufferFormat(device, [
                             new UniformFormat('viewportW', UNIFORMTYPE_FLOAT),
                             new UniformFormat('viewportH', UNIFORMTYPE_FLOAT),
+                            new UniformFormat('tilesX', UNIFORMTYPE_UINT),
+                            new UniformFormat('tilesY', UNIFORMTYPE_UINT),
                             new UniformFormat('focalX', UNIFORMTYPE_FLOAT),
                             new UniformFormat('focalY', UNIFORMTYPE_FLOAT),
                             new UniformFormat('flip', UNIFORMTYPE_FLOAT),
+                            new UniformFormat('alphaClip', UNIFORMTYPE_FLOAT),
                             new UniformFormat('isOrtho', UNIFORMTYPE_UINT),
                             new UniformFormat('frameSeed', UNIFORMTYPE_UINT),
-                            new UniformFormat('batchCapacity', UNIFORMTYPE_UINT)
+                            new UniformFormat('itemCapacity', UNIFORMTYPE_UINT),
+                            new UniformFormat('opacityLimit', UNIFORMTYPE_UINT),
+                            new UniformFormat('maxAlpha', UNIFORMTYPE_FLOAT)
                         ])
                     },
                     computeBindGroupFormat: format
@@ -1143,32 +1163,37 @@ class StochasticSplatRenderer {
                 name
             );
         const argsFormat = new BindGroupFormat(device, [
-            new BindStorageBufferFormat('batchCount', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('itemCount', SHADERSTAGE_COMPUTE, true),
             new BindStorageBufferFormat('indirectDispatchArgs', SHADERSTAGE_COMPUTE),
             new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE)
         ]);
-        const resolveMaterial = new ShaderMaterial({
-            uniqueName: 'sse-samples-resolve',
-            vertexWGSL: sampleResolveVertexWGSL,
-            fragmentWGSL: sampleResolveFragmentWGSL(FAR_CLIP_Z),
-            attributes: { vertex_position: SEMANTIC_POSITION }
-        });
-        resolveMaterial.blendType = BLEND_NONE;
-        resolveMaterial.depthWrite = true;
-        resolveMaterial.depthTest = true;
-        resolveMaterial.depthFunc = FUNC_ALWAYS;
-        resolveMaterial.cull = CULLFACE_NONE;
-        const resolveInstance = new MeshInstance(
-            createFullscreenMesh(device),
-            resolveMaterial,
-            new GraphNode('sse-samples-resolve')
-        );
-        resolveInstance.cull = false;
-        resolveInstance.castShadow = false;
-        resolveInstance.receiveShadow = false;
+        // the resolve writes every texel; the merge (pipeline:hybrid) only those a point reached,
+        // and only where nearer than what the raster drew there
+        const resolveOf = (name: string, merge: boolean) => {
+            const material = new ShaderMaterial({
+                uniqueName: name,
+                vertexWGSL: sampleResolveVertexWGSL,
+                fragmentWGSL: sampleResolveFragmentWGSL(FAR_CLIP_Z, merge),
+                attributes: { vertex_position: SEMANTIC_POSITION }
+            });
+            material.blendType = BLEND_NONE;
+            material.depthWrite = true;
+            material.depthTest = true;
+            material.depthFunc = merge ? FUNC_LESSEQUAL : FUNC_ALWAYS;
+            material.cull = CULLFACE_NONE;
+            const instance = new MeshInstance(createFullscreenMesh(device), material, new GraphNode(name));
+            instance.cull = false;
+            instance.castShadow = false;
+            instance.receiveShadow = false;
+            return { material, instance };
+        };
+        const resolve = resolveOf('sse-samples-resolve', false);
+        const merge = resolveOf('sse-samples-merge', true);
+        const resolveMaterial = resolve.material;
+        const resolveInstance = resolve.instance;
         this.samplePipeline = {
             splats: scatter('sse-samples-splats', sampleSplatsWGSL),
-            batches: scatter('sse-samples-batches', sampleBatchesWGSL),
+            tiles: scatter('sse-samples-tiles', sampleTilesWGSL),
             args: new Compute(
                 device,
                 new Shader(device, {
@@ -1178,7 +1203,7 @@ class StochasticSplatRenderer {
                     computeUniformBufferFormats: {
                         uniforms: new UniformBufferFormat(device, [
                             new UniformFormat('dispatchSlot', UNIFORMTYPE_UINT),
-                            new UniformFormat('batchCapacity', UNIFORMTYPE_UINT)
+                            new UniformFormat('itemCapacity', UNIFORMTYPE_UINT)
                         ])
                     },
                     computeBindGroupFormat: argsFormat
@@ -1187,11 +1212,18 @@ class StochasticSplatRenderer {
             ),
             formats: [format, argsFormat],
             resolveMaterial,
-            resolveInstance
+            resolveInstance,
+            mergeMaterial: merge.material,
+            mergeInstance: merge.instance
         };
-        this.sampleBatches = new StorageBuffer(device, StochasticSplatRenderer.SAMPLE_BATCH_CAPACITY * 16);
-        this.sampleBatchCount = new StorageBuffer(device, 16, BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC);
+        this.sampleItems = new StorageBuffer(device, StochasticSplatRenderer.SAMPLE_ITEM_CAPACITY * 8);
+        this.sampleItemCount = new StorageBuffer(device, 16, BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC);
         return this.samplePipeline;
+    }
+
+    // the opacity byte from which the raster draws a splat, with pipeline:hybrid (256: none)
+    private hybridLimit() {
+        return this.variant.pipeline === 'hybrid' ? Math.round(this.variant.hybridOpacity * 255) : 256;
     }
 
     // Variant pipeline:sample: every survivor scatters the pixels it keeps into the key buffer,
@@ -1216,52 +1248,61 @@ class StochasticSplatRenderer {
                 BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC
             );
         }
-        if (this.sampleTableClip !== alphaClip) {
-            const { totals, radii } = buildSampleTables(alphaClip);
+        const tableKey = alphaClip * 1000 + this.variant.sampleMaxAlpha;
+        if (this.sampleTableClip !== tableKey) {
+            const { totals, radii } = buildSampleTables(alphaClip, this.variant.sampleMaxAlpha);
             this.sampleTotals?.destroy();
             this.sampleRadii?.destroy();
             this.sampleTotals = new StorageBuffer(device, totals.byteLength, BUFFERUSAGE_COPY_DST);
             this.sampleRadii = new StorageBuffer(device, radii.byteLength, BUFFERUSAGE_COPY_DST);
             this.sampleTotals.write(0, totals, 0, totals.length);
             this.sampleRadii.write(0, radii, 0, radii.length);
-            this.sampleTableClip = alphaClip;
+            this.sampleTableClip = tableKey;
         }
         this.samplePixels!.clear();
-        this.sampleBatchCount!.clear();
-        const capacity = StochasticSplatRenderer.SAMPLE_BATCH_CAPACITY;
-        for (const compute of [pipeline.splats, pipeline.batches]) {
+        this.sampleItemCount!.clear();
+        const capacity = StochasticSplatRenderer.SAMPLE_ITEM_CAPACITY;
+        const tilesX = Math.ceil(width / TILE_SIZE);
+        const tilesY = Math.ceil(height / TILE_SIZE);
+        for (const compute of [pipeline.splats, pipeline.tiles]) {
             compute.setParameter('counter', this.counter);
             compute.setParameter('cache', this.cacheBuffer!);
             compute.setParameter('orderedSlots', this.orderedBuffer!);
             compute.setParameter('totals', this.sampleTotals!);
             compute.setParameter('radii', this.sampleRadii!);
             compute.setParameter('pixels', this.samplePixels!);
-            compute.setParameter('batches', this.sampleBatches!);
-            compute.setParameter('batchCount', this.sampleBatchCount!);
+            compute.setParameter('items', this.sampleItems!);
+            compute.setParameter('itemCount', this.sampleItemCount!);
             compute.setParameter('viewportW', width);
             compute.setParameter('viewportH', height);
+            compute.setParameter('tilesX', tilesX);
+            compute.setParameter('tilesY', tilesY);
             compute.setParameter('focalX', focal[0]);
             compute.setParameter('focalY', focal[1]);
             compute.setParameter('flip', this.target.flipY ? -1 : 1);
+            compute.setParameter('alphaClip', alphaClip);
             compute.setParameter('isOrtho', isOrtho ? 1 : 0);
             compute.setParameter('frameSeed', this.frameSeed);
-            compute.setParameter('batchCapacity', capacity);
+            compute.setParameter('itemCapacity', capacity);
+            compute.setParameter('opacityLimit', this.hybridLimit());
+            compute.setParameter('maxAlpha', this.variant.sampleMaxAlpha);
         }
         pipeline.splats.setupIndirectDispatch(dispatchSlot);
-        const batchSlot = device.getIndirectDispatchSlot(1);
+        const itemSlot = device.getIndirectDispatchSlot(1);
         const args = pipeline.args;
-        args.setParameter('batchCount', this.sampleBatchCount!);
+        args.setParameter('itemCount', this.sampleItemCount!);
         args.setParameter('indirectDispatchArgs', device.indirectDispatchBuffer);
-        args.setParameter('dispatchSlot', batchSlot);
-        args.setParameter('batchCapacity', capacity);
+        args.setParameter('dispatchSlot', itemSlot);
+        args.setParameter('itemCapacity', capacity);
         args.setupDispatch(1, 1, 1);
-        pipeline.batches.setupIndirectDispatch(batchSlot);
+        pipeline.tiles.setupIndirectDispatch(itemSlot);
         device.computeDispatch([pipeline.splats], 'sse-samples-splats');
         device.computeDispatch([args], 'sse-samples-args');
-        device.computeDispatch([pipeline.batches], 'sse-samples-batches');
-        const resolve = pipeline.resolveMaterial;
-        resolve.setParameter('pixels', this.samplePixels!);
-        resolve.setParameter('resolveParams', [width, isOrtho ? 1 : 0, clipZ[0], clipZ[1]]);
+        device.computeDispatch([pipeline.tiles], 'sse-samples-tiles');
+        for (const resolve of [pipeline.resolveMaterial, pipeline.mergeMaterial]) {
+            resolve.setParameter('pixels', this.samplePixels!);
+            resolve.setParameter('resolveParams', [width, isOrtho ? 1 : 0, clipZ[0], clipZ[1]]);
+        }
     }
 
     // the tile renderer's per-size and per-cache buffers, and its output
@@ -1912,6 +1953,7 @@ class StochasticSplatRenderer {
         const splatCoverage = this.variant.coverage !== 'pixel';
         this.rasterMaterial.setDefine('SSE_COVERAGE_SPLAT', splatCoverage ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_INTERLEAVED', this.variant.coverage === 'interleaved' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_HYBRID', this.variant.pipeline === 'hybrid' ? '' : undefined);
         this.rasterInstance.mesh = splatCoverage ? this.polygonMesh : this.rasterMesh;
         this.rasterMaterial.setDefine('SSE_RASTER_EMPTY', this.variant.raster === 'empty' ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_RASTER_DISCARD', this.variant.raster === 'discard' ? '' : undefined);
@@ -2090,7 +2132,8 @@ class StochasticSplatRenderer {
         // keeps requesting frames until the history has filled its cap
         const isQuery = !!rt;
         const computePipeline = this.variant.pipeline === 'compute';
-        const sampled = this.variant.pipeline === 'sample';
+        const hybrid = this.variant.pipeline === 'hybrid';
+        const sampled = this.variant.pipeline === 'sample' || hybrid;
         const taaOn =
             this.variant.taa === 'on' &&
             !computePipeline &&
@@ -2162,7 +2205,11 @@ class StochasticSplatRenderer {
 
         this.counter.clear();
         // the tile renderer takes every survivor as the raster draws them per pixel
-        const coverage = computePipeline || sampled ? 'pixel' : this.variant.coverage;
+        // pipeline:hybrid can draw its solid splats per splat, not interleaved
+        const coverage =
+            computePipeline || (sampled && !hybrid) || (hybrid && this.variant.coverage === 'interleaved')
+                ? 'pixel'
+                : this.variant.coverage;
         const interleaved = coverage === 'interleaved';
         // interleaved pixel sets split their draws by the order, the tile renderer bins in it and
         // the sampler scatters front to back in it
@@ -2222,6 +2269,7 @@ class StochasticSplatRenderer {
             projector.setParameter('depthNear', depthNear);
             projector.setParameter('depthFar', depthFar);
             projector.setParameter('frameSeed', this.frameSeed);
+            projector.setParameter('coverageLimit', hybrid ? this.hybridLimit() : 0);
             Compute.calcDispatchSize(group.chunkCount, tmpVec2);
             projector.setupDispatch(tmpVec2.x, tmpVec2.y, 1);
             device.computeDispatch([projector], 'sse-splat-project');
@@ -2296,6 +2344,7 @@ class StochasticSplatRenderer {
         }
         this.solidMaterial.setParameter('sseCoreAlpha', this.variant.coreAlpha);
         if (interleaved) this.rasterMaterial.setParameter('setRanges', this.setRanges);
+        if (hybrid) this.rasterMaterial.setParameter('hybridLimit', this.hybridLimit());
 
         // variant occluder:on: the occlusion grid's level 1, reduced from the previous frame
         // above, as depth-only quads drawn before the splats (shaders/occluder.ts)
@@ -2313,17 +2362,19 @@ class StochasticSplatRenderer {
             occ.setParameter('clipZParams', clipZParams);
             this.occluderInstance.instancingCount = Math.ceil((x1 * y1) / QUADS_PER_INSTANCE);
         }
-        this.rasterPass.instances = sampled
-            ? [this.samplePipeline!.resolveInstance]
-            : interleaved
-              ? [this.interleaveInstance]
-              : [
-                    ...(occluding ? [this.occluderInstance] : []),
-                    ...(this.variant.prefill === 'solid' || this.variant.prefill === 'core'
-                        ? [this.solidInstance]
-                        : []),
-                    this.rasterInstance
-                ];
+        this.rasterPass.instances = hybrid
+            ? [this.rasterInstance, this.samplePipeline!.mergeInstance]
+            : sampled
+              ? [this.samplePipeline!.resolveInstance]
+              : interleaved
+                ? [this.interleaveInstance]
+                : [
+                      ...(occluding ? [this.occluderInstance] : []),
+                      ...(this.variant.prefill === 'solid' || this.variant.prefill === 'core'
+                          ? [this.solidInstance]
+                          : []),
+                      this.rasterInstance
+                  ];
 
         this.taaPass.enabled = taaOn;
         if (taaOn) {
@@ -2648,7 +2699,8 @@ class StochasticSplatRenderer {
                     new UniformFormat('unitScale', UNIFORMTYPE_FLOAT),
                     new UniformFormat('depthNear', UNIFORMTYPE_FLOAT),
                     new UniformFormat('depthFar', UNIFORMTYPE_FLOAT),
-                    new UniformFormat('frameSeed', UNIFORMTYPE_UINT)
+                    new UniformFormat('frameSeed', UNIFORMTYPE_UINT),
+                    new UniformFormat('coverageLimit', UNIFORMTYPE_UINT)
                 ])
             },
             computeBindGroupFormat: this.projectorBindGroupFormat
@@ -2712,24 +2764,28 @@ class StochasticSplatRenderer {
         this.tileColor?.destroy();
         this.tileInfo?.destroy();
         if (this.samplePipeline) {
-            const { formats, resolveMaterial, resolveInstance, ...computes } = this.samplePipeline;
+            const { formats, resolveMaterial, resolveInstance, mergeMaterial, mergeInstance, ...computes } =
+                this.samplePipeline;
             for (const compute of Object.values(computes)) {
                 compute.shader.destroy();
                 compute.destroy();
             }
             for (const format of formats) format.destroy();
-            const resolveMesh = resolveInstance.mesh;
-            resolveInstance.destroy();
-            resolveMesh.destroy();
+            for (const instance of [resolveInstance, mergeInstance]) {
+                const mesh = instance.mesh;
+                instance.destroy();
+                mesh.destroy();
+            }
             resolveMaterial.destroy();
+            mergeMaterial.destroy();
             this.samplePipeline = null;
         }
         for (const buffer of [
             this.samplePixels,
             this.sampleTotals,
             this.sampleRadii,
-            this.sampleBatches,
-            this.sampleBatchCount
+            this.sampleItems,
+            this.sampleItemCount
         ]) {
             buffer?.destroy();
         }

@@ -1,43 +1,46 @@
-// The sampled stochastic renderer (variant pipeline:sample): the stochastic raster's frame, the
-// nearest kept sample per pixel, made in compute without testing the pixels a splat does not
-// keep. The raster tests every pixel of a splat's quad against a threshold and keeps it with
-// probability alpha; at an overdraw-heavy view 93% of those tests fail. Here each splat instead
-// scatters a Poisson number of points with density lambda = -ln(1 - alpha) over its footprint
-// (in pixels, from a per-opacity table of the falloff's radial profile), so a pixel receives at
-// least one with probability 1 - exp(-lambda) = alpha, independently per pixel and per splat:
-// the same statistics as the raster's thresholds (its pixels area-averaged rather than
-// point-sampled), at about 1.3 points per kept pixel. Each point takes the depth of the splat's
-// popless plane there and claims its pixel with one 32-bit atomicMax of a key packing the
-// inverted depth's top 20 bits (0.05 % precision) over the colour at 4 bits a channel, dithered
-// so the accumulation converges to the exact colour. Splats come in the projector's front-to-back
-// bucket order and a point behind its pixel's key skips the atomic, so most never issue one. A
-// splat with more points than one thread should carry hands them to a second pass in batches.
-// A fullscreen resolve then writes the keys into the raster target's colour and depth, so the
-// accumulation, the compose, the occlusion grid and the picker read an ordinary frame.
+// The sampled stochastic renderer (variants pipeline:sample and pipeline:hybrid): the stochastic
+// raster's frame, the nearest kept sample per pixel, made in compute without testing the pixels a
+// splat does not keep. The raster tests every pixel of a splat's quad against a threshold and
+// keeps it with probability alpha; at an overdraw-heavy view 93% of those tests fail. Here a splat
+// scatters a Poisson process of points with density lambda = -ln(1 - alpha) per pixel, so a pixel
+// receives at least one with probability 1 - exp(-lambda) = alpha, independently per pixel and
+// per splat: the raster's statistics (its pixels area-averaged rather than point-sampled).
+//
+// A small splat (few points expected) scatters them itself, radius from a per-opacity table of
+// the falloff's radial profile and a uniform angle. A larger one is handed out by screen tile:
+// it emits one work item per on-screen 16x16 tile its ellipse reaches (its rows over its subgroup,
+// as the binning does, shaders/tiles.ts), so no point lands off screen and a tile's points stay in
+// a tile's pixels. An item takes the tile's densest lambda: where it is at most 1 it draws a
+// Poisson number of candidates at that density, uniform over the tile, and keeps each with
+// probability lambda / its maximum (thinning, so the kept points have the exact density); where it
+// is denser it tests every pixel of the tile against a threshold, as the raster would.
+//
+// Each kept sample takes the depth of the splat's popless plane there and claims its pixel with
+// one 32-bit atomicMax of a key packing the inverted depth's top 20 bits (0.05 % precision) over
+// the colour at 4 bits a channel, dithered so the accumulation converges to the exact colour.
+// Splats come in the projector's front-to-back bucket order and a sample behind its pixel's key
+// skips the atomic, so most never issue one. A fullscreen resolve then writes the keys into the
+// raster target's colour and depth, so the accumulation, the compose, the occlusion grid and the
+// picker read an ordinary frame. With pipeline:hybrid the raster draws the solid splats (opacity
+// of at least hybridOpacity) first, and the resolve merges the sampled pixels in by depth.
 import { CACHE_WORDS } from './projector';
+import { TILE_SIZE, splatGeometryWGSL } from './tiles';
 
 /** Radius steps per opacity in the inverse-CDF table. */
 const SAMPLE_TABLE_STEPS = 32;
 
-/** Points a splat scatters itself; one with more hands them to the batch pass. */
-const SAMPLE_DIRECT_POINTS = 32;
-
-/** Points per batch of the batch pass. */
-const SAMPLE_BATCH_POINTS = 64;
-
-const SAMPLE_BATCH_WORKGROUP = 64;
-
-// lambda never exceeds this (alpha is clamped just below 1, where lambda would be infinite)
-const SAMPLE_MAX_ALPHA = 0.995;
+/** A splat expecting at most this many points scatters them itself; a larger one goes by tile. */
+const SAMPLE_DIRECT_POINTS = 16;
 
 /**
  * The per-opacity tables: the falloff's radial profile as a Poisson density, its integral over
  * the unit disk (points per unit of uv area, before the axes' scale) and its inverse radial CDF.
  *
  * @param alphaClip - Alpha below which nothing is kept.
+ * @param maxAlpha - Alpha's ceiling: lambda is infinite at 1, and grows as -ln(1 - alpha) near it.
  * @returns totals[256] and radii[256 * (SAMPLE_TABLE_STEPS + 1)].
  */
-const buildSampleTables = (alphaClip: number) => {
+const buildSampleTables = (alphaClip: number, maxAlpha: number) => {
     const totals = new Float32Array(256);
     const radii = new Float32Array(256 * (SAMPLE_TABLE_STEPS + 1));
     const e4 = Math.exp(-4);
@@ -48,7 +51,7 @@ const buildSampleTables = (alphaClip: number) => {
         cdf[0] = 0;
         for (let i = 1; i <= steps; i++) {
             const r = (i - 0.5) / steps;
-            const alpha = Math.min(SAMPLE_MAX_ALPHA, (opacity * (Math.exp(-4 * r * r) - e4)) / (1 - e4));
+            const alpha = Math.min(maxAlpha, (opacity * (Math.exp(-4 * r * r) - e4)) / (1 - e4));
             const lambda = alpha >= alphaClip && alpha > 0 ? -Math.log(1 - alpha) : 0;
             cdf[i] = cdf[i - 1] + lambda * 2 * Math.PI * r * (1 / steps);
         }
@@ -67,15 +70,24 @@ const buildSampleTables = (alphaClip: number) => {
 };
 
 const sampleCommonWGSL = /* wgsl */ `
+diagnostic(off, subgroup_uniformity);
 struct SampleUniforms {
     viewportW: f32,
     viewportH: f32,
+    tilesX: u32,
+    tilesY: u32,
     focalX: f32,
     focalY: f32,
     flip: f32,
+    alphaClip: f32,
     isOrtho: u32,
     frameSeed: u32,
-    batchCapacity: u32
+    itemCapacity: u32,
+    // splats with an opacity byte at least this are left to the raster (variant pipeline:hybrid;
+    // 256 samples every splat)
+    opacityLimit: u32,
+    // alpha's ceiling in the point density
+    maxAlpha: f32
 }
 
 @group(0) @binding(0) var<storage, read> counter: array<u32>;
@@ -84,11 +96,13 @@ struct SampleUniforms {
 @group(0) @binding(3) var<storage, read> totals: array<f32>;
 @group(0) @binding(4) var<storage, read> radii: array<f32>;
 @group(0) @binding(5) var<storage, read_write> pixels: array<atomic<u32>>;
-// slot, first point, points, the splat's seed
-@group(0) @binding(6) var<storage, read_write> batches: array<vec4u>;
-// [0] batches this frame
-@group(0) @binding(7) var<storage, read_write> batchCount: array<atomic<u32>>;
+// survivor slot, tile
+@group(0) @binding(6) var<storage, read_write> items: array<vec2u>;
+// [0] items this frame, [1] points scattered directly (for the bench)
+@group(0) @binding(7) var<storage, read_write> itemCount: array<atomic<u32>>;
 @group(0) @binding(8) var<uniform> uniforms: SampleUniforms;
+
+${splatGeometryWGSL}
 
 fn hashU32(x: u32) -> u32 {
     var v = x;
@@ -123,81 +137,43 @@ fn poisson(mean: f32, state: ptr<function, u32>) -> u32 {
     return u32(max(round(mean + sqrt(mean) * z), 0.0));
 }
 
-struct Splat {
-    center: vec2f,
-    axis1: vec2f,
-    axis2: vec2f,
-    depth: f32,
-    gradient: vec2f,
-    opacity: u32,
-    color: vec3f,
-    seed: u32
+// the splat's seed this frame, as the raster's coverage hash takes it
+fn seedOf(slot: u32) -> u32 {
+    return hashU32(((cache[slot * ${CACHE_WORDS}u + 6u] + 1u) * 26699u) ^ uniforms.frameSeed);
 }
 
-fn splatOf(slot: u32) -> Splat {
-    var s: Splat;
-    let base = slot * ${CACHE_WORDS}u;
-    let size = vec2f(uniforms.viewportW, uniforms.viewportH);
-    let maxRadius = min(1024.0, min(size.x, size.y));
-    let ndcRange = vec2f(1.0) + vec2f(4.0 * maxRadius) / size;
-    let ndc = unpack2x16snorm(cache[base]) * ndcRange;
-    s.depth = bitcast<f32>(cache[base + 1u]);
-    // the axes in framebuffer pixels (y down)
-    let f = uniforms.flip;
-    let axis1 = unpack2x16float(cache[base + 2u]);
-    let word3 = cache[base + 3u];
-    let len2 = unpack2x16float(word3).x;
-    let dir = axis1 / max(length(axis1), 1e-12);
-    s.axis1 = vec2f(axis1.x, -f * axis1.y);
-    s.axis2 = len2 * vec2f(dir.y, f * dir.x);
-    s.opacity = (word3 >> 16u) & 0xffu;
-    s.center = vec2f((ndc.x * 0.5 + 0.5) * size.x, (0.5 - f * ndc.y * 0.5) * size.y);
-    let ortho = uniforms.isOrtho != 0u;
-    let g = unpack2x16float(cache[base + 5u]) * select(s.depth, 1.0, ortho);
-    s.gradient = vec2f(g.x / uniforms.focalX, -f * g.y / uniforms.focalY);
-    let bits = cache[base + 4u];
-    s.color = min(vec3f(vec3u(bits, bits >> 10u, bits >> 20u) & vec3u(1023u)) * (f32(1u << (bits >> 30u)) / 1023.0), vec3f(1.0));
-    s.seed = hashU32(((cache[base + 6u] + 1u) * 26699u) ^ uniforms.frameSeed);
-    return s;
+fn colorOf(bits: u32) -> vec3f {
+    return min(vec3f(vec3u(bits, bits >> 10u, bits >> 20u) & vec3u(1023u)) * (f32(1u << (bits >> 30u)) / 1023.0), vec3f(1.0));
 }
 
-// the points a splat scatters this frame: the table's total times its footprint's area
-fn pointsOf(s: Splat, state: ptr<function, u32>) -> u32 {
-    let area = abs(s.axis1.x * s.axis2.y - s.axis1.y * s.axis2.x);
-    return poisson(totals[s.opacity] * area, state);
-}
-
-// point k of the splat: a radius from the table, an angle, a pixel; its key claims the pixel if
-// nearer than what holds it
-fn scatter(s: Splat, k: u32) {
-    let h = hashU32(s.seed ^ (k * 0x9e3779b9u));
-    let t = f32(h & 0xffffu) * (${SAMPLE_TABLE_STEPS}.0 / 65536.0);
-    let step = u32(t);
-    let row = s.opacity * ${SAMPLE_TABLE_STEPS + 1}u;
-    let r = mix(radii[row + step], radii[row + step + 1u], t - f32(step));
-    let angle = f32(h >> 16u) * (6.2831853 / 65536.0);
-    let uv = r * vec2f(cos(angle), sin(angle));
-    let offset = uv.x * s.axis1 + uv.y * s.axis2;
-    let p = s.center + offset;
+// a kept sample at offset d from the centre: the popless plane's depth there, the colour at 4
+// bits a channel dithered by the noise word, and the pixel claimed if nearer than what holds it
+fn claim(g: Geometry, color: vec3f, d: vec2f, noise: u32) {
+    let p = g.center + d;
     if (p.x < 0.0 || p.y < 0.0 || p.x >= uniforms.viewportW || p.y >= uniforms.viewportH) {
         return;
     }
-    let shift = dot(s.gradient, offset);
-    let depth = select(s.depth / (1.0 + clamp(shift, -0.5, 0.5)), s.depth + shift, uniforms.isOrtho != 0u);
-    // the colour at 4 bits a channel, dithered by the point's own noise
-    let d = hashU32(h ^ 0x68e31da4u);
-    let dither = vec3f(vec3u(d, d >> 8u, d >> 16u) & vec3u(255u)) * (1.0 / 256.0);
-    let q = min(vec3u(s.color * 15.0 + dither), vec3u(15u));
+    let shift = dot(g.gradient, d);
+    let depth = select(g.depth / (1.0 + clamp(shift, -0.5, 0.5)), g.depth + shift, uniforms.isOrtho != 0u);
+    let dither = vec3f(vec3u(noise, noise >> 8u, noise >> 16u) & vec3u(255u)) * (1.0 / 256.0);
+    let q = min(vec3u(color * 15.0 + dither), vec3u(15u));
     let key = (~bitcast<u32>(max(depth, 0.0)) & 0xfffff000u) | (q.r << 8u) | (q.g << 4u) | q.b;
     let index = u32(p.y) * u32(uniforms.viewportW) + u32(p.x);
     if (atomicLoad(&pixels[index]) < key) {
         atomicMax(&pixels[index], key);
     }
 }
+
+// alpha at offset d
+fn alphaAt(g: Geometry, d: vec2f) -> f32 {
+    let r2 = g.q.x * d.x * d.x + 2.0 * g.q.y * d.x * d.y + g.q.z * d.y * d.y;
+    return g.opacity * (exp(-4.0 * r2) - EXP_M4) / (1.0 - EXP_M4);
+}
 `;
 
-// One thread per survivor, in the bucket order: its point count, then its points, or batches of
-// them for the batch pass
+// One thread per survivor, front to back: the splat's expected point count; a small one scatters
+// its points, a larger one emits a work item per tile its ellipse reaches, its rows spread over
+// its subgroup
 const sampleSplatsWGSL = /* wgsl */ `
 ${sampleCommonWGSL}
 
@@ -205,69 +181,154 @@ ${sampleCommonWGSL}
 fn main(
     @builtin(workgroup_id) wg: vec3u,
     @builtin(num_workgroups) numWorkgroups: vec3u,
-    @builtin(local_invocation_index) local: u32
+    @builtin(local_invocation_index) local: u32,
+    @builtin(subgroup_invocation_id) lane: u32,
+    @builtin(subgroup_size) lanes: u32
 ) {
+    // no early returns: the subgroup hands out its large splats together
     let order = (wg.x + wg.y * numWorkgroups.x) * 256u + local;
-    if (order >= counter[0]) {
-        return;
-    }
-    let slot = orderedSlots[order];
-    let s = splatOf(slot);
-    var state = s.seed;
-    let points = pointsOf(s, &state);
-    if (points <= ${SAMPLE_DIRECT_POINTS}u) {
+    let live = order < counter[0];
+    let slot = select(0u, orderedSlots[min(order, max(counter[0], 1u) - 1u)], live);
+    var g = geometryOf(slot);
+    let base = slot * ${CACHE_WORDS}u;
+    let opacityByte = (cache[base + 3u] >> 16u) & 0xffu;
+    g.valid = g.valid && live && opacityByte < uniforms.opacityLimit;
+    let axis1 = unpack2x16float(cache[base + 2u]);
+    let len1 = length(axis1);
+    let len2 = unpack2x16float(cache[base + 3u]).x;
+    // by the expected count, not a drawn one: a count conditioned on its own size is biased
+    let expected = totals[opacityByte] * len1 * len2;
+    let large = g.valid && expected > ${SAMPLE_DIRECT_POINTS}.0;
+    if (g.valid && !large) {
+        var state = seedOf(slot);
+        let points = poisson(expected, &state);
+        atomicAdd(&itemCount[1], points);
+        // the axes in framebuffer pixels (y down)
+        let f = uniforms.flip;
+        let dir = axis1 / max(len1, 1e-12);
+        let a1 = vec2f(axis1.x, -f * axis1.y);
+        let a2 = len2 * vec2f(dir.y, f * dir.x);
+        let color = colorOf(g.color);
+        let row = opacityByte * ${SAMPLE_TABLE_STEPS + 1}u;
         for (var k = 0u; k < points; k++) {
-            scatter(s, k);
+            let h = hashU32(state ^ (k * 0x9e3779b9u));
+            let t = f32(h & 0xffffu) * (${SAMPLE_TABLE_STEPS}.0 / 65536.0);
+            let step = u32(t);
+            let r = mix(radii[row + step], radii[row + step + 1u], t - f32(step));
+            let angle = f32(h >> 16u) * (6.2831853 / 65536.0);
+            let uv = r * vec2f(cos(angle), sin(angle));
+            claim(g, color, uv.x * a1 + uv.y * a2, hashU32(h ^ 0x68e31da4u));
         }
-        return;
     }
-    let count = (points + ${SAMPLE_BATCH_POINTS - 1}u) / ${SAMPLE_BATCH_POINTS}u;
-    let first = atomicAdd(&batchCount[0], count);
-    for (var b = 0u; b < count; b++) {
-        if (first + b < uniforms.batchCapacity) {
-            let start = b * ${SAMPLE_BATCH_POINTS}u;
-            batches[first + b] = vec4u(slot, start, min(points - start, ${SAMPLE_BATCH_POINTS}u), 0u);
+    var pending = subgroupBallot(large).x;
+    while (pending != 0u) {
+        let owner = firstTrailingBit(pending);
+        pending &= pending - 1u;
+        let bigSlot = subgroupShuffle(slot, owner);
+        let bg = geometryOf(bigSlot);
+        for (var ty = bg.tileMin.y + i32(lane); ty <= bg.tileMax.y; ty += i32(lanes)) {
+            let span = tileSpan(bg, ty);
+            if (span.x <= span.y) {
+                let n = u32(span.y - span.x + 1);
+                let first = atomicAdd(&itemCount[0], n);
+                for (var i = 0u; i < n && first + i < uniforms.itemCapacity; i++) {
+                    items[first + i] = vec2u(bigSlot, u32(ty) * uniforms.tilesX + u32(span.x) + i);
+                }
+            }
         }
     }
 }
 `;
 
-const sampleBatchesWGSL = /* wgsl */ `
+// A thread per item (a splat over a tile), 64 a workgroup: thousands of 16-invocation workgroups
+// cost Mali more to schedule than their work. The tile's densest point: the nearest, in the
+// splat's own metric, of the tile's area
+const sampleTilesWGSL = /* wgsl */ `
 ${sampleCommonWGSL}
 
-@compute @workgroup_size(${SAMPLE_BATCH_WORKGROUP})
+// the least r^2 over the rectangle [lo, hi] (offsets from the centre): 0 if it holds the centre,
+// else the least along its edges, each a 1D quadratic
+fn nearestR2(q: vec3f, lo: vec2f, hi: vec2f) -> f32 {
+    if (all(lo <= vec2f(0.0)) && all(hi >= vec2f(0.0))) {
+        return 0.0;
+    }
+    var best = 1e30;
+    for (var e = 0u; e < 2u; e++) {
+        let x = select(lo.x, hi.x, e == 1u);
+        let y = clamp(-q.y * x / q.z, lo.y, hi.y);
+        best = min(best, q.x * x * x + 2.0 * q.y * x * y + q.z * y * y);
+        let yy = select(lo.y, hi.y, e == 1u);
+        let xx = clamp(-q.y * yy / q.x, lo.x, hi.x);
+        best = min(best, q.x * xx * xx + 2.0 * q.y * xx * yy + q.z * yy * yy);
+    }
+    return best;
+}
+
+@compute @workgroup_size(64)
 fn main(
     @builtin(workgroup_id) wg: vec3u,
     @builtin(num_workgroups) numWorkgroups: vec3u,
     @builtin(local_invocation_index) local: u32
 ) {
-    let index = (wg.x + wg.y * numWorkgroups.x) * ${SAMPLE_BATCH_WORKGROUP}u + local;
-    if (index >= min(atomicLoad(&batchCount[0]), uniforms.batchCapacity)) {
+    let index = (wg.x + wg.y * numWorkgroups.x) * 64u + local;
+    if (index >= min(atomicLoad(&itemCount[0]), uniforms.itemCapacity)) {
         return;
     }
-    let batch = batches[index];
-    let s = splatOf(batch.x);
-    for (var k = 0u; k < batch.z; k++) {
-        scatter(s, batch.y + k);
+    let item = items[index];
+    let g = geometryOf(item.x);
+    let color = colorOf(g.color);
+    let tile = vec2u(item.y % uniforms.tilesX, item.y / uniforms.tilesX);
+    let origin = vec2f(tile * ${TILE_SIZE}u);
+    let size = min(vec2f(${TILE_SIZE}.0), vec2f(uniforms.viewportW, uniforms.viewportH) - origin);
+    let lo = origin - g.center;
+    let alphaMax = min(uniforms.maxAlpha, g.opacity * (exp(-4.0 * nearestR2(g.q, lo, lo + size)) - EXP_M4) / (1.0 - EXP_M4));
+    if (alphaMax < uniforms.alphaClip) {
+        return;
+    }
+    let seed = seedOf(item.x) ^ hashU32(item.y * 0x27d4eb2du);
+    let lambdaMax = -log(1.0 - alphaMax);
+    if (lambdaMax <= 1.0) {
+        // candidates at the densest lambda, thinned to the local one
+        var state = seed;
+        let candidates = poisson(lambdaMax * size.x * size.y, &state);
+        for (var k = 0u; k < candidates; k++) {
+            let h = hashU32(seed ^ (k * 0x9e3779b9u));
+            let h2 = hashU32(h ^ 0x68e31da4u);
+            let d = lo + vec2f(f32(h & 0xffffu), f32(h >> 16u)) * (size / 65536.0);
+            let alpha = min(uniforms.maxAlpha, alphaAt(g, d));
+            if (alpha >= uniforms.alphaClip && f32(h2 >> 8u) * (1.0 / 16777216.0) * lambdaMax < -log(1.0 - alpha)) {
+                claim(g, color, d, hashU32(h2));
+            }
+        }
+    } else {
+        // dense: every pixel of the tile against its threshold, at its centre
+        let count = u32(size.x) * u32(size.y);
+        for (var p = 0u; p < count; p++) {
+            let d = lo + vec2f(f32(p % u32(size.x)), f32(p / u32(size.x))) + vec2f(0.5);
+            let h = hashU32(seed ^ (p * 0x9e3779b9u));
+            let alpha = alphaAt(g, d);
+            if (alpha >= uniforms.alphaClip && f32(h >> 8u) * (1.0 / 16777216.0) < alpha) {
+                claim(g, color, d, hashU32(h ^ 0x68e31da4u));
+            }
+        }
     }
 }
 `;
 
-// the batch pass's workgroups, 2D past the 65535 limit
+// the tile pass's workgroups, 2D past the 65535 limit
 const sampleArgsWGSL = /* wgsl */ `
 struct ArgsUniforms {
     dispatchSlot: u32,
-    batchCapacity: u32
+    itemCapacity: u32
 }
 
-@group(0) @binding(0) var<storage, read> batchCount: array<u32>;
+@group(0) @binding(0) var<storage, read> itemCount: array<u32>;
 @group(0) @binding(1) var<storage, read_write> indirectDispatchArgs: array<u32>;
 @group(0) @binding(2) var<uniform> uniforms: ArgsUniforms;
 
 @compute @workgroup_size(1)
 fn main() {
-    let batches = min(batchCount[0], uniforms.batchCapacity);
-    let groups = (batches + ${SAMPLE_BATCH_WORKGROUP - 1}u) / ${SAMPLE_BATCH_WORKGROUP}u;
+    let groups = (min(itemCount[0], uniforms.itemCapacity) + 63u) / 64u;
     let x = max(min(groups, 65535u), 1u);
     let base = uniforms.dispatchSlot * 3u;
     indirectDispatchArgs[base] = x;
@@ -289,7 +350,9 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 }
 `;
 
-const sampleResolveFragmentWGSL = (farClipZ: number) => /* wgsl */ `
+// with merge (variant pipeline:hybrid) the raster has drawn the solid splats into the target first:
+// a pixel no point reached keeps what it drew, and one a point reached takes the nearer of the two
+const sampleResolveFragmentWGSL = (farClipZ: number, merge: boolean) => /* wgsl */ `
 var<storage, read> pixels: array<u32>;
 // width, isOrtho, and the raster depth mapping a, b
 uniform resolveParams: vec4f;
@@ -300,9 +363,13 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     let pix = vec2u(pcPosition.xy);
     let key = pixels[pix.y * u32(uniform.resolveParams.x) + pix.x];
     if (key == 0u) {
-        output.color = vec4f(0.0);
+        ${
+            merge
+                ? 'discard;'
+                : `output.color = vec4f(0.0);
         output.fragDepth = 1.0;
-        return output;
+        return output;`
+        }
     }
     output.color = vec4f(vec3f(vec3u(key >> 8u, key >> 4u, key) & vec3u(15u)) * (1.0 / 15.0), 1.0);
     let depth = bitcast<f32>((~key & 0xfffff000u) | 0x800u);
@@ -314,12 +381,11 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
 `;
 
 export {
-    SAMPLE_BATCH_POINTS,
     SAMPLE_TABLE_STEPS,
     buildSampleTables,
     sampleArgsWGSL,
-    sampleBatchesWGSL,
     sampleResolveFragmentWGSL,
     sampleResolveVertexWGSL,
-    sampleSplatsWGSL
+    sampleSplatsWGSL,
+    sampleTilesWGSL
 };

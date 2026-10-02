@@ -75,7 +75,10 @@ struct ProjectorUniforms {
     depthNear: f32,
     depthFar: f32,
     // the coverage seed (variant coverage:splat; see the raster's frameSeed)
-    frameSeed: u32
+    frameSeed: u32,
+    // coverage:splat applies to splats with an opacity byte at least this; fainter ones keep
+    // their quads, for the compute sampler (variant pipeline:hybrid)
+    coverageLimit: u32
 }
 
 // chunk table entry: slotBase, count, node, lod | file << 16
@@ -202,8 +205,9 @@ ${
     let threshold = min(min(lowest.x, lowest.y), min(lowest.z, lowest.w));
 `
         : `
+    let perSplat = u32(clamp(opacity, 0.0, 1.0) * 255.0 + 0.5) >= uniforms.coverageLimit;
     let threshold = max(drawn, uniforms.alphaClip);
-    if (threshold >= opacity) {
+    if (perSplat && threshold >= opacity) {
         return result;
     }
 `
@@ -305,7 +309,11 @@ ${
     // the kept ellipse's polygon, in units of the quad's half extent: alpha = opacity *
     // falloff(r^2) with falloff(x) = (exp(-4 x) - exp(-4)) / (1 - exp(-4))
     let e4 = exp(-4.0);
-    let radiusScale = min(1.0, maxRadius / len1) * sqrt(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25) * ${SPLAT_POLYGON_SCALE};
+    let radiusScale = min(1.0, maxRadius / len1) * ${
+        coverage === 'interleaved'
+            ? `sqrt(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25) * ${SPLAT_POLYGON_SCALE}`
+            : `select(1.0, sqrt(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25) * ${SPLAT_POLYGON_SCALE}, perSplat)`
+    };
 `
         : `
     let radiusScale = min(1.0, maxRadius / len1);

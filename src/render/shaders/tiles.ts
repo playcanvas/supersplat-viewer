@@ -28,26 +28,12 @@ const TILE_SIZE = 16;
 /** Bounding-box tiles above which a splat is binned by its whole subgroup. */
 const BIG_SPLAT_TILES = 32;
 
-// The binning passes' uniforms and the splat geometry they share: the projector's cache entry in
-// framebuffer pixels (x right, y down), its quadratic form in the falloff's units (r = 1 at the
-// quad's edge, 2 sqrt(2) sigma), the r^2 where alpha falls to the clip, and its popless plane
-const binCommonWGSL = /* wgsl */ `
-struct BinUniforms {
-    viewportW: f32,
-    viewportH: f32,
-    tilesX: u32,
-    tilesY: u32,
-    focalX: f32,
-    focalY: f32,
-    // 1 when ndc +y is the target's row 0 (its rows top-down), else -1
-    flip: f32,
-    alphaClip: f32,
-    isOrtho: u32,
-    entryCapacity: u32,
-    pad0: u32,
-    pad1: u32
-}
-
+// The splat geometry the binning and the sampler (shaders/samples.ts) share: the projector's
+// cache entry in framebuffer pixels (x right, y down), its quadratic form in the falloff's units
+// (r = 1 at the quad's edge, 2 sqrt(2) sigma), the r^2 where alpha falls to the clip, its popless
+// plane, and the tiles its ellipse reaches. It reads cache and uniforms (viewportW,
+// viewportH, tilesX, tilesY, focalX, focalY, flip, alphaClip, isOrtho) from the shader including it
+const splatGeometryWGSL = /* wgsl */ `
 const EXP_M4 = ${Math.exp(-4)};
 const LOG2E = ${Math.LOG2E};
 
@@ -166,6 +152,27 @@ fn tileKey(g: Geometry, tx: i32, ty: i32) -> u32 {
     let depth = select(g.depth / (1.0 + clamp(shift, -0.5, 0.5)), g.depth + shift, uniforms.isOrtho != 0u);
     return bitcast<u32>(max(depth, 0.0));
 }
+`;
+
+// the binning passes' uniforms, then the geometry
+const binCommonWGSL = /* wgsl */ `
+struct BinUniforms {
+    viewportW: f32,
+    viewportH: f32,
+    tilesX: u32,
+    tilesY: u32,
+    focalX: f32,
+    focalY: f32,
+    // 1 when ndc +y is the target's row 0 (its rows top-down), else -1
+    flip: f32,
+    alphaClip: f32,
+    isOrtho: u32,
+    entryCapacity: u32,
+    pad0: u32,
+    pad1: u32
+}
+
+${splatGeometryWGSL}
 `;
 
 const binBindingsWGSL = /* wgsl */ `
@@ -544,4 +551,4 @@ fn main(
 }
 `;
 
-export { TILE_SIZE, binCountWGSL, binFillWGSL, tileBlendWGSL, tileScanWGSL };
+export { TILE_SIZE, binCountWGSL, binFillWGSL, splatGeometryWGSL, tileBlendWGSL, tileScanWGSL };

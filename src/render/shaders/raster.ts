@@ -63,6 +63,10 @@ var<storage, read> splatCount: array<u32>;
     // cache slots in draw order (variant order:bucket)
     var<storage, read> orderedSlots: array<u32>;
 #endif
+#ifdef SSE_HYBRID
+    // variant pipeline:hybrid: the opacity byte from which the raster draws a splat
+    uniform hybridLimit: u32;
+#endif
 #ifdef SSE_INTERLEAVED
     // variant coverage:interleaved: the pixel set this draw renders, its range of the ordered
     // list, and the map from the full target's clip x and y (over w) into the set's target
@@ -114,6 +118,13 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 
     let axis1 = unpack2x16float(splatCache[base + 2u]);
     let word3 = splatCache[base + 3u];
+    #ifdef SSE_HYBRID
+        // variant pipeline:hybrid: the faint splats are the compute sampler's (shaders/samples.ts)
+        if (((word3 >> 16u) & 0xffu) < uniform.hybridLimit) {
+            output.position = discardPosition;
+            return output;
+        }
+    #endif
     let len2 = unpack2x16float(word3).x;
     let axis2 = len2 * normalize(vec2f(axis1.y, -axis1.x));
 
