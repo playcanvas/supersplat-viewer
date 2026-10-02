@@ -18,7 +18,6 @@ import {
     Vec3,
     GSPLAT_DEBUG_LOD,
     GSPLAT_DEBUG_NONE,
-    GSPLAT_LODMODE_DISTANCE,
     GSPLAT_RENDERER_RASTER_CPU_SORT,
     GSPLAT_RENDERER_RASTER_GPU_SORT,
     LAYERID_SKYBOX,
@@ -477,7 +476,6 @@ class Viewer {
         // these two allow LOD behind camera to drop, saves lots of splats
         gsplat.lodUpdateAngle = lodUpdateAngle;
         gsplat.lodBehindPenalty = lodBehindPenalty;
-        gsplat.lodMode = GSPLAT_LODMODE_DISTANCE;
         gsplat.minContribution = 1;
         gsplat.alphaClip = 1 / 255;
         gsplat.antiAlias = config.aa;
