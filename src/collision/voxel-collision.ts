@@ -125,6 +125,8 @@ function popcount(n: number): number {
  * splat-transform's writeVoxel and provides point and sphere collision queries.
  */
 class VoxelCollision implements Collision {
+    readonly formatVersion: string;
+
     /** Grid-aligned bounds (min xyz) */
     private _gridMinX: number;
 
@@ -168,6 +170,7 @@ class VoxelCollision implements Collision {
     ];
 
     constructor(metadata: VoxelMetadata, nodes: Uint32Array, leafData: Uint32Array) {
+        this.formatVersion = metadata.version ?? '1.0';
         this._gridMinX = metadata.gridBounds.min[0];
         this._gridMinY = metadata.gridBounds.min[1];
         this._gridMinZ = metadata.gridBounds.min[2];
@@ -308,6 +311,16 @@ class VoxelCollision implements Collision {
             return false;
         }
         return !this.isVoxelSolid(ix, iy, iz);
+    }
+
+    /** Test occupied geometry in world space, including overlap between streamed tiles. */
+    isSolidAt(x: number, y: number, z: number): boolean {
+        const res = this.voxelResolution;
+        return this.isVoxelSolid(
+            Math.floor((x - this.gridMinX) / res),
+            Math.floor((y - this.gridMinY) / res),
+            Math.floor((z - this.gridMinZ) / res)
+        );
     }
 
     querySurfaceNormal(
@@ -561,7 +574,7 @@ class VoxelCollision implements Collision {
      * @param out - Receives the push-out vector on success.
      * @returns True if a penetrating voxel was found.
      */
-    private resolveDeepestPenetration(cx: number, cy: number, cz: number, radius: number, out: PushOut): boolean {
+    resolveDeepestPenetration(cx: number, cy: number, cz: number, radius: number, out: PushOut): boolean {
         const { voxelResolution, gridMinX, gridMinY, gridMinZ } = this;
         const radiusSq = radius * radius;
 
@@ -689,7 +702,7 @@ class VoxelCollision implements Collision {
      * @param out - Receives the push-out vector on success.
      * @returns True if a penetrating voxel was found.
      */
-    private resolveDeepestPenetrationCapsule(
+    resolveDeepestPenetrationCapsule(
         cx: number,
         cy: number,
         cz: number,
@@ -985,6 +998,10 @@ class FlippedVoxelCollision extends VoxelCollision {
     isFreeAt(x: number, y: number, z: number): boolean {
         return super.isFreeAt(-x, -y, z);
     }
+
+    isSolidAt(x: number, y: number, z: number): boolean {
+        return super.isSolidAt(-x, -y, z);
+    }
 }
 
 /**
@@ -995,15 +1012,21 @@ class FlippedVoxelCollision extends VoxelCollision {
  * @param jsonUrl - URL to the .voxel.json metadata file.
  * @returns A promise resolving to a VoxelCollision instance.
  */
-const loadVoxelCollision = async (jsonUrl: string): Promise<VoxelCollision> => {
-    const metaResponse = await fetch(jsonUrl);
-    if (!metaResponse.ok) {
-        throw new Error(`Failed to fetch voxel metadata: ${metaResponse.statusText}`);
+const loadVoxelCollision = async (
+    jsonUrl: string,
+    signal?: AbortSignal,
+    metadata?: VoxelMetadata
+): Promise<VoxelCollision> => {
+    if (!metadata) {
+        const metaResponse = await fetch(jsonUrl, { signal });
+        if (!metaResponse.ok) {
+            throw new Error(`Failed to fetch voxel metadata: ${metaResponse.statusText}`);
+        }
+        metadata = await metaResponse.json();
     }
-    const metadata: VoxelMetadata = await metaResponse.json();
 
     const binUrl = jsonUrl.replace('.voxel.json', '.voxel.bin');
-    const binResponse = await fetch(binUrl);
+    const binResponse = await fetch(binUrl, { signal });
     if (!binResponse.ok) {
         throw new Error(`Failed to fetch voxel binary: ${binResponse.statusText}`);
     }
@@ -1021,3 +1044,4 @@ const loadVoxelCollision = async (jsonUrl: string): Promise<VoxelCollision> => {
 };
 
 export { VoxelCollision, loadVoxelCollision };
+export type { VoxelMetadata };

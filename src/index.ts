@@ -14,7 +14,7 @@ import {
 import type { Texture, TextureHandler, AppBase } from 'playcanvas';
 
 import { App } from './app';
-import { MeshCollision, loadVoxelCollision } from './collision';
+import { MeshCollision, loadVoxelCollisionAsset } from './collision';
 import type { Collision } from './collision';
 import { observe } from './core/observe';
 import { initLocalization } from './localization';
@@ -394,6 +394,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     // a load continuation can outlive a destroy, so anything that resumes after an await checks
     // this before touching the app
     let destroyed = false;
+    const collisionAbort = new AbortController();
 
     // Load model
     const gsplatLoad = loadGsplat(
@@ -426,8 +427,9 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
                 return null;
             });
         } else {
-            collisionLoad = loadVoxelCollision(config.collisionUrl).catch((err: Error): null => {
-                console.warn('Failed to load voxel data:', err);
+            const url = new URL(config.collisionUrl, location.href).href;
+            collisionLoad = loadVoxelCollisionAsset(url, collisionAbort.signal).catch((err: Error): null => {
+                if (!collisionAbort.signal.aborted) console.warn('Failed to load voxel data:', err);
                 return null;
             });
         }
@@ -486,6 +488,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         : null;
     viewer.onDestroy(() => {
         destroyed = true;
+        collisionAbort.abort();
     });
     viewer.onDestroy(disposeCanvas);
     if (disposeUI) {

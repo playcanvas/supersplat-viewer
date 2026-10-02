@@ -30,7 +30,7 @@ import type { Camera } from './cameras/camera';
 import { Capture } from './capture';
 import type { CaptureResult } from './capture';
 import type { Collision } from './collision';
-import { MeshCollision, VoxelCollision } from './collision';
+import { MeshCollision, TiledVoxelCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
 import { DebugPanel } from './debug';
 import { initFullscreen } from './fullscreen';
@@ -43,7 +43,7 @@ import { FrameDepthPicker } from './picker-frame-depth';
 import { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { CaptureOptions, Config, Global, XrMode } from './types';
-import { VoxelDebugOverlay } from './voxel-debug-overlay';
+import { TiledVoxelDebugOverlay, VoxelDebugOverlay } from './voxel-debug-overlay';
 import { initXr, standaloneHeadset } from './xr';
 
 // String.replace wrapper that warns when the source substring is missing, so
@@ -207,7 +207,9 @@ class Viewer {
 
     picker: ScenePicker;
 
-    voxelOverlay: VoxelDebugOverlay | null = null;
+    voxelOverlay: VoxelDebugOverlay | TiledVoxelDebugOverlay | null = null;
+
+    private tiledCollision: TiledVoxelCollision | null = null;
 
     meshOverlay: MeshDebugOverlay | null = null;
 
@@ -417,6 +419,13 @@ class Viewer {
             }
 
             if (this.inputController && this.cameraManager) {
+                const position = this.cameraManager.camera.position;
+                this.tiledCollision?.updatePosition(position.x, position.z);
+                if (this.tiledCollision) {
+                    state.walkAllowed =
+                        isWalkAllowed(sceneBound, this.tiledCollision) &&
+                        this.tiledCollision.isReadyAt(position.x, position.z, 0.2);
+                }
                 // update inputs
                 this.inputController.update(deltaTime, this.cameraManager.camera.distance);
 
@@ -566,8 +575,13 @@ class Viewer {
         let attachCollision: ((collision: Collision) => void) | undefined;
 
         collisionLoad?.then((collision) => {
-            if (this.destroyed || !collision) return;
+            if (this.destroyed) {
+                if (collision instanceof TiledVoxelCollision) collision.destroy();
+                return;
+            }
+            if (!collision) return;
             collisionReady = collision;
+            if (collision instanceof TiledVoxelCollision) this.tiledCollision = collision;
             attachCollision?.(collision);
         }, ignoreLoadFailure);
 
@@ -614,15 +628,33 @@ class Viewer {
 
                 state.hasCollision = true;
                 state.walkAllowed = isWalkAllowed(sceneBound, collision);
+                if (collision instanceof TiledVoxelCollision) {
+                    const updateReadiness = () => {
+                        const position = this.cameraManager.camera.position;
+                        state.walkAllowed =
+                            isWalkAllowed(sceneBound, collision) && collision.isReadyAt(position.x, position.z, 0.2);
+                        app.renderNextFrame = true;
+                    };
+                    collision.onTilesChanged = updateReadiness;
+                    const position = this.cameraManager.camera.position;
+                    collision.updatePosition(position.x, position.z);
+                    updateReadiness();
+                }
 
                 // Create collision debug overlay (voxel uses a compute shader, mesh
                 // uses standard line rendering). The voxel path requires WebGPU.
-                if (collision instanceof VoxelCollision && renderer !== 'webgl') {
+                if (
+                    (collision instanceof VoxelCollision || collision instanceof TiledVoxelCollision) &&
+                    renderer !== 'webgl'
+                ) {
                     const setOverlayEnabled = (value: boolean) => {
                         // Upload the voxel data and allocate the screen-sized texture only
                         // when the debug overlay is first used.
                         if (value && !this.voxelOverlay) {
-                            this.voxelOverlay = new VoxelDebugOverlay(app, collision, camera);
+                            this.voxelOverlay =
+                                collision instanceof TiledVoxelCollision
+                                    ? new TiledVoxelDebugOverlay(app, collision, camera)
+                                    : new VoxelDebugOverlay(app, collision, camera);
                             this.voxelOverlay.mode = config.heatmap ? 'heatmap' : 'overlay';
                         }
                         if (this.voxelOverlay) this.voxelOverlay.enabled = value;
@@ -978,6 +1010,7 @@ class Viewer {
         this.navCursor?.destroy();
         this.inputController?.destroy();
         this.voxelOverlay?.destroy();
+        this.tiledCollision?.destroy();
         this.meshOverlay?.destroy();
         this.picker?.release();
         this.splatRenderer?.destroy();

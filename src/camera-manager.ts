@@ -103,6 +103,10 @@ class CameraManager {
         const { events, settings, state } = global;
 
         let walkAllowed = isWalkAllowed(bbox, collision);
+        const canWalk = () =>
+            walkAllowed &&
+            (!collision?.isReadyAt ||
+                collision.isReadyAt(this.camera.position.x, this.camera.position.z, controllers.walk.capsuleRadius));
 
         const camera0 = settings.cameras[0]?.initial;
         const defaultFov = camera0?.fov ?? DEFAULT_CAMERA_FOV;
@@ -168,7 +172,7 @@ class CameraManager {
 
         const target = new Camera(this.camera); // the active controller updates this
         const from = new Camera(this.camera); // stores the previous camera state during transition
-        const defaultMode = (): CameraMode => (isObjectExperience ? 'orbit' : walkAllowed ? 'walk' : 'fly');
+        const defaultMode = (): CameraMode => (isObjectExperience ? 'orbit' : canWalk() ? 'walk' : 'fly');
 
         // null until the first mode change, so the fallback tracks `walkAllowed` if collision
         // attaches before the user has moved
@@ -206,6 +210,7 @@ class CameraManager {
         this.transitionProgress = () => (transitionTimer < 1 ? transitionEase(transitionTimer) : 1);
 
         this.setCollision = (value: Collision | null) => {
+            collision = value;
             controllers.fly.collision = value;
             controllers.walk.collision = value;
             walkAllowed = isWalkAllowed(bbox, value);
@@ -305,10 +310,10 @@ class CameraManager {
                 case 'requestFirstPerson':
                     // movement input from a non-first-person mode: walk where the scene allows
                     // it, fly otherwise, the same preference as the animation fallback
-                    state.cameraMode = walkAllowed ? 'walk' : 'fly';
+                    state.cameraMode = canWalk() ? 'walk' : 'fly';
                     break;
                 case 'toggleWalk':
-                    if (walkAllowed) {
+                    if (canWalk() || state.cameraMode === 'walk') {
                         if (state.cameraMode === 'walk') {
                             state.cameraMode = preWalkMode;
                         } else {
@@ -336,6 +341,10 @@ class CameraManager {
 
         // handle camera mode switching
         events.on('cameraMode:changed', (value: CameraMode, prev: CameraMode) => {
+            if (value === 'walk' && collision?.isReadyAt && !canWalk()) {
+                state.cameraMode = prev === 'walk' ? 'fly' : prev;
+                return;
+            }
             // Host state writes and the walk toggle must remember the same return mode.
             if (value === 'walk') {
                 preWalkMode = prev;
@@ -443,6 +452,12 @@ class CameraManager {
 
         // tap-to-navigate: start auto-driving the active mode toward a picked position
         events.on('navigateTo', (position: Vec3, normal: Vec3, speedMul = 1) => {
+            if (
+                state.cameraMode === 'walk' &&
+                collision?.isReadyAt &&
+                !collision.isReadyAt(position.x, position.z, controllers.walk.capsuleRadius)
+            )
+                return;
             const source = sourcesByMode[state.cameraMode];
             if (source) {
                 source.navigateTo(position, speedMul);

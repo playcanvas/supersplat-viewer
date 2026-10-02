@@ -29,7 +29,7 @@ import {
 } from 'playcanvas';
 import type { AppBase, Entity } from 'playcanvas';
 
-import type { VoxelCollision } from './collision';
+import type { TiledVoxelCollision, VoxelCollision } from './collision';
 
 // ---------------------------------------------------------------------------
 // WGSL compute shader: ray-march through the sparse voxel octree per pixel
@@ -715,4 +715,51 @@ class VoxelDebugOverlay {
     }
 }
 
-export { VoxelDebugOverlay };
+/** A debug working set matching the collision tiles, allocated only while visible. */
+class TiledVoxelDebugOverlay {
+    private readonly overlays = new Map<
+        VoxelCollision,
+        Pick<VoxelDebugOverlay, 'enabled' | 'mode' | 'update' | 'destroy'>
+    >();
+
+    enabled = false;
+
+    mode: 'overlay' | 'heatmap' = 'overlay';
+
+    constructor(
+        app: AppBase,
+        private readonly collision: TiledVoxelCollision,
+        camera: Entity,
+        private readonly createOverlay = (
+            tile: VoxelCollision
+        ): Pick<VoxelDebugOverlay, 'enabled' | 'mode' | 'update' | 'destroy'> =>
+            new VoxelDebugOverlay(app, tile, camera)
+    ) {}
+
+    update(): void {
+        const active = new Set(this.enabled ? this.collision.getActiveColliders() : []);
+        for (const [collision, overlay] of this.overlays) {
+            if (!active.has(collision)) {
+                overlay.destroy();
+                this.overlays.delete(collision);
+            }
+        }
+        for (const collision of active) {
+            let overlay = this.overlays.get(collision);
+            if (!overlay) {
+                overlay = this.createOverlay(collision);
+                this.overlays.set(collision, overlay);
+            }
+            overlay.enabled = true;
+            overlay.mode = this.mode;
+            overlay.update();
+        }
+    }
+
+    destroy(): void {
+        for (const overlay of this.overlays.values()) overlay.destroy();
+        this.overlays.clear();
+    }
+}
+
+export { TiledVoxelDebugOverlay, VoxelDebugOverlay };

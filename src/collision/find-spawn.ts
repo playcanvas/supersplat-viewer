@@ -192,6 +192,7 @@ const findCylinderSpawn = (
                     // The footprint loop below will reject candidates whose
                     // center column has no ground support, so no separate
                     // down-ray probe is needed here.
+                    if (collision.isReadyAt && !collision.isReadyAt(cx, cz, radius)) continue;
                     if (!collision.isFreeAt(cx, cy, cz)) continue;
 
                     // Stage 2/3: fan rays through the xz footprint.

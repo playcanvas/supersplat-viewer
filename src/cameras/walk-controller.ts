@@ -288,6 +288,11 @@ class WalkController implements CameraController {
     }
 
     private _step(dt: number, move: number[]) {
+        const coverage = this._collision ?? this._pendingCollision;
+        if (coverage?.isReadyAt && !coverage.isReadyAt(this._position.x, this._position.z, this.capsuleRadius)) {
+            this._velocity.set(0, 0, 0);
+            return;
+        }
         // engage a held attachment as soon as the capsule reaches space it fits in
         if (this._pendingCollision && this._capsuleClear(this._pendingCollision, this._position)) {
             this._collision = this._pendingCollision;
@@ -345,10 +350,24 @@ class WalkController implements CameraController {
         this._velocity.x = math.lerp(this._velocity.x, 0, alpha);
         this._velocity.z = math.lerp(this._velocity.z, 0, alpha);
 
-        this._position.add(v.copy(this._velocity).mulScalar(dt));
+        v.copy(this._velocity).mulScalar(dt).add(this._position);
+        const travelRadius =
+            this.capsuleRadius + Math.max(Math.abs(v.x - this._position.x), Math.abs(v.z - this._position.z)) * 0.5;
+        if (
+            coverage?.isReadyAt &&
+            !coverage.isReadyAt((v.x + this._position.x) * 0.5, (v.z + this._position.z) * 0.5, travelRadius)
+        ) {
+            this._velocity.set(0, 0, 0);
+            return;
+        }
+        this._position.copy(v);
 
         // capsule collision: walls, ceiling, and fallback floor contact
         this._checkCollision(this._position, d);
+        if (coverage?.isReadyAt && !coverage.isReadyAt(this._position.x, this._position.z, this.capsuleRadius)) {
+            this._position.copy(this._prevPosition);
+            this._velocity.set(0, 0, 0);
+        }
     }
 
     onExit(_camera: Camera): void {
