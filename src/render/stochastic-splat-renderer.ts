@@ -16,6 +16,11 @@ import {
     BindUniformBufferFormat,
     BLEND_NONE,
     BLEND_PREMULTIPLIED,
+    BLENDEQUATION_ADD,
+    BLENDMODE_ONE,
+    BLENDMODE_ONE_MINUS_DST_ALPHA,
+    BLENDMODE_ONE_MINUS_SRC_ALPHA,
+    BlendState,
     BoundingSphere,
     BUFFERUSAGE_COPY_DST,
     BUFFERUSAGE_COPY_SRC,
@@ -30,7 +35,13 @@ import {
     Mesh,
     MeshInstance,
     FILTER_NEAREST,
+    FUNC_ALWAYS,
+    FUNC_LESSEQUAL,
+    FUNC_NEVER,
     PIXELFORMAT_DEPTH,
+    PIXELFORMAT_DEPTH16,
+    PIXELFORMAT_DEPTHSTENCIL,
+    PIXELFORMAT_R32F,
     PIXELFORMAT_R32U,
     PIXELFORMAT_RGBA16U,
     PIXELFORMAT_RGBA8,
@@ -64,10 +75,13 @@ import type { PickCameraSnapshot } from '../picker';
 
 import { EngineResidentSetProvider } from './resident-set';
 import type { EngineManager, ResidentSet } from './resident-set';
-import { argsWGSL } from './shaders/args';
+import { argsWGSL, setArgsWGSL } from './shaders/args';
 import { composeFragmentWGSL, composeVertexWGSL } from './shaders/compose';
-import { orderScanWGSL, orderScatterWGSL } from './shaders/order';
-import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, projectorWGSL } from './shaders/projector';
+import { interleaveFragmentWGSL } from './shaders/interleave';
+import { occluderFragmentWGSL, occluderVertexWGSL } from './shaders/occluder';
+import { orderScanWGSL, orderScatterSetsWGSL, orderScatterWGSL } from './shaders/order';
+import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, SPLAT_POLYGON_SIDES, projectorWGSL } from './shaders/projector';
+import type { CoverageMode } from './shaders/projector';
 import { FAR_CLIP_Z, QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
 import { TAA_MAX_COUNT, taaFragmentWGSL, taaVertexWGSL } from './shaders/taa';
@@ -100,6 +114,97 @@ type Variant = {
     contribution: number;
     /** Popless depth: every fragment gets the depth of the Gaussian's peak along its ray (paper 3.4). */
     popless: 'on' | 'off';
+    /** Quad extent: shrunk by opacity to where alpha falls below the clip (the engine's clipCorner), or the full 2 sqrt(2) sigma. */
+    quadClip: 'opacity' | 'off';
+    /**
+     * Where the coverage threshold varies: per pixel (a discarding fragment shader over the
+     * whole quad), or per splat and frame, which makes the kept pixels a solid ellipse drawn as
+     * a polygon with no discard (shaders/projector.ts); `interleaved` gives each of the four
+     * pixels of a 2x2 quad its own threshold per splat, stratified, drawn as four interleaved
+     * pixel sets and copied back (shaders/interleave.ts). All keep each pixel with probability
+     * alpha.
+     */
+    coverage: CoverageMode;
+    /**
+     * Bench diagnostic for the raster's cost, by subtraction: `none` draws nothing (the pass only
+     * clears), `empty` runs the vertex shader but collapses every quad to its centre (no
+     * fragments), `discard` discards every fragment (vertex and rasterisation cost), `opaque`
+     * keeps every fragment above the alpha clip (no stochastic test, so early depth rejection is
+     * not held back by discards), `testonly` keeps the depth test without writing depth and
+     * `nodepth` drops both (wrong images; they bound what the late depth update costs), `nohash`
+     * swaps the coverage hash for a multiply-free threshold (bounds what the hash costs), `never`
+     * fails every depth test (with a discarding shader, a gpu may test late and shade every
+     * fragment anyway), `solid` has no discard at all, every quad an opaque square (what early
+     * depth rejection does for a shader that never discards), `solidnever` fails every depth
+     * test with that shader (the early rejection floor), `nevernowrite` fails every test with the
+     * discarding shader and no depth writes (whether discard alone moves the test late), and
+     * `mask` makes the stochastic test a sample mask on the single sample instead of a discard,
+     * `solidtest` is `solid` without depth writes, and `nodiscard` makes it zero coverage under an
+     * under blend with no depth writes, the first kept fragment in draw order claiming the pixel,
+     * and `blend` blends the falloff premultiplied over with no discard or depth write, as the sorted
+     * renderer does per fragment. With coverage:interleaved, `none` skips the pixel sets' passes
+     * too, and `nocopy` skips only the copy back into the full target.
+     */
+    raster:
+        | 'full'
+        | 'none'
+        | 'empty'
+        | 'discard'
+        | 'opaque'
+        | 'testonly'
+        | 'nodepth'
+        | 'nohash'
+        | 'never'
+        | 'solid'
+        | 'solidnever'
+        | 'nevernowrite'
+        | 'mask'
+        | 'solidtest'
+        | 'nodiscard'
+        | 'blend'
+        | 'nocopy';
+    /** Alpha below which splats, quad extents and fragments are dropped; 0 keeps the scene's. */
+    alphaClip: number;
+    /**
+     * Timing experiment, the image is not composed from it: rasterise into a half-resolution
+     * target with 1 sample (`half1`), or with 4 samples and a coverage mask per invocation
+     * (`half4`, needs a hash other than full; its depth is stored and resolved), or the same
+     * with the multisampled depth left in tile memory, neither stored nor resolved (`half4t`),
+     * instead of the full-resolution target.
+     */
+    msaa: 'off' | 'half1' | 'half4' | 'half4t';
+    /** Timing experiment, the image is not composed from it: the raster's depth format. */
+    depth: 'd32' | 'd24s8' | 'd16';
+    /**
+     * Timing experiment, wrong images: `load` starts the raster from the previous frame's depth
+     * instead of clearing it, what drawing against dense depth that is already there would cost;
+     * `solid` first draws the same quads as discard-free depth-only squares, whether depth a
+     * discard-free draw updates early lets the gpu reject the stochastic draw's quads coarsely.
+     */
+    prefill: 'off' | 'load' | 'solid' | 'core';
+    /** prefill:core: the alpha each splat's depth-only core covers (its inscribed square). */
+    coreAlpha: number;
+    /**
+     * The occluder grid (shaders/occluder.ts): the occlusion grid's 8 px blocks, as depth-only
+     * quads at the farthest depth the previous frame's nearest samples had, drawn first in the
+     * raster pass without a discard, so the gpu can reject the splats' quads behind them before
+     * rasterising them finely. Runs on frames the occlusion cull runs (it reduces that grid).
+     */
+    occluder: 'off' | 'on';
+    /**
+     * Coverage threshold: `full` mixes pixel and splat per fragment (5 integer multiplies);
+     * the others hash the splat's seed once per vertex, then `split` mixes it with the pixel
+     * through the full hash (2 multiplies), `lite` through one multiply, and `ign` (the
+     * default) rotates interleaved gradient noise by it, with no integer multiplies, which
+     * mobile gpus run at a fraction of the float rate.
+     */
+    hash: 'full' | 'split' | 'lite' | 'ign';
+    /** The quad coordinates interpolated in half precision where the device has f16. */
+    uvHalf: 'on' | 'off';
+    /** Gaussian falloff: the exp form, or a polynomial within 0.0096 of it. */
+    falloff: 'exp' | 'poly';
+    /** Test the threshold against the opacity, which bounds alpha, before evaluating the falloff. */
+    earlyReject: 'on' | 'off';
     /** Temporal accumulation of the stochastic samples (shaders/taa.ts). */
     taa: 'on' | 'off';
     /**
@@ -111,6 +216,8 @@ type Variant = {
     taaMoveMax: number;
     /** Colour clamp while moving, in neighbourhood standard deviations (0 disables it). */
     taaClip: number;
+    /** Spacing in pixels of the colour clamp's 3x3 neighbourhood taps while moving. */
+    taaSpread: number;
     /** History filter while moving: bilinear or Catmull-Rom. */
     taaFilter: 'linear' | 'cubic';
     /** Depth the moving reprojection goes through: this frame's sample or the pixel's accumulated mean. */
@@ -134,10 +241,24 @@ const defaultVariant = (): Variant => ({
     order: 'bucket',
     contribution: 0,
     popless: 'on',
+    quadClip: 'opacity',
+    coverage: 'pixel',
+    raster: 'full',
+    alphaClip: 0,
+    msaa: 'off',
+    depth: 'd32',
+    prefill: 'off',
+    coreAlpha: 0.5,
+    occluder: 'off',
+    hash: 'ign',
+    uvHalf: 'off',
+    falloff: 'exp',
+    earlyReject: 'off',
     taa: 'on',
     taaMax: 256,
     taaMoveMax: 16,
     taaClip: 1.25,
+    taaSpread: 1,
     taaFilter: 'cubic',
     taaReproj: 'sample',
     taaMotion: 4,
@@ -157,11 +278,53 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'spp' && (value === '1' || value === 'quad')) variant.spp = value;
         if (key === 'compose' && (value === 'blend' || value === 'none' || value === 'depth')) variant.compose = value;
         if (key === 'popless' && (value === 'on' || value === 'off')) variant.popless = value;
+        if (key === 'quadClip' && (value === 'opacity' || value === 'off')) variant.quadClip = value;
+        if (key === 'coverage' && (value === 'pixel' || value === 'splat' || value === 'interleaved'))
+            variant.coverage = value;
+        if (
+            key === 'raster' &&
+            [
+                'full',
+                'none',
+                'empty',
+                'discard',
+                'opaque',
+                'testonly',
+                'nodepth',
+                'nohash',
+                'never',
+                'solid',
+                'solidnever',
+                'nevernowrite',
+                'mask',
+                'solidtest',
+                'nodiscard',
+                'blend',
+                'nocopy'
+            ].includes(value)
+        ) {
+            variant.raster = value as Variant['raster'];
+        }
+        if (key === 'alphaClip' && Number.isFinite(Number(value))) variant.alphaClip = Math.max(0, Number(value));
+        if (key === 'msaa' && ['off', 'half1', 'half4', 'half4t'].includes(value))
+            variant.msaa = value as Variant['msaa'];
+        if (key === 'depth' && (value === 'd32' || value === 'd24s8' || value === 'd16')) variant.depth = value;
+        if (key === 'prefill' && (value === 'off' || value === 'load' || value === 'solid' || value === 'core'))
+            variant.prefill = value;
+        if (key === 'coreAlpha' && Number.isFinite(Number(value)))
+            variant.coreAlpha = Math.min(1, Math.max(0.01, Number(value)));
+        if (key === 'occluder' && (value === 'off' || value === 'on')) variant.occluder = value;
+        if (key === 'hash' && ['full', 'split', 'lite', 'ign'].includes(value)) variant.hash = value as Variant['hash'];
+        if (key === 'uvHalf' && (value === 'on' || value === 'off')) variant.uvHalf = value;
+        if (key === 'falloff' && (value === 'exp' || value === 'poly')) variant.falloff = value;
+        if (key === 'earlyReject' && (value === 'on' || value === 'off')) variant.earlyReject = value;
         if (key === 'taa' && (value === 'on' || value === 'off')) variant.taa = value;
         if (key === 'taaMax' && Number.isFinite(Number(value))) variant.taaMax = taaCount(Number(value));
         if (key === 'taaMoveMax' && Number.isFinite(Number(value))) variant.taaMoveMax = taaCount(Number(value));
         if (key === 'taaDebug' && Number.isFinite(Number(value))) variant.taaDebug = Number(value);
         if (key === 'taaClip' && Number.isFinite(Number(value))) variant.taaClip = Math.max(0, Number(value));
+        if (key === 'taaSpread' && Number.isFinite(Number(value)))
+            variant.taaSpread = Math.max(1, Math.round(Number(value)));
         if (key === 'taaFilter' && (value === 'linear' || value === 'cubic')) variant.taaFilter = value;
         if (key === 'taaReproj' && (value === 'sample' || value === 'history')) variant.taaReproj = value;
         if (key === 'taaMotion' && Number.isFinite(Number(value))) variant.taaMotion = Math.max(0, Number(value));
@@ -210,14 +373,18 @@ class SplatRasterPass extends RenderPass {
         device: GraphicsDevice,
         private forward: EngineForwardRenderer,
         private camera: CameraComponent,
-        private instances: MeshInstance[],
+        public instances: MeshInstance[],
         name = 'sse-splat-raster'
     ) {
         super(device);
         this.name = name;
     }
 
+    /** Draw nothing; the pass still clears its target (variant raster:none). */
+    skip = false;
+
     execute() {
+        if (this.skip) return;
         this.forward.renderForwardLayer(this.camera.camera, this.renderTarget, null, undefined, SHADER_FORWARD, {
             meshInstances: this.instances
         });
@@ -247,6 +414,28 @@ const createQuadMesh = (device: GraphicsDevice, quads: number) => {
         positions.set([-1, -1, i, 1, -1, i, 1, 1, i, -1, 1, i], i * 12);
         const v = i * 4;
         indices.set([v, v + 1, v + 2, v, v + 2, v + 3], i * 6);
+    }
+    const mesh = new Mesh(device);
+    mesh.setPositions(positions, 3);
+    mesh.setIndices(indices);
+    mesh.update(PRIMITIVE_TRIANGLES);
+    return mesh;
+};
+
+// variant coverage:splat: a polygon per splat on the unit circle, fanned from its first vertex
+const createPolygonMesh = (device: GraphicsDevice, polygons: number, sides: number) => {
+    const positions = new Float32Array(polygons * sides * 3);
+    const indices = new Uint32Array(polygons * (sides - 2) * 3);
+    for (let i = 0; i < polygons; ++i) {
+        for (let s = 0; s < sides; ++s) {
+            const angle = (2 * Math.PI * s) / sides;
+            // z carries the polygon's index within the instance
+            positions.set([Math.cos(angle), Math.sin(angle), i], (i * sides + s) * 3);
+        }
+        const v = i * sides;
+        for (let s = 1; s < sides - 1; ++s) {
+            indices.set([v, v + s, v + s + 1], (i * (sides - 2) + s - 1) * 3);
+        }
     }
     const mesh = new Mesh(device);
     mesh.setPositions(positions, 3);
@@ -426,11 +615,54 @@ class StochasticSplatRenderer {
 
     private target: RenderTarget;
 
+    // variants msaa and depth: the targets the raster times itself into, per scale, sample count and depth format
+    private altTargets = new Map<string, { target: RenderTarget; textures: Texture[] }>();
+
     private rasterMesh: Mesh;
+
+    // variant coverage:splat
+    private polygonMesh: Mesh;
+
+    // variant coverage:interleaved: each pixel set's target, raster pass and draw, the pass that
+    // copies them back into the full target, and the passes that order and size each set's draw.
+    // (One target with a quadrant and viewport per set, in one pass, measured 1 ms slower on the
+    // Pixel 7 Pro: the passes are not what the sets cost.)
+    private setTextures: Texture[] = [];
+
+    private setTargets: RenderTarget[] = [];
+
+    private setPasses: SplatRasterPass[] = [];
+
+    private setInstances: MeshInstance[] = [];
+
+    private setRanges: StorageBuffer;
+
+    private setArgs: Compute;
+
+    private orderScatterSets: Compute;
+
+    private interleaveMaterial: ShaderMaterial;
+
+    private interleaveInstance: MeshInstance;
+
+    // entries the ordered list holds: a survivor takes one, or one per pixel set it keeps
+    private orderedCapacity = 0;
 
     private rasterMaterial: ShaderMaterial;
 
     private rasterInstance: MeshInstance;
+
+    // variant prefill:solid: the raster's quads as discard-free depth-only squares, drawn first
+    private solidMaterial: ShaderMaterial;
+
+    private solidInstance: MeshInstance;
+
+    // variant occluder:on: the occluder grid (shaders/occluder.ts), drawn first in the raster pass
+    private occluderMaterial: ShaderMaterial;
+
+    private occluderInstance: MeshInstance;
+
+    private prevInvView = new Mat4();
 
     private rasterPass: SplatRasterPass;
 
@@ -574,6 +806,74 @@ class StochasticSplatRenderer {
         return { survivors: data[0], occluded: data[1] };
     }
 
+    // variants msaa and depth: point the raster at the full-resolution target, or at one of the
+    // timing experiments' targets (another scale, sample count or depth format)
+    private selectRasterTarget(width: number, height: number) {
+        const { msaa, depth } = this.variant;
+        let target = this.target;
+        if (msaa !== 'off' || depth !== 'd32') {
+            const scale = msaa === 'off' ? 1 : 2;
+            const samples = msaa === 'off' || msaa === 'half1' ? 1 : 4;
+            // the engine renders a 4x target into its own multisampled depth and resolves it with
+            // a shader, which writes a colour format
+            const depthFormat =
+                samples > 1
+                    ? PIXELFORMAT_R32F
+                    : depth === 'd24s8'
+                      ? PIXELFORMAT_DEPTHSTENCIL
+                      : depth === 'd16'
+                        ? PIXELFORMAT_DEPTH16
+                        : PIXELFORMAT_DEPTH;
+            const key = `${scale}:${samples}:${depthFormat}`;
+            let alt = this.altTargets.get(key);
+            if (!alt) {
+                const textures = [
+                    new Texture(this.device, {
+                        name: `sse-splat-alt-${key}-color`,
+                        width: 4,
+                        height: 4,
+                        format: PIXELFORMAT_RGBA8,
+                        mipmaps: false
+                    }),
+                    new Texture(this.device, {
+                        name: `sse-splat-alt-${key}-depth`,
+                        width: 4,
+                        height: 4,
+                        format: depthFormat,
+                        mipmaps: false
+                    })
+                ];
+                alt = {
+                    target: new RenderTarget({
+                        name: `sse-splat-alt-${key}`,
+                        colorBuffer: textures[0],
+                        depthBuffer: textures[1],
+                        samples
+                    }),
+                    textures
+                };
+                this.altTargets.set(key, alt);
+            }
+            const w = Math.ceil(width / scale);
+            const h = Math.ceil(height / scale);
+            if (alt.target.width !== w || alt.target.height !== h) alt.target.resize(w, h);
+            target = alt.target;
+        }
+        if (this.rasterPass.renderTarget !== target) {
+            this.rasterPass.init(target);
+            this.rasterPass.setClearColor(new Color(0, 0, 0, 0));
+        }
+        // variant prefill: load the previous frame's depth rather than clearing it
+        this.rasterPass.setClearDepth(this.variant.prefill === 'load' ? undefined : 1);
+        // a 4x target's depth is stored and resolved into its depth texture, as a composed
+        // version reading depth from it would need; half4t leaves it in tile memory instead
+        if (target.samples > 1) {
+            const keep = msaa === 'half4';
+            this.rasterPass.depthStencilOps.storeDepth = keep;
+            this.rasterPass.depthStencilOps.resolveDepth = keep;
+        }
+    }
+
     // reduce the previous frame's depth into the two grid levels
     private reduceDepth(width: number, height: number) {
         const { device } = this;
@@ -691,6 +991,41 @@ class StochasticSplatRenderer {
             }),
             'sse-splat-order-scatter'
         );
+        this.orderScatterSets = new Compute(
+            device,
+            new Shader(device, {
+                name: 'sse-splat-order-scatter-sets',
+                shaderLanguage: SHADERLANGUAGE_WGSL,
+                cshader: orderScatterSetsWGSL,
+                computeBindGroupFormat: scatterFormat
+            }),
+            'sse-splat-order-scatter'
+        );
+        this.setRanges = new StorageBuffer(device, 4 * 8);
+        const setArgsFormat = new BindGroupFormat(device, [
+            new BindStorageBufferFormat('buckets', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('indirectDrawArgs', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('setRanges', SHADERSTAGE_COMPUTE),
+            new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE)
+        ]);
+        this.orderFormats.push(setArgsFormat);
+        this.setArgs = new Compute(
+            device,
+            new Shader(device, {
+                name: 'sse-splat-set-args',
+                shaderLanguage: SHADERLANGUAGE_WGSL,
+                cshader: setArgsWGSL,
+                computeUniformBufferFormats: {
+                    uniforms: new UniformBufferFormat(device, [
+                        new UniformFormat('drawSlot', UNIFORMTYPE_UINT),
+                        new UniformFormat('indexCount', UNIFORMTYPE_UINT),
+                        new UniformFormat('quadsPerInstance', UNIFORMTYPE_UINT)
+                    ])
+                },
+                computeBindGroupFormat: setArgsFormat
+            }),
+            'sse-splat-set-args'
+        );
 
         // the occlusion grid and its two reduce passes
         this.occL1 = new StorageBuffer(device, 4, BUFFERUSAGE_COPY_DST);
@@ -773,6 +1108,7 @@ class StochasticSplatRenderer {
         });
 
         this.rasterMesh = createQuadMesh(device, QUADS_PER_INSTANCE);
+        this.polygonMesh = createPolygonMesh(device, QUADS_PER_INSTANCE, SPLAT_POLYGON_SIDES);
         this.rasterMaterial = new ShaderMaterial({
             uniqueName: 'sse-splat-raster',
             vertexWGSL: rasterVertexWGSL,
@@ -788,6 +1124,56 @@ class StochasticSplatRenderer {
         this.rasterInstance.cull = false;
         this.rasterInstance.castShadow = false;
         this.rasterInstance.receiveShadow = false;
+        this.solidMaterial = new ShaderMaterial({
+            uniqueName: 'sse-splat-raster-solid',
+            vertexWGSL: rasterVertexWGSL,
+            fragmentWGSL: rasterFragmentWGSL,
+            attributes: { vertex_position: SEMANTIC_POSITION }
+        });
+        // depth only: no colour channel written
+        this.solidMaterial.blendState = new BlendState(
+            false,
+            BLENDEQUATION_ADD,
+            BLENDMODE_ONE,
+            BLENDMODE_ONE,
+            BLENDEQUATION_ADD,
+            BLENDMODE_ONE,
+            BLENDMODE_ONE,
+            false,
+            false,
+            false,
+            false
+        );
+        this.solidMaterial.depthWrite = true;
+        this.solidMaterial.depthTest = true;
+        this.solidMaterial.cull = CULLFACE_NONE;
+        this.solidInstance = new MeshInstance(
+            this.rasterMesh,
+            this.solidMaterial,
+            new GraphNode('sse-splat-raster-solid')
+        );
+        this.solidInstance.cull = false;
+        this.solidInstance.castShadow = false;
+        this.solidInstance.receiveShadow = false;
+        this.occluderMaterial = new ShaderMaterial({
+            uniqueName: 'sse-splat-occluder',
+            vertexWGSL: occluderVertexWGSL,
+            fragmentWGSL: occluderFragmentWGSL,
+            attributes: { vertex_position: SEMANTIC_POSITION }
+        });
+        this.occluderMaterial.blendState = this.solidMaterial.blendState;
+        this.occluderMaterial.depthWrite = true;
+        this.occluderMaterial.depthTest = true;
+        this.occluderMaterial.cull = CULLFACE_NONE;
+        this.occluderInstance = new MeshInstance(
+            this.rasterMesh,
+            this.occluderMaterial,
+            new GraphNode('sse-splat-occluder')
+        );
+        this.occluderInstance.setInstancing(true);
+        this.occluderInstance.cull = false;
+        this.occluderInstance.castShadow = false;
+        this.occluderInstance.receiveShadow = false;
 
         this.rasterPass = new SplatRasterPass(device, app.renderer as unknown as EngineForwardRenderer, camera, [
             this.rasterInstance
@@ -797,6 +1183,84 @@ class StochasticSplatRenderer {
         this.rasterPass.setClearDepth(1);
         // nothing to draw, and no buffers bound, until the first populated frame
         this.rasterPass.enabled = false;
+
+        // variant coverage:interleaved: a target, pass and draw per pixel set, sized per frame
+        for (let i = 0; i < 4; i++) {
+            const color = new Texture(device, {
+                name: `sse-splat-set-${i}-color`,
+                width: 4,
+                height: 4,
+                format: PIXELFORMAT_RGBA8,
+                mipmaps: false,
+                minFilter: FILTER_NEAREST,
+                magFilter: FILTER_NEAREST,
+                addressU: ADDRESS_CLAMP_TO_EDGE,
+                addressV: ADDRESS_CLAMP_TO_EDGE
+            });
+            const depth = new Texture(device, {
+                name: `sse-splat-set-${i}-depth`,
+                width: 4,
+                height: 4,
+                format: PIXELFORMAT_DEPTH,
+                mipmaps: false,
+                addressU: ADDRESS_CLAMP_TO_EDGE,
+                addressV: ADDRESS_CLAMP_TO_EDGE
+            });
+            this.setTextures.push(color, depth);
+            const target = new RenderTarget({
+                name: `sse-splat-set-${i}`,
+                colorBuffer: color,
+                depthBuffer: depth,
+                samples: 1
+            });
+            this.setTargets.push(target);
+            const instance = new MeshInstance(
+                this.polygonMesh,
+                this.rasterMaterial,
+                new GraphNode(`sse-splat-set-${i}`)
+            );
+            instance.cull = false;
+            instance.castShadow = false;
+            instance.receiveShadow = false;
+            instance.setParameter('setIndex', i);
+            this.setInstances.push(instance);
+            const pass = new SplatRasterPass(
+                device,
+                app.renderer as unknown as EngineForwardRenderer,
+                camera,
+                [instance],
+                `sse-splat-raster-set-${i}`
+            );
+            pass.init(target);
+            pass.setClearColor(new Color(0, 0, 0, 0));
+            pass.setClearDepth(1);
+            pass.enabled = false;
+            this.setPasses.push(pass);
+        }
+        // the copy back: drawn by the raster pass in place of the splats, every texel written
+        this.interleaveMaterial = new ShaderMaterial({
+            uniqueName: 'sse-splat-interleave',
+            vertexWGSL: taaVertexWGSL,
+            fragmentWGSL: interleaveFragmentWGSL,
+            attributes: { vertex_position: SEMANTIC_POSITION }
+        });
+        this.interleaveMaterial.blendType = BLEND_NONE;
+        this.interleaveMaterial.depthWrite = true;
+        this.interleaveMaterial.depthTest = true;
+        this.interleaveMaterial.depthFunc = FUNC_ALWAYS;
+        this.interleaveMaterial.cull = CULLFACE_NONE;
+        for (let i = 0; i < 4; i++) {
+            this.interleaveMaterial.setParameter(`setColor${i}`, this.setTextures[i * 2]);
+            this.interleaveMaterial.setParameter(`setDepth${i}`, this.setTextures[i * 2 + 1]);
+        }
+        this.interleaveInstance = new MeshInstance(
+            createFullscreenMesh(device),
+            this.interleaveMaterial,
+            new GraphNode('sse-splat-interleave')
+        );
+        this.interleaveInstance.cull = false;
+        this.interleaveInstance.castShadow = false;
+        this.interleaveInstance.receiveShadow = false;
 
         // the taa resolve: a fullscreen pass from the raster target and the previous history
         // into the other history, sized with the target on its first frame
@@ -946,6 +1410,74 @@ class StochasticSplatRenderer {
         this.rasterMaterial.setDefine('SSE_SPP_QUAD', quad ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_ORDERED', this.variant.order === 'bucket' ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_POPLESS', this.variant.popless === 'on' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_QUAD_CLIP', this.variant.quadClip === 'opacity' ? '' : undefined);
+        const splatCoverage = this.variant.coverage !== 'pixel';
+        this.rasterMaterial.setDefine('SSE_COVERAGE_SPLAT', splatCoverage ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_INTERLEAVED', this.variant.coverage === 'interleaved' ? '' : undefined);
+        this.rasterInstance.mesh = splatCoverage ? this.polygonMesh : this.rasterMesh;
+        this.rasterMaterial.setDefine('SSE_RASTER_EMPTY', this.variant.raster === 'empty' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_RASTER_DISCARD', this.variant.raster === 'discard' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_RASTER_OPAQUE', this.variant.raster === 'opaque' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_RASTER_NOHASH', this.variant.raster === 'nohash' ? '' : undefined);
+        const { raster } = this.variant;
+        this.rasterMaterial.setDefine(
+            'SSE_RASTER_SOLID',
+            raster === 'solid' || raster === 'solidnever' || raster === 'solidtest' ? '' : undefined
+        );
+        this.rasterMaterial.setDefine('SSE_RASTER_MASK', raster === 'mask' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_RASTER_NODISCARD', raster === 'nodiscard' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_RASTER_BLEND', raster === 'blend' ? '' : undefined);
+        // nodiscard: the first kept fragment in draw order claims the pixel (premultiplied under);
+        // blend: premultiplied over, as the sorted renderer blends
+        this.rasterMaterial.blendState =
+            raster === 'nodiscard'
+                ? new BlendState(
+                      true,
+                      BLENDEQUATION_ADD,
+                      BLENDMODE_ONE_MINUS_DST_ALPHA,
+                      BLENDMODE_ONE,
+                      BLENDEQUATION_ADD,
+                      BLENDMODE_ONE_MINUS_DST_ALPHA,
+                      BLENDMODE_ONE
+                  )
+                : raster === 'blend'
+                  ? new BlendState(
+                        true,
+                        BLENDEQUATION_ADD,
+                        BLENDMODE_ONE,
+                        BLENDMODE_ONE_MINUS_SRC_ALPHA,
+                        BLENDEQUATION_ADD,
+                        BLENDMODE_ONE,
+                        BLENDMODE_ONE_MINUS_SRC_ALPHA
+                    )
+                  : BlendState.NOBLEND;
+        this.rasterMaterial.setDefine('SSE_MSAA', this.variant.msaa.startsWith('half4') ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_SEED_VERTEX', this.variant.hash !== 'full' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_HASH_LITE', this.variant.hash === 'lite' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_HASH_IGN', this.variant.hash === 'ign' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_UV_HALF', this.variant.uvHalf === 'on' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_FALLOFF_POLY', this.variant.falloff === 'poly' ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_EARLY_REJECT', this.variant.earlyReject === 'on' ? '' : undefined);
+        this.rasterPass.skip = this.variant.raster === 'none' || this.variant.raster === 'nocopy';
+        for (const pass of this.setPasses) pass.skip = this.variant.raster === 'none';
+        this.rasterMaterial.depthWrite = ![
+            'testonly',
+            'nodepth',
+            'nevernowrite',
+            'solidtest',
+            'nodiscard',
+            'blend'
+        ].includes(raster);
+        this.rasterMaterial.depthTest = raster !== 'nodepth';
+        this.rasterMaterial.depthFunc =
+            raster === 'never' || raster === 'solidnever' || raster === 'nevernowrite' ? FUNC_NEVER : FUNC_LESSEQUAL;
+        // variant prefill:solid: the same quads as discard-free depth-only squares first
+        for (const name of ['SSE_ORDERED', 'SSE_POPLESS', 'SSE_QUAD_CLIP']) {
+            this.solidMaterial.setDefine(name, this.rasterMaterial.getDefine(name) ? '' : undefined);
+        }
+        this.solidMaterial.setDefine('SSE_RASTER_SOLID', '');
+        this.solidMaterial.setDefine('SSE_CORE', this.variant.prefill === 'core' ? '' : undefined);
+        this.solidMaterial.update();
         this.composeMaterial.setDefine('SSE_SHOW_DEPTH', this.variant.compose === 'depth' ? '' : undefined);
         this.composeMaterial.setDefine('SSE_SPP_QUAD', quad ? '' : undefined);
         this.rasterMaterial.update();
@@ -958,11 +1490,13 @@ class StochasticSplatRenderer {
     private setReady(value: boolean) {
         this.ready = value;
         this.rasterPass.enabled = value;
+        for (const pass of this.setPasses) pass.enabled = value && this.variant.coverage === 'interleaved';
         this.composeInstance.visible = value && this.variant.compose !== 'none';
     }
 
     private attach() {
         const passes = this.camera.camera.beforePasses;
+        for (const pass of this.setPasses) if (!passes.includes(pass)) passes.push(pass);
         if (!passes.includes(this.rasterPass)) passes.push(this.rasterPass);
         if (!passes.includes(this.taaPass)) passes.push(this.taaPass);
         this.worldLayer.addMeshInstances([this.composeInstance]);
@@ -971,7 +1505,7 @@ class StochasticSplatRenderer {
 
     private detach() {
         const passes = this.camera.camera.beforePasses;
-        for (const pass of [this.rasterPass, this.taaPass]) {
+        for (const pass of [...this.setPasses, this.rasterPass, this.taaPass]) {
             const index = passes.indexOf(pass);
             if (index >= 0) passes.splice(index, 1);
         }
@@ -1018,6 +1552,7 @@ class StochasticSplatRenderer {
         if (this.target.width !== width || this.target.height !== height) {
             this.target.resize(width, height);
         }
+        this.selectRasterTarget(width, height);
 
         const view = cam.viewMatrix;
         const projection = cam.projectionMatrix;
@@ -1040,6 +1575,8 @@ class StochasticSplatRenderer {
 
         const focal = [Math.abs(projection.data[0]) * width * 0.5, Math.abs(projection.data[5]) * height * 0.5];
         const gsplat = this.app.scene.gsplat;
+        // splats, quads and fragments below it are dropped
+        const alphaClip = this.variant.alphaClip > 0 ? this.variant.alphaClip : gsplat.alphaClipForward;
 
         // the moving-camera contribution cull: a raised threshold while the view changes, then
         // one more frame at the scene's threshold once it has stopped
@@ -1123,8 +1660,12 @@ class StochasticSplatRenderer {
         }
 
         this.counter.clear();
-        const ordered = this.variant.order === 'bucket';
+        const { coverage } = this.variant;
+        const interleaved = coverage === 'interleaved';
+        // interleaved pixel sets need the ordering: it is what splits the draws by set
+        const ordered = this.variant.order === 'bucket' || interleaved;
         if (ordered) this.orderBuckets.clear();
+        this.ensureOrdered(this.cacheSlots * (interleaved ? 4 : 1));
         // the order key spans the fitted clip range, log-spaced
         const logNear = Math.log(Math.max(cam.nearClip, 1e-6));
         const invLogRange = 1 / Math.max(Math.log(Math.max(cam.farClip, 1e-6)) - logNear, 1e-6);
@@ -1139,7 +1680,7 @@ class StochasticSplatRenderer {
         for (const group of groups) {
             // a file with no node in the frustum has nothing to dispatch
             if (group.fileIndex >= 0 && !this.anyNodeVisible(set.files[group.fileIndex].nodes)) continue;
-            const projector = this.ensureProjector(culling, ordered, group);
+            const projector = this.ensureProjector(culling, ordered, coverage, group);
             this.source.bind(projector, group, set);
             projector.setParameter('chunks', this.chunkBuffer!);
             projector.setParameter('nodeVisible', this.nodeVisibleBuffer!);
@@ -1163,7 +1704,7 @@ class StochasticSplatRenderer {
             projector.setParameter('splatTextureSize', this.source.textureSize(group));
             projector.setParameter('isOrtho', isOrtho ? 1 : 0);
             projector.setParameter('minPixelSize', gsplat.minPixelSize);
-            projector.setParameter('alphaClip', gsplat.alphaClipForward);
+            projector.setParameter('alphaClip', alphaClip);
             projector.setParameter('minContribution', minContribution);
             projector.setParameter('colorMax', this.variant.colorMax);
             projector.setParameter('unitScale', this.variant.units === 'engine' ? 2 : 1);
@@ -1177,6 +1718,7 @@ class StochasticSplatRenderer {
             projector.setParameter('keyInvLogRange', invLogRange);
             projector.setParameter('depthNear', depthNear);
             projector.setParameter('depthFar', depthFar);
+            projector.setParameter('frameSeed', this.frameSeed);
             Compute.calcDispatchSize(group.chunkCount, tmpVec2);
             projector.setupDispatch(tmpVec2.x, tmpVec2.y, 1);
             device.computeDispatch([projector], 'sse-splat-project');
@@ -1190,20 +1732,37 @@ class StochasticSplatRenderer {
         this.args.setParameter('indirectDrawArgs', device.indirectDrawBuffer);
         this.args.setParameter('indirectDispatchArgs', device.indirectDispatchBuffer);
         this.args.setParameter('drawSlot', drawSlot);
-        this.args.setParameter('indexCount', QUADS_PER_INSTANCE * 6);
+        // the solid prefill shares the draw arguments and is not combined with coverage:splat
+        const indicesPerSplat = coverage !== 'pixel' ? (SPLAT_POLYGON_SIDES - 2) * 3 : 6;
+        this.args.setParameter('indexCount', QUADS_PER_INSTANCE * indicesPerSplat);
         this.args.setParameter('quadsPerInstance', QUADS_PER_INSTANCE);
         this.args.setParameter('dispatchSlot', dispatchSlot);
         this.args.setParameter('scatterWorkgroupSize', ORDER_BUCKETS);
         this.args.setupDispatch(1, 1, 1);
         device.computeDispatch([this.args], 'sse-splat-args');
         this.rasterInstance.setIndirect(null, drawSlot, 1);
+        this.solidInstance.setIndirect(null, drawSlot, 1);
 
         if (ordered) {
             // bucket offsets, then every survivor claims its place in its bucket
             this.orderScan.setParameter('buckets', this.orderBuckets);
             this.orderScan.setupDispatch(1, 1, 1);
             device.computeDispatch([this.orderScan], 'sse-splat-order-scan');
-            const scatter = this.orderScatter;
+            if (interleaved) {
+                // each set's range and draw, from the offsets before the scatter advances them
+                const setSlot = device.getIndirectDrawSlot(4);
+                const setArgs = this.setArgs;
+                setArgs.setParameter('buckets', this.orderBuckets);
+                setArgs.setParameter('indirectDrawArgs', device.indirectDrawBuffer);
+                setArgs.setParameter('setRanges', this.setRanges);
+                setArgs.setParameter('drawSlot', setSlot);
+                setArgs.setParameter('indexCount', QUADS_PER_INSTANCE * indicesPerSplat);
+                setArgs.setParameter('quadsPerInstance', QUADS_PER_INSTANCE);
+                setArgs.setupDispatch(1, 1, 1);
+                device.computeDispatch([setArgs], 'sse-splat-set-args');
+                this.prepareSets(width, height, setSlot);
+            }
+            const scatter = interleaved ? this.orderScatterSets : this.orderScatter;
             scatter.setParameter('counter', this.counter);
             scatter.setParameter('cache', this.cacheBuffer!);
             scatter.setParameter('buckets', this.orderBuckets);
@@ -1212,15 +1771,42 @@ class StochasticSplatRenderer {
             device.computeDispatch([scatter], 'sse-splat-order-scatter');
         }
 
-        const material = this.rasterMaterial;
-        material.setParameter('splatCache', this.cacheBuffer!);
-        material.setParameter('splatCount', this.counter);
-        if (ordered) material.setParameter('orderedSlots', this.orderedBuffer!);
-        material.setParameter('viewportSize', [width, height, 2 / width, 2 / height]);
-        material.setParameter('clipZParams', clipZParams);
-        material.setParameter('focalParams', [focal[0], focal[1], 0, 0]);
-        material.setParameter('sseAlphaClip', gsplat.alphaClipForward);
-        material.setParameter('frameSeed', this.frameSeed);
+        for (const material of [this.rasterMaterial, this.solidMaterial]) {
+            material.setParameter('splatCache', this.cacheBuffer!);
+            material.setParameter('splatCount', this.counter);
+            if (ordered) material.setParameter('orderedSlots', this.orderedBuffer!);
+            material.setParameter('viewportSize', [width, height, 2 / width, 2 / height]);
+            material.setParameter('clipZParams', clipZParams);
+            material.setParameter('focalParams', [focal[0], focal[1], 0, 0]);
+            material.setParameter('sseAlphaClip', alphaClip);
+            material.setParameter('frameSeed', this.frameSeed);
+        }
+        this.solidMaterial.setParameter('sseCoreAlpha', this.variant.coreAlpha);
+        if (interleaved) this.rasterMaterial.setParameter('setRanges', this.setRanges);
+
+        // variant occluder:on: the occlusion grid's level 1, reduced from the previous frame
+        // above, as depth-only quads drawn before the splats (shaders/occluder.ts)
+        const occluding = this.variant.occluder === 'on' && culling && !isOrtho;
+        if (occluding) {
+            const occ = this.occluderMaterial;
+            const { x1, y1 } = this.occBlocks;
+            occ.setParameter('occL1', this.occL1);
+            occ.setParameter('occBlocks', [x1, y1, 8, 0]);
+            occ.setParameter('prevViewport', [this.prevViewport[0], this.prevViewport[1], this.prevFlip, 0]);
+            occ.setParameter('prevProjScale', [this.prevProjection.data[0], this.prevProjection.data[5], 0, 0]);
+            occ.setParameter('prevClipZ', this.prevClipZ);
+            occ.setParameter('prevInvView', this.prevInvView.copy(this.prevView).invert().data);
+            occ.setParameter('occViewProj', this.viewProjection.data);
+            occ.setParameter('clipZParams', clipZParams);
+            this.occluderInstance.instancingCount = Math.ceil((x1 * y1) / QUADS_PER_INSTANCE);
+        }
+        this.rasterPass.instances = interleaved
+            ? [this.interleaveInstance]
+            : [
+                  ...(occluding ? [this.occluderInstance] : []),
+                  ...(this.variant.prefill === 'solid' || this.variant.prefill === 'core' ? [this.solidInstance] : []),
+                  this.rasterInstance
+              ];
 
         this.taaPass.enabled = taaOn;
         if (taaOn) {
@@ -1253,7 +1839,7 @@ class StochasticSplatRenderer {
                 this.variant.taaFlip || (this.target.flipY ? -1 : 1),
                 this.variant.taaClip,
                 this.variant.spp === 'quad' ? 1 : 0,
-                0
+                this.variant.taaSpread
             ]);
             taa.setParameter('taaDebug', this.variant.taaDebug);
             taa.setParameter('taaFilter', [
@@ -1396,7 +1982,40 @@ class StochasticSplatRenderer {
         this.orderedBuffer?.destroy();
         this.cacheSlots = Math.max(1, Math.ceil(splats * 1.25));
         this.cacheBuffer = new StorageBuffer(this.device, this.cacheSlots * CACHE_WORDS * 4, BUFFERUSAGE_COPY_SRC);
-        this.orderedBuffer = new StorageBuffer(this.device, this.cacheSlots * 4);
+        this.orderedBuffer = null;
+        this.orderedCapacity = 0;
+    }
+
+    // the ordered list: one entry per survivor, or with interleaved pixel sets one per set it
+    // keeps pixels in, up to four
+    private ensureOrdered(entries: number) {
+        if (entries <= this.orderedCapacity) return;
+        this.orderedBuffer?.destroy();
+        this.orderedCapacity = entries;
+        this.orderedBuffer = new StorageBuffer(this.device, entries * 4);
+    }
+
+    // Variant coverage:interleaved: size the pixel sets' targets to half the full target, rounded
+    // up, and point each set's draw at its indirect arguments and its map into its target. In
+    // framebuffer pixels the full target's (2i + x, 2j + y) is the set (x, y)'s (i, j); as a map
+    // of clip x and y over w (y down in the framebuffer from ndc +1)
+    private prepareSets(width: number, height: number, drawSlot: number) {
+        const w = Math.ceil(width / 2);
+        const h = Math.ceil(height / 2);
+        for (let i = 0; i < 4; i++) {
+            const target = this.setTargets[i];
+            if (target.width !== w || target.height !== h) target.resize(w, h);
+            const x = i & 1;
+            const y = i >> 1;
+            const instance = this.setInstances[i];
+            instance.setIndirect(null, drawSlot + i, 1);
+            instance.setParameter('setMap', [
+                width / (2 * w),
+                (width / 2 - x + 0.5) / w - 1,
+                height / (2 * h),
+                1 - (height / 2 - y + 0.5) / h
+            ]);
+        }
     }
 
     // sphere-frustum test per node on the cpu: thousands of nodes, one bit each
@@ -1422,18 +2041,18 @@ class StochasticSplatRenderer {
         return nodes.some((node) => (bits[node.nodeIndex >> 5] >>> (node.nodeIndex & 31)) & 1);
     }
 
-    private ensureProjector(occlusion: boolean, ordered: boolean, group: DispatchGroup) {
+    private ensureProjector(occlusion: boolean, ordered: boolean, coverage: CoverageMode, group: DispatchGroup) {
         const sourceKey = this.source.shaderKey();
         if (this.projectorSourceKey !== sourceKey) {
             // a different source: every specialisation and the bind group format go
             this.destroyProjector();
             this.projectorSourceKey = sourceKey;
         }
-        const key = `${occlusion ? 'occlusion' : 'plain'}-${ordered ? 'bucket' : 'append'}`;
+        const key = `${occlusion ? 'occlusion' : 'plain'}-${ordered ? 'bucket' : 'append'}-${coverage}`;
         const computeKey = `${key}:${group.fileIndex}`;
         const existing = this.projectorComputes.get(computeKey);
         if (existing) return existing;
-        const shader = this.ensureProjectorShader(key, occlusion, ordered);
+        const shader = this.ensureProjectorShader(key, occlusion, ordered, coverage);
         const compute = new Compute(this.device, shader, 'sse-splat-project');
         this.projectorComputes.set(computeKey, compute);
         return compute;
@@ -1450,7 +2069,7 @@ class StochasticSplatRenderer {
         }
     }
 
-    private ensureProjectorShader(key: string, occlusion: boolean, ordered: boolean) {
+    private ensureProjectorShader(key: string, occlusion: boolean, ordered: boolean, coverage: CoverageMode) {
         const existing = this.projectorShaders.get(key);
         if (existing) return existing;
         const { device } = this;
@@ -1469,7 +2088,7 @@ class StochasticSplatRenderer {
         const shader = new Shader(device, {
             name: `sse-splat-project-${key}`,
             shaderLanguage: SHADERLANGUAGE_WGSL,
-            cshader: projectorWGSL(this.source.readChunk(fixed.length), occlusion, ordered),
+            cshader: projectorWGSL(this.source.readChunk(fixed.length), occlusion, ordered, coverage),
             cincludes: this.source.shaderIncludes(),
             cdefines: this.source.shaderDefines(),
             computeUniformBufferFormats: {
@@ -1506,7 +2125,8 @@ class StochasticSplatRenderer {
                     new UniformFormat('colorMax', UNIFORMTYPE_FLOAT),
                     new UniformFormat('unitScale', UNIFORMTYPE_FLOAT),
                     new UniformFormat('depthNear', UNIFORMTYPE_FLOAT),
-                    new UniformFormat('depthFar', UNIFORMTYPE_FLOAT)
+                    new UniformFormat('depthFar', UNIFORMTYPE_FLOAT),
+                    new UniformFormat('frameSeed', UNIFORMTYPE_UINT)
                 ])
             },
             computeBindGroupFormat: this.projectorBindGroupFormat
@@ -1543,10 +2163,11 @@ class StochasticSplatRenderer {
         for (const format of this.reduceFormats) format.destroy();
         this.occL1.destroy();
         this.occL2.destroy();
-        for (const compute of [this.orderScan, this.orderScatter]) {
+        for (const compute of [this.orderScan, this.orderScatter, this.orderScatterSets, this.setArgs]) {
             compute.shader.destroy();
             compute.destroy();
         }
+        this.setRanges.destroy();
         for (const format of this.orderFormats) format.destroy();
         this.orderBuckets.destroy();
         this.orderedBuffer?.destroy();
@@ -1561,7 +2182,24 @@ class StochasticSplatRenderer {
         this.rasterPass.destroy();
         this.rasterInstance.destroy();
         this.rasterMaterial.destroy();
+        this.solidInstance.destroy();
+        this.solidMaterial.destroy();
+        this.occluderInstance.destroy();
+        this.occluderMaterial.destroy();
+        for (const pass of this.setPasses) pass.destroy();
+        for (const instance of this.setInstances) instance.destroy();
+        for (const target of this.setTargets) target.destroy();
+        for (const texture of this.setTextures) texture.destroy();
+        this.setPasses.length = 0;
+        this.setInstances.length = 0;
+        this.setTargets.length = 0;
+        this.setTextures.length = 0;
+        const interleaveMesh = this.interleaveInstance.mesh;
+        this.interleaveInstance.destroy();
+        interleaveMesh.destroy();
+        this.interleaveMaterial.destroy();
         this.rasterMesh.destroy();
+        this.polygonMesh.destroy();
         this.taaPass.destroy();
         this.taaInstance.destroy();
         this.taaMaterial.destroy();
@@ -1574,6 +2212,11 @@ class StochasticSplatRenderer {
         this.target.destroy();
         this.colorTexture.destroy();
         this.depthTexture.destroy();
+        for (const { target, textures } of this.altTargets.values()) {
+            target.destroy();
+            for (const texture of textures) texture.destroy();
+        }
+        this.altTargets.clear();
 
         this.composeInstance.destroy();
         this.composeMaterial.destroy();

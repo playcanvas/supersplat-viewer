@@ -140,6 +140,8 @@ class DebugPanel {
 
     private _poplessButton: HTMLButtonElement | null = null;
 
+    private _coverageButton: HTMLButtonElement | null = null;
+
     private _culledValue: HTMLSpanElement | null = null;
 
     private _cullStatsFrames = 0;
@@ -297,6 +299,7 @@ class DebugPanel {
                 <button data-id="depth-cull" title="Stochastic renderer: cull splats hidden in the previous frame's depth (auto suspends the test when it removes too little)">Depth cull</button>
                 <button data-id="taa" title="Stochastic renderer: accumulate the samples over frames (reprojected while the camera moves)">TAA</button>
                 <button data-id="popless" title="Stochastic renderer: give each fragment the depth of the Gaussian's peak along its ray, rather than the splat centre's">Popless</button>
+                <button data-id="coverage" title="Stochastic renderer: pick the coverage threshold per pixel (dither), per splat (a solid ellipse of random size, drawn without discard) or per splat and interleaved pixel set (four sizes per 2x2 pixel quad)">Coverage</button>
             </div>
             <div class="sse-debug-row"><span class="sse-debug-label">culled</span><span class="sse-debug-value" data-id="culled">—</span></div>`
                     : ''
@@ -334,6 +337,14 @@ class DebugPanel {
             this._cullButton = root.querySelector('[data-id="depth-cull"]')!;
             this._taaButton = root.querySelector('[data-id="taa"]')!;
             this._poplessButton = root.querySelector('[data-id="popless"]')!;
+            this._coverageButton = root.querySelector('[data-id="coverage"]')!;
+            this._coverageButton.addEventListener('click', () => {
+                const renderer = this._splatRenderer!;
+                const next = { pixel: 'splat', splat: 'interleaved', interleaved: 'pixel' } as const;
+                renderer.variant.coverage = next[renderer.variant.coverage];
+                renderer.applyVariant();
+                this._renderCull();
+            });
             this._poplessButton.addEventListener('click', () => {
                 const renderer = this._splatRenderer!;
                 renderer.variant.popless = renderer.variant.popless === 'on' ? 'off' : 'on';
@@ -469,6 +480,10 @@ class DebugPanel {
         if (this._poplessButton) {
             this._poplessButton.textContent = `Popless: ${renderer.variant.popless}`;
             this._poplessButton.classList.toggle('sse-debug-on', renderer.variant.popless === 'on');
+        }
+        if (this._coverageButton) {
+            this._coverageButton.textContent = `Coverage: ${renderer.variant.coverage}`;
+            this._coverageButton.classList.toggle('sse-debug-on', renderer.variant.coverage !== 'pixel');
         }
         if (mode === 'off') {
             this._culledValue.textContent = 'off';

@@ -94,7 +94,7 @@ uniform taaParams: vec4f;
 uniform taaViewport: vec4f;
 // x: -1 when the target's rows run bottom-up (an offscreen target), else 1; y: the colour
 // clamp width in neighbourhood standard deviations (0: no clamp); z: 1 when the raster's
-// thresholds are quad-stratified
+// thresholds are quad-stratified; w: the spacing of the clamp's neighbourhood taps in pixels
 uniform taaControl: vec4f;
 // x: 1 for a Catmull-Rom history fetch while moving (0: bilinear); y: 1 to reproject through
 // the pixel's accumulated mean depth rather than this frame's sample depth; z: image motion in
@@ -299,9 +299,10 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         if (moving && uniform.taaControl.y > 0.0) {
             var m1 = vec4f(0.0);
             var m2 = vec4f(0.0);
+            let spread = i32(uniform.taaControl.w);
             for (var dy = -1; dy <= 1; dy++) {
                 for (var dx = -1; dx <= 1; dx++) {
-                    let n = sampleAt(pix + vec2i(dx, dy), dims);
+                    let n = sampleAt(pix + vec2i(dx, dy) * spread, dims);
                     m1 += n;
                     m2 += n * n;
                 }

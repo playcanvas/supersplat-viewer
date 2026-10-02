@@ -14,7 +14,21 @@ const ORDER_BUCKETS = PROJECTOR_WORKGROUP_SIZE;
 /** Splats per chunk-table entry; a chunk is one workgroup. */
 const CHUNK_SIZE = PROJECTOR_WORKGROUP_SIZE;
 
-const projectorWGSL = (readChunk: string, occlusion: boolean, order: boolean) => /* wgsl */ `
+/** Sides of the polygon a splat draws as with variant coverage:splat. */
+const SPLAT_POLYGON_SIDES = 8;
+
+// the polygon's circumradius over the ellipse's, so the two cover the same area
+const SPLAT_POLYGON_SCALE = Math.sqrt(
+    (2 * Math.PI) / (SPLAT_POLYGON_SIDES * Math.sin((2 * Math.PI) / SPLAT_POLYGON_SIDES))
+).toFixed(6);
+
+/** Where the coverage threshold varies: per pixel, per splat, or per splat and interleaved pixel set. */
+type CoverageMode = 'pixel' | 'splat' | 'interleaved';
+
+/** Depth buckets per pixel set with coverage:interleaved; the sets share the ORDER_BUCKETS. */
+const SET_BUCKETS = ORDER_BUCKETS / 4;
+
+const projectorWGSL = (readChunk: string, occlusion: boolean, order: boolean, coverage: CoverageMode) => /* wgsl */ `
 struct ProjectorUniforms {
     view: mat4x4f,
     viewProj: mat4x4f,
@@ -59,7 +73,9 @@ struct ProjectorUniforms {
     unitScale: f32,
     // the view depths of the near plane and of the raster's far clamp
     depthNear: f32,
-    depthFar: f32
+    depthFar: f32,
+    // the coverage seed (variant coverage:splat; see the raster's frameSeed)
+    frameSeed: u32
 }
 
 // chunk table entry: slotBase, count, node, lod | file << 16
@@ -87,7 +103,22 @@ fn setSplat(idx: u32) {
 }
 
 ${readChunk}
-
+${
+    coverage !== 'pixel'
+        ? `
+// integer hash (Wellons' prospector mix), as the raster's
+fn hashU32(x: u32) -> u32 {
+    var v = x;
+    v ^= v >> 16u;
+    v *= 0x7feb352du;
+    v ^= v >> 15u;
+    v *= 0x846ca68bu;
+    v ^= v >> 16u;
+    return v;
+}
+`
+        : ''
+}
 // quaternion (x, y, z, w) to a rotation matrix (columns)
 fn rotationMatrix(qIn: vec4f) -> mat3x3f {
     let q = normalize(qIn);
@@ -140,7 +171,46 @@ fn project(slot: u32, file: u32) -> Projected {
     if (opacity < uniforms.alphaClip) {
         return result;
     }
-
+${
+    coverage !== 'pixel'
+        ? `
+    // Variant coverage:splat: one coverage threshold per splat and frame instead of one per
+    // pixel. The pixels where alpha exceeds it form a solid ellipse, which the raster draws as a
+    // polygon of the same area with no discard, so a gpu updates depth early and rejects what
+    // lies behind it before rasterising it. Each pixel is still kept with probability alpha,
+    // independently per splat; the noise is a splat at a random size rather than a dither. The
+    // threshold is hashed afresh every frame: one sequence shared by every splat, rotated per
+    // splat, would keep two splats' thresholds a fixed distance apart, so their coverage would
+    // stay correlated over frames and the accumulation would converge to the wrong image. A
+    // splat whose opacity does not exceed its threshold keeps nothing this frame and stops here.
+    let id = slot ^ (file * 2654435761u);
+    let drawn = f32(hashU32(((id + 1u) * 26699u) ^ uniforms.frameSeed) >> 8u) * (1.0 / 16777216.0);
+${
+    coverage === 'interleaved'
+        ? `
+    // Variant coverage:interleaved: the pixels split into four interleaved sets, the four of a
+    // 2x2 quad, and each set takes its own threshold, the four quarters of [0, 1) from the one
+    // draw: a quad holds the splat at four stratified sizes, so its mean is nearly the splat's
+    // alpha, as the per-pixel thresholds' is, and neighbouring pixels are no longer all one
+    // splat. The largest kept polygon bounds the culls below
+    let thresholds = max(fract(vec4f(drawn) + vec4f(0.0, 0.25, 0.5, 0.75)), vec4f(uniforms.alphaClip));
+    let keptSets = thresholds < vec4f(opacity);
+    if (!any(keptSets)) {
+        return result;
+    }
+    let lowest = select(vec4f(2.0), thresholds, keptSets);
+    let threshold = min(min(lowest.x, lowest.y), min(lowest.z, lowest.w));
+`
+        : `
+    let threshold = max(drawn, uniforms.alphaClip);
+    if (threshold >= opacity) {
+        return result;
+    }
+`
+}
+`
+        : ''
+}
     let viewCenter = uniforms.view * vec4f(center, 1.0);
     let depth = -viewCenter.z;
     if (uniforms.isOrtho == 0u && depth <= 0.0) {
@@ -229,7 +299,18 @@ fn project(slot: u32, file: u32) -> Projected {
     let direction = select(vec2f(1.0, 0.0), eigenVec / eigenLen, eigenLen > 1e-9);
     let maxRadius = min(1024.0, min(viewport.x, viewport.y));
     let len1 = 2.0 * sqrt(2.0 * lambda1);
+${
+    coverage !== 'pixel'
+        ? `
+    // the kept ellipse's polygon, in units of the quad's half extent: alpha = opacity *
+    // falloff(r^2) with falloff(x) = (exp(-4 x) - exp(-4)) / (1 - exp(-4))
+    let e4 = exp(-4.0);
+    let radiusScale = min(1.0, maxRadius / len1) * sqrt(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25) * ${SPLAT_POLYGON_SCALE};
+`
+        : `
     let radiusScale = min(1.0, maxRadius / len1);
+`
+}
     let axis1 = len1 * radiusScale * direction;
     let len2 = 2.0 * sqrt(2.0 * lambda2) * radiusScale;
     let axis2 = len2 * vec2f(direction.y, -direction.x);
@@ -387,6 +468,18 @@ ${
     // the stable id the coverage hash seeds from: the slot, salted by the file for sources
     // whose indices restart per file
     result.words[6] = slot ^ (file * 2654435761u);
+${
+    coverage === 'interleaved'
+        ? `
+    // each pixel set's polygon radius as a fraction of the largest, a byte each (0: none); the
+    // raster needs no id to hash, so they take the id's word
+    let radii = sqrt(max(-log(thresholds / opacity * (1.0 - e4) + e4) * 0.25, vec4f(0.0)));
+    let largest = max(max(radii.x, radii.y), max(radii.z, radii.w));
+    let fractions = select(vec4u(0u), vec4u(clamp(round(radii / largest * 255.0), vec4f(1.0), vec4f(255.0))), keptSets);
+    result.words[6] = fractions.x | (fractions.y << 8u) | (fractions.z << 16u) | (fractions.w << 24u);
+`
+        : ''
+}
     return result;
 }
 
@@ -438,7 +531,20 @@ ${order ? `    atomicStore(&wgBuckets[local], 0u);` : ''}
         for (var i = 0u; i < ${CACHE_WORDS}u; i++) {
             cache[base + i] = projected.words[i];
         }
-${order ? `        atomicAdd(&wgBuckets[projected.words[3] >> 24u], 1u);` : ''}
+${
+    order && coverage === 'interleaved'
+        ? `
+        // one entry per kept pixel set: the set's ${SET_BUCKETS} buckets, front to back, by the
+        // depth bucket's top bits
+        for (var s = 0u; s < 4u; s++) {
+            if (((projected.words[6] >> (8u * s)) & 0xffu) != 0u) {
+                atomicAdd(&wgBuckets[s * ${SET_BUCKETS}u + (projected.words[3] >> 26u)], 1u);
+            }
+        }`
+        : order
+          ? `        atomicAdd(&wgBuckets[projected.words[3] >> 24u], 1u);`
+          : ''
+}
     }
 ${
     order
@@ -456,4 +562,13 @@ ${
 }
 `;
 
-export { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, PROJECTOR_WORKGROUP_SIZE, projectorWGSL };
+export {
+    CACHE_WORDS,
+    CHUNK_SIZE,
+    ORDER_BUCKETS,
+    PROJECTOR_WORKGROUP_SIZE,
+    SET_BUCKETS,
+    SPLAT_POLYGON_SIDES,
+    projectorWGSL
+};
+export type { CoverageMode };

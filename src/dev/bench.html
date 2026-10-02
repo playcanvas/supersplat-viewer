@@ -65,6 +65,7 @@
               splatSource=workbuffer        stochastic data path: workbuffer or direct
               dpr=1.5                       pin the pixel ratio and screen size: target = host * dpr
               move=0.25                     orbit the camera this many degrees per measured frame (0: still)
+              motion=strafe                 move sideways instead, at the orbit's speed at the focus (disocclusion)
               truth=32                      raw frames averaged into the stochastic expectation each variant is judged against
               truthVariant=<variant>        the variant those raw frames render with (default cull:off,spp:1,taa:off)
               rounds=3 warmup=40 frames=180
@@ -131,6 +132,8 @@
             const splatSource = params.get('splatSource') ?? 'workbuffer';
             // degrees of orbit per measured frame; 0 measures a still camera
             const move = Number(params.get('move') ?? 0);
+            // how the camera moves for the moving comparison: orbit the focus, or strafe sideways
+            const motion = params.get('motion') ?? 'orbit';
             // the pane's device pixel ratio and screen size follow tab visibility, so pin them for
             // repeatable targets: the viewer caps its ratio from the screen's short side, and a
             // host-sized screen leaves the ratio at dpr (target = host * dpr)
@@ -187,17 +190,25 @@
                 app.renderNextFrame = false;
                 app.fire('frameend');
             };
+            // At most this many frames queued on the gpu: enough to keep it busy, and without a
+            // bound a phone's cpu runs hundreds of frames ahead, so the profiler's reports for one
+            // variant arrive during the next
+            const FRAMES_IN_FLIGHT = 2;
+            const inFlight = [];
             const pump = (app, count, onFrame) =>
                 new Promise((resolve) => {
                     const channel = new MessageChannel();
+                    const queue = app.graphicsDevice.wgpu?.queue;
                     let i = 0;
-                    channel.port1.onmessage = () => {
+                    channel.port1.onmessage = async () => {
                         if (i >= count) {
                             channel.port1.close();
                             resolve();
                             return;
                         }
+                        while (inFlight.length >= FRAMES_IN_FLIGHT) await inFlight.shift();
                         pumpFrame(app, 1 / 60);
+                        if (queue) inFlight.push(queue.onSubmittedWorkDone());
                         onFrame?.(i);
                         i++;
                         channel.port2.postMessage(0);
@@ -218,11 +229,14 @@
             // see sane deltas; false on timeout
             const pumpUntil = async (app, test, timeoutMs) => {
                 const deadline = performance.now() + timeoutMs;
+                const queue = app.graphicsDevice.wgpu?.queue;
                 let last = performance.now();
                 while (!test()) {
                     if (performance.now() > deadline) return false;
+                    while (inFlight.length >= FRAMES_IN_FLIGHT) await inFlight.shift();
                     const now = performance.now();
                     pumpFrame(app, Math.min(0.1, Math.max(1 / 240, (now - last) / 1000)));
+                    if (queue) inFlight.push(queue.onSubmittedWorkDone());
                     last = now;
                     await yieldTask();
                 }
@@ -261,7 +275,7 @@
                             passes[name] = (passes[name] ?? 0) + timings[i];
                             sum += timings[i];
                         });
-                        samples.push({ frame: frameTime ?? sum, passes });
+                        samples.push({ version: renderVersion, frame: frameTime ?? sum, passes });
                     }
                     return original.call(this, renderVersion, timings, frameTime);
                 };
@@ -325,23 +339,30 @@
             // channel: an intensity or tint bias
             const imageDiff = (a, b) => {
                 let changed = 0;
+                // pixels off by more than 48 levels in a channel: ghosts and other gross errors,
+                // which the rms spreads over the whole image
+                let far = 0;
                 let sumAbs = 0;
                 let sumSq = 0;
                 const bias = [0, 0, 0];
                 const pixels = a.length / 4;
                 for (let i = 0; i < a.length; i += 4) {
                     let pixelChanged = false;
+                    let pixelFar = false;
                     for (let c = 0; c < 3; c++) {
                         const d = a[i + c] - b[i + c];
                         if (Math.abs(d) > 8) pixelChanged = true;
+                        if (Math.abs(d) > 48) pixelFar = true;
                         sumAbs += Math.abs(d);
                         sumSq += d * d;
                         bias[c] += d;
                     }
                     if (pixelChanged) changed++;
+                    if (pixelFar) far++;
                 }
                 return {
                     changedPct: (100 * changed) / pixels,
+                    farPct: (100 * far) / pixels,
                     meanAbs: sumAbs / (pixels * 3),
                     rms: Math.sqrt(sumSq / (pixels * 3)),
                     bias: bias.map((v) => v / pixels)
@@ -406,6 +427,8 @@
             };
 
             const loadViewer = async (mode) => {
+                // the previous viewer's device is gone; its frames are not waited on
+                inFlight.length = 0;
                 const viewer = await createViewer({
                     container: host,
                     settings,
@@ -509,6 +532,17 @@
                     -Math.cos(yaw * degToRad) * Math.cos(pitch * degToRad)
                 ];
                 const [pitch, yaw] = snapshot.angles;
+                if (motion === 'strafe') {
+                    // sideways at the orbit's speed at the focus, the view direction fixed: the
+                    // parallax uncovers what the foreground hid
+                    const step = i * move * degToRad * snapshot.distance;
+                    const right = [Math.cos(yaw * degToRad), 0, -Math.sin(yaw * degToRad)];
+                    window.setCameraState({
+                        ...snapshot,
+                        position: snapshot.position.map((p, k) => p + right[k] * step)
+                    });
+                    return;
+                }
                 const f0 = forward(pitch, yaw);
                 const focus = snapshot.position.map((p, k) => p + f0[k] * snapshot.distance);
                 const f1 = forward(pitch, yaw + i * move);
@@ -579,10 +613,23 @@
             const measure = async (app, profiler, label, snapshot) => {
                 profiler.samples.length = 0;
                 const orbit = move ? (i) => orbitStep(snapshot, i) : undefined;
-                await pump(app, warmup + frames, orbit);
-                // reports trail the frames by a few; pump until they have arrived
-                await pumpUntil(app, () => profiler.samples.length >= warmup + frames - 5, 2000);
-                const samples = profiler.samples.slice(warmup, warmup + frames);
+                // only the frames rendered here count: a report that trails in from an earlier
+                // measurement carries an earlier frame
+                const device = app.graphicsDevice;
+                const first = device.renderVersion;
+                await pump(app, warmup, orbit);
+                // console markers around the measured frames, for a host sampling gpu hardware
+                // counters alongside (the frames trail the cpu by at most FRAMES_IN_FLIGHT)
+                console.log(`measure-begin ${label} ${frames}`);
+                await pump(app, frames, orbit ? (i) => orbit(warmup + i) : undefined);
+                console.log(`measure-end ${label}`);
+                const last = device.renderVersion;
+                const ours = () => profiler.samples.filter((s) => s.version >= first && s.version <= last);
+                // reports trail the frames; pump until they have arrived
+                await pumpUntil(app, () => ours().length >= warmup + frames - 5, 30000);
+                const samples = ours()
+                    .sort((a, b) => a.version - b.version)
+                    .slice(warmup, warmup + frames);
                 const frameTimes = samples.map((s) => s.frame);
                 const passNames = new Set();
                 samples.forEach((s) => Object.keys(s.passes).forEach((n) => passNames.add(n)));
@@ -836,12 +883,21 @@
                                         if (movingVsSaved) movingVsSaved[k] = keptMoving?.diff ?? null;
                                         if (i === 0) first.moving[k] = frame;
                                         else (movingVsFirst ??= {})[k] = imageDiff(frame, first.moving[k]);
-                                        if (taa)
+                                        if (taa) {
                                             preview(frame, target.width, target.height, `${pose.name}@${k} ${variant}`);
+                                            if (ref) {
+                                                preview(
+                                                    diffImage(frame, ref),
+                                                    target.width,
+                                                    target.height,
+                                                    `${pose.name}@${k} ${variant} |a - sorted| x4`
+                                                );
+                                            }
+                                        }
                                     }
                                     window.setCameraState(pose.snapshot);
                                     log(
-                                        `${mode} ${pose.name} ${variant}: moving vs sorted rms ${MOVE_FRAMES.map((k) => `@${k} ${moving[k] ? moving[k].rms.toFixed(2) : 'n/a'}`).join(', ')}`
+                                        `${mode} ${pose.name} ${variant}: moving vs sorted rms ${MOVE_FRAMES.map((k) => `@${k} ${moving[k] ? `${moving[k].rms.toFixed(2)} (far ${moving[k].farPct.toFixed(2)}%)` : 'n/a'}`).join(', ')}`
                                     );
                                 }
                                 const depthView = variant.includes('compose:depth');

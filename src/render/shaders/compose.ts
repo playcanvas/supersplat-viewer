@@ -56,6 +56,12 @@ fn viewDepthOf(z: f32) -> f32 {
     return select(p.y / safeDz, (z - p.y) / p.x, uniform.composeParams.y > 0.5);
 }
 
+// a splat target texel's depth where a sample landed (colour alpha 1), and 1 (no sample)
+// elsewhere, whatever depth the occluder grid (variant occluder:on) left there
+fn sampleDepth(p: vec2i) -> f32 {
+    return select(1.0, textureLoad(splatDepth, p, 0), textureLoad(splatColor, p, 0).a > 0.0);
+}
+
 // A splat target depth in the camera's depth, clamped just inside the camera's far plane as the
 // engine clamps its splats: splats beyond it stay behind everything the scene draws
 fn cameraDepthOf(z: f32) -> f32 {
@@ -75,7 +81,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     }
     pix = clamp(pix, vec2i(0), dims - vec2i(1));
 
-    var depth = textureLoad(splatDepth, pix, 0);
+    var depth = sampleDepth(pix);
     var color: vec4f;
     if (uniform.composeParams.z > 0.5) {
         // the accumulated history: coverage in alpha, colour premultiplied by it
@@ -91,7 +97,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             } else {
                 for (var dy = -1; dy <= 1; dy++) {
                     for (var dx = -1; dx <= 1; dx++) {
-                        depth = min(depth, textureLoad(splatDepth, clamp(pix + vec2i(dx, dy), vec2i(0), dims - vec2i(1)), 0));
+                        depth = min(depth, sampleDepth(clamp(pix + vec2i(dx, dy), vec2i(0), dims - vec2i(1))));
                     }
                 }
             }
@@ -116,8 +122,8 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
                 // no sample at this pixel but coverage from its quad: the quad's nearest depth
                 let quad = (pix >> vec2u(1u)) << vec2u(1u);
                 depth = min(
-                    min(textureLoad(splatDepth, quad, 0), textureLoad(splatDepth, min(quad + vec2i(1, 0), dims - 1), 0)),
-                    min(textureLoad(splatDepth, min(quad + vec2i(0, 1), dims - 1), 0), textureLoad(splatDepth, min(quad + vec2i(1, 1), dims - 1), 0))
+                    min(sampleDepth(quad), sampleDepth(min(quad + vec2i(1, 0), dims - 1))),
+                    min(sampleDepth(min(quad + vec2i(0, 1), dims - 1)), sampleDepth(min(quad + vec2i(1, 1), dims - 1)))
                 );
             }
         #else

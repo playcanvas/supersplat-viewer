@@ -1,3 +1,5 @@
+import { ORDER_BUCKETS, SET_BUCKETS } from './projector';
+
 // Single-thread pass turning the projector's survivor count into the indexed indirect draw
 // arguments for the raster pass and the indirect dispatch size of the order scatter. Nothing
 // comes back to the cpu, so a frame never stalls on the count. Entry layouts match the engine's
@@ -44,4 +46,45 @@ fn main() {
 }
 `;
 
-export { argsWGSL };
+// Variant coverage:interleaved: after the bucket scan, before the scatter moves the offsets,
+// each pixel set's range of the ordered list and the indirect draw arguments of its raster pass
+const setArgsWGSL = /* wgsl */ `
+struct DrawIndexedIndirectArgs {
+    indexCount: u32,
+    instanceCount: u32,
+    firstIndex: u32,
+    baseVertex: i32,
+    firstInstance: u32
+}
+
+struct SetArgsUniforms {
+    drawSlot: u32,
+    indexCount: u32,
+    quadsPerInstance: u32
+}
+
+// [0, ${ORDER_BUCKETS}) counts, [${ORDER_BUCKETS}, ${2 * ORDER_BUCKETS}) offsets
+@group(0) @binding(0) var<storage, read> buckets: array<u32>;
+@group(0) @binding(1) var<storage, read_write> indirectDrawArgs: array<DrawIndexedIndirectArgs>;
+@group(0) @binding(2) var<storage, read_write> setRanges: array<vec2u>;
+@group(0) @binding(3) var<uniform> uniforms: SetArgsUniforms;
+
+@compute @workgroup_size(4)
+fn main(@builtin(local_invocation_index) index: u32) {
+    let first = buckets[${ORDER_BUCKETS}u + index * ${SET_BUCKETS}u];
+    var count = 0u;
+    for (var b = 0u; b < ${SET_BUCKETS}u; b++) {
+        count += buckets[index * ${SET_BUCKETS}u + b];
+    }
+    setRanges[index] = vec2u(first, first + count);
+    indirectDrawArgs[uniforms.drawSlot + index] = DrawIndexedIndirectArgs(
+        uniforms.indexCount,
+        (count + uniforms.quadsPerInstance - 1u) / uniforms.quadsPerInstance,
+        0u,
+        0,
+        0u
+    );
+}
+`;
+
+export { argsWGSL, setArgsWGSL };
