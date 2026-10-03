@@ -87,7 +87,9 @@ struct SampleUniforms {
     // 256 samples every splat)
     opacityLimit: u32,
     // alpha's ceiling in the point density
-    maxAlpha: f32
+    maxAlpha: f32,
+    // bench diagnostics (wrong images): 1 claims nothing, 2 scatters no direct points
+    debugFlags: u32
 }
 
 @group(0) @binding(0) var<storage, read> counter: array<u32>;
@@ -159,6 +161,9 @@ fn claim(g: Geometry, color: vec3f, d: vec2f, noise: u32) {
     let q = min(vec3u(color * 15.0 + dither), vec3u(15u));
     let key = (~bitcast<u32>(max(depth, 0.0)) & 0xfffff000u) | (q.r << 8u) | (q.g << 4u) | q.b;
     let index = u32(p.y) * u32(uniforms.viewportW) + u32(p.x);
+    if ((uniforms.debugFlags & 1u) != 0u) {
+        return;
+    }
     if (atomicLoad(&pixels[index]) < key) {
         atomicMax(&pixels[index], key);
     }
@@ -199,7 +204,7 @@ fn main(
     // by the expected count, not a drawn one: a count conditioned on its own size is biased
     let expected = totals[opacityByte] * len1 * len2;
     let large = g.valid && expected > ${SAMPLE_DIRECT_POINTS}.0;
-    if (g.valid && !large) {
+    if (g.valid && !large && (uniforms.debugFlags & 2u) == 0u) {
         var state = seedOf(slot);
         let points = poisson(expected, &state);
         atomicAdd(&itemCount[1], points);

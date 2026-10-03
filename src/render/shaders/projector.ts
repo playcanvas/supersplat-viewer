@@ -14,13 +14,8 @@ const ORDER_BUCKETS = PROJECTOR_WORKGROUP_SIZE;
 /** Splats per chunk-table entry; a chunk is one workgroup. */
 const CHUNK_SIZE = PROJECTOR_WORKGROUP_SIZE;
 
-/** Sides of the polygon a splat draws as with variant coverage:splat. */
-const SPLAT_POLYGON_SIDES = 8;
-
 // the polygon's circumradius over the ellipse's, so the two cover the same area
-const SPLAT_POLYGON_SCALE = Math.sqrt(
-    (2 * Math.PI) / (SPLAT_POLYGON_SIDES * Math.sin((2 * Math.PI) / SPLAT_POLYGON_SIDES))
-).toFixed(6);
+const polygonScale = (sides: number) => Math.sqrt((2 * Math.PI) / (sides * Math.sin((2 * Math.PI) / sides))).toFixed(6);
 
 /** Where the coverage threshold varies: per pixel, per splat, or per splat and interleaved pixel set. */
 type CoverageMode = 'pixel' | 'splat' | 'interleaved';
@@ -28,7 +23,14 @@ type CoverageMode = 'pixel' | 'splat' | 'interleaved';
 /** Depth buckets per pixel set with coverage:interleaved; the sets share the ORDER_BUCKETS. */
 const SET_BUCKETS = ORDER_BUCKETS / 4;
 
-const projectorWGSL = (readChunk: string, occlusion: boolean, order: boolean, coverage: CoverageMode) => /* wgsl */ `
+const projectorWGSL = (
+    readChunk: string,
+    occlusion: boolean,
+    order: boolean,
+    coverage: CoverageMode,
+    // of the polygon a splat's kept region draws as, with coverage other than pixel
+    sides: number
+) => /* wgsl */ `
 struct ProjectorUniforms {
     view: mat4x4f,
     viewProj: mat4x4f,
@@ -311,8 +313,8 @@ ${
     let e4 = exp(-4.0);
     let radiusScale = min(1.0, maxRadius / len1) * ${
         coverage === 'interleaved'
-            ? `sqrt(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25) * ${SPLAT_POLYGON_SCALE}`
-            : `select(1.0, sqrt(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25) * ${SPLAT_POLYGON_SCALE}, perSplat)`
+            ? `sqrt(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25) * ${polygonScale(sides)}`
+            : `select(1.0, sqrt(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25) * ${polygonScale(sides)}, perSplat)`
     };
 `
         : `
@@ -570,13 +572,5 @@ ${
 }
 `;
 
-export {
-    CACHE_WORDS,
-    CHUNK_SIZE,
-    ORDER_BUCKETS,
-    PROJECTOR_WORKGROUP_SIZE,
-    SET_BUCKETS,
-    SPLAT_POLYGON_SIDES,
-    projectorWGSL
-};
+export { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, PROJECTOR_WORKGROUP_SIZE, SET_BUCKETS, projectorWGSL };
 export type { CoverageMode };

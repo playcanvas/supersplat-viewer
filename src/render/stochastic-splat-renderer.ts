@@ -81,7 +81,7 @@ import { composeFragmentWGSL, composeVertexWGSL } from './shaders/compose';
 import { interleaveFragmentWGSL } from './shaders/interleave';
 import { occluderFragmentWGSL, occluderVertexWGSL } from './shaders/occluder';
 import { orderScanWGSL, orderScatterSetsWGSL, orderScatterWGSL } from './shaders/order';
-import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, SPLAT_POLYGON_SIDES, projectorWGSL } from './shaders/projector';
+import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, projectorWGSL } from './shaders/projector';
 import type { CoverageMode } from './shaders/projector';
 import { FAR_CLIP_Z, QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
@@ -131,10 +131,24 @@ type Variant = {
      * whole quad), or per splat and frame, which makes the kept pixels a solid ellipse drawn as
      * a polygon with no discard (shaders/projector.ts); `interleaved` gives each of the four
      * pixels of a 2x2 quad its own threshold per splat, stratified, drawn as four interleaved
-     * pixel sets and copied back (shaders/interleave.ts). All keep each pixel with probability
-     * alpha.
+     * pixel sets that the accumulation reads directly (shaders/taa.ts), or that are copied back
+     * without it (shaders/interleave.ts). All keep each pixel with probability alpha.
      */
     coverage: CoverageMode;
+    /**
+     * Sides of the polygon a splat's kept region draws as with coverage other than pixel, area
+     * matched; below 8 it turns by a fresh angle every frame, so it converges to the ellipse.
+     * The tiler's cost is per triangle: on the Pixel 7 Pro the interleaved sets' octagons (6
+     * triangles) cost 4.1 ms at the start view and squares (2) 1.2 ms, the image the same.
+     * Triangles (3) are cheaper still but blur the converged image measurably.
+     */
+    sides: 3 | 4 | 6 | 8;
+    /**
+     * Bench diagnostics as bits: 1 copies the interleaved sets back in the raster pass instead
+     * of the taa reading them; for the sampler, 2 skips the tile pass, 4 claims no pixel and 8
+     * scatters no direct points (wrong images).
+     */
+    diag: number;
     /**
      * How the splats reach the target: the stochastic raster, or `compute`, a tile renderer that
      * blends every pixel's splats front to back (shaders/tiles.ts), the image the raster
@@ -266,6 +280,8 @@ const defaultVariant = (): Variant => ({
     popless: 'on',
     quadClip: 'opacity',
     coverage: 'pixel',
+    sides: 4,
+    diag: 0,
     pipeline: 'raster',
     sampleMaxAlpha: 0.995,
     hybridOpacity: 0.5,
@@ -307,6 +323,8 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'quadClip' && (value === 'opacity' || value === 'off')) variant.quadClip = value;
         if (key === 'coverage' && (value === 'pixel' || value === 'splat' || value === 'interleaved'))
             variant.coverage = value;
+        if (key === 'sides' && ['3', '4', '6', '8'].includes(value)) variant.sides = Number(value) as Variant['sides'];
+        if (key === 'diag' && Number.isFinite(Number(value))) variant.diag = Number(value);
         if (key === 'hybridOpacity' && Number.isFinite(Number(value)))
             variant.hybridOpacity = Math.min(1, Math.max(0, Number(value)));
         if (key === 'pipeline' && ['raster', 'compute', 'sample', 'hybrid'].includes(value))
@@ -652,13 +670,13 @@ class StochasticSplatRenderer {
 
     private rasterMesh: Mesh;
 
-    // variant coverage:splat
-    private polygonMesh: Mesh;
+    // variant coverage:splat, by side count (variant sides)
+    private polygonMeshes = new Map<number, Mesh>();
 
     // variant coverage:interleaved: each pixel set's target, raster pass and draw, the pass that
-    // copies them back into the full target, and the passes that order and size each set's draw.
-    // (One target with a quadrant and viewport per set, in one pass, measured 1 ms slower on the
-    // Pixel 7 Pro: the passes are not what the sets cost.)
+    // copies them back into the full target when taa is off, and the passes that order and size
+    // each set's draw. (One target with a quadrant and viewport per set, in one pass, measured
+    // 1 ms slower on the Pixel 7 Pro: the passes are not what the sets cost, their triangles are.)
     private setTextures: Texture[] = [];
 
     private setTargets: RenderTarget[] = [];
@@ -776,6 +794,18 @@ class StochasticSplatRenderer {
     private taaMaterial: ShaderMaterial;
 
     private taaInstance: MeshInstance;
+
+    // variant coverage:interleaved with taa: the resolve straight from the pixel sets' targets,
+    // into history targets with the raster's depth texture attached (made per size: a resize
+    // rebuilds the textures their views point at)
+    private taaSetMaterial: ShaderMaterial;
+
+    private taaSetInstance: MeshInstance;
+
+    private taaSetTargets: RenderTarget[] = [];
+
+    // whether this frame's taa reads the pixel sets (and the raster pass draws nothing)
+    private setsFolded = false;
 
     private taaPass: SplatRasterPass;
 
@@ -1155,7 +1185,8 @@ class StochasticSplatRenderer {
                             new UniformFormat('frameSeed', UNIFORMTYPE_UINT),
                             new UniformFormat('itemCapacity', UNIFORMTYPE_UINT),
                             new UniformFormat('opacityLimit', UNIFORMTYPE_UINT),
-                            new UniformFormat('maxAlpha', UNIFORMTYPE_FLOAT)
+                            new UniformFormat('maxAlpha', UNIFORMTYPE_FLOAT),
+                            new UniformFormat('debugFlags', UNIFORMTYPE_UINT)
                         ])
                     },
                     computeBindGroupFormat: format
@@ -1286,6 +1317,7 @@ class StochasticSplatRenderer {
             compute.setParameter('itemCapacity', capacity);
             compute.setParameter('opacityLimit', this.hybridLimit());
             compute.setParameter('maxAlpha', this.variant.sampleMaxAlpha);
+            compute.setParameter('debugFlags', (this.variant.diag >> 2) & 3);
         }
         pipeline.splats.setupIndirectDispatch(dispatchSlot);
         const itemSlot = device.getIndirectDispatchSlot(1);
@@ -1298,7 +1330,7 @@ class StochasticSplatRenderer {
         pipeline.tiles.setupIndirectDispatch(itemSlot);
         device.computeDispatch([pipeline.splats], 'sse-samples-splats');
         device.computeDispatch([args], 'sse-samples-args');
-        device.computeDispatch([pipeline.tiles], 'sse-samples-tiles');
+        if (!(this.variant.diag & 2)) device.computeDispatch([pipeline.tiles], 'sse-samples-tiles');
         for (const resolve of [pipeline.resolveMaterial, pipeline.mergeMaterial]) {
             resolve.setParameter('pixels', this.samplePixels!);
             resolve.setParameter('resolveParams', [width, isOrtho ? 1 : 0, clipZ[0], clipZ[1]]);
@@ -1647,7 +1679,6 @@ class StochasticSplatRenderer {
         });
 
         this.rasterMesh = createQuadMesh(device, QUADS_PER_INSTANCE);
-        this.polygonMesh = createPolygonMesh(device, QUADS_PER_INSTANCE, SPLAT_POLYGON_SIDES);
         this.rasterMaterial = new ShaderMaterial({
             uniqueName: 'sse-splat-raster',
             vertexWGSL: rasterVertexWGSL,
@@ -1731,8 +1762,9 @@ class StochasticSplatRenderer {
                 height: 4,
                 format: PIXELFORMAT_RGBA8,
                 mipmaps: false,
-                minFilter: FILTER_NEAREST,
-                magFilter: FILTER_NEAREST,
+                // the taa's quad mean fetches it bilinearly
+                minFilter: FILTER_LINEAR,
+                magFilter: FILTER_LINEAR,
                 addressU: ADDRESS_CLAMP_TO_EDGE,
                 addressV: ADDRESS_CLAMP_TO_EDGE
             });
@@ -1754,7 +1786,7 @@ class StochasticSplatRenderer {
             });
             this.setTargets.push(target);
             const instance = new MeshInstance(
-                this.polygonMesh,
+                this.polygonMesh(this.variant.sides),
                 this.rasterMaterial,
                 new GraphNode(`sse-splat-set-${i}`)
             );
@@ -1855,6 +1887,30 @@ class StochasticSplatRenderer {
         this.taaInstance.cull = false;
         this.taaInstance.castShadow = false;
         this.taaInstance.receiveShadow = false;
+        // variant coverage:interleaved: the same resolve reading the pixel sets' targets, writing
+        // their depth into the full target's, so no pass copies the sets back
+        this.taaSetMaterial = new ShaderMaterial({
+            uniqueName: 'sse-splat-taa-sets',
+            vertexWGSL: taaVertexWGSL,
+            fragmentWGSL: taaFragmentWGSL,
+            attributes: { vertex_position: SEMANTIC_POSITION },
+            fragmentOutputTypes: ['uvec4', 'uint']
+        });
+        this.taaSetMaterial.setDefine('SSE_SETS', '');
+        this.taaSetMaterial.blendType = BLEND_NONE;
+        this.taaSetMaterial.depthWrite = true;
+        this.taaSetMaterial.depthTest = true;
+        this.taaSetMaterial.depthFunc = FUNC_ALWAYS;
+        this.taaSetMaterial.cull = CULLFACE_NONE;
+        for (let i = 0; i < 4; i++) {
+            this.taaSetMaterial.setParameter(`setColor${i}`, this.setTextures[i * 2]);
+            this.taaSetMaterial.setParameter(`setDepth${i}`, this.setTextures[i * 2 + 1]);
+        }
+        this.taaSetMaterial.update();
+        this.taaSetInstance = new MeshInstance(this.taaMesh, this.taaSetMaterial, new GraphNode('sse-splat-taa-sets'));
+        this.taaSetInstance.cull = false;
+        this.taaSetInstance.castShadow = false;
+        this.taaSetInstance.receiveShadow = false;
         this.taaPass = new SplatRasterPass(
             device,
             app.renderer as unknown as EngineForwardRenderer,
@@ -1862,7 +1918,7 @@ class StochasticSplatRenderer {
             [this.taaInstance],
             'sse-splat-taa'
         );
-        this.taaPass.init(this.taaTargets[0]);
+        this.initTaaPass(this.taaTargets[0]);
         this.taaPass.enabled = false;
 
         // the compose quad, blended over the skybox and opaque meshes with the splat depth
@@ -1954,7 +2010,10 @@ class StochasticSplatRenderer {
         this.rasterMaterial.setDefine('SSE_COVERAGE_SPLAT', splatCoverage ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_INTERLEAVED', this.variant.coverage === 'interleaved' ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_HYBRID', this.variant.pipeline === 'hybrid' ? '' : undefined);
-        this.rasterInstance.mesh = splatCoverage ? this.polygonMesh : this.rasterMesh;
+        const polygonMesh = this.polygonMesh(this.variant.sides);
+        this.rasterInstance.mesh = splatCoverage ? polygonMesh : this.rasterMesh;
+        for (const instance of this.setInstances) instance.mesh = polygonMesh;
+        this.rasterMaterial.setDefine('SSE_POLYGON_ROTATE', this.variant.sides < 8 ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_RASTER_EMPTY', this.variant.raster === 'empty' ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_RASTER_DISCARD', this.variant.raster === 'discard' ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_RASTER_OPAQUE', this.variant.raster === 'opaque' ? '' : undefined);
@@ -2028,7 +2087,7 @@ class StochasticSplatRenderer {
     // the raster pass and the compose only run once a frame has bound the buffers they read
     private setReady(value: boolean) {
         this.ready = value;
-        this.rasterPass.enabled = value;
+        this.rasterPass.enabled = value && !this.setsFolded;
         for (const pass of this.setPasses) pass.enabled = value && this.variant.coverage === 'interleaved';
         this.composeInstance.visible = value && this.variant.compose !== 'none';
     }
@@ -2090,6 +2149,8 @@ class StochasticSplatRenderer {
         const height = rt ? rt.height : device.height;
         if (this.target.width !== width || this.target.height !== height) {
             this.target.resize(width, height);
+            // their views point at the depth texture just rebuilt
+            this.releaseTaaSetTargets();
         }
         this.selectRasterTarget(width, height);
 
@@ -2284,7 +2345,7 @@ class StochasticSplatRenderer {
         this.args.setParameter('indirectDispatchArgs', device.indirectDispatchBuffer);
         this.args.setParameter('drawSlot', drawSlot);
         // the solid prefill shares the draw arguments and is not combined with coverage:splat
-        const indicesPerSplat = coverage !== 'pixel' ? (SPLAT_POLYGON_SIDES - 2) * 3 : 6;
+        const indicesPerSplat = coverage !== 'pixel' ? (this.variant.sides - 2) * 3 : 6;
         this.args.setParameter('indexCount', QUADS_PER_INSTANCE * indicesPerSplat);
         this.args.setParameter('quadsPerInstance', QUADS_PER_INSTANCE);
         this.args.setParameter('dispatchSlot', dispatchSlot);
@@ -2376,15 +2437,26 @@ class StochasticSplatRenderer {
                       this.rasterInstance
                   ];
 
+        // interleaved pixel sets go straight into the taa, which writes their depth, so the
+        // raster pass has nothing to do
+        const folded = interleaved && taaOn && !(this.variant.diag & 1);
+        if (folded) this.ensureTaaSetTargets();
+        if (folded !== this.setsFolded) {
+            this.setsFolded = folded;
+            this.initTaaPass(folded ? this.taaSetTargets[0] : this.taaTargets[0]);
+            this.taaPass.instances = [folded ? this.taaSetInstance : this.taaInstance];
+        }
         this.taaPass.enabled = taaOn;
         if (taaOn) {
             const read = this.taaWrite ^ 1;
-            const taa = this.taaMaterial;
+            const taa = folded ? this.taaSetMaterial : this.taaMaterial;
             this.taaPrevViewProjection.copy(this.taaLastViewProjection);
             this.taaPrevView.copy(this.taaLastView);
             this.cameraWorld.copy(view).invert();
-            taa.setParameter('curColor', this.colorTexture);
-            taa.setParameter('curDepth', this.depthTexture);
+            if (!folded) {
+                taa.setParameter('curColor', this.colorTexture);
+                taa.setParameter('curDepth', this.depthTexture);
+            }
             taa.setParameter('histColor', this.taaColor[read]);
             taa.setParameter('histInfo', this.taaInfo[read]);
             taa.setParameter('cameraWorld', this.cameraWorld.data);
@@ -2416,7 +2488,7 @@ class StochasticSplatRenderer {
                 this.variant.taaMotion,
                 0
             ]);
-            this.taaPass.renderTarget = this.taaTargets[this.taaWrite];
+            this.taaPass.renderTarget = (folded ? this.taaSetTargets : this.taaTargets)[this.taaWrite];
             this.composeMaterial.setParameter('taaColor', this.taaColor[this.taaWrite]);
             this.composeMaterial.setParameter('taaInfo', this.taaInfo[this.taaWrite]);
             this.taaLastViewProjection.copy(this.viewProjection);
@@ -2436,7 +2508,7 @@ class StochasticSplatRenderer {
             this.target.flipY !== targetFlipY ? 1 : 0,
             isOrtho ? 1 : 0,
             taaOn || computePipeline ? 1 : 0,
-            0
+            folded ? 1 : 0
         ]);
         this.composeMaterial.setParameter('depthViewParams', [
             clipZ[0],
@@ -2502,6 +2574,35 @@ class StochasticSplatRenderer {
     private resizeHistory(width: number, height: number) {
         for (const texture of [...this.taaColor, ...this.taaInfo]) texture.resize(width, height);
         for (const target of this.taaTargets) target.resize(width, height);
+        this.releaseTaaSetTargets();
+    }
+
+    // the pass's attachment operations follow the target it is initialised with: whether it
+    // stores depth. It writes every texel, so nothing is loaded
+    private initTaaPass(target: RenderTarget) {
+        this.taaPass.init(target);
+        this.taaPass.setClearColor(new Color(0, 0, 0, 0));
+        if (target.depthBuffer) this.taaPass.setClearDepth(1);
+    }
+
+    private ensureTaaSetTargets() {
+        if (this.taaSetTargets.length) return;
+        for (let i = 0; i < 2; i++) {
+            this.taaSetTargets.push(
+                new RenderTarget({
+                    name: `sse-splat-taa-sets-${i}`,
+                    colorBuffers: [this.taaColor[i], this.taaInfo[i]],
+                    depthBuffer: this.depthTexture,
+                    samples: 1
+                })
+            );
+        }
+    }
+
+    // the targets only, not the textures they share
+    private releaseTaaSetTargets() {
+        for (const target of this.taaSetTargets) target.destroy();
+        this.taaSetTargets.length = 0;
     }
 
     // whether the view or the projection differs from the previous on-screen frame's beyond
@@ -2557,6 +2658,15 @@ class StochasticSplatRenderer {
         this.cacheBuffer = new StorageBuffer(this.device, this.cacheSlots * CACHE_WORDS * 4, BUFFERUSAGE_COPY_SRC);
         this.orderedBuffer = null;
         this.orderedCapacity = 0;
+    }
+
+    private polygonMesh(sides: number) {
+        let mesh = this.polygonMeshes.get(sides);
+        if (!mesh) {
+            mesh = createPolygonMesh(this.device, QUADS_PER_INSTANCE, sides);
+            this.polygonMeshes.set(sides, mesh);
+        }
+        return mesh;
     }
 
     // the ordered list: one entry per survivor, or with interleaved pixel sets one per set it
@@ -2621,7 +2731,7 @@ class StochasticSplatRenderer {
             this.destroyProjector();
             this.projectorSourceKey = sourceKey;
         }
-        const key = `${occlusion ? 'occlusion' : 'plain'}-${ordered ? 'bucket' : 'append'}-${coverage}`;
+        const key = `${occlusion ? 'occlusion' : 'plain'}-${ordered ? 'bucket' : 'append'}-${coverage}-${this.variant.sides}`;
         const computeKey = `${key}:${group.fileIndex}`;
         const existing = this.projectorComputes.get(computeKey);
         if (existing) return existing;
@@ -2661,7 +2771,13 @@ class StochasticSplatRenderer {
         const shader = new Shader(device, {
             name: `sse-splat-project-${key}`,
             shaderLanguage: SHADERLANGUAGE_WGSL,
-            cshader: projectorWGSL(this.source.readChunk(fixed.length), occlusion, ordered, coverage),
+            cshader: projectorWGSL(
+                this.source.readChunk(fixed.length),
+                occlusion,
+                ordered,
+                coverage,
+                this.variant.sides
+            ),
             cincludes: this.source.shaderIncludes(),
             cdefines: this.source.shaderDefines(),
             computeUniformBufferFormats: {
@@ -2820,10 +2936,14 @@ class StochasticSplatRenderer {
         interleaveMesh.destroy();
         this.interleaveMaterial.destroy();
         this.rasterMesh.destroy();
-        this.polygonMesh.destroy();
+        for (const mesh of this.polygonMeshes.values()) mesh.destroy();
+        this.polygonMeshes.clear();
         this.taaPass.destroy();
         this.taaInstance.destroy();
         this.taaMaterial.destroy();
+        this.taaSetInstance.destroy();
+        this.taaSetMaterial.destroy();
+        this.releaseTaaSetTargets();
         this.taaMesh.destroy();
         for (const target of this.taaTargets) target.destroy();
         for (const texture of [...this.taaColor, ...this.taaInfo]) texture.destroy();

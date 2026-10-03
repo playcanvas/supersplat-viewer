@@ -27,7 +27,8 @@ var taaColor: texture_2d<u32>;
 // its depth record: the mean view depth of the pixel's samples and their count
 var taaInfo: texture_2d<u32>;
 // x: 1 when the splat target's rows run the other way to the camera target's; y: 1 for an
-// orthographic camera; z: 1 to read the taa history instead of the raw frame
+// orthographic camera; z: 1 to read the taa history instead of the raw frame; w: 1 when only
+// the depth was written this frame (the taa read the interleaved pixel sets), 1 where no sample
 uniform composeParams: vec4f;
 // the splat target's depth: clip z = a * viewDepth + b over w = viewDepth (x, y), and the
 // camera's near and far (z, w) for the depth view
@@ -59,7 +60,11 @@ fn viewDepthOf(z: f32) -> f32 {
 // a splat target texel's depth where a sample landed (colour alpha 1), and 1 (no sample)
 // elsewhere, whatever depth the occluder grid (variant occluder:on) left there
 fn sampleDepth(p: vec2i) -> f32 {
-    return select(1.0, textureLoad(splatDepth, p, 0), textureLoad(splatColor, p, 0).a > 0.0);
+    let depth = textureLoad(splatDepth, p, 0);
+    if (uniform.composeParams.w > 0.5) {
+        return depth;
+    }
+    return select(1.0, depth, textureLoad(splatColor, p, 0).a > 0.0);
 }
 
 // A splat target depth in the camera's depth, clamped just inside the camera's far plane as the

@@ -68,9 +68,28 @@ fn encodeInfo(depth: f32, count: f32) -> u32 {
 `;
 
 const taaFragmentWGSL = /* wgsl */ `
-var curColor: texture_2d<f32>;
-var curColorSampler: sampler;
-var curDepth: texture_depth_2d;
+#ifdef SSE_SETS
+    // variant coverage:interleaved: this frame's samples straight from the four pixel sets'
+    // targets, the full target's pixel (2i + x, 2j + y) being set (x, y)'s (i, j), and their
+    // depth written into the full depth target for the compose, the occlusion grid and the picker
+    // (in place of a pass that copies the sets back)
+    var setColor0: texture_2d<f32>;
+    var setColor0Sampler: sampler;
+    var setColor1: texture_2d<f32>;
+    var setColor1Sampler: sampler;
+    var setColor2: texture_2d<f32>;
+    var setColor2Sampler: sampler;
+    var setColor3: texture_2d<f32>;
+    var setColor3Sampler: sampler;
+    var setDepth0: texture_depth_2d;
+    var setDepth1: texture_depth_2d;
+    var setDepth2: texture_depth_2d;
+    var setDepth3: texture_depth_2d;
+#else
+    var curColor: texture_2d<f32>;
+    var curColorSampler: sampler;
+    var curDepth: texture_depth_2d;
+#endif
 // premultiplied colour and coverage, unorm16 (decodeColor)
 var histColor: texture_2d<u32>;
 // the mean view depth of the pixel's samples and their count, in the previous frame's view
@@ -142,29 +161,68 @@ fn reproject(pix: vec2i, viewDepth: f32) -> Reprojected {
     return r;
 }
 
+struct Current {
+    color: vec4f,
+    depth: f32
+}
+
+// this frame's colour and depth at a texel
+fn current(p: vec2i) -> Current {
+    var c: Current;
+    #ifdef SSE_SETS
+        let t = p >> vec2u(1u);
+        let index = (p.x & 1) + (p.y & 1) * 2;
+        if (index == 0) {
+            c.color = textureLoad(setColor0, t, 0);
+            c.depth = textureLoad(setDepth0, t, 0);
+        } else if (index == 1) {
+            c.color = textureLoad(setColor1, t, 0);
+            c.depth = textureLoad(setDepth1, t, 0);
+        } else if (index == 2) {
+            c.color = textureLoad(setColor2, t, 0);
+            c.depth = textureLoad(setDepth2, t, 0);
+        } else {
+            c.color = textureLoad(setColor3, t, 0);
+            c.depth = textureLoad(setDepth3, t, 0);
+        }
+    #else
+        c.color = textureLoad(curColor, p, 0);
+        c.depth = textureLoad(curDepth, p, 0);
+    #endif
+    return c;
+}
+
 // the premultiplied sample at a texel: its colour where a fragment landed, nothing otherwise
 fn sampleAt(pix: vec2i, dims: vec2i) -> vec4f {
-    let p = clamp(pix, vec2i(0), dims - vec2i(1));
-    let c = textureLoad(curColor, p, 0);
-    let z = textureLoad(curDepth, p, 0);
-    return select(vec4f(0.0), vec4f(c.rgb, 1.0), c.a > 0.0 && z < 1.0);
+    let s = current(clamp(pix, vec2i(0), dims - vec2i(1)));
+    return select(vec4f(0.0), vec4f(s.color.rgb, 1.0), s.color.a > 0.0 && s.depth < 1.0);
 }
 
 // The mean of the 2x2 quad's samples, bilinear between quad centres (the compose's resolve of
 // the raster's quad-stratified thresholds): four samples a pixel, at a little sharpness, for
 // the frames where the history is too short to carry the noise on its own
 fn quadSample(pix: vec2i, dims: vec2i) -> vec4f {
-    let size = vec2f(dims);
     let u = (vec2f(pix) - vec2f(0.5)) * 0.5;
-    let q0 = floor(u);
-    let f = u - q0;
-    let uv = (q0 * 2.0 + vec2f(1.0)) / size;
-    let step = vec2f(2.0) / size;
-    let a = textureSampleLevel(curColor, curColorSampler, uv, 0.0);
-    let b = textureSampleLevel(curColor, curColorSampler, uv + vec2f(step.x, 0.0), 0.0);
-    let c = textureSampleLevel(curColor, curColorSampler, uv + vec2f(0.0, step.y), 0.0);
-    let d = textureSampleLevel(curColor, curColorSampler, uv + step, 0.0);
-    let m = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    #ifdef SSE_SETS
+        // a quad is one texel of each set, so the bilinear mean between quad centres is the
+        // mean of the sets' bilinear fetches there
+        let uvS = (u + vec2f(0.5)) / vec2f(textureDimensions(setColor0));
+        let m = 0.25 * (textureSampleLevel(setColor0, setColor0Sampler, uvS, 0.0) +
+            textureSampleLevel(setColor1, setColor1Sampler, uvS, 0.0) +
+            textureSampleLevel(setColor2, setColor2Sampler, uvS, 0.0) +
+            textureSampleLevel(setColor3, setColor3Sampler, uvS, 0.0));
+    #else
+        let size = vec2f(dims);
+        let q0 = floor(u);
+        let f = u - q0;
+        let uv = (q0 * 2.0 + vec2f(1.0)) / size;
+        let step = vec2f(2.0) / size;
+        let a = textureSampleLevel(curColor, curColorSampler, uv, 0.0);
+        let b = textureSampleLevel(curColor, curColorSampler, uv + vec2f(step.x, 0.0), 0.0);
+        let c = textureSampleLevel(curColor, curColorSampler, uv + vec2f(0.0, step.y), 0.0);
+        let d = textureSampleLevel(curColor, curColorSampler, uv + step, 0.0);
+        let m = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    #endif
     // the raster leaves empty texels transparent black, so the mean is premultiplied coverage
     return vec4f(m.rgb, m.a);
 }
@@ -213,9 +271,13 @@ fn historyAt(uv: vec2f, dims: vec2i) -> vec4f {
 fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     var output: FragmentOutput;
     let pix = vec2i(pcPosition.xy);
-    let dims = vec2i(textureDimensions(curColor));
-    let cur = textureLoad(curColor, pix, 0);
-    let z = textureLoad(curDepth, pix, 0);
+    let dims = vec2i(uniform.taaViewport.xy);
+    let here = current(pix);
+    let cur = here.color;
+    let z = here.depth;
+    #ifdef SSE_SETS
+        output.fragDepth = z;
+    #endif
     let hit = cur.a > 0.0 && z < 1.0;
     let d = viewDepthOf(z);
 

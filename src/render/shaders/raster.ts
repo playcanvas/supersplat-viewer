@@ -77,7 +77,7 @@ var<storage, read> splatCount: array<u32>;
 
 // screen-linear: the corners share one screen footprint whatever depth they carry
 ${varyingsWGSL}
-#ifdef SSE_SEED_VERTEX
+#if defined(SSE_SEED_VERTEX) || defined(SSE_POLYGON_ROTATE)
     // the splat's share of the coverage hash, once per vertex rather than per fragment
     uniform frameSeed: u32;
     ${hashWGSL}
@@ -132,10 +132,22 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
         // variant coverage:splat: the projector kept only the splats with pixels to keep this
         // frame, and scaled their axes to the polygon of those pixels (shaders/projector.ts);
         // with interleaved pixel sets, to the largest set's, with each set's fraction in word 6
-        #ifdef SSE_INTERLEAVED
-            let corner = vertex_position.xy * (f32((splatCache[base + 6u] >> (8u * uniform.setIndex)) & 0xffu) * (1.0 / 255.0));
+        #ifdef SSE_POLYGON_ROTATE
+            // variant sides below 8: the polygon turned by a fresh angle every frame, so over
+            // frames the kept region averages to the ellipse rather than to the polygon's corners
+            let turn = f32(hashU32(order ^ uniform.frameSeed)) * (6.2831853 / 4294967296.0);
+            let cs = vec2f(cos(turn), sin(turn));
+            let unit = vec2f(
+                vertex_position.x * cs.x - vertex_position.y * cs.y,
+                vertex_position.x * cs.y + vertex_position.y * cs.x
+            );
         #else
-            let corner = vertex_position.xy;
+            let unit = vertex_position.xy;
+        #endif
+        #ifdef SSE_INTERLEAVED
+            let corner = unit * (f32((splatCache[base + 6u] >> (8u * uniform.setIndex)) & 0xffu) * (1.0 / 255.0));
+        #else
+            let corner = unit;
         #endif
     #elif defined(SSE_CORE)
         // variant prefill:core: the square inscribed in the region where alpha is at least

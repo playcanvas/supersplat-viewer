@@ -1,6 +1,7 @@
 // Variant coverage:interleaved: the four pixel sets' targets, each the full target's pixels of
 // one position in the 2x2 quad, copied back into the full target texel for texel, colour and
-// depth, so the accumulation, the compose and the occlusion grid read one ordinary frame.
+// depth, so the compose and the occlusion grid read one ordinary frame. Only without taa: the
+// accumulation reads the sets itself and writes their depth (shaders/taa.ts).
 const interleaveFragmentWGSL = /* wgsl */ `
 var setColor0: texture_2d<f32>;
 var setColor1: texture_2d<f32>;
