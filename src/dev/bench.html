@@ -66,6 +66,14 @@
               dpr=1.5                       pin the pixel ratio and screen size: target = host * dpr
               move=0.25                     orbit the camera this many degrees per measured frame (0: still)
               motion=strafe                 move sideways instead, at the orbit's speed at the focus (disocclusion)
+              path=<url>                    a flythrough instead of the poses: json array of { time (s), position, target, fov }
+                                            keyframes, played at pathFps (60) with every frame's gpu time kept; a first
+                                            pass streams the detail in (reported as cold), then `rounds` timed passes
+              overdraw=<n>                  with path: the stochastic mode reads the overdraw back every n frames
+              pathCooldown=<s>              with path: idle this long before each pass (a phone throttles under sustained load)
+              pathHold=2                    with path: hold each pose for 2 frames, timing the same views moving and still
+              sortedVariants=sorted;...     with path: the sorted mode's variants; any variant may add engine splat settings
+                                            as gs.<name>:<value>, e.g. gs.colorUpdateAngle:1000 (no colour refresh)
               truth=32                      raw frames averaged into the stochastic expectation each variant is judged against
               truthVariant=<variant>        the variant those raw frames render with (default cull:off,spp:1,taa:off)
               rounds=3 warmup=40 frames=180
@@ -181,6 +189,56 @@
                 ? (await (await fetch(posesUrl)).json()).map((p) => ({ name: p.name, snapshot: toSnapshot(p) }))
                 : null;
 
+            // A flythrough (path=<url>) in place of the poses: keyframes { time (s), position,
+            // target, fov } played at pathFps, every frame timed. Position, pitch, yaw (unwrapped,
+            // so a turn takes the short way between neighbouring keys) and fov follow a
+            // Catmull-Rom spline through the keys
+            const pathUrl = params.get('path');
+            const pathFps = Number(params.get('pathFps') ?? 60);
+            // frames between the overdraw readbacks of the stochastic mode's analysis pass (0: none)
+            const overdrawEvery = Number(params.get('overdraw') ?? 0);
+            // seconds the gpu idles before each pass, so a phone that throttles under sustained load
+            // starts every pass at the same clock
+            const pathCooldown = Number(params.get('pathCooldown') ?? 0);
+            // frames each path pose is held for: 2 times the same views moving and still
+            const pathHold = Math.max(1, Math.round(Number(params.get('pathHold') ?? 1)));
+            // the sorted mode's flythrough variants, ; separated: `sorted`, optionally with gs.* settings
+            const sortedVariants = (params.get('sortedVariants') ?? 'sorted').split(';').filter(Boolean);
+            const pathSnapshot = await (async () => {
+                if (!pathUrl) return null;
+                const keys = [];
+                let prevYaw = null;
+                for (const key of await (await fetch(pathUrl)).json()) {
+                    const s = toSnapshot(key);
+                    let yaw = s.angles[1];
+                    if (prevYaw !== null) yaw = prevYaw + ((((yaw - prevYaw) % 360) + 540) % 360) - 180;
+                    prevYaw = yaw;
+                    keys.push({ time: key.time, values: [...s.position, s.angles[0], yaw, s.fov] });
+                }
+                const spline = (p0, p1, p2, p3, u) =>
+                    0.5 *
+                    (2 * p1 +
+                        (p2 - p0) * u +
+                        (2 * p0 - 5 * p1 + 4 * p2 - p3) * u * u +
+                        (3 * p1 - p0 - 3 * p2 + p3) * u * u * u);
+                const at = (t) => {
+                    let i = 0;
+                    while (i < keys.length - 2 && t > keys[i + 1].time) i++;
+                    const k1 = keys[i];
+                    const k2 = keys[Math.min(i + 1, keys.length - 1)];
+                    const k0 = keys[Math.max(i - 1, 0)];
+                    const k3 = keys[Math.min(i + 2, keys.length - 1)];
+                    const u = k2.time > k1.time ? Math.min(1, Math.max(0, (t - k1.time) / (k2.time - k1.time))) : 0;
+                    const v = k1.values.map((_, j) =>
+                        spline(k0.values[j], k1.values[j], k2.values[j], k3.values[j], u)
+                    );
+                    return { position: v.slice(0, 3), angles: [v[3], v[4], 0], distance: 10, fov: v[5], mode: 'orbit' };
+                };
+                at.frames = Math.round(keys[keys.length - 1].time * pathFps) + 1;
+                at.keyTimes = keys.map((k) => k.time);
+                return at;
+            })();
+
             // one frame, sequenced as AppBase.tick does it, without waiting for the display
             const pumpFrame = (app, dt) => {
                 app.fire('frameupdate', dt * 1000);
@@ -207,9 +265,12 @@
                             return;
                         }
                         while (inFlight.length >= FRAMES_IN_FLIGHT) await inFlight.shift();
+                        // the frame's cpu time: the update and the render's encoding and submit
+                        const cpuStart = performance.now();
                         pumpFrame(app, 1 / 60);
+                        const cpu = performance.now() - cpuStart;
                         if (queue) inFlight.push(queue.onSubmittedWorkDone());
-                        onFrame?.(i);
+                        onFrame?.(i, cpu);
                         i++;
                         channel.port2.postMessage(0);
                     };
@@ -649,6 +710,215 @@
                 };
             };
 
+            // a flythrough's frame times (ms; a frame whose report never arrived is null)
+            const frameStats = (values) => {
+                const times = values.filter((t) => t !== null);
+                const sorted = [...times].sort((a, b) => a - b);
+                const pct = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
+                return {
+                    frames: times.length,
+                    mean: times.reduce((s, t) => s + t, 0) / times.length,
+                    p50: pct(0.5),
+                    p90: pct(0.9),
+                    p99: pct(0.99),
+                    max: sorted[sorted.length - 1],
+                    // frames that alone would miss a 60 or a 30 Hz display
+                    over16: times.filter((t) => t > 1000 / 60).length,
+                    over33: times.filter((t) => t > 1000 / 30).length
+                };
+            };
+            const statsText = (s) =>
+                `mean ${s.mean.toFixed(2)}, p50 ${s.p50.toFixed(2)}, p90 ${s.p90.toFixed(2)}, p99 ${s.p99.toFixed(2)}, max ${s.max.toFixed(2)} ms; ${s.over16} frames over 16.7 ms, ${s.over33} over 33.3 (of ${s.frames})`;
+
+            // One pass along the path with every frame's gpu time: the camera moves into frame i's
+            // pose inside frame i, as a user's camera does. With pathHold n each pose is held for
+            // n frames, so the same views are also timed still (the last frame of each hold).
+            // Versions count up from frameStart, so frame i reports as first + 1 + i
+            const flyPath = async (app, profiler, label) => {
+                const device = app.graphicsDevice;
+                const frames = pathSnapshot.frames * pathHold;
+                if (pathCooldown) await new Promise((resolve) => setTimeout(resolve, pathCooldown * 1000));
+                window.setCameraState(pathSnapshot(0));
+                for (let f = 0; f < 3; f++) await renderFrame(app);
+                profiler.samples.length = 0;
+                const first = device.renderVersion;
+                const active = [];
+                // each frame's cpu time, and the wall time from the previous frame's end: with
+                // FRAMES_IN_FLIGHT queued that interval is the frame rate, whichever of the cpu and
+                // the gpu limits it
+                const cpu = [];
+                const wall = [];
+                let last = performance.now();
+                console.log(`measure-begin ${label} ${frames}`);
+                await pump(app, frames, (i, cpuMs) => {
+                    const now = performance.now();
+                    cpu.push(cpuMs);
+                    wall.push(now - last);
+                    last = now;
+                    active.push(app.stats.frame.gsplats);
+                    if (i + 1 < frames) window.setCameraState(pathSnapshot(Math.floor((i + 1) / pathHold) / pathFps));
+                });
+                console.log(`measure-end ${label}`);
+                const ours = () => profiler.samples.filter((s) => s.version > first && s.version <= first + frames);
+                await pumpUntil(app, () => ours().length >= frames, 30000);
+                const all = new Array(frames).fill(null);
+                for (const s of ours()) all[s.version - first - 1] = s.frame;
+                const nth = (values, k) => values.filter((_, i) => i % pathHold === k);
+                const stillPhase = pathHold - 1;
+                return {
+                    times: nth(all, 0),
+                    still: pathHold > 1 ? nth(all, stillPhase) : null,
+                    cpu: nth(cpu, 0),
+                    cpuStill: pathHold > 1 ? nth(cpu, stillPhase) : null,
+                    wall: nth(wall, 0),
+                    wallStill: pathHold > 1 ? nth(wall, stillPhase) : null,
+                    active: nth(active, 0)
+                };
+            };
+
+            // A flythrough variant may carry engine splat settings as gs.<name>:<value> (the
+            // moving-camera work: gs.colorUpdateAngle, gs.lodUpdateAngle, gs.lodUpdateDistance);
+            // the rest is the stochastic renderer's variant
+            const gsDefaults = new Map();
+            const applyVariant = (app, renderer, variant) => {
+                const gsplat = app.scene.gsplat;
+                for (const [key, value] of gsDefaults) gsplat[key] = value;
+                const rest = [];
+                for (const part of variant.split(',')) {
+                    const m = part.match(/^gs\.(\w+):(.+)$/);
+                    if (!m) {
+                        rest.push(part);
+                        continue;
+                    }
+                    if (!gsDefaults.has(m[1])) gsDefaults.set(m[1], gsplat[m[1]]);
+                    gsplat[m[1]] = Number(m[2]);
+                }
+                if (renderer) renderer.setVariant(rest.join(','));
+            };
+
+            // The overdraw along the path, every overdrawEvery frames: the projected cache read
+            // back and its quads (clipped where alpha falls below the clip, as both renderers draw
+            // them, and to the screen) summed in pixels over the screen's. With the cull off the
+            // cache holds every splat the sorted renderer draws
+            const overdrawPath = async (app, renderer) => {
+                renderer.setVariant('cull:off,taa:off');
+                const W = app.graphicsDevice.width;
+                const H = app.graphicsDevice.height;
+                const WORDS = 7;
+                const f16 = (h) => {
+                    const s = h & 0x8000 ? -1 : 1;
+                    const e = (h >> 10) & 0x1f;
+                    const m = h & 0x3ff;
+                    if (e === 0) return s * m * 2 ** -24;
+                    return e === 31 ? NaN : s * (1 + m / 1024) * 2 ** (e - 15);
+                };
+                const snorm = (v) => Math.max(-1, ((v << 16) >> 16) / 32767);
+                const maxRadius = Math.min(1024, Math.min(W, H));
+                const rangeX = 1 + (4 * maxRadius) / W;
+                const rangeY = 1 + (4 * maxRadius) / H;
+                const samples = [];
+                window.setCameraState(pathSnapshot(0));
+                for (let f = 0; f < 3; f++) await renderFrame(app);
+                for (let i = 0; i < pathSnapshot.frames; i++) {
+                    window.setCameraState(pathSnapshot(i / pathFps));
+                    await renderFrame(app);
+                    if (i % overdrawEvery !== 0) continue;
+                    const alphaClip = app.scene.gsplat.alphaClipForward;
+                    const { survivors } = await renderer.readStats();
+                    const bytes = await renderer.cacheBuffer.read(0, survivors * WORDS * 4, null, true);
+                    const u32 = new Uint32Array(bytes.buffer, bytes.byteOffset, survivors * WORDS);
+                    let pixels = 0;
+                    for (let k = 0; k < survivors; k++) {
+                        const w0 = u32[k * WORDS];
+                        const w2 = u32[k * WORDS + 2];
+                        const w3 = u32[k * WORDS + 3];
+                        const a1x = f16(w2 & 0xffff);
+                        const a1y = f16(w2 >>> 16);
+                        const len2 = f16(w3 & 0xffff);
+                        const len1 = Math.hypot(a1x, a1y);
+                        if (!(len1 > 0)) continue;
+                        const opacity = ((w3 >>> 16) & 0xff) / 255;
+                        const clip = Math.min(1, Math.sqrt(Math.max(0, Math.log(opacity / alphaClip))) * 0.5);
+                        const ex = clip * (Math.abs(a1x) + Math.abs((len2 * a1y) / len1));
+                        const ey = clip * (Math.abs(a1y) + Math.abs((len2 * a1x) / len1));
+                        const cx = (snorm(w0 & 0xffff) * rangeX * 0.5 + 0.5) * W;
+                        const cy = (snorm(w0 >>> 16) * rangeY * 0.5 + 0.5) * H;
+                        const visW = Math.max(0, Math.min(W, cx + ex) - Math.max(0, cx - ex));
+                        const visH = Math.max(0, Math.min(H, cy + ey) - Math.max(0, cy - ey));
+                        if (ex > 0 && ey > 0) pixels += 4 * clip * clip * len1 * len2 * ((visW * visH) / (4 * ex * ey));
+                    }
+                    samples.push({ frame: i, splats: survivors, overdraw: pixels / (W * H) });
+                }
+                return samples;
+            };
+
+            // Every variant along the path, round-robin so drift touches each alike, after a first
+            // pass that streams the path's detail in (kept as the cold pass)
+            const flythrough = async (app, profiler, renderer, mode, modeVariants) => {
+                const result = {
+                    fps: pathFps,
+                    frames: pathSnapshot.frames,
+                    hold: pathHold,
+                    keyTimes: pathSnapshot.keyTimes,
+                    variants: {}
+                };
+                gsDefaults.clear();
+                applyVariant(app, renderer, modeVariants[0]);
+                const cold = await flyPath(app, profiler, `${modeVariants[0]} cold`);
+                result.cold = { variant: modeVariants[0], ...cold, stats: frameStats(cold.times) };
+                log(`${mode} flythrough ${modeVariants[0]} (cold, streaming): ${statsText(result.cold.stats)}`);
+                const runs = new Map(modeVariants.map((v) => [v, []]));
+                for (let round = 0; round < rounds; round++) {
+                    for (const variant of modeVariants) {
+                        applyVariant(app, renderer, variant);
+                        runs.get(variant).push(await flyPath(app, profiler, variant));
+                    }
+                }
+                applyVariant(app, renderer, '');
+                // the per-frame median over the passes, which a one-frame hitch in one pass does not
+                // move; its statistics are the headline ones, the raw frames' alongside
+                const perFrameOf = (lists) =>
+                    lists[0].map((_, i) => {
+                        const values = lists.map((times) => times[i]).filter((t) => t !== null);
+                        return values.length ? median(values) : null;
+                    });
+                for (const [variant, list] of runs) {
+                    const perFrame = perFrameOf(list.map((r) => r.times));
+                    const entry = {
+                        perFrame,
+                        rounds: list.map((r) => r.times),
+                        active: list[0].active,
+                        stats: frameStats(perFrame),
+                        raw: frameStats(list.flatMap((r) => r.times))
+                    };
+                    entry.cpu = perFrameOf(list.map((r) => r.cpu));
+                    entry.wall = perFrameOf(list.map((r) => r.wall));
+                    if (pathHold > 1) {
+                        entry.stillPerFrame = perFrameOf(list.map((r) => r.still));
+                        entry.stillStats = frameStats(entry.stillPerFrame);
+                        entry.cpuStill = perFrameOf(list.map((r) => r.cpuStill));
+                        entry.wallStill = perFrameOf(list.map((r) => r.wallStill));
+                    }
+                    result.variants[variant] = entry;
+                    const meanOf = (values) => values.reduce((s, t) => s + t, 0) / values.length;
+                    log(
+                        `${mode} flythrough ${variant}: ${statsText(entry.stats)}${rounds > 1 ? ` [per-frame median of ${rounds} passes; raw max ${entry.raw.max.toFixed(2)}, ${entry.raw.over16} raw frames over 16.7 ms]` : ''}; cpu ${meanOf(entry.cpu).toFixed(2)} ms, frame interval ${meanOf(entry.wall).toFixed(2)} ms mean`
+                    );
+                    if (entry.stillStats)
+                        log(
+                            `${mode} flythrough ${variant} still at the same poses: ${statsText(entry.stillStats)}; cpu ${meanOf(entry.cpuStill).toFixed(2)} ms, frame interval ${meanOf(entry.wallStill).toFixed(2)} ms mean`
+                        );
+                }
+                if (overdrawEvery && renderer) {
+                    result.overdraw = await overdrawPath(app, renderer);
+                    const values = result.overdraw.map((s) => s.overdraw);
+                    log(
+                        `${mode} flythrough overdraw: mean ${(values.reduce((s, v) => s + v, 0) / values.length).toFixed(1)}x, max ${Math.max(...values).toFixed(1)}x over ${values.length} samples`
+                    );
+                }
+                return result;
+            };
+
             const adapter = await navigator.gpu?.requestAdapter();
             const adapterInfo = adapter?.info ?? (await adapter?.requestAdapterInfo?.()) ?? {};
             const results = {
@@ -705,7 +975,7 @@
                 // dominate a capture's bound), viewed from 1.5 spreads away, the spread being the
                 // median absolute deviation. Centres exist on the cpu only for the sorted mode
                 // (the stochastic mode switches them off), so poses are computed once and reused.
-                if (!poseList) {
+                if (!poseList && !pathSnapshot) {
                     viewer.frameScene();
                     await pump(app, 120);
                     poseList = [{ name: 'framed', snapshot: window.getCameraState() }];
@@ -747,9 +1017,13 @@
                         log('no cpu centres: run the sorted mode first for a subject pose');
                     }
                 }
-                const modeVariants = mode === 'stochastic' ? variants : ['sorted'];
+                const modeVariants = mode === 'stochastic' ? variants : pathSnapshot ? sortedVariants : ['sorted'];
 
-                for (const pose of poseList) {
+                if (pathSnapshot) {
+                    modeResult.flythrough = await flythrough(app, profiler, renderer, mode, modeVariants);
+                }
+
+                for (const pose of pathSnapshot ? [] : poseList) {
                     window.setCameraState(pose.snapshot);
                     for (let i = 0; i < 3; i++) await renderFrame(app);
                     await settle();
