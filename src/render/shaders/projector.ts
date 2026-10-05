@@ -14,14 +14,51 @@ const ORDER_BUCKETS = PROJECTOR_WORKGROUP_SIZE;
 /** Splats per chunk-table entry; a chunk is one workgroup. */
 const CHUNK_SIZE = PROJECTOR_WORKGROUP_SIZE;
 
-// the polygon's circumradius over the ellipse's, so the two cover the same area
-const polygonScale = (sides: number) => Math.sqrt((2 * Math.PI) / (sides * Math.sin((2 * Math.PI) / sides))).toFixed(6);
+// the polygon's circumradius over the ellipse's: so the two cover the same area, or so the
+// polygon contains the ellipse (variant jitter, whose fragments discard outside it)
+const polygonScale = (sides: number, circumscribed = false) =>
+    (circumscribed
+        ? 1 / Math.cos(Math.PI / sides)
+        : Math.sqrt((2 * Math.PI) / (sides * Math.sin((2 * Math.PI) / sides)))
+    ).toFixed(6);
 
 /** Where the coverage threshold varies: per pixel, per splat, or per splat and interleaved pixel set. */
 type CoverageMode = 'pixel' | 'splat' | 'interleaved';
 
-/** Depth buckets per pixel set with coverage:interleaved; the sets share the ORDER_BUCKETS. */
-const SET_BUCKETS = ORDER_BUCKETS / 4;
+/**
+ * Draw groups with coverage:interleaved: the four pixel sets (0-3) and the full target (4),
+ * which takes the splats below the variant's interleaveArea; each is one contiguous range of the
+ * ordered list. (A third tier, the largest splats into quarter-resolution targets per set, one
+ * fragment per 4x4 block, was tried and lost on the Pixel 7 Pro: drawn in their own passes the
+ * large splats lose the occlusion the sets' nearer splats give them, and the fullscreen draw
+ * that carried them into a set's target with frag_depth disabled early depth rejection for the
+ * polygons drawn after it in that pass, 3-5 ms with nothing in the targets.)
+ */
+const SET_GROUPS = 5;
+
+/** Depth buckets per draw group with coverage:interleaved; the groups share the ORDER_BUCKETS. */
+const SET_BUCKETS = Math.floor(ORDER_BUCKETS / SET_GROUPS);
+
+/** Cache word 6 with coverage other than pixel: bit 15 marks a full-target entry of the interleaved mode. */
+const FULL_ENTRY_BIT = 0x8000;
+/** The bits of word 6 below it: the splat's threshold draw. */
+const DRAW_BITS = 15;
+
+// the 24 orders of the four strata, 2 bits a set, for the jittered pixel sets
+const permutations = (() => {
+    const out: number[] = [];
+    const walk = (rest: number[], packed: number, shift: number) => {
+        if (!rest.length) {
+            out.push(packed);
+            return;
+        }
+        for (let i = 0; i < rest.length; i++) {
+            walk([...rest.slice(0, i), ...rest.slice(i + 1)], packed | (rest[i] << shift), shift + 2);
+        }
+    };
+    walk([0, 1, 2, 3], 0, 0);
+    return out;
+})();
 
 const projectorWGSL = (
     readChunk: string,
@@ -80,7 +117,14 @@ struct ProjectorUniforms {
     frameSeed: u32,
     // coverage:splat applies to splats with an opacity byte at least this; fainter ones keep
     // their quads, for the compute sampler (variant pipeline:hybrid)
-    coverageLimit: u32
+    coverageLimit: u32,
+    // variant jitter: sub-strata a stratum splits into (0: no jitter), and the strata a per-splat
+    // threshold draws from (coverage:splat, and the full target's splats of the interleaved mode)
+    jitterSubs: u32,
+    strata: u32,
+    // coverage:interleaved: splats whose footprint at the alpha clip is below this many pixels
+    // draw per splat into the full target instead of into the pixel sets (0: none)
+    interleaveArea: f32
 }
 
 // chunk table entry: slotBase, count, node, lod | file << 16
@@ -121,6 +165,16 @@ fn hashU32(x: u32) -> u32 {
     v ^= v >> 16u;
     return v;
 }
+
+// the radius, in units of the quad's half extent, where alpha = opacity * falloff(r^2) falls to
+// a threshold, with falloff(x) = (exp(-4 x) - exp(-4)) / (1 - exp(-4))
+fn radiusAt(threshold: f32, opacity: f32) -> f32 {
+    let e4 = exp(-4.0);
+    return sqrt(max(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25, 0.0));
+}
+
+// the 24 orders of four strata, 2 bits a set
+const PERMUTATIONS = array<u32, 24>(${permutations.map((p) => `${p}u`).join(', ')});
 `
         : ''
 }
@@ -188,8 +242,31 @@ ${
     // splat, would keep two splats' thresholds a fixed distance apart, so their coverage would
     // stay correlated over frames and the accumulation would converge to the wrong image. A
     // splat whose opacity does not exceed its threshold keeps nothing this frame and stops here.
+    // The draw goes into cache word 6 as ${DRAW_BITS} bits, and the raster rebuilds the same
+    // thresholds from them (shaders/raster.ts).
     let id = slot ^ (file * 2654435761u);
-    let drawn = f32(hashU32(((id + 1u) * 26699u) ^ uniforms.frameSeed) >> 8u) * (1.0 / 16777216.0);
+    let hashed = hashU32(((id + 1u) * 26699u) ^ uniforms.frameSeed);
+    let drawnBits = hashed >> ${32 - DRAW_BITS}u;
+    let drawn = f32(drawnBits) * (1.0 / ${(1 << DRAW_BITS) - 1}.0);
+    // Variant jitter: the threshold is the base of a random stratum instead of the draw itself,
+    // and every pixel adds its own jitter within the stratum in the raster, so the kept region
+    // is the stratum's ellipse with a dithered rim rather than a solid one. Each pixel's
+    // threshold is still uniform over [0, 1) and independent per splat, so the expectation is
+    // unchanged, but neighbouring pixels no longer all agree. Sub-strata (jitterSubs above 1)
+    // narrow the jitter: smaller polygons, more agreement.
+    let subs = uniforms.jitterSubs;
+    let jittered = subs > 0u;
+    let subMask = max(subs, 1u) - 1u;
+    // the per-splat threshold (coverage:splat, and the small splats of the interleaved mode): a
+    // stratum of \`strata\`, its sub-stratum, and the nibble the raster reads them back from
+    // (kept | stratum << 1 | sub << 3)
+    let strata = max(uniforms.strata, 1u);
+    let splatStratum = min(u32(drawn * f32(strata)), strata - 1u);
+    let splatSub = (hashed >> 15u) & subMask;
+    let splatBase = select(drawn, f32(splatStratum * max(subs, 1u) + splatSub) / f32(strata * max(subs, 1u)), jittered);
+    let splatNibble = 1u | (splatStratum << 1u) | (splatSub << 3u);
+    let splatThreshold = max(splatBase, uniforms.alphaClip);
+    let splatKept = splatThreshold < opacity;
 ${
     coverage === 'interleaved'
         ? `
@@ -197,19 +274,32 @@ ${
     // 2x2 quad, and each set takes its own threshold, the four quarters of [0, 1) from the one
     // draw: a quad holds the splat at four stratified sizes, so its mean is nearly the splat's
     // alpha, as the per-pixel thresholds' is, and neighbouring pixels are no longer all one
-    // splat. The largest kept polygon bounds the culls below
-    let thresholds = max(fract(vec4f(drawn) + vec4f(0.0, 0.25, 0.5, 0.75)), vec4f(uniforms.alphaClip));
-    let keptSets = thresholds < vec4f(opacity);
-    if (!any(keptSets)) {
+    // splat. Jittered, the sets take the four strata in a random order, each within a random
+    // sub-stratum, and their pixels jitter inside it
+    var setBases = fract(vec4f(drawn) + vec4f(0.0, 0.25, 0.5, 0.75));
+    var setNibbles = vec4u(0u);
+    if (jittered) {
+        let bits = hashU32(hashed ^ 0x9e3779b9u);
+        let packed = PERMUTATIONS[bits % 24u];
+        let perm = (vec4u(packed) >> vec4u(0u, 2u, 4u, 6u)) & vec4u(3u);
+        let subsOf = (vec4u(bits) >> vec4u(8u, 10u, 12u, 14u)) & vec4u(subMask);
+        setBases = vec4f(perm * subs + subsOf) / f32(4u * subs);
+        setNibbles = (perm << vec4u(1u)) | (subsOf << vec4u(3u));
+    }
+    let setThresholds = max(setBases, vec4f(uniforms.alphaClip));
+    let keptSets = setThresholds < vec4f(opacity);
+    setNibbles = select(vec4u(0u), setNibbles | vec4u(1u), keptSets);
+    // whether the splat draws into the sets or the full target waits for its footprint; a splat
+    // keeping nothing either way stops here
+    if (!any(keptSets) && !splatKept) {
         return result;
     }
-    let lowest = select(vec4f(2.0), thresholds, keptSets);
-    let threshold = min(min(lowest.x, lowest.y), min(lowest.z, lowest.w));
+    let lowest = select(vec4f(2.0), setThresholds, keptSets);
+    let setThreshold = min(min(lowest.x, lowest.y), min(lowest.z, lowest.w));
 `
         : `
     let perSplat = u32(clamp(opacity, 0.0, 1.0) * 255.0 + 0.5) >= uniforms.coverageLimit;
-    let threshold = max(drawn, uniforms.alphaClip);
-    if (perSplat && threshold >= opacity) {
+    if (perSplat && !splatKept) {
         return result;
     }
 `
@@ -305,24 +395,41 @@ ${
     let direction = select(vec2f(1.0, 0.0), eigenVec / eigenLen, eigenLen > 1e-9);
     let maxRadius = min(1024.0, min(viewport.x, viewport.y));
     let len1 = 2.0 * sqrt(2.0 * lambda1);
+    let len2Full = 2.0 * sqrt(2.0 * lambda2);
+    let clampScale = min(1.0, maxRadius / len1);
 ${
     coverage !== 'pixel'
         ? `
-    // the kept ellipse's polygon, in units of the quad's half extent: alpha = opacity *
-    // falloff(r^2) with falloff(x) = (exp(-4 x) - exp(-4)) / (1 - exp(-4))
-    let e4 = exp(-4.0);
-    let radiusScale = min(1.0, maxRadius / len1) * ${
-        coverage === 'interleaved'
-            ? `sqrt(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25) * ${polygonScale(sides)}`
-            : `select(1.0, sqrt(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25) * ${polygonScale(sides)}, perSplat)`
-    };
+    // The kept ellipse's polygon, in units of the quad's half extent: area matched to the
+    // ellipse, or containing it when the raster discards outside it (jitter). The cache keeps
+    // the full quad's axes and the raster sizes each polygon itself; here the largest bounds the
+    // culls below
+    let polygonScale = select(${polygonScale(sides)}, ${polygonScale(sides, true)}, jittered);
+${
+    coverage === 'interleaved'
+        ? `
+    // the small splats of the interleaved mode draw per splat into the full target: the
+    // footprint at the alpha clip, in pixels, decides
+    let footprint = 3.14159265 * len1 * len2Full * pow(radiusAt(max(uniforms.alphaClip, 1e-6), opacity), 2.0);
+    let fullEntry = uniforms.interleaveArea > 0.0 && footprint < uniforms.interleaveArea;
+    if (select(!any(keptSets), !splatKept, fullEntry)) {
+        return result;
+    }
+    let threshold = select(setThreshold, splatThreshold, fullEntry);
+    let radiusScale = clampScale * radiusAt(threshold, opacity) * polygonScale;
 `
         : `
-    let radiusScale = min(1.0, maxRadius / len1);
+    let radiusScale = clampScale * select(1.0, radiusAt(splatThreshold, opacity) * polygonScale, perSplat);
 `
 }
+`
+        : `
+    let radiusScale = clampScale;
+`
+}
+    // the extent the culls test: the largest polygon the raster will draw
     let axis1 = len1 * radiusScale * direction;
-    let len2 = 2.0 * sqrt(2.0 * lambda2) * radiusScale;
+    let len2 = len2Full * radiusScale;
     let axis2 = len2 * vec2f(direction.y, -direction.x);
 
     let ndc = clip.xy / clip.w;
@@ -417,8 +524,18 @@ ${
     result.valid = true;
     result.words[0] = pack2x16snorm(ndc / ndcRange);
     result.words[1] = bitcast<u32>(depth);
+${
+    coverage !== 'pixel'
+        ? `
+    // the full quad's axes (clamped to the radius limit); the raster scales them to each polygon
+    result.words[2] = pack2x16float(len1 * clampScale * direction);
+    result.words[3] = pack2x16float(vec2f(len2Full * clampScale, 0.0)) | (u32(clamp(opacity, 0.0, 1.0) * 255.0 + 0.5) << 16u);
+`
+        : `
     result.words[2] = pack2x16float(axis1);
     result.words[3] = pack2x16float(vec2f(len2, 0.0)) | (u32(clamp(opacity, 0.0, 1.0) * 255.0 + 0.5) << 16u);
+`
+}
 ${
     order
         ? `
@@ -475,20 +592,25 @@ ${
         }
     }
     result.words[5] = pack2x16float(g);
+${
+    coverage === 'pixel'
+        ? `
     // the stable id the coverage hash seeds from: the slot, salted by the file for sources
     // whose indices restart per file
     result.words[6] = slot ^ (file * 2654435761u);
-${
-    coverage === 'interleaved'
-        ? `
-    // each pixel set's polygon radius as a fraction of the largest, a byte each (0: none); the
-    // raster needs no id to hash, so they take the id's word
-    let radii = sqrt(max(-log(thresholds / opacity * (1.0 - e4) + e4) * 0.25, vec4f(0.0)));
-    let largest = max(max(radii.x, radii.y), max(radii.z, radii.w));
-    let fractions = select(vec4u(0u), vec4u(clamp(round(radii / largest * 255.0), vec4f(1.0), vec4f(255.0))), keptSets);
-    result.words[6] = fractions.x | (fractions.y << 8u) | (fractions.z << 16u) | (fractions.w << 24u);
 `
-        : ''
+        : coverage === 'interleaved'
+          ? `
+    // the draw's bits, bit 15 for a full-target entry, and a nibble per pixel set (0: the set
+    // keeps nothing): the raster rebuilds every threshold from them
+    let nibbles = select(setNibbles, vec4u(splatNibble, 0u, 0u, 0u), fullEntry);
+    result.words[6] = drawnBits | select(0u, ${FULL_ENTRY_BIT}u, fullEntry)
+        | (nibbles.x << 16u) | (nibbles.y << 20u) | (nibbles.z << 24u) | (nibbles.w << 28u);
+`
+          : `
+    // the draw's bits and the per-splat nibble (shaders/raster.ts)
+    result.words[6] = drawnBits | (splatNibble << 16u);
+`
 }
     return result;
 }
@@ -544,11 +666,16 @@ ${order ? `    atomicStore(&wgBuckets[local], 0u);` : ''}
 ${
     order && coverage === 'interleaved'
         ? `
-        // one entry per kept pixel set: the set's ${SET_BUCKETS} buckets, front to back, by the
-        // depth bucket's top bits
-        for (var s = 0u; s < 4u; s++) {
-            if (((projected.words[6] >> (8u * s)) & 0xffu) != 0u) {
-                atomicAdd(&wgBuckets[s * ${SET_BUCKETS}u + (projected.words[3] >> 26u)], 1u);
+        // one entry per kept pixel set, or one in the full target's group: the group's
+        // ${SET_BUCKETS} buckets, front to back, from the depth bucket
+        let depthKey = ((projected.words[3] >> 24u) * ${SET_BUCKETS}u) >> 8u;
+        if ((projected.words[6] & ${FULL_ENTRY_BIT}u) != 0u) {
+            atomicAdd(&wgBuckets[4u * ${SET_BUCKETS}u + depthKey], 1u);
+        } else {
+            for (var s = 0u; s < 4u; s++) {
+                if (((projected.words[6] >> (16u + 4u * s)) & 1u) != 0u) {
+                    atomicAdd(&wgBuckets[s * ${SET_BUCKETS}u + depthKey], 1u);
+                }
             }
         }`
         : order
@@ -572,5 +699,16 @@ ${
 }
 `;
 
-export { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, PROJECTOR_WORKGROUP_SIZE, SET_BUCKETS, projectorWGSL };
+export {
+    CACHE_WORDS,
+    CHUNK_SIZE,
+    DRAW_BITS,
+    FULL_ENTRY_BIT,
+    ORDER_BUCKETS,
+    PROJECTOR_WORKGROUP_SIZE,
+    SET_BUCKETS,
+    SET_GROUPS,
+    polygonScale,
+    projectorWGSL
+};
 export type { CoverageMode };

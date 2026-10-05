@@ -1,7 +1,10 @@
 // Variant coverage:interleaved: the four pixel sets' targets, each the full target's pixels of
 // one position in the 2x2 quad, copied back into the full target texel for texel, colour and
-// depth, so the compose and the occlusion grid read one ordinary frame. Only without taa: the
-// accumulation reads the sets itself and writes their depth (shaders/taa.ts).
+// depth, so the compose and the occlusion grid read one ordinary frame. Only without taa, or
+// with the small splats drawn per splat into the full target (variant interleaveArea): the
+// accumulation otherwise reads the sets itself and writes their depth (shaders/taa.ts). The copy
+// depth-tests, so it runs after the small splats: a frag_depth draw first in a pass disables
+// early depth rejection for the draws after it on Mali (3-5 ms on the Pixel 7 Pro).
 const interleaveFragmentWGSL = /* wgsl */ `
 var setColor0: texture_2d<f32>;
 var setColor1: texture_2d<f32>;

@@ -37,6 +37,7 @@ import {
     MeshInstance,
     FILTER_NEAREST,
     FUNC_ALWAYS,
+    FUNC_LESS,
     FUNC_LESSEQUAL,
     FUNC_NEVER,
     PIXELFORMAT_DEPTH,
@@ -81,7 +82,7 @@ import { composeFragmentWGSL, composeVertexWGSL } from './shaders/compose';
 import { interleaveFragmentWGSL } from './shaders/interleave';
 import { occluderFragmentWGSL, occluderVertexWGSL } from './shaders/occluder';
 import { orderScanWGSL, orderScatterSetsWGSL, orderScatterWGSL } from './shaders/order';
-import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, projectorWGSL } from './shaders/projector';
+import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, SET_GROUPS, polygonScale, projectorWGSL } from './shaders/projector';
 import type { CoverageMode } from './shaders/projector';
 import { FAR_CLIP_Z, QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
@@ -140,9 +141,32 @@ type Variant = {
      * matched; below 8 it turns by a fresh angle every frame, so it converges to the ellipse.
      * The tiler's cost is per triangle: on the Pixel 7 Pro the interleaved sets' octagons (6
      * triangles) cost 4.1 ms at the start view and squares (2) 1.2 ms, the image the same.
-     * Triangles (3) are cheaper still but blur the converged image measurably.
+     * Triangles (3) are cheaper still but blur the converged image measurably. With jitter the
+     * polygon contains the ellipse instead, and the fragments discard outside it.
      */
     sides: 3 | 4 | 6 | 8;
+    /**
+     * Jittered strata, with coverage other than pixel: 0 keeps one threshold per splat (or per
+     * splat and pixel set); otherwise the per-splat threshold is the base of a random stratum
+     * and every pixel adds its own jitter within the stratum in the fragment shader, which
+     * discards where alpha falls below it. The pixels of one splat then disagree, as per-pixel
+     * thresholds do, while the polygon stays the stratum's ellipse rather than the whole quad.
+     * The value is the sub-strata each stratum splits into, 1 or 2: the jitter spans one, so 2
+     * halves the rim that dithers and the polygons' area with it, at some agreement. The pixel
+     * sets take the four strata of [0, 1) in a random order per splat and frame; a per-splat
+     * draw takes one of `strata`.
+     */
+    jitter: number;
+    /** Strata a jittered per-splat threshold draws from (coverage:splat, and interleaveArea's small splats). */
+    strata: number;
+    /**
+     * coverage:interleaved: splats whose footprint at the alpha clip covers fewer pixels than
+     * this draw per splat into the full target instead of into the four pixel sets, one polygon
+     * each rather than up to four (0: every splat into the sets). Small splats gain little from
+     * the sets, since their blotch is a pixel or two anyway. The sets are then copied back
+     * before the small splats draw over them, and the accumulation reads the full target.
+     */
+    interleaveArea: number;
     /**
      * Bench diagnostics as bits: 1 copies the interleaved sets back in the raster pass instead
      * of the taa reading them; for the sampler, 2 skips the tile pass, 4 claims no pixel and 8
@@ -281,6 +305,9 @@ const defaultVariant = (): Variant => ({
     quadClip: 'opacity',
     coverage: 'pixel',
     sides: 4,
+    jitter: 0,
+    strata: 4,
+    interleaveArea: 0,
     diag: 0,
     pipeline: 'raster',
     sampleMaxAlpha: 0.995,
@@ -324,6 +351,10 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'coverage' && (value === 'pixel' || value === 'splat' || value === 'interleaved'))
             variant.coverage = value;
         if (key === 'sides' && ['3', '4', '6', '8'].includes(value)) variant.sides = Number(value) as Variant['sides'];
+        if (key === 'jitter' && ['0', '1', '2'].includes(value)) variant.jitter = Number(value);
+        if (key === 'strata' && ['1', '2', '4'].includes(value)) variant.strata = Number(value);
+        if (key === 'interleaveArea' && Number.isFinite(Number(value)))
+            variant.interleaveArea = Math.max(0, Number(value));
         if (key === 'diag' && Number.isFinite(Number(value))) variant.diag = Number(value);
         if (key === 'hybridOpacity' && Number.isFinite(Number(value)))
             variant.hybridOpacity = Math.min(1, Math.max(0, Number(value)));
@@ -1572,7 +1603,7 @@ class StochasticSplatRenderer {
             }),
             'sse-splat-order-scatter'
         );
-        this.setRanges = new StorageBuffer(device, 4 * 8);
+        this.setRanges = new StorageBuffer(device, SET_GROUPS * 8);
         const setArgsFormat = new BindGroupFormat(device, [
             new BindStorageBufferFormat('buckets', SHADERSTAGE_COMPUTE, true),
             new BindStorageBufferFormat('indirectDrawArgs', SHADERSTAGE_COMPUTE),
@@ -1808,7 +1839,9 @@ class StochasticSplatRenderer {
             pass.enabled = false;
             this.setPasses.push(pass);
         }
-        // the copy back: drawn by the raster pass in place of the splats, every texel written
+        // the copy back: drawn by the raster pass in place of the splats (after the small splats
+        // of variant interleaveArea, depth-tested against them: a frag_depth draw first in the
+        // pass would cost the small splats their early depth rejection)
         this.interleaveMaterial = new ShaderMaterial({
             uniqueName: 'sse-splat-interleave',
             vertexWGSL: taaVertexWGSL,
@@ -1818,7 +1851,7 @@ class StochasticSplatRenderer {
         this.interleaveMaterial.blendType = BLEND_NONE;
         this.interleaveMaterial.depthWrite = true;
         this.interleaveMaterial.depthTest = true;
-        this.interleaveMaterial.depthFunc = FUNC_ALWAYS;
+        this.interleaveMaterial.depthFunc = FUNC_LESS;
         this.interleaveMaterial.cull = CULLFACE_NONE;
         for (let i = 0; i < 4; i++) {
             this.interleaveMaterial.setParameter(`setColor${i}`, this.setTextures[i * 2]);
@@ -2013,7 +2046,22 @@ class StochasticSplatRenderer {
         const polygonMesh = this.polygonMesh(this.variant.sides);
         this.rasterInstance.mesh = splatCoverage ? polygonMesh : this.rasterMesh;
         for (const instance of this.setInstances) instance.mesh = polygonMesh;
-        this.rasterMaterial.setDefine('SSE_POLYGON_ROTATE', this.variant.sides < 8 ? '' : undefined);
+        // variant jitter: the polygon contains the ellipse and the fragments discard outside it,
+        // so it needs no turning; the pixel sets draw from four strata, a per-splat draw from
+        // `strata` (the full target's instance also serves as the interleaved mode's group 4)
+        const { jitter, strata, sides } = this.variant;
+        this.rasterMaterial.setDefine('SSE_JITTER', splatCoverage && jitter > 0 ? '' : undefined);
+        this.rasterMaterial.setDefine(
+            'SSE_POLYGON_ROTATE',
+            sides < 8 && !(splatCoverage && jitter > 0) ? '' : undefined
+        );
+        const scale = Number(polygonScale(sides, jitter > 0));
+        const subs = Math.max(jitter, 1);
+        for (const instance of this.setInstances)
+            instance.setParameter('jitterParams', [jitter, 4, 1 / (4 * subs), scale]);
+        this.rasterInstance.setParameter('jitterParams', [jitter, strata, 1 / (strata * subs), scale]);
+        this.rasterInstance.setParameter('setIndex', 4);
+        this.rasterInstance.setParameter('setMap', [1, 0, 1, 0]);
         this.rasterMaterial.setDefine('SSE_RASTER_EMPTY', this.variant.raster === 'empty' ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_RASTER_DISCARD', this.variant.raster === 'discard' ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_RASTER_OPAQUE', this.variant.raster === 'opaque' ? '' : undefined);
@@ -2272,6 +2320,9 @@ class StochasticSplatRenderer {
                 ? 'pixel'
                 : this.variant.coverage;
         const interleaved = coverage === 'interleaved';
+        // variant interleaveArea: the small splats draw per splat into the full target, over the
+        // sets copied back, so the accumulation reads the full target as usual
+        const smallSplats = interleaved && this.variant.interleaveArea > 0;
         // interleaved pixel sets split their draws by the order, the tile renderer bins in it and
         // the sampler scatters front to back in it
         const ordered = computePipeline || sampled || this.variant.order === 'bucket' || interleaved;
@@ -2331,6 +2382,9 @@ class StochasticSplatRenderer {
             projector.setParameter('depthFar', depthFar);
             projector.setParameter('frameSeed', this.frameSeed);
             projector.setParameter('coverageLimit', hybrid ? this.hybridLimit() : 0);
+            projector.setParameter('jitterSubs', this.variant.jitter);
+            projector.setParameter('strata', this.variant.strata);
+            projector.setParameter('interleaveArea', interleaved ? this.variant.interleaveArea : 0);
             Compute.calcDispatchSize(group.chunkCount, tmpVec2);
             projector.setupDispatch(tmpVec2.x, tmpVec2.y, 1);
             device.computeDispatch([projector], 'sse-splat-project');
@@ -2352,7 +2406,7 @@ class StochasticSplatRenderer {
         this.args.setParameter('scatterWorkgroupSize', ORDER_BUCKETS);
         this.args.setupDispatch(1, 1, 1);
         device.computeDispatch([this.args], 'sse-splat-args');
-        this.rasterInstance.setIndirect(null, drawSlot, 1);
+        if (!interleaved) this.rasterInstance.setIndirect(null, drawSlot, 1);
         // the raster pass only clears in the tile renderer's frames, so the compose finds no sample
         // there and reads the tiles' depth record instead
         this.rasterPass.skip = computePipeline || this.variant.raster === 'none' || this.variant.raster === 'nocopy';
@@ -2364,8 +2418,10 @@ class StochasticSplatRenderer {
             this.orderScan.setupDispatch(1, 1, 1);
             device.computeDispatch([this.orderScan], 'sse-splat-order-scan');
             if (interleaved) {
-                // each set's range and draw, from the offsets before the scatter advances them
-                const setSlot = device.getIndirectDrawSlot(4);
+                // each group's range and draw, from the offsets before the scatter advances them:
+                // the four sets, and the full target's small splats
+                const setSlot = device.getIndirectDrawSlot(SET_GROUPS);
+                this.rasterInstance.setIndirect(null, setSlot + 4, 1);
                 const setArgs = this.setArgs;
                 setArgs.setParameter('buckets', this.orderBuckets);
                 setArgs.setParameter('indirectDrawArgs', device.indirectDrawBuffer);
@@ -2428,7 +2484,9 @@ class StochasticSplatRenderer {
             : sampled
               ? [this.samplePipeline!.resolveInstance]
               : interleaved
-                ? [this.interleaveInstance]
+                ? smallSplats
+                    ? [this.rasterInstance, this.interleaveInstance]
+                    : [this.interleaveInstance]
                 : [
                       ...(occluding ? [this.occluderInstance] : []),
                       ...(this.variant.prefill === 'solid' || this.variant.prefill === 'core'
@@ -2438,8 +2496,8 @@ class StochasticSplatRenderer {
                   ];
 
         // interleaved pixel sets go straight into the taa, which writes their depth, so the
-        // raster pass has nothing to do
-        const folded = interleaved && taaOn && !(this.variant.diag & 1);
+        // raster pass has nothing to do; with small splats drawn over them it copies them back
+        const folded = interleaved && taaOn && !(this.variant.diag & 1) && !smallSplats;
         if (folded) this.ensureTaaSetTargets();
         if (folded !== this.setsFolded) {
             this.setsFolded = folded;
@@ -2816,7 +2874,10 @@ class StochasticSplatRenderer {
                     new UniformFormat('depthNear', UNIFORMTYPE_FLOAT),
                     new UniformFormat('depthFar', UNIFORMTYPE_FLOAT),
                     new UniformFormat('frameSeed', UNIFORMTYPE_UINT),
-                    new UniformFormat('coverageLimit', UNIFORMTYPE_UINT)
+                    new UniformFormat('coverageLimit', UNIFORMTYPE_UINT),
+                    new UniformFormat('jitterSubs', UNIFORMTYPE_UINT),
+                    new UniformFormat('strata', UNIFORMTYPE_UINT),
+                    new UniformFormat('interleaveArea', UNIFORMTYPE_FLOAT)
                 ])
             },
             computeBindGroupFormat: this.projectorBindGroupFormat

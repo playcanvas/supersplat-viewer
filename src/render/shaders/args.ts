@@ -1,4 +1,4 @@
-import { ORDER_BUCKETS, SET_BUCKETS } from './projector';
+import { ORDER_BUCKETS, SET_BUCKETS, SET_GROUPS } from './projector';
 
 // Single-thread pass turning the projector's survivor count into the indexed indirect draw
 // arguments for the raster pass and the indirect dispatch size of the order scatter. Nothing
@@ -47,7 +47,8 @@ fn main() {
 `;
 
 // Variant coverage:interleaved: after the bucket scan, before the scatter moves the offsets,
-// each pixel set's range of the ordered list and the indirect draw arguments of its raster pass
+// each draw group's range of the ordered list (the four pixel sets, then the full target's
+// splats) and the indirect draw arguments of its draw
 const setArgsWGSL = /* wgsl */ `
 struct DrawIndexedIndirectArgs {
     indexCount: u32,
@@ -69,7 +70,7 @@ struct SetArgsUniforms {
 @group(0) @binding(2) var<storage, read_write> setRanges: array<vec2u>;
 @group(0) @binding(3) var<uniform> uniforms: SetArgsUniforms;
 
-@compute @workgroup_size(4)
+@compute @workgroup_size(${SET_GROUPS})
 fn main(@builtin(local_invocation_index) index: u32) {
     let first = buckets[${ORDER_BUCKETS}u + index * ${SET_BUCKETS}u];
     var count = 0u;

@@ -2,7 +2,7 @@
 // survivors, into the renderer's own colour + depth target. Fragments keep themselves with
 // probability alpha (StochasticSplats, Listing 1) and write opaque colour with hardware depth,
 // so no sort is needed and the depth buffer holds the nearest surviving sample per pixel.
-import { CACHE_WORDS } from './projector';
+import { CACHE_WORDS, DRAW_BITS } from './projector';
 
 /** Quads per draw instance; the mesh holds this many quads. */
 const QUADS_PER_INSTANCE = 128;
@@ -23,6 +23,11 @@ varying @interpolate(flat, either) packedColor: u32;
 varying @interpolate(flat, either) packedAlpha: u32;
 #ifndef SSE_SEED_VERTEX
     varying @interpolate(flat, either) splatId: u32;
+#endif
+#ifdef SSE_JITTER
+    // variant jitter, as floats so the fragment converts nothing: x the stratum's base
+    // threshold, y the entry's key for the jitter pattern, z the opacity
+    varying @interpolate(flat, either) jitterVary: vec4f;
 #endif
 `;
 
@@ -68,22 +73,38 @@ var<storage, read> splatCount: array<u32>;
     uniform hybridLimit: u32;
 #endif
 #ifdef SSE_INTERLEAVED
-    // variant coverage:interleaved: the pixel set this draw renders, its range of the ordered
-    // list, and the map from the full target's clip x and y (over w) into the set's target
+    // variant coverage:interleaved: the draw group this draw renders (0-3 the pixel sets, 4 the
+    // full target's small splats), its range of the ordered list, and the map from the full
+    // target's clip x and y (over w) into the group's target
     uniform setIndex: u32;
     uniform setMap: vec4f;
     var<storage, read> setRanges: array<vec2u>;
 #endif
+#ifdef SSE_COVERAGE_SPLAT
+    // x: the sub-strata a stratum splits into (variant jitter; 0: no jitter), y: the strata this
+    // draw's thresholds come from, z: 1 / (strata * sub-strata), the width of a pixel's jitter,
+    // w: the polygon's circumradius over the ellipse's (area matched, or containing it with jitter)
+    uniform jitterParams: vec4f;
+#endif
 
 // screen-linear: the corners share one screen footprint whatever depth they carry
 ${varyingsWGSL}
-#if defined(SSE_SEED_VERTEX) || defined(SSE_POLYGON_ROTATE)
+#if defined(SSE_SEED_VERTEX) || defined(SSE_POLYGON_ROTATE) || defined(SSE_JITTER)
     // the splat's share of the coverage hash, once per vertex rather than per fragment
     uniform frameSeed: u32;
     ${hashWGSL}
 #endif
 
 const discardPosition = vec4f(0.0, 0.0, 2.0, 1.0);
+
+#ifdef SSE_COVERAGE_SPLAT
+    // the radius, in units of the quad's half extent, where alpha = opacity * falloff(r^2) falls
+    // to a threshold (the projector's radiusAt)
+    fn radiusAt(threshold: f32, opacity: f32) -> f32 {
+        let e4 = exp(-4.0);
+        return sqrt(max(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25, 0.0));
+    }
+#endif
 
 @vertex
 fn vertexMain(input: VertexInput) -> VertexOutput {
@@ -129,9 +150,30 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
     let axis2 = len2 * normalize(vec2f(axis1.y, -axis1.x));
 
     #ifdef SSE_COVERAGE_SPLAT
-        // variant coverage:splat: the projector kept only the splats with pixels to keep this
-        // frame, and scaled their axes to the polygon of those pixels (shaders/projector.ts);
-        // with interleaved pixel sets, to the largest set's, with each set's fraction in word 6
+        // Variant coverage:splat: the projector kept only the splats with pixels to keep this
+        // frame and stored the full quad's axes; the polygon of the pixels this draw keeps is
+        // sized here from its threshold, rebuilt from cache word 6 as the projector built it
+        // (shaders/projector.ts): the splat's 15-bit draw, and a nibble per draw group holding
+        // the stratum and sub-stratum of the jittered modes
+        let word6 = splatCache[base + 6u];
+        let opacityS = f32((word3 >> 16u) & 0xffu) / 255.0;
+        let drawn = f32(word6 & ${(1 << DRAW_BITS) - 1}u) * (1.0 / ${(1 << DRAW_BITS) - 1}.0);
+        #ifdef SSE_INTERLEAVED
+            let group = uniform.setIndex;
+            let fullGroup = group == 4u;
+            let nibble = (word6 >> (16u + 4u * select(group, 0u, fullGroup))) & 0xfu;
+            // the sets' thresholds are the four quarters from the draw; the full target's is the draw
+            let plain = select(fract(drawn + f32(group) * 0.25), drawn, fullGroup);
+        #else
+            let nibble = (word6 >> 16u) & 0xfu;
+            let plain = drawn;
+        #endif
+        let subs = uniform.jitterParams.x;
+        // jittered: the base of the stratum (and sub-stratum) the nibble names; its index goes to
+        // the fragment, which adds the pixel's own jitter within it
+        let strataIndex = f32((nibble >> 1u) & 3u) * subs + f32(nibble >> 3u);
+        let threshold = max(select(plain, strataIndex * uniform.jitterParams.z, subs > 0.0), uniform.sseAlphaClip);
+        let polygonRadius = radiusAt(threshold, opacityS) * uniform.jitterParams.w;
         #ifdef SSE_POLYGON_ROTATE
             // variant sides below 8: the polygon turned by a fresh angle every frame, so over
             // frames the kept region averages to the ellipse rather than to the polygon's corners
@@ -144,10 +186,11 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
         #else
             let unit = vertex_position.xy;
         #endif
-        #ifdef SSE_INTERLEAVED
-            let corner = unit * (f32((splatCache[base + 6u] >> (8u * uniform.setIndex)) & 0xffu) * (1.0 / 255.0));
+        #ifdef SSE_HYBRID
+            // variant pipeline:hybrid: the faint splats below the limit keep their full quads
+            let corner = unit * select(1.0, polygonRadius, ((word3 >> 16u) & 0xffu) >= uniform.hybridLimit);
         #else
-            let corner = unit;
+            let corner = unit * polygonRadius;
         #endif
     #elif defined(SSE_CORE)
         // variant prefill:core: the square inscribed in the region where alpha is at least
@@ -206,7 +249,13 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
         output.gaussianUV = corner;
     #endif
     output.packedColor = splatCache[base + 4u];
-    #ifdef SSE_SEED_VERTEX
+    #ifdef SSE_JITTER
+        // the stratum's base threshold for the fragment's test, and a per-entry key that rotates
+        // its jitter pattern, so overlapping splats' jitters are independent
+        let entryKey = hashU32(order ^ uniform.frameSeed);
+        output.jitterVary = vec4f(strataIndex * uniform.jitterParams.z, f32(entryKey >> 8u) * (1.0 / 16777216.0), opacityS, 0.0);
+        output.packedAlpha = word3 >> 16u;
+    #elif defined(SSE_SEED_VERTEX)
         let seed = hashU32(((splatCache[base + 6u] + 1u) * 26699u) ^ uniform.frameSeed);
         output.packedAlpha = ((word3 >> 16u) & 0xffu) | (seed & 0xffffff00u);
     #else
@@ -224,6 +273,10 @@ uniform sseAlphaClip: f32;
 // 0 while the camera rests, so a still frame reproduces itself; the frame index once TAA
 // accumulates
 uniform frameSeed: u32;
+#ifdef SSE_JITTER
+    // z: the width of a pixel's jitter, 1 / (strata * sub-strata) (see the vertex stage)
+    uniform jitterParams: vec4f;
+#endif
 
 const EXP4 = exp(-4.0);
 const INV_EXP4 = 1.0 / (1.0 - EXP4);
@@ -256,6 +309,20 @@ ${hashWGSL}
 fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     var output: FragmentOutput;
     #ifdef SSE_COVERAGE_SPLAT
+        #ifdef SSE_JITTER
+            // Variant jitter: the polygon contains the stratum's ellipse, and the fragment keeps
+            // itself where alpha exceeds the stratum's base plus its own jitter within the
+            // stratum: interleaved gradient noise rotated by the entry's key, as the per-pixel
+            // raster's. The test discards the polygon's corners too (alpha is negative past the
+            // quad's edge), so the kept region is the exact ellipse with a dithered rim
+            let uvJ = vec2f(gaussianUV);
+            let alphaJ = falloff(dot(uvJ, uvJ)) * jitterVary.z;
+            let ignJ = fract(52.9829189 * fract(dot(pcPosition.xy, vec2f(0.06711056, 0.00583715))));
+            let thresholdJ = jitterVary.x + fract(ignJ + jitterVary.y) * uniform.jitterParams.z;
+            if (alphaJ <= max(thresholdJ, uniform.sseAlphaClip)) {
+                discard;
+            }
+        #endif
         // variant coverage:splat: the polygon is the kept coverage, so every fragment is kept
         let bitsS = packedColor;
         let colorS = vec3f(vec3u(bitsS, bitsS >> 10u, bitsS >> 20u) & vec3u(1023u)) * (f32(1u << (bitsS >> 30u)) / 1023.0);

@@ -3,7 +3,7 @@
 // the scatter writes each survivor's cache slot into the ordered list the raster then follows.
 // Splats inside a bucket land in append order, so a bucket keeps its chunks' locality.
 
-import { CACHE_WORDS, ORDER_BUCKETS, SET_BUCKETS } from './projector';
+import { CACHE_WORDS, FULL_ENTRY_BIT, ORDER_BUCKETS, SET_BUCKETS, SET_GROUPS } from './projector';
 
 // exclusive prefix sum of the bucket counts into the bucket offsets, in one workgroup
 const orderScanWGSL = /* wgsl */ `
@@ -68,7 +68,8 @@ fn main(
 `;
 
 // Variant coverage:interleaved: the same, with an entry for each pixel set a survivor keeps
-// pixels in (the bytes of its cache word 6), in that set's buckets, so each set's entries are one
+// pixels in (the nibbles of its cache word 6), in that set's buckets, or one entry in the full
+// target's group for a splat drawn per splat (bit 15), so each group's entries are one
 // contiguous range of the ordered list, front to back
 const orderScatterSetsWGSL = /* wgsl */ `
 @group(0) @binding(0) var<storage, read> counter: array<u32>;
@@ -89,17 +90,25 @@ fn main(
     atomicStore(&wgCounts[local], 0u);
     let slot = (wg.x + wg.y * numWorkgroups.x) * ${ORDER_BUCKETS}u + local;
     let live = slot < counter[0];
-    var sets = 0u;
-    var keys = vec4u(0u);
-    var ranks = vec4u(0u);
+    // bit g: an entry in group g
+    var groups = 0u;
+    var keys = array<u32, ${SET_GROUPS}>();
+    var ranks = array<u32, ${SET_GROUPS}>();
     workgroupBarrier();
     if (live) {
-        let depthKey = cache[slot * ${CACHE_WORDS}u + 3u] >> 26u;
-        sets = cache[slot * ${CACHE_WORDS}u + 6u];
-        for (var s = 0u; s < 4u; s++) {
-            if (((sets >> (8u * s)) & 0xffu) != 0u) {
-                keys[s] = s * ${SET_BUCKETS}u + depthKey;
-                ranks[s] = atomicAdd(&wgCounts[keys[s]], 1u);
+        let depthKey = ((cache[slot * ${CACHE_WORDS}u + 3u] >> 24u) * ${SET_BUCKETS}u) >> 8u;
+        let word6 = cache[slot * ${CACHE_WORDS}u + 6u];
+        if ((word6 & ${FULL_ENTRY_BIT}u) != 0u) {
+            groups = 1u << 4u;
+        } else {
+            for (var s = 0u; s < 4u; s++) {
+                groups |= ((word6 >> (16u + 4u * s)) & 1u) << s;
+            }
+        }
+        for (var g = 0u; g < ${SET_GROUPS}u; g++) {
+            if (((groups >> g) & 1u) != 0u) {
+                keys[g] = g * ${SET_BUCKETS}u + depthKey;
+                ranks[g] = atomicAdd(&wgCounts[keys[g]], 1u);
             }
         }
     }
@@ -110,9 +119,9 @@ fn main(
     }
     workgroupBarrier();
     if (live) {
-        for (var s = 0u; s < 4u; s++) {
-            if (((sets >> (8u * s)) & 0xffu) != 0u) {
-                ordered[wgBase[keys[s]] + ranks[s]] = slot;
+        for (var g = 0u; g < ${SET_GROUPS}u; g++) {
+            if (((groups >> g) & 1u) != 0u) {
+                ordered[wgBase[keys[g]] + ranks[g]] = slot;
             }
         }
     }
