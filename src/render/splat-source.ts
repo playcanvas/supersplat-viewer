@@ -1,12 +1,12 @@
 // How per-splat data reaches the projector. The renderer is the same for every source; only
 // the wgsl that reads a splat and the way the projector is bound and dispatched differ, so the
-// data paths in the plan (engine work buffer, direct sog reads, a light work buffer) can be
-// swapped and profiled against each other.
+// two data paths (the engine's work buffer, the resident files read in place) can be swapped
+// and profiled against each other.
 import type { Compute, GraphicsDevice } from 'playcanvas';
 
 import type { EngineManager, ResidentNode, ResidentSet } from './resident-set';
 
-type SplatSourceKind = 'workbuffer' | 'direct' | 'light';
+type SplatSourceKind = 'workbuffer' | 'direct';
 
 /** One projector dispatch: a contiguous run of the chunk table. */
 type DispatchGroup = {

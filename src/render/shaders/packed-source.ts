@@ -1,6 +1,6 @@
-// Variant layout:packed (the direct source, sog v2 files): a resident file's six RGBA8 textures
-// repacked once into one RGBA32U texel of geometry per splat and one R32U texel of sh0 indices,
-// so the projector reads one texel for every active splat and the second only for survivors.
+// The direct source's layout for sog v2 files: a resident file's six RGBA8 textures repacked
+// once into one RGBA32U texel of geometry per splat and one R32U texel of sh0 indices, so the
+// projector reads one texel for every active splat and the second only for survivors.
 // The payload is the file's own bytes, so the decode below is the engine's sog read code
 // (shader-lib/wgsl/chunks/gsplat/vert/formats/sog.js) over different words.
 //
@@ -45,12 +45,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 }
 `;
 
-// Variant shDecoded: the sh palette decoded once through the codebook into half floats, so a
-// survivor's coefficient reads need no codebook lookups (twice the palette's memory)
+// The sh palette decoded once through the codebook, packed 11/11/10 bits a texel over the
+// file's codebook range (the engine's own per-splat packing): the original palette's 4 bytes a
+// texel, and a survivor's coefficient reads need no codebook lookups. The range is a uniform,
+// so each file's decode needs its own compute.
 const decodeSHWGSL = /* wgsl */ `
-@group(0) @binding(0) var sh_centroids: texture_2d<f32>;
-@group(0) @binding(1) var sogCodebook: texture_2d<f32>;
-@group(0) @binding(2) var outSH: texture_storage_2d<rgba16float, write>;
+struct DecodeUniforms {
+    shRange: vec4f
+}
+@group(0) @binding(0) var<uniform> uniforms: DecodeUniforms;
+@group(0) @binding(1) var sh_centroids: texture_2d<f32>;
+@group(0) @binding(2) var sogCodebook: texture_2d<f32>;
+@group(0) @binding(3) var outSH: texture_storage_2d<r32uint, write>;
 
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -65,21 +71,25 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         textureLoad(sogCodebook, vec2i(idx.y, 0), 0).b,
         textureLoad(sogCodebook, vec2i(idx.z, 0), 0).b
     );
-    textureStore(outSH, p, vec4f(value, 0.0));
+    // x and z take 11 bits, y 10, as the engine's own packing
+    let n = clamp((value - uniforms.shRange.x) / uniforms.shRange.y, vec3f(0.0), vec3f(1.0));
+    let q = vec3u(n * vec3f(2047.0, 1023.0, 2047.0) + 0.5);
+    textureStore(outSH, p, vec4u((q.x << 21u) | (q.y << 11u) | q.z, 0u, 0u, 0u));
 }
 `;
 
-// the projector's read chunk over the packed textures; `bands` is the file's sh band count, the
-// palette stride; `decoded` reads the half-float palette of variant shDecoded
-const packedReadWGSL = (bindingBase: number, bands: number, decoded: boolean) => /* wgsl */ `
+// the projector's read chunk over the packed textures and the decoded palette; `bands` is the
+// file's sh band count, the palette stride
+const packedReadWGSL = (bindingBase: number, bands: number) => /* wgsl */ `
 #include "halfTypesCS"
 #include "gsplatEvalSHVS"
 @group(0) @binding(${bindingBase}) var packedGeom: texture_2d<u32>;
 @group(0) @binding(${bindingBase + 1}) var packedColor: texture_2d<u32>;
-${bands > 0 ? `@group(0) @binding(${bindingBase + 2}) var sh_centroids: texture_2d<f32>;` : ''}
+${bands > 0 ? `@group(0) @binding(${bindingBase + 2}) var sh_centroids: texture_2d<u32>;` : ''}
 @group(0) @binding(${bindingBase + (bands > 0 ? 3 : 2)}) var sogCodebook: texture_2d<f32>;
 uniform means_mins: vec3f;
 uniform means_maxs: vec3f;
+${bands > 0 ? 'uniform shRange: vec4f;' : ''}
 
 const SH_C0: f32 = 0.28209479177387814;
 const PACK_NORM: f32 = sqrt(2.0);
@@ -88,7 +98,6 @@ const SH_STRIDE: i32 = ${[0, 3, 8, 15][bands]};
 
 fn lutScales(b: i32) -> f32 { return textureLoad(sogCodebook, vec2i(b, 0), 0).r; }
 fn lutSh0(b: i32) -> f32 { return textureLoad(sogCodebook, vec2i(b, 0), 0).g; }
-fn lutShN(b: i32) -> f32 { return textureLoad(sogCodebook, vec2i(b, 0), 0).b; }
 
 var<private> packedG: vec4u;
 var<private> srcWorldCenter: vec3f;
@@ -143,14 +152,11 @@ fn srcScale() -> vec3f {
 }
 
 #if SH_BANDS > 0
+// a coefficient triple of the decoded palette: 11/11/10 bits over the file's codebook range
 fn readSHTexel(u: i32, v: i32) -> half3 {
-    let t = textureLoad(sh_centroids, vec2i(u, v), 0);
-${
-    decoded
-        ? '    return half3(t.xyz);'
-        : `    let idx = vec3i(t.xyz * 255.0 + 0.5);
-    return half3(vec3f(lutShN(idx.x), lutShN(idx.y), lutShN(idx.z)));`
-}
+    let bits = textureLoad(sh_centroids, vec2i(u, v), 0).x;
+    let q = vec3f(vec3u(bits >> 21u, (bits >> 11u) & 0x3ffu, bits & 0x7ffu)) / vec3f(2047.0, 1023.0, 2047.0);
+    return half3(uniform.shRange.x + q * uniform.shRange.y);
 }
 #endif
 

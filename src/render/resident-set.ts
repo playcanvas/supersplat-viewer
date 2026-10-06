@@ -45,6 +45,8 @@ type EngineResource = {
     textureDimensions: { x: number; y: number };
     parameters: Map<string, unknown>;
     configureMaterialDefines(defines: Map<string, string>): void;
+    /** The sog file's metadata; the v2 codebooks are 256 floats each. */
+    gsplatData?: { meta?: { shN?: { codebook?: number[] } } };
 };
 
 type EngineOctreeNode = {

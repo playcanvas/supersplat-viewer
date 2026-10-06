@@ -72,7 +72,7 @@ type ViewerFlags = {
      * Developer knob for the stochastic renderer: the data path that feeds it. Default
      * `direct`, the resident files read in place; `workbuffer` reads the engine's work buffer.
      */
-    splatSource?: 'workbuffer' | 'direct' | 'light';
+    splatSource?: 'workbuffer' | 'direct';
     /**
      * Developer knob for the stochastic renderer: comma-separated `key:value` experiment
      * switches, e.g. `spp:1,compose:none`.
