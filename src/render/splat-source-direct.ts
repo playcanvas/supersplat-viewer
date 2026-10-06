@@ -101,7 +101,10 @@ class DirectSplatSource implements SplatSource {
                 scale: [tmpScale.x, tmpScale.y, tmpScale.z, 0]
             });
         }
-        this.patchWorkBuffer(manager.world.workBuffer);
+        // On an engine without the external renderer mode the work buffer is still
+        // materialised, and its copies are wasted work for this path; in that mode the world
+        // leaves the buffer empty and there is nothing to skip.
+        if (manager.world.workBufferEnabled !== false) this.patchWorkBuffer(manager.world.workBuffer);
         if (this.packedActive()) {
             for (const file of set.files) this.ensurePacked(file.resource);
         }
@@ -219,6 +222,10 @@ class DirectSplatSource implements SplatSource {
         compute.setupDispatch(Math.ceil(width / 16), Math.ceil(height / 16), 1);
         device.computeDispatch([compute], 'sse-splat-repack');
         this.packed.set(resource, { geom, color });
+    }
+
+    suspend() {
+        this.restoreWorkBuffer();
     }
 
     // the engine's copy into the work buffer is wasted work for this path

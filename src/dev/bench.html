@@ -62,7 +62,7 @@
                                             or { name, position, target, fov }; default: the start pose
               modes=sorted,stochastic       which renderers to load
               variants=cull:off;cull:l2     stochastic variant strings, ; separated (keys: spp, compose, cull, order, contribution)
-              splatSource=workbuffer        stochastic data path: workbuffer or direct
+              splatSource=direct            stochastic data path: direct or workbuffer
               dpr=1.5                       pin the pixel ratio and screen size: target = host * dpr
               move=0.25                     orbit the camera this many degrees per measured frame (0: still)
               motion=strafe                 move sideways instead, at the orbit's speed at the focus (disocclusion)
@@ -137,7 +137,7 @@
             // the engine allocates its work buffer for the whole budget up front (budget x 1.15 slots
             // x 24 bytes), so keep it just above the scene's splat count
             const budget = Number(params.get('budget') ?? 8);
-            const splatSource = params.get('splatSource') ?? 'workbuffer';
+            const splatSource = params.get('splatSource') ?? 'direct';
             // degrees of orbit per measured frame; 0 measures a still camera
             const move = Number(params.get('move') ?? 0);
             // how the camera moves for the moving comparison: orbit the focus, or strafe sideways

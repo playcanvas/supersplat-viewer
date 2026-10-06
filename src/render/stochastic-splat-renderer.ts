@@ -1531,15 +1531,15 @@ class StochasticSplatRenderer {
 
         const { device } = this;
 
-        if (options.source === 'direct') {
-            this.source = new DirectSplatSource(device);
+        if (options.source === 'workbuffer') {
+            this.source = new WorkBufferSplatSource();
         } else {
-            if (options.source && options.source !== 'workbuffer') {
+            if (options.source && options.source !== 'direct') {
                 console.warn(
-                    `StochasticSplatRenderer: splat source '${options.source}' is not implemented yet, using the work buffer`
+                    `StochasticSplatRenderer: splat source '${options.source}' is not implemented yet, using direct`
                 );
             }
-            this.source = new WorkBufferSplatSource();
+            this.source = new DirectSplatSource(device);
         }
 
         this.counter = new StorageBuffer(device, 16, BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC);
@@ -1999,7 +1999,7 @@ class StochasticSplatRenderer {
 
         this.applyVariant();
 
-        this.provider = new EngineResidentSetProvider(app, camera, worldLayer);
+        this.provider = new EngineResidentSetProvider(app, camera, worldLayer, this.source.kind === 'direct');
         this.unsubscribe = this.provider.onFrame((set, changed, manager) => this.frame(set, changed, manager));
         app.on('frameend', this.onFrameEnd);
 
@@ -2170,6 +2170,8 @@ class StochasticSplatRenderer {
         this.resetHistory();
         this.depthFrame = null;
         this.worldLayer.removeMeshInstances([this.composeInstance]);
+        // the source first: the engine's renderer draws from the work buffer it may have patched
+        this.source.suspend();
         this.provider.setActive(false);
     }
 

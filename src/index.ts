@@ -293,7 +293,7 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     fullload: options.fullload ?? false,
     aa: options.aa ?? false,
     stochastic: options.stochastic ?? false,
-    splatSource: options.splatSource ?? 'workbuffer',
+    splatSource: options.splatSource ?? 'direct',
     variant: options.variant ?? '',
     budget: options.budget,
     heatmap: options.heatmap ?? false,

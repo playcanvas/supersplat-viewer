@@ -6,8 +6,19 @@
 // Read through the engine's internal (@ignore) gsplat-unified classes until the public
 // `world:update` api lands (engine change E3 in the plan). Every internal shape used is
 // narrowed here to the members this file reads, so a change in the engine fails in one place.
+//
+// Switching the engine's own splat rendering off has two paths. An engine with the external
+// renderer mode (GSPLAT_RENDERER_EXTERNAL) creates no renderer and leaves its work buffer
+// empty when asked; on an older engine the provider takes the engine's renderer over after
+// the fact and the direct source skips the work buffer copies itself.
+import * as engine from 'playcanvas';
 import { Vec3 } from 'playcanvas';
 import type { AppBase, BoundingBox, CameraComponent, EventHandle, Layer, Mat4, Texture } from 'playcanvas';
+
+// undefined on engines before the mode landed; read at runtime on purpose, so one build works
+// with either engine
+const engineExports = engine as unknown as Record<string, unknown>;
+const GSPLAT_RENDERER_EXTERNAL = engineExports.GSPLAT_RENDERER_EXTERNAL as number | undefined;
 
 type EngineFormat = {
     hash: number;
@@ -73,7 +84,13 @@ type EngineRenderer = {
 };
 
 type EngineManager = {
-    world: { currentState: EngineWorldState | undefined; workBuffer: EngineWorkBuffer };
+    world: {
+        currentState: EngineWorldState | undefined;
+        workBuffer: EngineWorkBuffer;
+        /** False while the external renderer mode leaves the work buffer empty; absent on older engines. */
+        workBufferEnabled?: boolean;
+        invalidate(opts: { workBuffer?: boolean }): void;
+    };
     renderer: EngineRenderer;
 };
 
@@ -132,6 +149,16 @@ const tmpVec2 = new Vec3();
 class EngineResidentSetProvider {
     private app: AppBase;
 
+    /**
+     * Whether the engine's external renderer mode is in use: the consumer reads the resident
+     * files itself and the engine has the mode. Otherwise the engine's own renderer is taken
+     * over once it exists.
+     */
+    readonly external: boolean;
+
+    // the engine's renderer mode before the external mode was set, restored on hand-back
+    private previousMode = 0;
+
     private camera: CameraComponent;
 
     private layer: Layer;
@@ -148,10 +175,17 @@ class EngineResidentSetProvider {
     // while false the engine keeps rendering the splats itself (XR), and the hook stays quiet
     private active = true;
 
-    constructor(app: AppBase, camera: CameraComponent, layer: Layer) {
+    /**
+     * @param directSource - Whether the consumer reads the resident files itself, so the engine's
+     * work buffer is not needed. The work-buffer source needs the engine to keep filling it.
+     */
+    constructor(app: AppBase, camera: CameraComponent, layer: Layer, directSource: boolean) {
         this.app = app;
         this.camera = camera;
         this.layer = layer;
+        this.external = directSource && GSPLAT_RENDERER_EXTERNAL !== undefined;
+        // set before the engine creates its manager, so the manager is created in the mode
+        if (this.external) this.enterExternalMode();
 
         const system = app.systems.gsplat as unknown as {
             on(name: string, fn: (...args: unknown[]) => void): EventHandle;
@@ -200,12 +234,30 @@ class EngineResidentSetProvider {
     setActive(value: boolean) {
         if (this.active === value) return;
         this.active = value;
-        if (value) {
+        if (this.external) {
+            if (value) this.enterExternalMode();
+            else this.leaveExternalMode();
+        } else if (value) {
             const manager = this.manager();
             if (manager) this.takeOver(manager);
         } else {
             this.restore();
+            // the direct source skipped the engine's copies while it drew, so the work buffer is
+            // stale for whatever streamed in since; the engine's renderer needs it rebuilt in full
+            this.manager()?.world.invalidate({ workBuffer: true });
         }
+    }
+
+    // The engine creates no splat renderer in this mode and leaves its work buffer empty; a
+    // running manager switches on its next update, releasing the buffer it had filled.
+    private enterExternalMode() {
+        const params = this.app.scene.gsplat;
+        this.previousMode = params.renderer;
+        params.renderer = GSPLAT_RENDERER_EXTERNAL!;
+    }
+
+    private leaveExternalMode() {
+        this.app.scene.gsplat.renderer = this.previousMode;
     }
 
     onFrame(cb: FrameCallback): () => void {
@@ -220,6 +272,8 @@ class EngineResidentSetProvider {
      * running. Reversed by {@link restore}.
      */
     takeOver(manager: EngineManager) {
+        // nothing to take over: the engine created no renderer for this camera and layer
+        if (this.external) return;
         const renderer = manager.renderer;
         if (!this.takenOver.has(renderer)) {
             this.takenOver.set(renderer, renderer.prepareRenderView);
@@ -249,7 +303,11 @@ class EngineResidentSetProvider {
     }
 
     destroy() {
-        this.restore();
+        if (this.external) {
+            if (this.active) this.leaveExternalMode();
+        } else {
+            this.restore();
+        }
         for (const handle of this.handles) handle.off();
         this.handles.length = 0;
         this.callbacks.clear();

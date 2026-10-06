@@ -41,6 +41,12 @@ type SplatSource = {
     /** Called once per world-state version, before the frame's dispatch. */
     update(set: ResidentSet, manager: EngineManager): void;
 
+    /**
+     * The engine's own renderer is about to draw the splats (xr): undo any interference with
+     * its work buffer. {@link update} runs again before the next stochastic frame.
+     */
+    suspend(): void;
+
     /** How the projector is dispatched this frame. */
     dispatchPlan(set: ResidentSet, numChunks: number): DispatchGroup[];
 

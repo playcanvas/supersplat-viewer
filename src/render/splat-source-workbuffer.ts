@@ -16,6 +16,10 @@ class WorkBufferSplatSource implements SplatSource {
         this.workBuffer = manager.world.workBuffer;
     }
 
+    suspend() {
+        // the engine keeps filling the work buffer for this source; nothing to undo
+    }
+
     readChunk(bindingBase: number) {
         const format = this.require().format;
         // the engine's declarations bind one texture per stream from bindingBase and define
