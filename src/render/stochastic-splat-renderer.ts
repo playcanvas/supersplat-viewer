@@ -167,6 +167,10 @@ type Variant = {
      * before the small splats draw over them, and the accumulation reads the full target.
      */
     interleaveArea: number;
+    /** The direct source's texture layout: the file's six textures, or two repacked ones (shaders/packed-source.ts). */
+    layout: 'planar' | 'packed';
+    /** With layout:packed: the sh palette decoded once into half floats, no codebook lookups per survivor. */
+    shDecoded: boolean;
     /**
      * Bench diagnostics as bits: 1 copies the interleaved sets back in the raster pass instead
      * of the taa reading them; for the sampler, 2 skips the tile pass, 4 claims no pixel and 8
@@ -308,6 +312,8 @@ const defaultVariant = (): Variant => ({
     jitter: 0,
     strata: 4,
     interleaveArea: 0,
+    layout: 'planar',
+    shDecoded: false,
     diag: 0,
     pipeline: 'raster',
     sampleMaxAlpha: 0.995,
@@ -355,6 +361,8 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'strata' && ['1', '2', '4'].includes(value)) variant.strata = Number(value);
         if (key === 'interleaveArea' && Number.isFinite(Number(value)))
             variant.interleaveArea = Math.max(0, Number(value));
+        if (key === 'layout' && (value === 'planar' || value === 'packed')) variant.layout = value;
+        if (key === 'shDecoded' && (value === 'on' || value === 'off')) variant.shDecoded = value === 'on';
         if (key === 'diag' && Number.isFinite(Number(value))) variant.diag = Number(value);
         if (key === 'hybridOpacity' && Number.isFinite(Number(value)))
             variant.hybridOpacity = Math.min(1, Math.max(0, Number(value)));
@@ -2043,6 +2051,10 @@ class StochasticSplatRenderer {
         this.rasterMaterial.setDefine('SSE_COVERAGE_SPLAT', splatCoverage ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_INTERLEAVED', this.variant.coverage === 'interleaved' ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_HYBRID', this.variant.pipeline === 'hybrid' ? '' : undefined);
+        if (this.source instanceof DirectSplatSource) {
+            this.source.layout = this.variant.layout;
+            this.source.shDecoded = this.variant.shDecoded;
+        }
         const polygonMesh = this.polygonMesh(this.variant.sides);
         this.rasterInstance.mesh = splatCoverage ? polygonMesh : this.rasterMesh;
         for (const instance of this.setInstances) instance.mesh = polygonMesh;
