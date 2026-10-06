@@ -8,18 +8,26 @@ const CACHE_WORDS = 7;
 
 const PROJECTOR_WORKGROUP_SIZE = 256;
 
-/** Buckets of the counting order (order:bucket); the workgroup size, so each thread owns one. */
+/** Buckets of the counting order (shaders/order.ts); the workgroup size, so each thread owns one. */
 const ORDER_BUCKETS = PROJECTOR_WORKGROUP_SIZE;
 
 /** Splats per chunk-table entry; a chunk is one workgroup. */
 const CHUNK_SIZE = PROJECTOR_WORKGROUP_SIZE;
 
-// the polygon's circumradius over the ellipse's: so the two cover the same area, or so the
-// polygon contains the ellipse (variant jitter, whose fragments discard outside it)
-const polygonScale = (sides: number, circumscribed = false) =>
+/**
+ * Sides of the polygon a splat's kept region draws as, with coverage other than pixel. The
+ * tiler's cost is per triangle: on the Pixel 7 Pro the interleaved sets' octagons cost 4.1 ms at
+ * the house start view and squares 1.2 ms, the image the same; triangles are cheaper still but
+ * blur the converged image measurably.
+ */
+const POLYGON_SIDES = 4;
+
+// the square's circumradius over the ellipse's: so the two cover the same area, or so the
+// square contains the ellipse (variant jitter, whose fragments discard outside it)
+const polygonScale = (circumscribed = false) =>
     (circumscribed
-        ? 1 / Math.cos(Math.PI / sides)
-        : Math.sqrt((2 * Math.PI) / (sides * Math.sin((2 * Math.PI) / sides)))
+        ? 1 / Math.cos(Math.PI / POLYGON_SIDES)
+        : Math.sqrt((2 * Math.PI) / (POLYGON_SIDES * Math.sin((2 * Math.PI) / POLYGON_SIDES)))
     ).toFixed(6);
 
 /** Where the coverage threshold varies: per pixel, per splat, or per splat and interleaved pixel set. */
@@ -60,14 +68,7 @@ const permutations = (() => {
     return out;
 })();
 
-const projectorWGSL = (
-    readChunk: string,
-    occlusion: boolean,
-    order: boolean,
-    coverage: CoverageMode,
-    // of the polygon a splat's kept region draws as, with coverage other than pixel
-    sides: number
-) => /* wgsl */ `
+const projectorWGSL = (readChunk: string, occlusion: boolean, coverage: CoverageMode) => /* wgsl */ `
 struct ProjectorUniforms {
     view: mat4x4f,
     viewProj: mat4x4f,
@@ -105,8 +106,6 @@ struct ProjectorUniforms {
     modelRotation: vec4f,
     modelScale: vec4f,
     cameraPosition: vec4f,
-    // colour ceiling per channel: 8 keeps the cache's range, 1 clamps like the engine's 8-bit cache
-    colorMax: f32,
     // 1: covariance in true pixels. 2: the engine's convention (its focal is viewport * proj[0][0],
     // twice the pixel focal), which makes its 0.3 dilation 0.075 px^2 and scales its culls
     unitScale: f32,
@@ -115,9 +114,6 @@ struct ProjectorUniforms {
     depthFar: f32,
     // the coverage seed (variant coverage:splat; see the raster's frameSeed)
     frameSeed: u32,
-    // coverage:splat applies to splats with an opacity byte at least this; fainter ones keep
-    // their quads, for the compute sampler (variant pipeline:hybrid)
-    coverageLimit: u32,
     // variant jitter: sub-strata a stratum splits into (0: no jitter), and the strata a per-splat
     // threshold draws from (coverage:splat, and the full target's splats of the interleaved mode)
     jitterSubs: u32,
@@ -138,7 +134,7 @@ struct ProjectorUniforms {
 // the previous frame's farthest depth per block, as f32 bits (see shaders/reduce.ts)
 @group(0) @binding(5) var<storage, read> occL1: array<u32>;
 @group(0) @binding(6) var<storage, read> occL2: array<u32>;
-// order:bucket: survivors per depth bucket (see shaders/order.ts)
+// survivors per depth bucket (see shaders/order.ts)
 @group(0) @binding(7) var<storage, read_write> buckets: array<atomic<u32>>;
 
 struct Splat {
@@ -298,8 +294,7 @@ ${
     let setThreshold = min(min(lowest.x, lowest.y), min(lowest.z, lowest.w));
 `
         : `
-    let perSplat = u32(clamp(opacity, 0.0, 1.0) * 255.0 + 0.5) >= uniforms.coverageLimit;
-    if (perSplat && !splatKept) {
+    if (!splatKept) {
         return result;
     }
 `
@@ -404,7 +399,7 @@ ${
     // ellipse, or containing it when the raster discards outside it (jitter). The cache keeps
     // the full quad's axes and the raster sizes each polygon itself; here the largest bounds the
     // culls below
-    let polygonScale = select(${polygonScale(sides)}, ${polygonScale(sides, true)}, jittered);
+    let polygonScale = select(${polygonScale()}, ${polygonScale(true)}, jittered);
 ${
     coverage === 'interleaved'
         ? `
@@ -419,7 +414,7 @@ ${
     let radiusScale = clampScale * radiusAt(threshold, opacity) * polygonScale;
 `
         : `
-    let radiusScale = clampScale * select(1.0, radiusAt(splatThreshold, opacity) * polygonScale, perSplat);
+    let radiusScale = clampScale * radiusAt(splatThreshold, opacity) * polygonScale;
 `
 }
 `
@@ -503,7 +498,7 @@ ${
 `
         : ''
 }
-    let color = clamp(srcColor(), vec3f(0.0), vec3f(uniforms.colorMax));
+    let color = clamp(srcColor(), vec3f(0.0), vec3f(8.0));
 
     // rgb: 10/10/10 unorm with a 2-bit shared exponent (scale 1/2/4/8, range [0, 8])
     let maxChannel = max(color.r, max(color.g, color.b));
@@ -536,15 +531,9 @@ ${
     result.words[3] = pack2x16float(vec2f(len2, 0.0)) | (u32(clamp(opacity, 0.0, 1.0) * 255.0 + 0.5) << 16u);
 `
 }
-${
-    order
-        ? `
     // the depth bucket, log-spaced from the near plane, in the flags byte
     let key = clamp((log(max(depth, 1e-6)) - uniforms.keyLogNear) * uniforms.keyInvLogRange, 0.0, 0.999) * ${ORDER_BUCKETS}.0;
     result.words[3] |= u32(key) << 24u;
-`
-        : ''
-}
     result.words[4] = rgb.r | (rgb.g << 10u) | (rgb.b << 20u) | (exponent << 30u);
     // Popless depth (StochasticSplats 3.4): the quad is tilted onto the plane through the
     // centre with normal adj(Sigma) mu (view space; adj rather than the inverse, so a flat
@@ -618,7 +607,7 @@ ${
 var<workgroup> wgCount: atomic<u32>;
 var<workgroup> wgOccluded: atomic<u32>;
 var<workgroup> wgBase: u32;
-${order ? `var<workgroup> wgBuckets: array<atomic<u32>, ${ORDER_BUCKETS}>;` : ''}
+var<workgroup> wgBuckets: array<atomic<u32>, ${ORDER_BUCKETS}>;
 
 @compute @workgroup_size(${PROJECTOR_WORKGROUP_SIZE})
 fn main(
@@ -628,7 +617,7 @@ fn main(
 ) {
     // no early returns: the barriers below need every thread of the workgroup
     let chunkIndex = wg.x + wg.y * numWorkgroups.x;
-${order ? `    atomicStore(&wgBuckets[local], 0u);` : ''}
+    atomicStore(&wgBuckets[local], 0u);
     var projected: Projected;
     projected.valid = false;
     projected.occluded = false;
@@ -664,7 +653,7 @@ ${order ? `    atomicStore(&wgBuckets[local], 0u);` : ''}
             cache[base + i] = projected.words[i];
         }
 ${
-    order && coverage === 'interleaved'
+    coverage === 'interleaved'
         ? `
         // one entry per kept pixel set, or one in the full target's group: the group's
         // ${SET_BUCKETS} buckets, front to back, from the depth bucket
@@ -678,14 +667,9 @@ ${
                 }
             }
         }`
-        : order
-          ? `        atomicAdd(&wgBuckets[projected.words[3] >> 24u], 1u);`
-          : ''
+        : `        atomicAdd(&wgBuckets[projected.words[3] >> 24u], 1u);`
 }
     }
-${
-    order
-        ? `
     // a chunk's splats are spatially coherent, so few of its buckets are non-empty: one
     // workgroup count each, then one global atomic per non-empty bucket
     workgroupBarrier();
@@ -693,9 +677,6 @@ ${
     if (bucketCount > 0u) {
         atomicAdd(&buckets[local], bucketCount);
     }
-`
-        : ''
-}
 }
 `;
 
@@ -705,6 +686,7 @@ export {
     DRAW_BITS,
     FULL_ENTRY_BIT,
     ORDER_BUCKETS,
+    POLYGON_SIDES,
     PROJECTOR_WORKGROUP_SIZE,
     SET_BUCKETS,
     SET_GROUPS,

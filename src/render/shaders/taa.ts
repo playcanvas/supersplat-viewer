@@ -112,13 +112,10 @@ uniform taaParams: vec4f;
 // width, height, 1 / width, 1 / height
 uniform taaViewport: vec4f;
 // x: -1 when the target's rows run bottom-up (an offscreen target), else 1; y: the colour
-// clamp width in neighbourhood standard deviations (0: no clamp); z: 1 when the raster's
-// thresholds are quad-stratified; w: the spacing of the clamp's neighbourhood taps in pixels
+// clamp width in neighbourhood standard deviations while moving (0: no clamp); z: 1 to
+// reproject through the pixel's accumulated mean depth rather than this frame's sample depth;
+// w: image motion in pixels a frame that halves the moving sample cap (0: fixed cap)
 uniform taaControl: vec4f;
-// x: 1 for a Catmull-Rom history fetch while moving (0: bilinear); y: 1 to reproject through
-// the pixel's accumulated mean depth rather than this frame's sample depth; z: image motion in
-// pixels a frame that halves the moving sample cap (0: fixed cap)
-uniform taaFilter: vec4f;
 // 1: write the accumulation state instead of colour (r: count / cap, g: history accepted,
 // b: the camera moved since the previous frame)
 uniform taaDebug: f32;
@@ -255,18 +252,6 @@ fn historyCubicAt(uv: vec2f, dims: vec2i) -> vec4f {
     return sum;
 }
 
-// bilinear fetch of the history
-fn historyAt(uv: vec2f, dims: vec2i) -> vec4f {
-    let p = uv * vec2f(dims) - vec2f(0.5);
-    let i0 = vec2i(floor(p));
-    let f = p - floor(p);
-    let a = historyTexel(i0, dims);
-    let b = historyTexel(i0 + vec2i(1, 0), dims);
-    let c = historyTexel(i0 + vec2i(0, 1), dims);
-    let d = historyTexel(i0 + vec2i(1, 1), dims);
-    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}
-
 @fragment
 fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     var output: FragmentOutput;
@@ -288,7 +273,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     // still: this pixel's own sample, so the history converges to full resolution; moving:
     // the quad's four
     var sample = select(vec4f(0.0), vec4f(cur.rgb, 1.0), hit);
-    if (moving && uniform.taaControl.z > 0.5) {
+    if (moving) {
         sample = quadSample(pix, dims);
     }
 
@@ -305,7 +290,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         r.uv = (vec2f(pix) + vec2f(0.5)) * uniform.taaViewport.zw;
         r.prevDepth = select(own.depth, d, hit);
         carryDepth = r.prevDepth;
-    } else if (uniform.taaFilter.y > 0.5 && own.count > 0.5) {
+    } else if (uniform.taaControl.z > 0.5 && own.count > 0.5) {
         // through the depth the pixel's history has settled on: one stochastic sample's depth
         // is one layer of the mixture the history holds, and reprojecting the mixture through
         // a different layer every frame smears it by their parallax
@@ -329,11 +314,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             hist = decodeColor(textureLoad(histColor, pix, 0));
             info = own;
         } else {
-            if (uniform.taaFilter.x > 0.5) {
-                hist = historyCubicAt(r.uv, dims);
-            } else {
-                hist = historyAt(r.uv, dims);
-            }
+            hist = historyCubicAt(r.uv, dims);
             info = decodeInfo(textureLoad(histInfo, clamp(vec2i(r.uv * vec2f(dims)), vec2i(0), dims - vec2i(1)), 0).x);
         }
         // a resting camera cannot disocclude anything, so every sample is accepted and the
@@ -361,10 +342,9 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         if (moving && uniform.taaControl.y > 0.0) {
             var m1 = vec4f(0.0);
             var m2 = vec4f(0.0);
-            let spread = i32(uniform.taaControl.w);
             for (var dy = -1; dy <= 1; dy++) {
                 for (var dx = -1; dx <= 1; dx++) {
-                    let n = sampleAt(pix + vec2i(dx, dy) * spread, dims);
+                    let n = sampleAt(pix + vec2i(dx, dy), dims);
                     m1 += n;
                     m2 += n * n;
                 }
@@ -378,9 +358,9 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         // reproject through one layer's depth, so their parallax smears the history by an
         // amount that grows with the motion, and a raw frame is the better estimate past it
         var cap = maxCount;
-        if (moving && uniform.taaFilter.z > 0.0) {
+        if (moving && uniform.taaControl.w > 0.0) {
             let speed = length(r.uv * vec2f(dims) - vec2f(pix) - vec2f(0.5));
-            cap = max(2.0, maxCount / (1.0 + speed / uniform.taaFilter.z));
+            cap = max(2.0, maxCount / (1.0 + speed / uniform.taaControl.w));
         }
         count = min(info.count + 1.0, cap);
         let w = 1.0 / count;

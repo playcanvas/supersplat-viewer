@@ -12,16 +12,10 @@ import {
     ADDRESS_CLAMP_TO_EDGE,
     BindGroupFormat,
     BindStorageBufferFormat,
-    BindStorageTextureFormat,
     BindTextureFormat,
     BindUniformBufferFormat,
     BLEND_NONE,
     BLEND_PREMULTIPLIED,
-    BLENDEQUATION_ADD,
-    BLENDMODE_ONE,
-    BLENDMODE_ONE_MINUS_DST_ALPHA,
-    BLENDMODE_ONE_MINUS_SRC_ALPHA,
-    BlendState,
     BoundingSphere,
     BUFFERUSAGE_COPY_DST,
     BUFFERUSAGE_COPY_SRC,
@@ -38,12 +32,7 @@ import {
     FILTER_NEAREST,
     FUNC_ALWAYS,
     FUNC_LESS,
-    FUNC_LESSEQUAL,
-    FUNC_NEVER,
     PIXELFORMAT_DEPTH,
-    PIXELFORMAT_DEPTH16,
-    PIXELFORMAT_DEPTHSTENCIL,
-    PIXELFORMAT_R32F,
     PIXELFORMAT_R32U,
     PIXELFORMAT_RGBA16U,
     PIXELFORMAT_RGBA8,
@@ -80,43 +69,34 @@ import type { EngineManager, ResidentSet } from './resident-set';
 import { argsWGSL, setArgsWGSL } from './shaders/args';
 import { composeFragmentWGSL, composeVertexWGSL } from './shaders/compose';
 import { interleaveFragmentWGSL } from './shaders/interleave';
-import { occluderFragmentWGSL, occluderVertexWGSL } from './shaders/occluder';
 import { orderScanWGSL, orderScatterSetsWGSL, orderScatterWGSL } from './shaders/order';
-import { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, SET_GROUPS, polygonScale, projectorWGSL } from './shaders/projector';
+import {
+    CACHE_WORDS,
+    CHUNK_SIZE,
+    ORDER_BUCKETS,
+    POLYGON_SIDES,
+    SET_GROUPS,
+    polygonScale,
+    projectorWGSL
+} from './shaders/projector';
 import type { CoverageMode } from './shaders/projector';
 import { FAR_CLIP_Z, QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
-import {
-    buildSampleTables,
-    sampleArgsWGSL,
-    sampleResolveFragmentWGSL,
-    sampleResolveVertexWGSL,
-    sampleSplatsWGSL,
-    sampleTilesWGSL
-} from './shaders/samples';
-import { TAA_MAX_COUNT, taaFragmentWGSL, taaHistoryWGSL, taaVertexWGSL } from './shaders/taa';
-import { TILE_SIZE, binCountWGSL, binFillWGSL, tileBlendWGSL, tileScanWGSL } from './shaders/tiles';
+import { TAA_MAX_COUNT, taaFragmentWGSL, taaVertexWGSL } from './shaders/taa';
 import type { DispatchGroup, SplatSource, SplatSourceKind } from './splat-source';
 import { DirectSplatSource } from './splat-source-direct';
 import { WorkBufferSplatSource } from './splat-source-workbuffer';
 
 /** Experiment switches, all flippable at runtime; `?variant=key:value,key:value` seeds them. */
 type Variant = {
-    /** Coverage thresholds: plain 1 spp, or stratified over 2x2 pixel quads with a quad-mean compose. */
-    spp: '1' | 'quad';
-    /** `none` skips the compose, to bound its cost; `depth` shows the splat depth as grey. */
-    compose: 'blend' | 'none' | 'depth';
+    /** `depth` shows the splat depth as grey instead of composing the colour. */
+    compose: 'blend' | 'depth';
     /**
      * Previous-frame occlusion cull: off, the 8 px grid only, both grid levels, or `auto`: both
      * levels, suspended for a while whenever a frame culled less than 8 % of its splats, since the
      * test then costs more than the raster it saves (large scenes seen from outside).
      */
     cull: 'off' | 'l1' | 'l2' | 'auto';
-    /**
-     * Draw order: `bucket` (the default), 256 log-spaced depth buckets front to back so early-z
-     * rejects most of what the depth test would, or the projector's `append` order.
-     */
-    order: 'append' | 'bucket';
     /**
      * Contribution cull while the camera moves: splats whose alpha mass in pixels (opacity times
      * projected area) falls below this are skipped on moving frames, and a settled frame at the
@@ -125,34 +105,23 @@ type Variant = {
     contribution: number;
     /** Popless depth: every fragment gets the depth of the Gaussian's peak along its ray (paper 3.4). */
     popless: 'on' | 'off';
-    /** Quad extent: shrunk by opacity to where alpha falls below the clip (the engine's clipCorner), or the full 2 sqrt(2) sigma. */
-    quadClip: 'opacity' | 'off';
     /**
      * Where the coverage threshold varies: per pixel (a discarding fragment shader over the
      * whole quad), or per splat and frame, which makes the kept pixels a solid ellipse drawn as
-     * a polygon with no discard (shaders/projector.ts); `interleaved` gives each of the four
+     * a square with no discard (shaders/projector.ts); `interleaved` gives each of the four
      * pixels of a 2x2 quad its own threshold per splat, stratified, drawn as four interleaved
      * pixel sets that the accumulation reads directly (shaders/taa.ts), or that are copied back
      * without it (shaders/interleave.ts). All keep each pixel with probability alpha.
      */
     coverage: CoverageMode;
     /**
-     * Sides of the polygon a splat's kept region draws as with coverage other than pixel, area
-     * matched; below 8 it turns by a fresh angle every frame, so it converges to the ellipse.
-     * The tiler's cost is per triangle: on the Pixel 7 Pro the interleaved sets' octagons (6
-     * triangles) cost 4.1 ms at the start view and squares (2) 1.2 ms, the image the same.
-     * Triangles (3) are cheaper still but blur the converged image measurably. With jitter the
-     * polygon contains the ellipse instead, and the fragments discard outside it.
-     */
-    sides: 3 | 4 | 6 | 8;
-    /**
      * Jittered strata, with coverage other than pixel: 0 keeps one threshold per splat (or per
      * splat and pixel set); otherwise the per-splat threshold is the base of a random stratum
      * and every pixel adds its own jitter within the stratum in the fragment shader, which
      * discards where alpha falls below it. The pixels of one splat then disagree, as per-pixel
-     * thresholds do, while the polygon stays the stratum's ellipse rather than the whole quad.
+     * thresholds do, while the square stays the stratum's ellipse rather than the whole quad.
      * The value is the sub-strata each stratum splits into, 1 or 2: the jitter spans one, so 2
-     * halves the rim that dithers and the polygons' area with it, at some agreement. The pixel
+     * halves the rim that dithers and the squares' area with it, at some agreement. The pixel
      * sets take the four strata of [0, 1) in a random order per splat and frame; a per-splat
      * draw takes one of `strata`.
      */
@@ -161,111 +130,12 @@ type Variant = {
     strata: number;
     /**
      * coverage:interleaved: splats whose footprint at the alpha clip covers fewer pixels than
-     * this draw per splat into the full target instead of into the four pixel sets, one polygon
+     * this draw per splat into the full target instead of into the four pixel sets, one square
      * each rather than up to four (0: every splat into the sets). Small splats gain little from
      * the sets, since their blotch is a pixel or two anyway. The sets are then copied back
      * before the small splats draw over them, and the accumulation reads the full target.
      */
     interleaveArea: number;
-    /**
-     * Bench diagnostics as bits: 1 copies the interleaved sets back in the raster pass instead
-     * of the taa reading them; for the sampler, 2 skips the tile pass, 4 claims no pixel and 8
-     * scatters no direct points (wrong images).
-     */
-    diag: number;
-    /**
-     * How the splats reach the target: the stochastic raster, or `compute`, a tile renderer that
-     * blends every pixel's splats front to back (shaders/tiles.ts), the image the raster
-     * converges to, with no noise and no accumulation; `sample`, the stochastic frame itself made in
-     * compute, each splat scattering only the pixels it keeps (shaders/samples.ts); `hybrid`, the
-     * raster for the splats of at least hybridOpacity and the sampler for the fainter ones, whose
-     * quads the raster spends most of its fragments on.
-     */
-    pipeline: 'raster' | 'compute' | 'sample' | 'hybrid';
-    /** pipeline:sample: alpha's ceiling in the point density (-ln(1 - alpha) points a pixel). */
-    sampleMaxAlpha: number;
-    /** pipeline:hybrid: the opacity from which the raster draws a splat rather than the sampler. */
-    hybridOpacity: number;
-    /**
-     * Bench diagnostic for the raster's cost, by subtraction: `none` draws nothing (the pass only
-     * clears), `empty` runs the vertex shader but collapses every quad to its centre (no
-     * fragments), `discard` discards every fragment (vertex and rasterisation cost), `opaque`
-     * keeps every fragment above the alpha clip (no stochastic test, so early depth rejection is
-     * not held back by discards), `testonly` keeps the depth test without writing depth and
-     * `nodepth` drops both (wrong images; they bound what the late depth update costs), `nohash`
-     * swaps the coverage hash for a multiply-free threshold (bounds what the hash costs), `never`
-     * fails every depth test (with a discarding shader, a gpu may test late and shade every
-     * fragment anyway), `solid` has no discard at all, every quad an opaque square (what early
-     * depth rejection does for a shader that never discards), `solidnever` fails every depth
-     * test with that shader (the early rejection floor), `nevernowrite` fails every test with the
-     * discarding shader and no depth writes (whether discard alone moves the test late), and
-     * `mask` makes the stochastic test a sample mask on the single sample instead of a discard,
-     * `solidtest` is `solid` without depth writes, and `nodiscard` makes it zero coverage under an
-     * under blend with no depth writes, the first kept fragment in draw order claiming the pixel,
-     * and `blend` blends the falloff premultiplied over with no discard or depth write, as the sorted
-     * renderer does per fragment. With coverage:interleaved, `none` skips the pixel sets' passes
-     * too, and `nocopy` skips only the copy back into the full target.
-     */
-    raster:
-        | 'full'
-        | 'none'
-        | 'empty'
-        | 'discard'
-        | 'opaque'
-        | 'testonly'
-        | 'nodepth'
-        | 'nohash'
-        | 'never'
-        | 'solid'
-        | 'solidnever'
-        | 'nevernowrite'
-        | 'mask'
-        | 'solidtest'
-        | 'nodiscard'
-        | 'blend'
-        | 'nocopy';
-    /** Alpha below which splats, quad extents and fragments are dropped; 0 keeps the scene's. */
-    alphaClip: number;
-    /**
-     * Timing experiment, the image is not composed from it: rasterise into a half-resolution
-     * target with 1 sample (`half1`), or with 4 samples and a coverage mask per invocation
-     * (`half4`, needs a hash other than full; its depth is stored and resolved), or the same
-     * with the multisampled depth left in tile memory, neither stored nor resolved (`half4t`),
-     * instead of the full-resolution target.
-     */
-    msaa: 'off' | 'half1' | 'half4' | 'half4t';
-    /** Timing experiment, the image is not composed from it: the raster's depth format. */
-    depth: 'd32' | 'd24s8' | 'd16';
-    /**
-     * Timing experiment, wrong images: `load` starts the raster from the previous frame's depth
-     * instead of clearing it, what drawing against dense depth that is already there would cost;
-     * `solid` first draws the same quads as discard-free depth-only squares, whether depth a
-     * discard-free draw updates early lets the gpu reject the stochastic draw's quads coarsely.
-     */
-    prefill: 'off' | 'load' | 'solid' | 'core';
-    /** prefill:core: the alpha each splat's depth-only core covers (its inscribed square). */
-    coreAlpha: number;
-    /**
-     * The occluder grid (shaders/occluder.ts): the occlusion grid's 8 px blocks, as depth-only
-     * quads at the farthest depth the previous frame's nearest samples had, drawn first in the
-     * raster pass without a discard, so the gpu can reject the splats' quads behind them before
-     * rasterising them finely. Runs on frames the occlusion cull runs (it reduces that grid).
-     */
-    occluder: 'off' | 'on';
-    /**
-     * Coverage threshold: `full` mixes pixel and splat per fragment (5 integer multiplies);
-     * the others hash the splat's seed once per vertex, then `split` mixes it with the pixel
-     * through the full hash (2 multiplies), `lite` through one multiply, and `ign` (the
-     * default) rotates interleaved gradient noise by it, with no integer multiplies, which
-     * mobile gpus run at a fraction of the float rate.
-     */
-    hash: 'full' | 'split' | 'lite' | 'ign';
-    /** The quad coordinates interpolated in half precision where the device has f16. */
-    uvHalf: 'on' | 'off';
-    /** Gaussian falloff: the exp form, or a polynomial within 0.0096 of it. */
-    falloff: 'exp' | 'poly';
-    /** Test the threshold against the opacity, which bounds alpha, before evaluating the falloff. */
-    earlyReject: 'on' | 'off';
     /** Temporal accumulation of the stochastic samples (shaders/taa.ts). */
     taa: 'on' | 'off';
     /**
@@ -277,63 +147,32 @@ type Variant = {
     taaMoveMax: number;
     /** Colour clamp while moving, in neighbourhood standard deviations (0 disables it). */
     taaClip: number;
-    /** Spacing in pixels of the colour clamp's 3x3 neighbourhood taps while moving. */
-    taaSpread: number;
-    /** History filter while moving: bilinear or Catmull-Rom. */
-    taaFilter: 'linear' | 'cubic';
     /** Depth the moving reprojection goes through: this frame's sample or the pixel's accumulated mean. */
     taaReproj: 'sample' | 'history';
     /** Image motion in pixels a frame that halves the moving sample cap (0: fixed cap). */
     taaMotion: number;
     /** 1 shows the accumulation state (count, acceptance, sample) instead of the colour. */
     taaDebug: number;
-    /** Overrides the row-order sign of the reprojection (-1 or 1); 0 derives it from the target. */
-    taaFlip: number;
-    /** Per-channel colour ceiling in the projected cache: 8 (the cache's range) or 1 (the engine's 8-bit cache clamps there). */
-    colorMax: number;
     /** Covariance units: true pixels, or the engine's doubled-focal convention (its dilation and culls scale with it). */
     units: 'px' | 'engine';
 };
 
 const defaultVariant = (): Variant => ({
-    spp: 'quad',
     compose: 'blend',
     cull: 'auto',
-    order: 'bucket',
     contribution: 0,
     popless: 'on',
-    quadClip: 'opacity',
     coverage: 'pixel',
-    sides: 4,
     jitter: 0,
     strata: 4,
     interleaveArea: 0,
-    diag: 0,
-    pipeline: 'raster',
-    sampleMaxAlpha: 0.995,
-    hybridOpacity: 0.5,
-    raster: 'full',
-    alphaClip: 0,
-    msaa: 'off',
-    depth: 'd32',
-    prefill: 'off',
-    coreAlpha: 0.5,
-    occluder: 'off',
-    hash: 'ign',
-    uvHalf: 'off',
-    falloff: 'exp',
-    earlyReject: 'off',
     taa: 'on',
     taaMax: 256,
     taaMoveMax: 16,
     taaClip: 1.25,
-    taaSpread: 1,
-    taaFilter: 'cubic',
     taaReproj: 'sample',
     taaMotion: 4,
     taaDebug: 0,
-    taaFlip: 0,
-    colorMax: 8,
     units: 'engine'
 });
 
@@ -344,79 +183,26 @@ const parseVariant = (text: string | undefined): Variant => {
     for (const part of (text ?? '').split(',')) {
         const [key, value] = part.split(':').map((s) => s.trim());
         if (!key || value === undefined) continue;
-        if (key === 'spp' && (value === '1' || value === 'quad')) variant.spp = value;
-        if (key === 'compose' && (value === 'blend' || value === 'none' || value === 'depth')) variant.compose = value;
+        if (key === 'compose' && (value === 'blend' || value === 'depth')) variant.compose = value;
+        if (key === 'cull' && (value === 'off' || value === 'l1' || value === 'l2' || value === 'auto')) {
+            variant.cull = value;
+        }
+        if (key === 'contribution' && Number.isFinite(Number(value))) variant.contribution = Math.max(0, Number(value));
         if (key === 'popless' && (value === 'on' || value === 'off')) variant.popless = value;
-        if (key === 'quadClip' && (value === 'opacity' || value === 'off')) variant.quadClip = value;
         if (key === 'coverage' && (value === 'pixel' || value === 'splat' || value === 'interleaved'))
             variant.coverage = value;
-        if (key === 'sides' && ['3', '4', '6', '8'].includes(value)) variant.sides = Number(value) as Variant['sides'];
         if (key === 'jitter' && ['0', '1', '2'].includes(value)) variant.jitter = Number(value);
         if (key === 'strata' && ['1', '2', '4'].includes(value)) variant.strata = Number(value);
         if (key === 'interleaveArea' && Number.isFinite(Number(value)))
             variant.interleaveArea = Math.max(0, Number(value));
-        if (key === 'diag' && Number.isFinite(Number(value))) variant.diag = Number(value);
-        if (key === 'hybridOpacity' && Number.isFinite(Number(value)))
-            variant.hybridOpacity = Math.min(1, Math.max(0, Number(value)));
-        if (key === 'pipeline' && ['raster', 'compute', 'sample', 'hybrid'].includes(value))
-            variant.pipeline = value as Variant['pipeline'];
-        if (key === 'sampleMaxAlpha' && Number.isFinite(Number(value)))
-            variant.sampleMaxAlpha = Math.min(0.999, Math.max(0.5, Number(value)));
-        if (
-            key === 'raster' &&
-            [
-                'full',
-                'none',
-                'empty',
-                'discard',
-                'opaque',
-                'testonly',
-                'nodepth',
-                'nohash',
-                'never',
-                'solid',
-                'solidnever',
-                'nevernowrite',
-                'mask',
-                'solidtest',
-                'nodiscard',
-                'blend',
-                'nocopy'
-            ].includes(value)
-        ) {
-            variant.raster = value as Variant['raster'];
-        }
-        if (key === 'alphaClip' && Number.isFinite(Number(value))) variant.alphaClip = Math.max(0, Number(value));
-        if (key === 'msaa' && ['off', 'half1', 'half4', 'half4t'].includes(value))
-            variant.msaa = value as Variant['msaa'];
-        if (key === 'depth' && (value === 'd32' || value === 'd24s8' || value === 'd16')) variant.depth = value;
-        if (key === 'prefill' && (value === 'off' || value === 'load' || value === 'solid' || value === 'core'))
-            variant.prefill = value;
-        if (key === 'coreAlpha' && Number.isFinite(Number(value)))
-            variant.coreAlpha = Math.min(1, Math.max(0.01, Number(value)));
-        if (key === 'occluder' && (value === 'off' || value === 'on')) variant.occluder = value;
-        if (key === 'hash' && ['full', 'split', 'lite', 'ign'].includes(value)) variant.hash = value as Variant['hash'];
-        if (key === 'uvHalf' && (value === 'on' || value === 'off')) variant.uvHalf = value;
-        if (key === 'falloff' && (value === 'exp' || value === 'poly')) variant.falloff = value;
-        if (key === 'earlyReject' && (value === 'on' || value === 'off')) variant.earlyReject = value;
         if (key === 'taa' && (value === 'on' || value === 'off')) variant.taa = value;
         if (key === 'taaMax' && Number.isFinite(Number(value))) variant.taaMax = taaCount(Number(value));
         if (key === 'taaMoveMax' && Number.isFinite(Number(value))) variant.taaMoveMax = taaCount(Number(value));
-        if (key === 'taaDebug' && Number.isFinite(Number(value))) variant.taaDebug = Number(value);
         if (key === 'taaClip' && Number.isFinite(Number(value))) variant.taaClip = Math.max(0, Number(value));
-        if (key === 'taaSpread' && Number.isFinite(Number(value)))
-            variant.taaSpread = Math.max(1, Math.round(Number(value)));
-        if (key === 'taaFilter' && (value === 'linear' || value === 'cubic')) variant.taaFilter = value;
         if (key === 'taaReproj' && (value === 'sample' || value === 'history')) variant.taaReproj = value;
         if (key === 'taaMotion' && Number.isFinite(Number(value))) variant.taaMotion = Math.max(0, Number(value));
-        if (key === 'taaFlip' && Number.isFinite(Number(value))) variant.taaFlip = Number(value);
-        if (key === 'colorMax' && Number.isFinite(Number(value))) variant.colorMax = Math.max(0, Number(value));
+        if (key === 'taaDebug' && Number.isFinite(Number(value))) variant.taaDebug = Number(value);
         if (key === 'units' && (value === 'px' || value === 'engine')) variant.units = value;
-        if (key === 'cull' && (value === 'off' || value === 'l1' || value === 'l2' || value === 'auto')) {
-            variant.cull = value;
-        }
-        if (key === 'order' && (value === 'append' || value === 'bucket')) variant.order = value;
-        if (key === 'contribution' && Number.isFinite(Number(value))) variant.contribution = Math.max(0, Number(value));
     }
     return variant;
 };
@@ -461,11 +247,7 @@ class SplatRasterPass extends RenderPass {
         this.name = name;
     }
 
-    /** Draw nothing; the pass still clears its target (variant raster:none). */
-    skip = false;
-
     execute() {
-        if (this.skip) return;
         this.forward.renderForwardLayer(this.camera.camera, this.renderTarget, null, undefined, SHADER_FORWARD, {
             meshInstances: this.instances
         });
@@ -503,8 +285,10 @@ const createQuadMesh = (device: GraphicsDevice, quads: number) => {
     return mesh;
 };
 
-// variant coverage:splat: a polygon per splat on the unit circle, fanned from its first vertex
-const createPolygonMesh = (device: GraphicsDevice, polygons: number, sides: number) => {
+// coverage other than pixel: a polygon per splat on the unit circle (POLYGON_SIDES corners),
+// fanned from its first vertex
+const createPolygonMesh = (device: GraphicsDevice, polygons: number) => {
+    const sides = POLYGON_SIDES;
     const positions = new Float32Array(polygons * sides * 3);
     const indices = new Uint32Array(polygons * (sides - 2) * 3);
     for (let i = 0; i < polygons; ++i) {
@@ -574,7 +358,7 @@ class StochasticSplatRenderer {
     private counter: StorageBuffer;
 
     // compute
-    // one projector shader per source and occlusion / order specialisation: the test's code
+    // one projector shader per source and occlusion / coverage specialisation: the test's code
     // costs a little even when a uniform disables it, so a disabled or suspended cull runs
     // without it. One compute per shader and dispatch group, since a compute owns the uniform
     // buffer its dispatch reads and per-file sources dispatch once per file
@@ -590,7 +374,7 @@ class StochasticSplatRenderer {
 
     private argsBindGroupFormat: BindGroupFormat;
 
-    // order:bucket: bucket counts then offsets, the ordered slot list, and its two passes
+    // the draw order (shaders/order.ts): bucket counts then offsets, the ordered slot list, and its two passes
     private orderBuckets: StorageBuffer;
 
     private orderedBuffer: StorageBuffer | null = null;
@@ -696,13 +480,11 @@ class StochasticSplatRenderer {
 
     private target: RenderTarget;
 
-    // variants msaa and depth: the targets the raster times itself into, per scale, sample count and depth format
-    private altTargets = new Map<string, { target: RenderTarget; textures: Texture[] }>();
-
     private rasterMesh: Mesh;
 
-    // variant coverage:splat, by side count (variant sides)
-    private polygonMeshes = new Map<number, Mesh>();
+    // coverage other than pixel: a square per splat, turned per frame or circumscribing the
+    // jittered stratum's ellipse (shaders/raster.ts)
+    private polygonMesh: Mesh;
 
     // variant coverage:interleaved: each pixel set's target, raster pass and draw, the pass that
     // copies them back into the full target when taa is off, and the passes that order and size
@@ -729,83 +511,9 @@ class StochasticSplatRenderer {
     // entries the ordered list holds: a survivor takes one, or one per pixel set it keeps
     private orderedCapacity = 0;
 
-    // variant pipeline:compute (shaders/tiles.ts): built on first use
-    private tilePipeline: {
-        binCount: Compute;
-        binFill: Compute;
-        scan: Compute;
-        blend: Compute;
-        formats: BindGroupFormat[];
-    } | null = null;
-
-    private tiles = { x: 0, y: 0 };
-
-    private tileCounts: StorageBuffer | null = null;
-
-    private tileOffsets: StorageBuffer | null = null;
-
-    private tileEntries: StorageBuffer | null = null;
-
-    private tileEntryCapacity = 0;
-
-    private tileRecordsA: StorageBuffer | null = null;
-
-    private tileRecordsB: StorageBuffer | null = null;
-
-    private tileRecordSlots = 0;
-
-    private tileEntryTotal: StorageBuffer | null = null;
-
-    private tileTotalPending = false;
-
-    private tileColor: Texture | null = null;
-
-    private tileInfo: Texture | null = null;
-
-    // variant pipeline:sample (shaders/samples.ts): built on first use
-    private samplePipeline: {
-        splats: Compute;
-        tiles: Compute;
-        args: Compute;
-        formats: BindGroupFormat[];
-        resolveMaterial: ShaderMaterial;
-        resolveInstance: MeshInstance;
-        mergeMaterial: ShaderMaterial;
-        mergeInstance: MeshInstance;
-    } | null = null;
-
-    private samplePixels: StorageBuffer | null = null;
-
-    private samplePixelCount = 0;
-
-    private sampleTotals: StorageBuffer | null = null;
-
-    private sampleRadii: StorageBuffer | null = null;
-
-    private sampleTableClip = -1;
-
-    private sampleItems: StorageBuffer | null = null;
-
-    private sampleItemCount: StorageBuffer | null = null;
-
-    // tile work items a frame at most (a splat over one tile each)
-    private static SAMPLE_ITEM_CAPACITY = 1 << 22;
-
     private rasterMaterial: ShaderMaterial;
 
     private rasterInstance: MeshInstance;
-
-    // variant prefill:solid: the raster's quads as discard-free depth-only squares, drawn first
-    private solidMaterial: ShaderMaterial;
-
-    private solidInstance: MeshInstance;
-
-    // variant occluder:on: the occluder grid (shaders/occluder.ts), drawn first in the raster pass
-    private occluderMaterial: ShaderMaterial;
-
-    private occluderInstance: MeshInstance;
-
-    private prevInvView = new Mat4();
 
     private rasterPass: SplatRasterPass;
 
@@ -961,74 +669,6 @@ class StochasticSplatRenderer {
         return { survivors: data[0], occluded: data[1] };
     }
 
-    // variants msaa and depth: point the raster at the full-resolution target, or at one of the
-    // timing experiments' targets (another scale, sample count or depth format)
-    private selectRasterTarget(width: number, height: number) {
-        const { msaa, depth } = this.variant;
-        let target = this.target;
-        if (msaa !== 'off' || depth !== 'd32') {
-            const scale = msaa === 'off' ? 1 : 2;
-            const samples = msaa === 'off' || msaa === 'half1' ? 1 : 4;
-            // the engine renders a 4x target into its own multisampled depth and resolves it with
-            // a shader, which writes a colour format
-            const depthFormat =
-                samples > 1
-                    ? PIXELFORMAT_R32F
-                    : depth === 'd24s8'
-                      ? PIXELFORMAT_DEPTHSTENCIL
-                      : depth === 'd16'
-                        ? PIXELFORMAT_DEPTH16
-                        : PIXELFORMAT_DEPTH;
-            const key = `${scale}:${samples}:${depthFormat}`;
-            let alt = this.altTargets.get(key);
-            if (!alt) {
-                const textures = [
-                    new Texture(this.device, {
-                        name: `sse-splat-alt-${key}-color`,
-                        width: 4,
-                        height: 4,
-                        format: PIXELFORMAT_RGBA8,
-                        mipmaps: false
-                    }),
-                    new Texture(this.device, {
-                        name: `sse-splat-alt-${key}-depth`,
-                        width: 4,
-                        height: 4,
-                        format: depthFormat,
-                        mipmaps: false
-                    })
-                ];
-                alt = {
-                    target: new RenderTarget({
-                        name: `sse-splat-alt-${key}`,
-                        colorBuffer: textures[0],
-                        depthBuffer: textures[1],
-                        samples
-                    }),
-                    textures
-                };
-                this.altTargets.set(key, alt);
-            }
-            const w = Math.ceil(width / scale);
-            const h = Math.ceil(height / scale);
-            if (alt.target.width !== w || alt.target.height !== h) alt.target.resize(w, h);
-            target = alt.target;
-        }
-        if (this.rasterPass.renderTarget !== target) {
-            this.rasterPass.init(target);
-            this.rasterPass.setClearColor(new Color(0, 0, 0, 0));
-        }
-        // variant prefill: load the previous frame's depth rather than clearing it
-        this.rasterPass.setClearDepth(this.variant.prefill === 'load' ? undefined : 1);
-        // a 4x target's depth is stored and resolved into its depth texture, as a composed
-        // version reading depth from it would need; half4t leaves it in tile memory instead
-        if (target.samples > 1) {
-            const keep = msaa === 'half4';
-            this.rasterPass.depthStencilOps.storeDepth = keep;
-            this.rasterPass.depthStencilOps.resolveDepth = keep;
-        }
-    }
-
     // the occlusion grid's two levels at this size
     private ensureOccGrid(width: number, height: number) {
         const x1 = Math.ceil(width / 8);
@@ -1074,441 +714,6 @@ class StochasticSplatRenderer {
         l1.setupDispatch(x1, y1, 1);
         device.computeDispatch([l1], 'sse-splat-reduce1');
         this.reduceLevel2();
-    }
-
-    // Variant pipeline:compute: the binning, scan and blend passes, built on first use
-    private ensureTilePipeline() {
-        if (this.tilePipeline) return this.tilePipeline;
-        const { device } = this;
-        const binFormat = new BindGroupFormat(device, [
-            new BindStorageBufferFormat('counter', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('cache', SHADERSTAGE_COMPUTE, true),
-            new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE),
-            new BindStorageBufferFormat('tileCounts', SHADERSTAGE_COMPUTE),
-            new BindStorageBufferFormat('orderedSlots', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('recordsA', SHADERSTAGE_COMPUTE),
-            new BindStorageBufferFormat('recordsB', SHADERSTAGE_COMPUTE),
-            new BindStorageBufferFormat('entries', SHADERSTAGE_COMPUTE)
-        ]);
-        const binUniforms = () =>
-            new UniformBufferFormat(device, [
-                new UniformFormat('viewportW', UNIFORMTYPE_FLOAT),
-                new UniformFormat('viewportH', UNIFORMTYPE_FLOAT),
-                new UniformFormat('tilesX', UNIFORMTYPE_UINT),
-                new UniformFormat('tilesY', UNIFORMTYPE_UINT),
-                new UniformFormat('focalX', UNIFORMTYPE_FLOAT),
-                new UniformFormat('focalY', UNIFORMTYPE_FLOAT),
-                new UniformFormat('flip', UNIFORMTYPE_FLOAT),
-                new UniformFormat('alphaClip', UNIFORMTYPE_FLOAT),
-                new UniformFormat('isOrtho', UNIFORMTYPE_UINT),
-                new UniformFormat('entryCapacity', UNIFORMTYPE_UINT),
-                new UniformFormat('pad0', UNIFORMTYPE_UINT),
-                new UniformFormat('pad1', UNIFORMTYPE_UINT)
-            ]);
-        const bin = (name: string, cshader: string) =>
-            new Compute(
-                device,
-                new Shader(device, {
-                    name,
-                    shaderLanguage: SHADERLANGUAGE_WGSL,
-                    cshader,
-                    computeUniformBufferFormats: { uniforms: binUniforms() },
-                    computeBindGroupFormat: binFormat
-                }),
-                name
-            );
-        const scanFormat = new BindGroupFormat(device, [
-            new BindStorageBufferFormat('tileCounts', SHADERSTAGE_COMPUTE),
-            new BindStorageBufferFormat('tileOffsets', SHADERSTAGE_COMPUTE),
-            new BindStorageBufferFormat('entryTotal', SHADERSTAGE_COMPUTE),
-            new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE)
-        ]);
-        const blendFormat = new BindGroupFormat(device, [
-            new BindStorageBufferFormat('tileCounts', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('tileOffsets', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('entries', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('recordsA', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('recordsB', SHADERSTAGE_COMPUTE, true),
-            new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE),
-            new BindStorageTextureFormat('outColor', PIXELFORMAT_RGBA16U, TEXTUREDIMENSION_2D),
-            new BindStorageTextureFormat('outInfo', PIXELFORMAT_R32U, TEXTUREDIMENSION_2D),
-            new BindStorageBufferFormat('occL1', SHADERSTAGE_COMPUTE)
-        ]);
-        this.tilePipeline = {
-            binCount: bin('sse-tiles-bin-count', binCountWGSL),
-            binFill: bin('sse-tiles-bin-fill', binFillWGSL),
-            scan: new Compute(
-                device,
-                new Shader(device, {
-                    name: 'sse-tiles-scan',
-                    shaderLanguage: SHADERLANGUAGE_WGSL,
-                    cshader: tileScanWGSL,
-                    computeUniformBufferFormats: {
-                        uniforms: new UniformBufferFormat(device, [new UniformFormat('tileCount', UNIFORMTYPE_UINT)])
-                    },
-                    computeBindGroupFormat: scanFormat
-                }),
-                'sse-tiles-scan'
-            ),
-            blend: new Compute(
-                device,
-                new Shader(device, {
-                    name: 'sse-tiles-blend',
-                    shaderLanguage: SHADERLANGUAGE_WGSL,
-                    cshader: tileBlendWGSL(taaHistoryWGSL),
-                    computeUniformBufferFormats: {
-                        uniforms: new UniformBufferFormat(device, [
-                            new UniformFormat('viewportW', UNIFORMTYPE_UINT),
-                            new UniformFormat('viewportH', UNIFORMTYPE_UINT),
-                            new UniformFormat('tilesX', UNIFORMTYPE_UINT),
-                            new UniformFormat('blocksX1', UNIFORMTYPE_UINT),
-                            new UniformFormat('blocksY1', UNIFORMTYPE_UINT),
-                            new UniformFormat('entryCapacity', UNIFORMTYPE_UINT),
-                            new UniformFormat('isOrtho', UNIFORMTYPE_UINT),
-                            new UniformFormat('alphaClip', UNIFORMTYPE_FLOAT),
-                            new UniformFormat('clipA', UNIFORMTYPE_FLOAT),
-                            new UniformFormat('clipB', UNIFORMTYPE_FLOAT)
-                        ])
-                    },
-                    computeBindGroupFormat: blendFormat
-                }),
-                'sse-tiles-blend'
-            ),
-            formats: [binFormat, scanFormat, blendFormat]
-        };
-        this.tileEntryTotal = new StorageBuffer(device, 16, BUFFERUSAGE_COPY_SRC);
-        return this.tilePipeline;
-    }
-
-    // Variant pipeline:sample: the scatter passes and the resolve, built on first use
-    private ensureSamplePipeline() {
-        if (this.samplePipeline) return this.samplePipeline;
-        const { device } = this;
-        const format = new BindGroupFormat(device, [
-            new BindStorageBufferFormat('counter', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('cache', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('orderedSlots', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('totals', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('radii', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('pixels', SHADERSTAGE_COMPUTE),
-            new BindStorageBufferFormat('items', SHADERSTAGE_COMPUTE),
-            new BindStorageBufferFormat('itemCount', SHADERSTAGE_COMPUTE),
-            new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE)
-        ]);
-        const scatter = (name: string, cshader: string) =>
-            new Compute(
-                device,
-                new Shader(device, {
-                    name,
-                    shaderLanguage: SHADERLANGUAGE_WGSL,
-                    cshader,
-                    computeUniformBufferFormats: {
-                        uniforms: new UniformBufferFormat(device, [
-                            new UniformFormat('viewportW', UNIFORMTYPE_FLOAT),
-                            new UniformFormat('viewportH', UNIFORMTYPE_FLOAT),
-                            new UniformFormat('tilesX', UNIFORMTYPE_UINT),
-                            new UniformFormat('tilesY', UNIFORMTYPE_UINT),
-                            new UniformFormat('focalX', UNIFORMTYPE_FLOAT),
-                            new UniformFormat('focalY', UNIFORMTYPE_FLOAT),
-                            new UniformFormat('flip', UNIFORMTYPE_FLOAT),
-                            new UniformFormat('alphaClip', UNIFORMTYPE_FLOAT),
-                            new UniformFormat('isOrtho', UNIFORMTYPE_UINT),
-                            new UniformFormat('frameSeed', UNIFORMTYPE_UINT),
-                            new UniformFormat('itemCapacity', UNIFORMTYPE_UINT),
-                            new UniformFormat('opacityLimit', UNIFORMTYPE_UINT),
-                            new UniformFormat('maxAlpha', UNIFORMTYPE_FLOAT),
-                            new UniformFormat('debugFlags', UNIFORMTYPE_UINT)
-                        ])
-                    },
-                    computeBindGroupFormat: format
-                }),
-                name
-            );
-        const argsFormat = new BindGroupFormat(device, [
-            new BindStorageBufferFormat('itemCount', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('indirectDispatchArgs', SHADERSTAGE_COMPUTE),
-            new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE)
-        ]);
-        // the resolve writes every texel; the merge (pipeline:hybrid) only those a point reached,
-        // and only where nearer than what the raster drew there
-        const resolveOf = (name: string, merge: boolean) => {
-            const material = new ShaderMaterial({
-                uniqueName: name,
-                vertexWGSL: sampleResolveVertexWGSL,
-                fragmentWGSL: sampleResolveFragmentWGSL(FAR_CLIP_Z, merge),
-                attributes: { vertex_position: SEMANTIC_POSITION }
-            });
-            material.blendType = BLEND_NONE;
-            material.depthWrite = true;
-            material.depthTest = true;
-            material.depthFunc = merge ? FUNC_LESSEQUAL : FUNC_ALWAYS;
-            material.cull = CULLFACE_NONE;
-            const instance = new MeshInstance(createFullscreenMesh(device), material, new GraphNode(name));
-            instance.cull = false;
-            instance.castShadow = false;
-            instance.receiveShadow = false;
-            return { material, instance };
-        };
-        const resolve = resolveOf('sse-samples-resolve', false);
-        const merge = resolveOf('sse-samples-merge', true);
-        const resolveMaterial = resolve.material;
-        const resolveInstance = resolve.instance;
-        this.samplePipeline = {
-            splats: scatter('sse-samples-splats', sampleSplatsWGSL),
-            tiles: scatter('sse-samples-tiles', sampleTilesWGSL),
-            args: new Compute(
-                device,
-                new Shader(device, {
-                    name: 'sse-samples-args',
-                    shaderLanguage: SHADERLANGUAGE_WGSL,
-                    cshader: sampleArgsWGSL,
-                    computeUniformBufferFormats: {
-                        uniforms: new UniformBufferFormat(device, [
-                            new UniformFormat('dispatchSlot', UNIFORMTYPE_UINT),
-                            new UniformFormat('itemCapacity', UNIFORMTYPE_UINT)
-                        ])
-                    },
-                    computeBindGroupFormat: argsFormat
-                }),
-                'sse-samples-args'
-            ),
-            formats: [format, argsFormat],
-            resolveMaterial,
-            resolveInstance,
-            mergeMaterial: merge.material,
-            mergeInstance: merge.instance
-        };
-        this.sampleItems = new StorageBuffer(device, StochasticSplatRenderer.SAMPLE_ITEM_CAPACITY * 8);
-        this.sampleItemCount = new StorageBuffer(device, 16, BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC);
-        return this.samplePipeline;
-    }
-
-    // the opacity byte from which the raster draws a splat, with pipeline:hybrid (256: none)
-    private hybridLimit() {
-        return this.variant.pipeline === 'hybrid' ? Math.round(this.variant.hybridOpacity * 255) : 256;
-    }
-
-    // Variant pipeline:sample: every survivor scatters the pixels it keeps into the key buffer,
-    // front to back, and the raster pass resolves the keys into the target (shaders/samples.ts)
-    private dispatchSamples(
-        width: number,
-        height: number,
-        dispatchSlot: number,
-        alphaClip: number,
-        clipZ: number[],
-        isOrtho: boolean,
-        focal: number[]
-    ) {
-        const { device } = this;
-        const pipeline = this.ensureSamplePipeline();
-        if (this.samplePixelCount !== width * height) {
-            this.samplePixels?.destroy();
-            this.samplePixelCount = width * height;
-            this.samplePixels = new StorageBuffer(
-                device,
-                width * height * 4,
-                BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC
-            );
-        }
-        const tableKey = alphaClip * 1000 + this.variant.sampleMaxAlpha;
-        if (this.sampleTableClip !== tableKey) {
-            const { totals, radii } = buildSampleTables(alphaClip, this.variant.sampleMaxAlpha);
-            this.sampleTotals?.destroy();
-            this.sampleRadii?.destroy();
-            this.sampleTotals = new StorageBuffer(device, totals.byteLength, BUFFERUSAGE_COPY_DST);
-            this.sampleRadii = new StorageBuffer(device, radii.byteLength, BUFFERUSAGE_COPY_DST);
-            this.sampleTotals.write(0, totals, 0, totals.length);
-            this.sampleRadii.write(0, radii, 0, radii.length);
-            this.sampleTableClip = tableKey;
-        }
-        this.samplePixels!.clear();
-        this.sampleItemCount!.clear();
-        const capacity = StochasticSplatRenderer.SAMPLE_ITEM_CAPACITY;
-        const tilesX = Math.ceil(width / TILE_SIZE);
-        const tilesY = Math.ceil(height / TILE_SIZE);
-        for (const compute of [pipeline.splats, pipeline.tiles]) {
-            compute.setParameter('counter', this.counter);
-            compute.setParameter('cache', this.cacheBuffer!);
-            compute.setParameter('orderedSlots', this.orderedBuffer!);
-            compute.setParameter('totals', this.sampleTotals!);
-            compute.setParameter('radii', this.sampleRadii!);
-            compute.setParameter('pixels', this.samplePixels!);
-            compute.setParameter('items', this.sampleItems!);
-            compute.setParameter('itemCount', this.sampleItemCount!);
-            compute.setParameter('viewportW', width);
-            compute.setParameter('viewportH', height);
-            compute.setParameter('tilesX', tilesX);
-            compute.setParameter('tilesY', tilesY);
-            compute.setParameter('focalX', focal[0]);
-            compute.setParameter('focalY', focal[1]);
-            compute.setParameter('flip', this.target.flipY ? -1 : 1);
-            compute.setParameter('alphaClip', alphaClip);
-            compute.setParameter('isOrtho', isOrtho ? 1 : 0);
-            compute.setParameter('frameSeed', this.frameSeed);
-            compute.setParameter('itemCapacity', capacity);
-            compute.setParameter('opacityLimit', this.hybridLimit());
-            compute.setParameter('maxAlpha', this.variant.sampleMaxAlpha);
-            compute.setParameter('debugFlags', (this.variant.diag >> 2) & 3);
-        }
-        pipeline.splats.setupIndirectDispatch(dispatchSlot);
-        const itemSlot = device.getIndirectDispatchSlot(1);
-        const args = pipeline.args;
-        args.setParameter('itemCount', this.sampleItemCount!);
-        args.setParameter('indirectDispatchArgs', device.indirectDispatchBuffer);
-        args.setParameter('dispatchSlot', itemSlot);
-        args.setParameter('itemCapacity', capacity);
-        args.setupDispatch(1, 1, 1);
-        pipeline.tiles.setupIndirectDispatch(itemSlot);
-        device.computeDispatch([pipeline.splats], 'sse-samples-splats');
-        device.computeDispatch([args], 'sse-samples-args');
-        if (!(this.variant.diag & 2)) device.computeDispatch([pipeline.tiles], 'sse-samples-tiles');
-        for (const resolve of [pipeline.resolveMaterial, pipeline.mergeMaterial]) {
-            resolve.setParameter('pixels', this.samplePixels!);
-            resolve.setParameter('resolveParams', [width, isOrtho ? 1 : 0, clipZ[0], clipZ[1]]);
-        }
-    }
-
-    // the tile renderer's per-size and per-cache buffers, and its output
-    private ensureTileResources(width: number, height: number) {
-        const { device } = this;
-        const tx = Math.ceil(width / TILE_SIZE);
-        const ty = Math.ceil(height / TILE_SIZE);
-        if (this.tiles.x !== tx || this.tiles.y !== ty) {
-            this.tileCounts?.destroy();
-            this.tileOffsets?.destroy();
-            // readable for the bench's tile statistics
-            this.tileCounts = new StorageBuffer(device, tx * ty * 4, BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC);
-            this.tileOffsets = new StorageBuffer(device, tx * ty * 4, BUFFERUSAGE_COPY_SRC);
-            this.tiles = { x: tx, y: ty };
-        }
-        if (this.tileRecordSlots < this.cacheSlots) {
-            this.tileRecordsA?.destroy();
-            this.tileRecordsB?.destroy();
-            this.tileRecordSlots = this.cacheSlots;
-            this.tileRecordsA = new StorageBuffer(device, this.cacheSlots * 16);
-            this.tileRecordsB = new StorageBuffer(device, this.cacheSlots * 16);
-        }
-        if (!this.tileEntries) {
-            // grown from the entry total the gpu reports (see dispatchTiles)
-            this.tileEntryCapacity = 2 * 1024 * 1024;
-            this.tileEntries = new StorageBuffer(device, this.tileEntryCapacity * 16, BUFFERUSAGE_COPY_SRC);
-        }
-        if (!this.tileColor || this.tileColor.width !== width || this.tileColor.height !== height) {
-            this.tileColor?.destroy();
-            this.tileInfo?.destroy();
-            const options = {
-                width,
-                height,
-                mipmaps: false,
-                storage: true,
-                minFilter: FILTER_NEAREST,
-                magFilter: FILTER_NEAREST,
-                addressU: ADDRESS_CLAMP_TO_EDGE,
-                addressV: ADDRESS_CLAMP_TO_EDGE
-            };
-            this.tileColor = new Texture(device, { ...options, name: 'sse-tiles-color', format: PIXELFORMAT_RGBA16U });
-            this.tileInfo = new Texture(device, { ...options, name: 'sse-tiles-info', format: PIXELFORMAT_R32U });
-        }
-    }
-
-    // Variant pipeline:compute: bin the survivors into tiles, sort and blend each tile, and leave
-    // the occlusion grid for the next frame (shaders/tiles.ts)
-    private dispatchTiles(
-        width: number,
-        height: number,
-        dispatchSlot: number,
-        alphaClip: number,
-        clipZ: number[],
-        isOrtho: boolean,
-        focal: number[]
-    ) {
-        const { device } = this;
-        const pipeline = this.ensureTilePipeline();
-        this.ensureTileResources(width, height);
-        this.ensureOccGrid(width, height);
-        const tileCount = this.tiles.x * this.tiles.y;
-        this.tileCounts!.clear();
-
-        for (const bin of [pipeline.binCount, pipeline.binFill]) {
-            bin.setParameter('counter', this.counter);
-            bin.setParameter('cache', this.cacheBuffer!);
-            bin.setParameter('tileCounts', this.tileCounts!);
-            bin.setParameter('orderedSlots', this.orderedBuffer!);
-            bin.setParameter('recordsA', this.tileRecordsA!);
-            bin.setParameter('recordsB', this.tileRecordsB!);
-            bin.setParameter('entries', this.tileEntries!);
-            bin.setParameter('viewportW', width);
-            bin.setParameter('viewportH', height);
-            bin.setParameter('tilesX', this.tiles.x);
-            bin.setParameter('tilesY', this.tiles.y);
-            bin.setParameter('focalX', focal[0]);
-            bin.setParameter('focalY', focal[1]);
-            bin.setParameter('flip', this.target.flipY ? -1 : 1);
-            bin.setParameter('alphaClip', alphaClip);
-            bin.setParameter('isOrtho', isOrtho ? 1 : 0);
-            bin.setParameter('entryCapacity', this.tileEntryCapacity);
-            bin.setParameter('pad0', 0);
-            bin.setParameter('pad1', 0);
-            bin.setupIndirectDispatch(dispatchSlot);
-        }
-        const scan = pipeline.scan;
-        scan.setParameter('tileCounts', this.tileCounts!);
-        scan.setParameter('tileOffsets', this.tileOffsets!);
-        scan.setParameter('entryTotal', this.tileEntryTotal!);
-        scan.setParameter('tileCount', tileCount);
-        scan.setupDispatch(1, 1, 1);
-        const blend = pipeline.blend;
-        blend.setParameter('tileCounts', this.tileCounts!);
-        blend.setParameter('tileOffsets', this.tileOffsets!);
-        blend.setParameter('entries', this.tileEntries!);
-        blend.setParameter('recordsA', this.tileRecordsA!);
-        blend.setParameter('recordsB', this.tileRecordsB!);
-        blend.setParameter('outColor', this.tileColor!);
-        blend.setParameter('outInfo', this.tileInfo!);
-        blend.setParameter('occL1', this.occL1);
-        blend.setParameter('viewportW', width);
-        blend.setParameter('viewportH', height);
-        blend.setParameter('tilesX', this.tiles.x);
-        blend.setParameter('blocksX1', this.occBlocks.x1);
-        blend.setParameter('blocksY1', this.occBlocks.y1);
-        blend.setParameter('entryCapacity', this.tileEntryCapacity);
-        blend.setParameter('isOrtho', isOrtho ? 1 : 0);
-        blend.setParameter('alphaClip', alphaClip);
-        blend.setParameter('clipA', clipZ[0]);
-        blend.setParameter('clipB', clipZ[1]);
-        blend.setupDispatch(this.tiles.x, this.tiles.y, 1);
-
-        device.computeDispatch([pipeline.binCount], 'sse-tiles-bin-count');
-        device.computeDispatch([scan], 'sse-tiles-scan');
-        device.computeDispatch([pipeline.binFill], 'sse-tiles-bin-fill');
-        device.computeDispatch([blend], 'sse-tiles-blend');
-        // the next frame's occlusion cull reads both levels
-        this.reduceLevel2();
-
-        // the entry list grows when a frame needed more than it holds (off the frame, a frame or
-        // two late; until then the tiles past the end draw short)
-        if (!this.tileTotalPending) {
-            this.tileTotalPending = true;
-            const data = new Uint32Array(1);
-            this.tileEntryTotal!.read(0, 4, data, false)
-                .then(() => {
-                    if (data[0] > this.tileEntryCapacity * 0.9) {
-                        this.tileEntries?.destroy();
-                        this.tileEntryCapacity = Math.ceil(data[0] * 1.5);
-                        this.tileEntries = new StorageBuffer(
-                            this.device,
-                            this.tileEntryCapacity * 16,
-                            BUFFERUSAGE_COPY_SRC
-                        );
-                    }
-                })
-                .catch(() => {
-                    // a lost device or a destroyed buffer; the next frame reads again
-                })
-                .finally(() => {
-                    this.tileTotalPending = false;
-                });
-        }
     }
 
     /** Survivors of the last frame's projection are only known to the gpu; this is the resident count. */
@@ -1701,6 +906,7 @@ class StochasticSplatRenderer {
         });
 
         this.rasterMesh = createQuadMesh(device, QUADS_PER_INSTANCE);
+        this.polygonMesh = createPolygonMesh(device, QUADS_PER_INSTANCE);
         this.rasterMaterial = new ShaderMaterial({
             uniqueName: 'sse-splat-raster',
             vertexWGSL: rasterVertexWGSL,
@@ -1716,56 +922,6 @@ class StochasticSplatRenderer {
         this.rasterInstance.cull = false;
         this.rasterInstance.castShadow = false;
         this.rasterInstance.receiveShadow = false;
-        this.solidMaterial = new ShaderMaterial({
-            uniqueName: 'sse-splat-raster-solid',
-            vertexWGSL: rasterVertexWGSL,
-            fragmentWGSL: rasterFragmentWGSL,
-            attributes: { vertex_position: SEMANTIC_POSITION }
-        });
-        // depth only: no colour channel written
-        this.solidMaterial.blendState = new BlendState(
-            false,
-            BLENDEQUATION_ADD,
-            BLENDMODE_ONE,
-            BLENDMODE_ONE,
-            BLENDEQUATION_ADD,
-            BLENDMODE_ONE,
-            BLENDMODE_ONE,
-            false,
-            false,
-            false,
-            false
-        );
-        this.solidMaterial.depthWrite = true;
-        this.solidMaterial.depthTest = true;
-        this.solidMaterial.cull = CULLFACE_NONE;
-        this.solidInstance = new MeshInstance(
-            this.rasterMesh,
-            this.solidMaterial,
-            new GraphNode('sse-splat-raster-solid')
-        );
-        this.solidInstance.cull = false;
-        this.solidInstance.castShadow = false;
-        this.solidInstance.receiveShadow = false;
-        this.occluderMaterial = new ShaderMaterial({
-            uniqueName: 'sse-splat-occluder',
-            vertexWGSL: occluderVertexWGSL,
-            fragmentWGSL: occluderFragmentWGSL,
-            attributes: { vertex_position: SEMANTIC_POSITION }
-        });
-        this.occluderMaterial.blendState = this.solidMaterial.blendState;
-        this.occluderMaterial.depthWrite = true;
-        this.occluderMaterial.depthTest = true;
-        this.occluderMaterial.cull = CULLFACE_NONE;
-        this.occluderInstance = new MeshInstance(
-            this.rasterMesh,
-            this.occluderMaterial,
-            new GraphNode('sse-splat-occluder')
-        );
-        this.occluderInstance.setInstancing(true);
-        this.occluderInstance.cull = false;
-        this.occluderInstance.castShadow = false;
-        this.occluderInstance.receiveShadow = false;
 
         this.rasterPass = new SplatRasterPass(device, app.renderer as unknown as EngineForwardRenderer, camera, [
             this.rasterInstance
@@ -1808,7 +964,7 @@ class StochasticSplatRenderer {
             });
             this.setTargets.push(target);
             const instance = new MeshInstance(
-                this.polygonMesh(this.variant.sides),
+                this.polygonMesh,
                 this.rasterMaterial,
                 new GraphNode(`sse-splat-set-${i}`)
             );
@@ -2025,98 +1181,26 @@ class StochasticSplatRenderer {
     applyVariant() {
         // a switch changes what the frames hold; an old history would leak into the new ones
         this.resetHistory();
-        const quad = this.variant.spp === 'quad';
-        this.rasterMaterial.setDefine('SSE_SPP_QUAD', quad ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_ORDERED', this.variant.order === 'bucket' ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_POPLESS', this.variant.popless === 'on' ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_QUAD_CLIP', this.variant.quadClip === 'opacity' ? '' : undefined);
         const splatCoverage = this.variant.coverage !== 'pixel';
         this.rasterMaterial.setDefine('SSE_COVERAGE_SPLAT', splatCoverage ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_INTERLEAVED', this.variant.coverage === 'interleaved' ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_HYBRID', this.variant.pipeline === 'hybrid' ? '' : undefined);
-        const polygonMesh = this.polygonMesh(this.variant.sides);
-        this.rasterInstance.mesh = splatCoverage ? polygonMesh : this.rasterMesh;
-        for (const instance of this.setInstances) instance.mesh = polygonMesh;
-        // variant jitter: the polygon contains the ellipse and the fragments discard outside it,
+        this.rasterInstance.mesh = splatCoverage ? this.polygonMesh : this.rasterMesh;
+        // variant jitter: the square contains the ellipse and the fragments discard outside it,
         // so it needs no turning; the pixel sets draw from four strata, a per-splat draw from
         // `strata` (the full target's instance also serves as the interleaved mode's group 4)
-        const { jitter, strata, sides } = this.variant;
-        this.rasterMaterial.setDefine('SSE_JITTER', splatCoverage && jitter > 0 ? '' : undefined);
-        this.rasterMaterial.setDefine(
-            'SSE_POLYGON_ROTATE',
-            sides < 8 && !(splatCoverage && jitter > 0) ? '' : undefined
-        );
-        const scale = Number(polygonScale(sides, jitter > 0));
+        const { jitter, strata } = this.variant;
+        const jittered = splatCoverage && jitter > 0;
+        this.rasterMaterial.setDefine('SSE_JITTER', jittered ? '' : undefined);
+        this.rasterMaterial.setDefine('SSE_POLYGON_ROTATE', splatCoverage && !jittered ? '' : undefined);
+        const scale = Number(polygonScale(jitter > 0));
         const subs = Math.max(jitter, 1);
         for (const instance of this.setInstances)
             instance.setParameter('jitterParams', [jitter, 4, 1 / (4 * subs), scale]);
         this.rasterInstance.setParameter('jitterParams', [jitter, strata, 1 / (strata * subs), scale]);
         this.rasterInstance.setParameter('setIndex', 4);
         this.rasterInstance.setParameter('setMap', [1, 0, 1, 0]);
-        this.rasterMaterial.setDefine('SSE_RASTER_EMPTY', this.variant.raster === 'empty' ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_RASTER_DISCARD', this.variant.raster === 'discard' ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_RASTER_OPAQUE', this.variant.raster === 'opaque' ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_RASTER_NOHASH', this.variant.raster === 'nohash' ? '' : undefined);
-        const { raster } = this.variant;
-        this.rasterMaterial.setDefine(
-            'SSE_RASTER_SOLID',
-            raster === 'solid' || raster === 'solidnever' || raster === 'solidtest' ? '' : undefined
-        );
-        this.rasterMaterial.setDefine('SSE_RASTER_MASK', raster === 'mask' ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_RASTER_NODISCARD', raster === 'nodiscard' ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_RASTER_BLEND', raster === 'blend' ? '' : undefined);
-        // nodiscard: the first kept fragment in draw order claims the pixel (premultiplied under);
-        // blend: premultiplied over, as the sorted renderer blends
-        this.rasterMaterial.blendState =
-            raster === 'nodiscard'
-                ? new BlendState(
-                      true,
-                      BLENDEQUATION_ADD,
-                      BLENDMODE_ONE_MINUS_DST_ALPHA,
-                      BLENDMODE_ONE,
-                      BLENDEQUATION_ADD,
-                      BLENDMODE_ONE_MINUS_DST_ALPHA,
-                      BLENDMODE_ONE
-                  )
-                : raster === 'blend'
-                  ? new BlendState(
-                        true,
-                        BLENDEQUATION_ADD,
-                        BLENDMODE_ONE,
-                        BLENDMODE_ONE_MINUS_SRC_ALPHA,
-                        BLENDEQUATION_ADD,
-                        BLENDMODE_ONE,
-                        BLENDMODE_ONE_MINUS_SRC_ALPHA
-                    )
-                  : BlendState.NOBLEND;
-        this.rasterMaterial.setDefine('SSE_MSAA', this.variant.msaa.startsWith('half4') ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_SEED_VERTEX', this.variant.hash !== 'full' ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_HASH_LITE', this.variant.hash === 'lite' ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_HASH_IGN', this.variant.hash === 'ign' ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_UV_HALF', this.variant.uvHalf === 'on' ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_FALLOFF_POLY', this.variant.falloff === 'poly' ? '' : undefined);
-        this.rasterMaterial.setDefine('SSE_EARLY_REJECT', this.variant.earlyReject === 'on' ? '' : undefined);
-        for (const pass of this.setPasses) pass.skip = this.variant.raster === 'none';
-        this.rasterMaterial.depthWrite = ![
-            'testonly',
-            'nodepth',
-            'nevernowrite',
-            'solidtest',
-            'nodiscard',
-            'blend'
-        ].includes(raster);
-        this.rasterMaterial.depthTest = raster !== 'nodepth';
-        this.rasterMaterial.depthFunc =
-            raster === 'never' || raster === 'solidnever' || raster === 'nevernowrite' ? FUNC_NEVER : FUNC_LESSEQUAL;
-        // variant prefill:solid: the same quads as discard-free depth-only squares first
-        for (const name of ['SSE_ORDERED', 'SSE_POPLESS', 'SSE_QUAD_CLIP']) {
-            this.solidMaterial.setDefine(name, this.rasterMaterial.getDefine(name) ? '' : undefined);
-        }
-        this.solidMaterial.setDefine('SSE_RASTER_SOLID', '');
-        this.solidMaterial.setDefine('SSE_CORE', this.variant.prefill === 'core' ? '' : undefined);
-        this.solidMaterial.update();
         this.composeMaterial.setDefine('SSE_SHOW_DEPTH', this.variant.compose === 'depth' ? '' : undefined);
-        this.composeMaterial.setDefine('SSE_SPP_QUAD', quad ? '' : undefined);
         this.rasterMaterial.update();
         this.composeMaterial.update();
         this.setReady(this.ready);
@@ -2128,7 +1212,7 @@ class StochasticSplatRenderer {
         this.ready = value;
         this.rasterPass.enabled = value && !this.setsFolded;
         for (const pass of this.setPasses) pass.enabled = value && this.variant.coverage === 'interleaved';
-        this.composeInstance.visible = value && this.variant.compose !== 'none';
+        this.composeInstance.visible = value;
     }
 
     private attach() {
@@ -2193,7 +1277,6 @@ class StochasticSplatRenderer {
             // their views point at the depth texture just rebuilt
             this.releaseTaaSetTargets();
         }
-        this.selectRasterTarget(width, height);
 
         const view = cam.viewMatrix;
         const projection = cam.projectionMatrix;
@@ -2217,7 +1300,7 @@ class StochasticSplatRenderer {
         const focal = [Math.abs(projection.data[0]) * width * 0.5, Math.abs(projection.data[5]) * height * 0.5];
         const gsplat = this.app.scene.gsplat;
         // splats, quads and fragments below it are dropped
-        const alphaClip = this.variant.alphaClip > 0 ? this.variant.alphaClip : gsplat.alphaClipForward;
+        const alphaClip = gsplat.alphaClipForward;
 
         // the moving-camera contribution cull: a raised threshold while the view changes, then
         // one more frame at the scene's threshold once it has stopped
@@ -2233,12 +1316,8 @@ class StochasticSplatRenderer {
         // this size. While it runs the coverage seed changes every frame, and a resting camera
         // keeps requesting frames until the history has filled its cap
         const isQuery = !!rt;
-        const computePipeline = this.variant.pipeline === 'compute';
-        const hybrid = this.variant.pipeline === 'hybrid';
-        const sampled = this.variant.pipeline === 'sample' || hybrid;
         const taaOn =
             this.variant.taa === 'on' &&
-            !computePipeline &&
             (!isQuery || (this.allowQueryTaa && width === this.taaWidth && height === this.taaHeight));
         if (taaOn) {
             if (this.taaWidth !== width || this.taaHeight !== height) {
@@ -2300,26 +1379,17 @@ class StochasticSplatRenderer {
             !this.nodesRemoved &&
             this.prevOrtho === isOrtho;
         this.culling = culling;
-        if (culling) {
-            // the tile renderer wrote level 1 itself, and level 2 from it, at the end of its frame
-            if (!computePipeline) this.reduceDepth(width, height);
-        }
+        if (culling) this.reduceDepth(width, height);
 
         this.counter.clear();
-        // the tile renderer takes every survivor as the raster draws them per pixel
-        // pipeline:hybrid can draw its solid splats per splat, not interleaved
-        const coverage =
-            computePipeline || (sampled && !hybrid) || (hybrid && this.variant.coverage === 'interleaved')
-                ? 'pixel'
-                : this.variant.coverage;
+        const { coverage } = this.variant;
         const interleaved = coverage === 'interleaved';
         // variant interleaveArea: the small splats draw per splat into the full target, over the
         // sets copied back, so the accumulation reads the full target as usual
         const smallSplats = interleaved && this.variant.interleaveArea > 0;
-        // interleaved pixel sets split their draws by the order, the tile renderer bins in it and
-        // the sampler scatters front to back in it
-        const ordered = computePipeline || sampled || this.variant.order === 'bucket' || interleaved;
-        if (ordered) this.orderBuckets.clear();
+        // the draw order (shaders/order.ts): front to back, so early depth rejection takes most
+        // of what the depth test would; the interleaved pixel sets split their draws by it too
+        this.orderBuckets.clear();
         this.ensureOrdered(this.cacheSlots * (interleaved ? 4 : 1));
         // the order key spans the fitted clip range, log-spaced
         const logNear = Math.log(Math.max(cam.nearClip, 1e-6));
@@ -2335,7 +1405,7 @@ class StochasticSplatRenderer {
         for (const group of groups) {
             // a file with no node in the frustum has nothing to dispatch
             if (group.fileIndex >= 0 && !this.anyNodeVisible(set.files[group.fileIndex].nodes)) continue;
-            const projector = this.ensureProjector(culling, ordered, coverage, group);
+            const projector = this.ensureProjector(culling, coverage, group);
             this.source.bind(projector, group, set);
             projector.setParameter('chunks', this.chunkBuffer!);
             projector.setParameter('nodeVisible', this.nodeVisibleBuffer!);
@@ -2361,7 +1431,6 @@ class StochasticSplatRenderer {
             projector.setParameter('minPixelSize', gsplat.minPixelSize);
             projector.setParameter('alphaClip', alphaClip);
             projector.setParameter('minContribution', minContribution);
-            projector.setParameter('colorMax', this.variant.colorMax);
             projector.setParameter('unitScale', this.variant.units === 'engine' ? 2 : 1);
             projector.setParameter('occBlocksX1', this.occBlocks.x1);
             projector.setParameter('occBlocksY1', this.occBlocks.y1);
@@ -2374,7 +1443,6 @@ class StochasticSplatRenderer {
             projector.setParameter('depthNear', depthNear);
             projector.setParameter('depthFar', depthFar);
             projector.setParameter('frameSeed', this.frameSeed);
-            projector.setParameter('coverageLimit', hybrid ? this.hybridLimit() : 0);
             projector.setParameter('jitterSubs', this.variant.jitter);
             projector.setParameter('strata', this.variant.strata);
             projector.setParameter('interleaveArea', interleaved ? this.variant.interleaveArea : 0);
@@ -2391,8 +1459,8 @@ class StochasticSplatRenderer {
         this.args.setParameter('indirectDrawArgs', device.indirectDrawBuffer);
         this.args.setParameter('indirectDispatchArgs', device.indirectDispatchBuffer);
         this.args.setParameter('drawSlot', drawSlot);
-        // the solid prefill shares the draw arguments and is not combined with coverage:splat
-        const indicesPerSplat = coverage !== 'pixel' ? (this.variant.sides - 2) * 3 : 6;
+        // two triangles per splat, the quad's or the square's
+        const indicesPerSplat = 6;
         this.args.setParameter('indexCount', QUADS_PER_INSTANCE * indicesPerSplat);
         this.args.setParameter('quadsPerInstance', QUADS_PER_INSTANCE);
         this.args.setParameter('dispatchSlot', dispatchSlot);
@@ -2400,97 +1468,57 @@ class StochasticSplatRenderer {
         this.args.setupDispatch(1, 1, 1);
         device.computeDispatch([this.args], 'sse-splat-args');
         if (!interleaved) this.rasterInstance.setIndirect(null, drawSlot, 1);
-        // the raster pass only clears in the tile renderer's frames, so the compose finds no sample
-        // there and reads the tiles' depth record instead
-        this.rasterPass.skip = computePipeline || this.variant.raster === 'none' || this.variant.raster === 'nocopy';
-        this.solidInstance.setIndirect(null, drawSlot, 1);
 
-        if (ordered) {
-            // bucket offsets, then every survivor claims its place in its bucket
-            this.orderScan.setParameter('buckets', this.orderBuckets);
-            this.orderScan.setupDispatch(1, 1, 1);
-            device.computeDispatch([this.orderScan], 'sse-splat-order-scan');
-            if (interleaved) {
-                // each group's range and draw, from the offsets before the scatter advances them:
-                // the four sets, and the full target's small splats
-                const setSlot = device.getIndirectDrawSlot(SET_GROUPS);
-                this.rasterInstance.setIndirect(null, setSlot + 4, 1);
-                const setArgs = this.setArgs;
-                setArgs.setParameter('buckets', this.orderBuckets);
-                setArgs.setParameter('indirectDrawArgs', device.indirectDrawBuffer);
-                setArgs.setParameter('setRanges', this.setRanges);
-                setArgs.setParameter('drawSlot', setSlot);
-                setArgs.setParameter('indexCount', QUADS_PER_INSTANCE * indicesPerSplat);
-                setArgs.setParameter('quadsPerInstance', QUADS_PER_INSTANCE);
-                setArgs.setupDispatch(1, 1, 1);
-                device.computeDispatch([setArgs], 'sse-splat-set-args');
-                this.prepareSets(width, height, setSlot);
-            }
-            const scatter = interleaved ? this.orderScatterSets : this.orderScatter;
-            scatter.setParameter('counter', this.counter);
-            scatter.setParameter('cache', this.cacheBuffer!);
-            scatter.setParameter('buckets', this.orderBuckets);
-            scatter.setParameter('ordered', this.orderedBuffer!);
-            scatter.setupIndirectDispatch(dispatchSlot);
-            device.computeDispatch([scatter], 'sse-splat-order-scatter');
+        // bucket offsets, then every survivor claims its place in its bucket
+        this.orderScan.setParameter('buckets', this.orderBuckets);
+        this.orderScan.setupDispatch(1, 1, 1);
+        device.computeDispatch([this.orderScan], 'sse-splat-order-scan');
+        if (interleaved) {
+            // each group's range and draw, from the offsets before the scatter advances them:
+            // the four sets, and the full target's small splats
+            const setSlot = device.getIndirectDrawSlot(SET_GROUPS);
+            this.rasterInstance.setIndirect(null, setSlot + 4, 1);
+            const setArgs = this.setArgs;
+            setArgs.setParameter('buckets', this.orderBuckets);
+            setArgs.setParameter('indirectDrawArgs', device.indirectDrawBuffer);
+            setArgs.setParameter('setRanges', this.setRanges);
+            setArgs.setParameter('drawSlot', setSlot);
+            setArgs.setParameter('indexCount', QUADS_PER_INSTANCE * indicesPerSplat);
+            setArgs.setParameter('quadsPerInstance', QUADS_PER_INSTANCE);
+            setArgs.setupDispatch(1, 1, 1);
+            device.computeDispatch([setArgs], 'sse-splat-set-args');
+            this.prepareSets(width, height, setSlot);
         }
-        // the tile renderer bins in the order just scattered, and the sampler scatters in it
-        if (computePipeline) {
-            this.dispatchTiles(width, height, dispatchSlot, alphaClip, clipZ, isOrtho, focal);
-        }
-        if (sampled) {
-            this.dispatchSamples(width, height, dispatchSlot, alphaClip, clipZ, isOrtho, focal);
-        }
+        const scatter = interleaved ? this.orderScatterSets : this.orderScatter;
+        scatter.setParameter('counter', this.counter);
+        scatter.setParameter('cache', this.cacheBuffer!);
+        scatter.setParameter('buckets', this.orderBuckets);
+        scatter.setParameter('ordered', this.orderedBuffer!);
+        scatter.setupIndirectDispatch(dispatchSlot);
+        device.computeDispatch([scatter], 'sse-splat-order-scatter');
 
-        for (const material of [this.rasterMaterial, this.solidMaterial]) {
-            material.setParameter('splatCache', this.cacheBuffer!);
-            material.setParameter('splatCount', this.counter);
-            if (ordered) material.setParameter('orderedSlots', this.orderedBuffer!);
-            material.setParameter('viewportSize', [width, height, 2 / width, 2 / height]);
-            material.setParameter('clipZParams', clipZParams);
-            material.setParameter('focalParams', [focal[0], focal[1], 0, 0]);
-            material.setParameter('sseAlphaClip', alphaClip);
-            material.setParameter('frameSeed', this.frameSeed);
-        }
-        this.solidMaterial.setParameter('sseCoreAlpha', this.variant.coreAlpha);
-        if (interleaved) this.rasterMaterial.setParameter('setRanges', this.setRanges);
-        if (hybrid) this.rasterMaterial.setParameter('hybridLimit', this.hybridLimit());
+        const raster = this.rasterMaterial;
+        raster.setParameter('splatCache', this.cacheBuffer!);
+        raster.setParameter('splatCount', this.counter);
+        raster.setParameter('orderedSlots', this.orderedBuffer!);
+        raster.setParameter('viewportSize', [width, height, 2 / width, 2 / height]);
+        raster.setParameter('clipZParams', clipZParams);
+        raster.setParameter('focalParams', [focal[0], focal[1], 0, 0]);
+        raster.setParameter('sseAlphaClip', alphaClip);
+        raster.setParameter('frameSeed', this.frameSeed);
+        if (interleaved) raster.setParameter('setRanges', this.setRanges);
 
-        // variant occluder:on: the occlusion grid's level 1, reduced from the previous frame
-        // above, as depth-only quads drawn before the splats (shaders/occluder.ts)
-        const occluding = this.variant.occluder === 'on' && culling && !isOrtho;
-        if (occluding) {
-            const occ = this.occluderMaterial;
-            const { x1, y1 } = this.occBlocks;
-            occ.setParameter('occL1', this.occL1);
-            occ.setParameter('occBlocks', [x1, y1, 8, 0]);
-            occ.setParameter('prevViewport', [this.prevViewport[0], this.prevViewport[1], this.prevFlip, 0]);
-            occ.setParameter('prevProjScale', [this.prevProjection.data[0], this.prevProjection.data[5], 0, 0]);
-            occ.setParameter('prevClipZ', this.prevClipZ);
-            occ.setParameter('prevInvView', this.prevInvView.copy(this.prevView).invert().data);
-            occ.setParameter('occViewProj', this.viewProjection.data);
-            occ.setParameter('clipZParams', clipZParams);
-            this.occluderInstance.instancingCount = Math.ceil((x1 * y1) / QUADS_PER_INSTANCE);
-        }
-        this.rasterPass.instances = hybrid
-            ? [this.rasterInstance, this.samplePipeline!.mergeInstance]
-            : sampled
-              ? [this.samplePipeline!.resolveInstance]
-              : interleaved
-                ? smallSplats
-                    ? [this.rasterInstance, this.interleaveInstance]
-                    : [this.interleaveInstance]
-                : [
-                      ...(occluding ? [this.occluderInstance] : []),
-                      ...(this.variant.prefill === 'solid' || this.variant.prefill === 'core'
-                          ? [this.solidInstance]
-                          : []),
-                      this.rasterInstance
-                  ];
+        // the pixel sets draw in their own passes; the raster pass copies them back, after the
+        // small splats it draws into the full target first
+        this.rasterPass.instances = interleaved
+            ? smallSplats
+                ? [this.rasterInstance, this.interleaveInstance]
+                : [this.interleaveInstance]
+            : [this.rasterInstance];
 
         // interleaved pixel sets go straight into the taa, which writes their depth, so the
         // raster pass has nothing to do; with small splats drawn over them it copies them back
-        const folded = interleaved && taaOn && !(this.variant.diag & 1) && !smallSplats;
+        const folded = interleaved && taaOn && !smallSplats;
         if (folded) this.ensureTaaSetTargets();
         if (folded !== this.setsFolded) {
             this.setsFolded = folded;
@@ -2527,18 +1555,12 @@ class StochasticSplatRenderer {
             ]);
             taa.setParameter('taaViewport', [width, height, 1 / width, 1 / height]);
             taa.setParameter('taaControl', [
-                this.variant.taaFlip || (this.target.flipY ? -1 : 1),
+                this.target.flipY ? -1 : 1,
                 this.variant.taaClip,
-                this.variant.spp === 'quad' ? 1 : 0,
-                this.variant.taaSpread
+                this.variant.taaReproj === 'history' ? 1 : 0,
+                this.variant.taaMotion
             ]);
             taa.setParameter('taaDebug', this.variant.taaDebug);
-            taa.setParameter('taaFilter', [
-                this.variant.taaFilter === 'cubic' ? 1 : 0,
-                this.variant.taaReproj === 'history' ? 1 : 0,
-                this.variant.taaMotion,
-                0
-            ]);
             this.taaPass.renderTarget = (folded ? this.taaSetTargets : this.taaTargets)[this.taaWrite];
             this.composeMaterial.setParameter('taaColor', this.taaColor[this.taaWrite]);
             this.composeMaterial.setParameter('taaInfo', this.taaInfo[this.taaWrite]);
@@ -2548,18 +1570,13 @@ class StochasticSplatRenderer {
             this.taaWrite ^= 1;
         }
 
-        if (computePipeline) {
-            this.composeMaterial.setParameter('taaColor', this.tileColor!);
-            this.composeMaterial.setParameter('taaInfo', this.tileInfo!);
-        }
-
         // an offscreen target's rows run the other way to the backbuffer's on WebGPU
         const targetFlipY = rt ? rt.flipY : device.backBuffer.flipY;
         this.composeMaterial.setParameter('composeParams', [
             this.target.flipY !== targetFlipY ? 1 : 0,
             isOrtho ? 1 : 0,
-            taaOn || computePipeline ? 1 : 0,
-            folded ? 1 : 0
+            taaOn ? 1 : 0,
+            0
         ]);
         this.composeMaterial.setParameter('depthViewParams', [
             clipZ[0],
@@ -2711,15 +1728,6 @@ class StochasticSplatRenderer {
         this.orderedCapacity = 0;
     }
 
-    private polygonMesh(sides: number) {
-        let mesh = this.polygonMeshes.get(sides);
-        if (!mesh) {
-            mesh = createPolygonMesh(this.device, QUADS_PER_INSTANCE, sides);
-            this.polygonMeshes.set(sides, mesh);
-        }
-        return mesh;
-    }
-
     // the ordered list: one entry per survivor, or with interleaved pixel sets one per set it
     // keeps pixels in, up to four
     private ensureOrdered(entries: number) {
@@ -2775,18 +1783,18 @@ class StochasticSplatRenderer {
         return nodes.some((node) => (bits[node.nodeIndex >> 5] >>> (node.nodeIndex & 31)) & 1);
     }
 
-    private ensureProjector(occlusion: boolean, ordered: boolean, coverage: CoverageMode, group: DispatchGroup) {
+    private ensureProjector(occlusion: boolean, coverage: CoverageMode, group: DispatchGroup) {
         const sourceKey = this.source.shaderKey();
         if (this.projectorSourceKey !== sourceKey) {
             // a different source: every specialisation and the bind group format go
             this.destroyProjector();
             this.projectorSourceKey = sourceKey;
         }
-        const key = `${occlusion ? 'occlusion' : 'plain'}-${ordered ? 'bucket' : 'append'}-${coverage}-${this.variant.sides}`;
+        const key = `${occlusion ? 'occlusion' : 'plain'}-${coverage}`;
         const computeKey = `${key}:${group.fileIndex}`;
         const existing = this.projectorComputes.get(computeKey);
         if (existing) return existing;
-        const shader = this.ensureProjectorShader(key, occlusion, ordered, coverage);
+        const shader = this.ensureProjectorShader(key, occlusion, coverage);
         const compute = new Compute(this.device, shader, 'sse-splat-project');
         this.projectorComputes.set(computeKey, compute);
         return compute;
@@ -2803,7 +1811,7 @@ class StochasticSplatRenderer {
         }
     }
 
-    private ensureProjectorShader(key: string, occlusion: boolean, ordered: boolean, coverage: CoverageMode) {
+    private ensureProjectorShader(key: string, occlusion: boolean, coverage: CoverageMode) {
         const existing = this.projectorShaders.get(key);
         if (existing) return existing;
         const { device } = this;
@@ -2822,13 +1830,7 @@ class StochasticSplatRenderer {
         const shader = new Shader(device, {
             name: `sse-splat-project-${key}`,
             shaderLanguage: SHADERLANGUAGE_WGSL,
-            cshader: projectorWGSL(
-                this.source.readChunk(fixed.length),
-                occlusion,
-                ordered,
-                coverage,
-                this.variant.sides
-            ),
+            cshader: projectorWGSL(this.source.readChunk(fixed.length), occlusion, coverage),
             cincludes: this.source.shaderIncludes(),
             cdefines: this.source.shaderDefines(),
             computeUniformBufferFormats: {
@@ -2862,12 +1864,10 @@ class StochasticSplatRenderer {
                     new UniformFormat('modelRotation', UNIFORMTYPE_VEC4),
                     new UniformFormat('modelScale', UNIFORMTYPE_VEC4),
                     new UniformFormat('cameraPosition', UNIFORMTYPE_VEC4),
-                    new UniformFormat('colorMax', UNIFORMTYPE_FLOAT),
                     new UniformFormat('unitScale', UNIFORMTYPE_FLOAT),
                     new UniformFormat('depthNear', UNIFORMTYPE_FLOAT),
                     new UniformFormat('depthFar', UNIFORMTYPE_FLOAT),
                     new UniformFormat('frameSeed', UNIFORMTYPE_UINT),
-                    new UniformFormat('coverageLimit', UNIFORMTYPE_UINT),
                     new UniformFormat('jitterSubs', UNIFORMTYPE_UINT),
                     new UniformFormat('strata', UNIFORMTYPE_UINT),
                     new UniformFormat('interleaveArea', UNIFORMTYPE_FLOAT)
@@ -2912,53 +1912,6 @@ class StochasticSplatRenderer {
             compute.destroy();
         }
         this.setRanges.destroy();
-        if (this.tilePipeline) {
-            const { formats, ...computes } = this.tilePipeline;
-            for (const compute of Object.values(computes)) {
-                compute.shader.destroy();
-                compute.destroy();
-            }
-            for (const format of formats) format.destroy();
-            this.tilePipeline = null;
-        }
-        for (const buffer of [
-            this.tileCounts,
-            this.tileOffsets,
-            this.tileEntries,
-            this.tileRecordsA,
-            this.tileRecordsB,
-            this.tileEntryTotal
-        ]) {
-            buffer?.destroy();
-        }
-        this.tileColor?.destroy();
-        this.tileInfo?.destroy();
-        if (this.samplePipeline) {
-            const { formats, resolveMaterial, resolveInstance, mergeMaterial, mergeInstance, ...computes } =
-                this.samplePipeline;
-            for (const compute of Object.values(computes)) {
-                compute.shader.destroy();
-                compute.destroy();
-            }
-            for (const format of formats) format.destroy();
-            for (const instance of [resolveInstance, mergeInstance]) {
-                const mesh = instance.mesh;
-                instance.destroy();
-                mesh.destroy();
-            }
-            resolveMaterial.destroy();
-            mergeMaterial.destroy();
-            this.samplePipeline = null;
-        }
-        for (const buffer of [
-            this.samplePixels,
-            this.sampleTotals,
-            this.sampleRadii,
-            this.sampleItems,
-            this.sampleItemCount
-        ]) {
-            buffer?.destroy();
-        }
         for (const format of this.orderFormats) format.destroy();
         this.orderBuckets.destroy();
         this.orderedBuffer?.destroy();
@@ -2973,10 +1926,6 @@ class StochasticSplatRenderer {
         this.rasterPass.destroy();
         this.rasterInstance.destroy();
         this.rasterMaterial.destroy();
-        this.solidInstance.destroy();
-        this.solidMaterial.destroy();
-        this.occluderInstance.destroy();
-        this.occluderMaterial.destroy();
         for (const pass of this.setPasses) pass.destroy();
         for (const instance of this.setInstances) instance.destroy();
         for (const target of this.setTargets) target.destroy();
@@ -2990,8 +1939,7 @@ class StochasticSplatRenderer {
         interleaveMesh.destroy();
         this.interleaveMaterial.destroy();
         this.rasterMesh.destroy();
-        for (const mesh of this.polygonMeshes.values()) mesh.destroy();
-        this.polygonMeshes.clear();
+        this.polygonMesh.destroy();
         this.taaPass.destroy();
         this.taaInstance.destroy();
         this.taaMaterial.destroy();
@@ -3007,11 +1955,6 @@ class StochasticSplatRenderer {
         this.target.destroy();
         this.colorTexture.destroy();
         this.depthTexture.destroy();
-        for (const { target, textures } of this.altTargets.values()) {
-            target.destroy();
-            for (const texture of textures) texture.destroy();
-        }
-        this.altTargets.clear();
 
         this.composeInstance.destroy();
         this.composeMaterial.destroy();

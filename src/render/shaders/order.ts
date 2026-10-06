@@ -1,7 +1,7 @@
-// The ordering passes (variant order:bucket): the projector counts its survivors into 256
-// depth buckets, front to back; a one-workgroup scan turns the counts into bucket offsets, and
-// the scatter writes each survivor's cache slot into the ordered list the raster then follows.
-// Splats inside a bucket land in append order, so a bucket keeps its chunks' locality.
+// The ordering passes: the projector counts its survivors into 256 depth buckets, front to
+// back; a one-workgroup scan turns the counts into bucket offsets, and the scatter writes each
+// survivor's cache slot into the ordered list the raster then follows. Splats inside a bucket
+// land in append order, so a bucket keeps its chunks' locality.
 
 import { CACHE_WORDS, FULL_ENTRY_BIT, ORDER_BUCKETS, SET_BUCKETS, SET_GROUPS } from './projector';
 

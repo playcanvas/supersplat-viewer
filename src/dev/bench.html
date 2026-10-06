@@ -61,7 +61,8 @@
               poses=<url>                   json array of { name, snapshot } (window.getCameraState shape)
                                             or { name, position, target, fov }; default: the start pose
               modes=sorted,stochastic       which renderers to load
-              variants=cull:off;cull:l2     stochastic variant strings, ; separated (keys: spp, compose, cull, order, contribution)
+              variants=cull:off;cull:l2     stochastic variant strings, ; separated (keys: coverage, jitter, strata, interleaveArea,
+                                            cull, contribution, popless, compose, taa and the taa* keys, units)
               splatSource=direct            stochastic data path: direct or workbuffer
               dpr=1.5                       pin the pixel ratio and screen size: target = host * dpr
               move=0.25                     orbit the camera this many degrees per measured frame (0: still)
@@ -75,7 +76,7 @@
               sortedVariants=sorted;...     with path: the sorted mode's variants; any variant may add engine splat settings
                                             as gs.<name>:<value>, e.g. gs.colorUpdateAngle:1000 (no colour refresh)
               truth=32                      raw frames averaged into the stochastic expectation each variant is judged against
-              truthVariant=<variant>        the variant those raw frames render with (default cull:off,spp:1,taa:off)
+              truthVariant=<variant>        the variant those raw frames render with (default cull:off,taa:off)
               rounds=3 warmup=40 frames=180
               width=1280 height=720         host size in css pixels (the canvas follows the dpr rule)
               budget=<millions>             default 8; the engine allocates its work buffer for the whole budget
@@ -1068,7 +1069,7 @@
                             // judged against this; its difference to the sorted frame is the
                             // renderer's, not the accumulation's
                             const TRUTH_FRAMES = Number(params.get('truth') ?? 32);
-                            renderer.setVariant(params.get('truthVariant') ?? 'cull:off,spp:1,taa:off');
+                            renderer.setVariant(params.get('truthVariant') ?? 'cull:off,taa:off');
                             renderer.seed = 0;
                             window.setCameraState(pose.snapshot);
                             for (let f = 0; f < 2; f++) await renderFrame(app);

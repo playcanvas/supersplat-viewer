@@ -27,8 +27,7 @@ var taaColor: texture_2d<u32>;
 // its depth record: the mean view depth of the pixel's samples and their count
 var taaInfo: texture_2d<u32>;
 // x: 1 when the splat target's rows run the other way to the camera target's; y: 1 for an
-// orthographic camera; z: 1 to read the taa history instead of the raw frame; w: 1 when only
-// the depth was written this frame (the taa read the interleaved pixel sets), 1 where no sample
+// orthographic camera; z: 1 to read the taa history instead of the raw frame (w unused)
 uniform composeParams: vec4f;
 // the splat target's depth: clip z = a * viewDepth + b over w = viewDepth (x, y), and the
 // camera's near and far (z, w) for the depth view
@@ -57,14 +56,9 @@ fn viewDepthOf(z: f32) -> f32 {
     return select(p.y / safeDz, (z - p.y) / p.x, uniform.composeParams.y > 0.5);
 }
 
-// a splat target texel's depth where a sample landed (colour alpha 1), and 1 (no sample)
-// elsewhere, whatever depth the occluder grid (variant occluder:on) left there
+// a splat target texel's depth: the nearest sample's, or 1 (the clear) where none landed
 fn sampleDepth(p: vec2i) -> f32 {
-    let depth = textureLoad(splatDepth, p, 0);
-    if (uniform.composeParams.w > 0.5) {
-        return depth;
-    }
-    return select(1.0, depth, textureLoad(splatColor, p, 0).a > 0.0);
+    return textureLoad(splatDepth, p, 0);
 }
 
 // A splat target depth in the camera's depth, clamped just inside the camera's far plane as the
@@ -108,32 +102,29 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             }
         }
     } else {
-        #ifdef SSE_SPP_QUAD
-            // the mean of each 2x2 quad, bilinearly interpolated between quad centres: the four
-            // strata of the raster's thresholds average out to the splat's coverage. Empty texels
-            // are transparent black, so the result is premultiplied coverage
-            let size = vec2f(dims);
-            let u = (vec2f(pix) - vec2f(0.5)) * 0.5;
-            let q0 = floor(u);
-            let f = u - q0;
-            let uv = (q0 * 2.0 + vec2f(1.0)) / size;
-            let step = vec2f(2.0) / size;
-            let a = textureSampleLevel(splatColor, splatColorSampler, uv, 0.0);
-            let b = textureSampleLevel(splatColor, splatColorSampler, uv + vec2f(step.x, 0.0), 0.0);
-            let c = textureSampleLevel(splatColor, splatColorSampler, uv + vec2f(0.0, step.y), 0.0);
-            let d = textureSampleLevel(splatColor, splatColorSampler, uv + step, 0.0);
-            color = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-            if (depth >= 1.0) {
-                // no sample at this pixel but coverage from its quad: the quad's nearest depth
-                let quad = (pix >> vec2u(1u)) << vec2u(1u);
-                depth = min(
-                    min(sampleDepth(quad), sampleDepth(min(quad + vec2i(1, 0), dims - 1))),
-                    min(sampleDepth(min(quad + vec2i(0, 1), dims - 1)), sampleDepth(min(quad + vec2i(1, 1), dims - 1)))
-                );
-            }
-        #else
-            color = textureLoad(splatColor, pix, 0);
-        #endif
+        // the raw frame: the mean of each 2x2 quad, bilinearly interpolated between quad centres.
+        // A quad's four pixels take thresholds spread over [0, 1) (interleaved gradient noise, or
+        // the pixel sets' four quarters), so the mean is close to the splat's coverage. Empty
+        // texels are transparent black, so the result is premultiplied coverage
+        let size = vec2f(dims);
+        let u = (vec2f(pix) - vec2f(0.5)) * 0.5;
+        let q0 = floor(u);
+        let f = u - q0;
+        let uv = (q0 * 2.0 + vec2f(1.0)) / size;
+        let step = vec2f(2.0) / size;
+        let a = textureSampleLevel(splatColor, splatColorSampler, uv, 0.0);
+        let b = textureSampleLevel(splatColor, splatColorSampler, uv + vec2f(step.x, 0.0), 0.0);
+        let c = textureSampleLevel(splatColor, splatColorSampler, uv + vec2f(0.0, step.y), 0.0);
+        let d = textureSampleLevel(splatColor, splatColorSampler, uv + step, 0.0);
+        color = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        if (depth >= 1.0) {
+            // no sample at this pixel but coverage from its quad: the quad's nearest depth
+            let quad = (pix >> vec2u(1u)) << vec2u(1u);
+            depth = min(
+                min(sampleDepth(quad), sampleDepth(min(quad + vec2i(1, 0), dims - 1))),
+                min(sampleDepth(min(quad + vec2i(0, 1), dims - 1)), sampleDepth(min(quad + vec2i(1, 1), dims - 1)))
+            );
+        }
     }
     if (color.a <= 0.001) {
         discard;

@@ -75,7 +75,7 @@ type ViewerFlags = {
     splatSource?: 'workbuffer' | 'direct';
     /**
      * Developer knob for the stochastic renderer: comma-separated `key:value` experiment
-     * switches, e.g. `spp:1,compose:none`.
+     * switches, e.g. `coverage:interleaved,jitter:2`.
      */
     variant?: string;
     /** Splat budget in millions, overriding the platform and performance-mode table. */
