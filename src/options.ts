@@ -64,8 +64,9 @@ type ViewerFlags = {
     aa?: boolean;
     /**
      * Opt in to the experimental stochastic splat renderer: unsorted, depth-tested splats whose
-     * depth buffer also serves picking. WebGPU only; ignored on WebGL and while an XR session is
-     * active, where the engine's sorted renderer draws. Fixed for the life of the viewer.
+     * depth buffer also serves picking. WebGPU only; ignored on WebGL, where the engine's sorted
+     * renderer draws. While it is on, XR sessions are not started: where WebGL could host one,
+     * the viewer offers a reload into WebGL instead. Fixed for the life of the viewer.
      */
     stochastic?: boolean;
     /**
