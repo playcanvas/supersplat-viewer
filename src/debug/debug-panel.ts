@@ -29,7 +29,11 @@ const STYLES = `
     border-radius: 4px;
     pointer-events: auto;
     user-select: none;
-    min-width: 220px;
+    /* a fixed width, wide enough for the longest labels, so the panel keeps its layout as
+       values change and options are toggled */
+    box-sizing: border-box;
+    width: 56ch;
+    max-width: calc(100% - 16px);
 }
 .${PANEL_CLASS} .sse-debug-row {
     display: flex;
@@ -49,6 +53,7 @@ const STYLES = `
     border-radius: 2px;
     transition: background-color 0.15s ease;
     outline: none;
+    white-space: pre;
 }
 .${PANEL_CLASS} .sse-debug-row .sse-debug-value:hover {
     background: rgba(255, 255, 255, 0.08);
@@ -64,12 +69,21 @@ const STYLES = `
     background: rgba(220, 100, 100, 0.45);
 }
 .${PANEL_CLASS} .sse-debug-buttons {
-    display: flex;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
     gap: 6px;
     margin-top: 6px;
 }
+.${PANEL_CLASS} .sse-debug-buttons.sse-debug-grid {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .${PANEL_CLASS} button {
-    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     background: rgba(255, 255, 255, 0.08);
     color: #eee;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -110,7 +124,8 @@ type MiniStatsSwitch = {
     show(value: boolean): void;
 };
 
-const fmt = (v: Vec3) => `${v.x.toFixed(3)}, ${v.y.toFixed(3)}, ${v.z.toFixed(3)}`;
+// each component padded to a fixed width, so the values hold their place as the camera moves
+const fmt = (v: Vec3) => [v.x, v.y, v.z].map((c) => c.toFixed(3).padStart(8)).join(',');
 
 // Accepts "1,2,3", "1, 2, 3", "1 2 3", with or without trailing whitespace.
 const parseVector = (text: string): [number, number, number] | null => {
@@ -291,11 +306,10 @@ class DebugPanel {
                 <button data-id="pick-depth" title="Show the depth a navigation pick finds at every pixel">Show depth</button>
                 <button data-id="ministats" title="Show the engine's MiniStats graphs (the viewer then renders every frame)">MiniStats</button>
             </div>
-            <input class="sse-debug-paste" data-id="paste-field" placeholder="Clipboard blocked here: paste with Ctrl/Cmd+V" spellcheck="false" style="display: none">
             ${
                 this._splatRenderer
                     ? `
-            <div class="sse-debug-buttons">
+            <div class="sse-debug-buttons sse-debug-grid">
                 <button data-id="depth-cull" title="Stochastic renderer: cull splats hidden in the previous frame's depth (auto suspends the test when it removes too little)">Depth cull</button>
                 <button data-id="taa" title="Stochastic renderer: accumulate the samples over frames (reprojected while the camera moves)">TAA</button>
                 <button data-id="popless" title="Stochastic renderer: give each fragment the depth of the Gaussian's peak along its ray, rather than the splat centre's">Popless</button>
@@ -304,6 +318,7 @@ class DebugPanel {
             <div class="sse-debug-row"><span class="sse-debug-label">culled</span><span class="sse-debug-value" data-id="culled">—</span></div>`
                     : ''
             }
+            <input class="sse-debug-paste" data-id="paste-field" placeholder="Clipboard blocked here: paste with Ctrl/Cmd+V" spellcheck="false" style="display: none">
         `;
         host.appendChild(root);
 
