@@ -927,24 +927,14 @@ class Viewer {
         const options = MiniStats.getDefaultOptions() as NonNullable<ConstructorParameters<typeof MiniStats>[1]>;
         options.cpu.enabled = false;
         options.stats = options.stats.filter((s) => s.name !== 'DrawCalls');
-        options.stats.push(
-            {
-                name: 'VRAM',
-                stats: ['vram.tex'],
-                decimalPlaces: 1,
-                multiplier: 1 / (1024 * 1024),
-                unitsName: 'MB',
-                watermark: 1024
-            } as (typeof options.stats)[number],
-            {
-                name: 'Splats',
-                stats: ['frame.gsplats'],
-                decimalPlaces: 3,
-                multiplier: 1 / 1000000,
-                unitsName: 'M',
-                watermark: 5
-            } as (typeof options.stats)[number]
-        );
+        options.stats.push({
+            name: 'Splats',
+            stats: ['frame.gsplats'],
+            decimalPlaces: 3,
+            multiplier: 1 / 1000000,
+            unitsName: 'M',
+            watermark: 5
+        } as (typeof options.stats)[number]);
         this.miniStats = new MiniStats(this.global.app, options);
         this.global.app.renderNextFrame = true;
     }
