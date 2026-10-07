@@ -7,18 +7,23 @@
 // `world:update` api lands (engine change E3 in the plan). Every internal shape used is
 // narrowed here to the members this file reads, so a change in the engine fails in one place.
 //
-// Switching the engine's own splat rendering off has two paths. An engine with the external
-// renderer mode (GSPLAT_RENDERER_EXTERNAL) creates no renderer and leaves its work buffer
-// empty when asked; on an older engine the provider takes the engine's renderer over after
-// the fact and the direct source skips the work buffer copies itself.
-import * as engine from 'playcanvas';
+// The engine's own splat rendering is switched off after the fact, through the same internals:
+// the provider takes the engine's renderer over once it exists (its render prep returns false
+// and its mesh instance is hidden, so it never builds its projector, sorter or cache), and the
+// direct source stops the work buffer's copies and keeps its textures at 1x1. The engine then
+// runs LOD, streaming and allocation and nothing else.
 import { Vec3 } from 'playcanvas';
-import type { AppBase, BoundingBox, CameraComponent, EventHandle, Layer, Mat4, Texture } from 'playcanvas';
-
-// undefined on engines before the mode landed; read at runtime on purpose, so one build works
-// with either engine
-const engineExports = engine as unknown as Record<string, unknown>;
-const GSPLAT_RENDERER_EXTERNAL = engineExports.GSPLAT_RENDERER_EXTERNAL as number | undefined;
+import type {
+    AppBase,
+    BoundingBox,
+    CameraComponent,
+    EventHandle,
+    GraphicsDevice,
+    Layer,
+    Mat4,
+    StorageBuffer,
+    Texture
+} from 'playcanvas';
 
 type EngineFormat = {
     hash: number;
@@ -29,12 +34,16 @@ type EngineFormat = {
 };
 
 type EngineWorkBuffer = {
+    device: GraphicsDevice;
     format: EngineFormat;
     textureSize: number;
     getTexture(name: string): Texture;
     // the copy passes: every changed node, and the colour-only sh refresh
     render: (...args: unknown[]) => void;
     renderColor: (...args: unknown[]) => void;
+    // sizes the textures to the allocator's address space, growing the order buffer with them
+    resize: (textureSize: number) => void;
+    orderBuffer: StorageBuffer;
 };
 
 // a loaded splat file (sog, ply or compressed ply): its textures, format and decode constants
@@ -47,6 +56,8 @@ type EngineResource = {
     configureMaterialDefines(defines: Map<string, string>): void;
     /** The sog file's metadata; the v2 codebooks are 256 floats each. */
     gsplatData?: { meta?: { shN?: { codebook?: number[] } } };
+    /** Sog resources: let each texture drop its cpu image source, at once if already uploaded. */
+    releaseTextureSources?(): void;
 };
 
 type EngineOctreeNode = {
@@ -89,8 +100,6 @@ type EngineManager = {
     world: {
         currentState: EngineWorldState | undefined;
         workBuffer: EngineWorkBuffer;
-        /** False while the external renderer mode leaves the work buffer empty; absent on older engines. */
-        workBufferEnabled?: boolean;
         invalidate(opts: { workBuffer?: boolean }): void;
     };
     renderer: EngineRenderer;
@@ -151,16 +160,6 @@ const tmpVec2 = new Vec3();
 class EngineResidentSetProvider {
     private app: AppBase;
 
-    /**
-     * Whether the engine's external renderer mode is in use: the consumer reads the resident
-     * files itself and the engine has the mode. Otherwise the engine's own renderer is taken
-     * over once it exists.
-     */
-    readonly external: boolean;
-
-    // the engine's renderer mode before the external mode was set, restored on hand-back
-    private previousMode = 0;
-
     private camera: CameraComponent;
 
     private layer: Layer;
@@ -177,17 +176,10 @@ class EngineResidentSetProvider {
     // while false the engine keeps rendering the splats itself (XR), and the hook stays quiet
     private active = true;
 
-    /**
-     * @param directSource - Whether the consumer reads the resident files itself, so the engine's
-     * work buffer is not needed. The work-buffer source needs the engine to keep filling it.
-     */
-    constructor(app: AppBase, camera: CameraComponent, layer: Layer, directSource: boolean) {
+    constructor(app: AppBase, camera: CameraComponent, layer: Layer) {
         this.app = app;
         this.camera = camera;
         this.layer = layer;
-        this.external = directSource && GSPLAT_RENDERER_EXTERNAL !== undefined;
-        // set before the engine creates its manager, so the manager is created in the mode
-        if (this.external) this.enterExternalMode();
 
         const system = app.systems.gsplat as unknown as {
             on(name: string, fn: (...args: unknown[]) => void): EventHandle;
@@ -236,10 +228,7 @@ class EngineResidentSetProvider {
     setActive(value: boolean) {
         if (this.active === value) return;
         this.active = value;
-        if (this.external) {
-            if (value) this.enterExternalMode();
-            else this.leaveExternalMode();
-        } else if (value) {
+        if (value) {
             const manager = this.manager();
             if (manager) this.takeOver(manager);
         } else {
@@ -248,18 +237,6 @@ class EngineResidentSetProvider {
             // stale for whatever streamed in since; the engine's renderer needs it rebuilt in full
             this.manager()?.world.invalidate({ workBuffer: true });
         }
-    }
-
-    // The engine creates no splat renderer in this mode and leaves its work buffer empty; a
-    // running manager switches on its next update, releasing the buffer it had filled.
-    private enterExternalMode() {
-        const params = this.app.scene.gsplat;
-        this.previousMode = params.renderer;
-        params.renderer = GSPLAT_RENDERER_EXTERNAL!;
-    }
-
-    private leaveExternalMode() {
-        this.app.scene.gsplat.renderer = this.previousMode;
     }
 
     onFrame(cb: FrameCallback): () => void {
@@ -274,8 +251,6 @@ class EngineResidentSetProvider {
      * running. Reversed by {@link restore}.
      */
     takeOver(manager: EngineManager) {
-        // nothing to take over: the engine created no renderer for this camera and layer
-        if (this.external) return;
         const renderer = manager.renderer;
         if (!this.takenOver.has(renderer)) {
             this.takenOver.set(renderer, renderer.prepareRenderView);
@@ -305,11 +280,7 @@ class EngineResidentSetProvider {
     }
 
     destroy() {
-        if (this.external) {
-            if (this.active) this.leaveExternalMode();
-        } else {
-            this.restore();
-        }
+        this.restore();
         for (const handle of this.handles) handle.off();
         this.handles.length = 0;
         this.callbacks.clear();

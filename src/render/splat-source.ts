@@ -47,6 +47,12 @@ type SplatSource = {
      */
     suspend(): void;
 
+    /**
+     * The frame's commands have been submitted (the app's `frameend`): release whatever this
+     * frame's dispatches were the last to read.
+     */
+    frameEnd(): void;
+
     /** How the projector is dispatched this frame. */
     dispatchPlan(set: ResidentSet, numChunks: number): DispatchGroup[];
 

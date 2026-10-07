@@ -584,6 +584,7 @@ class StochasticSplatRenderer {
     private frameWanted = false;
 
     private onFrameEnd = () => {
+        this.source.frameEnd();
         if (this.frameWanted) {
             this.frameWanted = false;
             this.app.renderNextFrame = true;
@@ -1138,7 +1139,7 @@ class StochasticSplatRenderer {
 
         this.applyVariant();
 
-        this.provider = new EngineResidentSetProvider(app, camera, worldLayer, this.source.kind === 'direct');
+        this.provider = new EngineResidentSetProvider(app, camera, worldLayer);
         this.unsubscribe = this.provider.onFrame((set, changed, manager) => this.frame(set, changed, manager));
         app.on('frameend', this.onFrameEnd);
 

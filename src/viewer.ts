@@ -345,8 +345,10 @@ class Viewer {
         }
 
         // reconfigure camera when entering/exiting XR. The stochastic renderer has no stereo
-        // path yet, so the engine's renderer draws the splats for the session. Follows xrMode
-        // rather than app.xr.active, which still reports the session while its 'end' handlers run
+        // path yet and XR is not offered while it draws (xr.ts); a session started regardless
+        // hands the splats back to the engine's renderer, which has nothing to draw them from
+        // once the direct source has released the engine's textures. Follows xrMode rather than
+        // app.xr.active, which still reports the session while its 'end' handlers run
         const xrModeChanged = events.on('xrMode:changed', () => {
             if (this.destroyed) return;
             this.configureCamera(settings);
