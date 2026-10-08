@@ -66,9 +66,11 @@ type ViewerFlags = {
      * Opt in to the experimental stochastic splat renderer: unsorted, depth-tested splats whose
      * depth buffer also serves picking. WebGPU only; ignored on WebGL, where the engine's sorted
      * renderer draws. While it is on, XR sessions are not started: where WebGL could host one,
-     * the viewer offers a reload into WebGL instead. Fixed for the life of the viewer.
+     * the viewer offers a reload into WebGL instead. Fixed for the life of the viewer. `true`
+     * gives per-pixel coverage, the high-quality mode; `'mobile'` the faster mode for phones and
+     * headsets (interleaved pixel sets).
      */
-    stochastic?: boolean;
+    stochastic?: boolean | 'mobile';
     /**
      * Developer knob for the stochastic renderer: the data path that feeds it. Default
      * `direct`, the resident files read in place; `workbuffer` reads the engine's work buffer.
@@ -76,7 +78,7 @@ type ViewerFlags = {
     splatSource?: 'workbuffer' | 'direct';
     /**
      * Developer knob for the stochastic renderer: comma-separated `key:value` experiment
-     * switches, e.g. `coverage:interleaved,jitter:2`.
+     * switches applied over the chosen mode's, e.g. `coverage:interleaved,jitter:2`.
      */
     variant?: string;
     /** Splat budget in millions, overriding the platform and performance-mode table. */

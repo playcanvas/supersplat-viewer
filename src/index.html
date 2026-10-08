@@ -94,7 +94,11 @@
                 colorize: url.searchParams.has('colorize'),
                 renderer,
                 aa: url.searchParams.has('aa'),
-                stochastic: url.searchParams.has('stochastic'),
+                stochastic: url.searchParams.has('stochastic')
+                    ? url.searchParams.get('stochastic') === 'mobile'
+                        ? 'mobile'
+                        : true
+                    : false,
                 splatSource: url.searchParams.get('splatSource') ?? undefined,
                 variant: url.searchParams.get('variant') ?? undefined,
                 budget,

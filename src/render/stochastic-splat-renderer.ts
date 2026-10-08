@@ -224,8 +224,20 @@ const parseVariant = (text: string | undefined): Variant => {
     return variant;
 };
 
+// The switches each mode starts from, before `variant` applies its own: per-pixel coverage (the
+// defaults) for quality, and for phones and headsets the interleaved pixel sets with jittered
+// strata, small splats drawn per splat and no colour clamp, the fastest at that quality on a Mali
+// phone (docs/mobile-gpu-splat-rendering.md)
+const MODE_VARIANTS = {
+    pixel: '',
+    mobile: 'coverage:interleaved,jitter:2,interleaveArea:256,taaClip:0'
+};
+
+type StochasticMode = keyof typeof MODE_VARIANTS;
+
 type StochasticRendererOptions = {
     source?: SplatSourceKind;
+    mode?: StochasticMode;
     variant?: string;
 };
 
@@ -338,6 +350,9 @@ const tmpVec2 = new Vec2();
 
 class StochasticSplatRenderer {
     readonly variant: Variant;
+
+    /** The mode's switches, which setVariant's string applies over. */
+    private readonly modeVariant: string;
 
     readonly source: SplatSource;
 
@@ -742,7 +757,8 @@ class StochasticSplatRenderer {
         this.device = app.graphicsDevice as EngineDevice;
         this.camera = camera;
         this.worldLayer = worldLayer;
-        this.variant = parseVariant(options.variant);
+        this.modeVariant = MODE_VARIANTS[options.mode ?? 'pixel'];
+        this.variant = parseVariant(`${this.modeVariant},${options.variant ?? ''}`);
 
         const { device } = this;
 
@@ -1175,9 +1191,9 @@ class StochasticSplatRenderer {
         this.app.renderNextFrame = true;
     }
 
-    /** Replace the experiment switches from a `key:value,key:value` string (unset keys reset). */
+    /** Replace the experiment switches from a `key:value,key:value` string (unset keys reset to the mode's). */
     setVariant(text: string) {
-        Object.assign(this.variant, parseVariant(text));
+        Object.assign(this.variant, parseVariant(`${this.modeVariant},${text}`));
         // the cull decides afresh under new switches
         this.cullActive = true;
         this.cullSuspendedFrames = 0;

@@ -336,6 +336,7 @@ class Viewer {
             } else if (worldLayer) {
                 this.splatRenderer = new StochasticSplatRenderer(app, camera.camera, worldLayer, {
                     source: config.splatSource,
+                    mode: config.stochastic === 'mobile' ? 'mobile' : 'pixel',
                     variant: config.variant
                 });
                 // announced on the first frame rather than here: createViewer resolves after this

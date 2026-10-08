@@ -47,9 +47,9 @@ By default the viewer uses WebGPU when available (falling back automatically whe
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `webgl`       | Force the WebGL renderer (required for AR/VR)                                                                                                                                    |
 | `aa`          | Enable antialiasing (WebGL only)                                                                                                                                                 |
-| `stochastic`  | Experimental: opt in to the stochastic splat renderer (unsorted, depth-tested splats). WebGPU only; the sorted renderer draws on WebGL. AR/VR offer a reload into WebGL instead. |
+| `stochastic`  | Experimental unsorted, depth-tested splat renderer: `stochastic` for per-pixel quality, `stochastic=mobile` for phones and headsets. WebGPU only; AR/VR offer a WebGL reload     |
 | `splatSource` | Developer knob for the stochastic renderer: the data path feeding it (`direct`, the default, reads the resident files in place; `workbuffer` reads the engine's work buffer)     |
-| `variant`     | Developer knob for the stochastic renderer: comma-separated `key:value` experiment switches, e.g. `coverage:interleaved,jitter:2`                                                |
+| `variant`     | Developer knob for the stochastic renderer: comma-separated `key:value` experiment switches over the mode's, e.g. `taaSharp:8`                                                   |
 | `nofx`        | Disable post effects                                                                                                                                                             |
 | `hpr`         | Override `highPrecisionRendering` from settings (`?hpr`, `?hpr=1`, `?hpr=true`, `?hpr=enable` to enable)                                                                         |
 | `budget`      | Override the splat budget, in millions of splats                                                                                                                                 |
