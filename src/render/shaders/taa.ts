@@ -17,6 +17,8 @@
 // everywhere, so the same step only rounds away within half an 8-bit level of the mean. The
 // depth record is the mean view depth of the pixel's samples and their count in one 32-bit word.
 
+import { warpWGSL } from './warp';
+
 // the most samples the history's count field holds
 const TAA_MAX_COUNT = 511;
 
@@ -35,16 +37,31 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 const taaHistoryWGSL = /* wgsl */ `
 const TAA_COLOR_SCALE = 65535.0;
 
-fn decodeColor(v: vec4u) -> vec4f {
-    return vec4f(v) / TAA_COLOR_SCALE;
-}
+#ifdef SSE_TAA_HALF
+    // Variant taaHistory:half, an XR eye's by default: the colour in half floats, which filter,
+    // so the moving fetch takes five bilinear taps instead of sixteen loads (historyCubicAt), 4.3
+    // of the pass's 7.4 ms in a Vision Pro session. Half floats stall a long mean (above), but in a
+    // session the head never rests, so the history holds at most taaMoveMax samples
+    fn decodeColor(v: vec4f) -> vec4f {
+        return v;
+    }
 
-// premultiplied colour and coverage: coverage in [0, 1] and colour within it (the Catmull-Rom
-// fetch over- and undershoots both), rounded to the nearest step
-fn encodeColor(c: vec4f) -> vec4u {
-    let a = clamp(c.a, 0.0, 1.0);
-    return vec4u(round(vec4f(clamp(c.rgb, vec3f(0.0), vec3f(a)), a) * TAA_COLOR_SCALE));
-}
+    fn encodeColor(c: vec4f) -> vec4f {
+        let a = clamp(c.a, 0.0, 1.0);
+        return vec4f(clamp(c.rgb, vec3f(0.0), vec3f(a)), a);
+    }
+#else
+    fn decodeColor(v: vec4u) -> vec4f {
+        return vec4f(v) / TAA_COLOR_SCALE;
+    }
+
+    // premultiplied colour and coverage: coverage in [0, 1] and colour within it (the Catmull-Rom
+    // fetch over- and undershoots both), rounded to the nearest step
+    fn encodeColor(c: vec4f) -> vec4u {
+        let a = clamp(c.a, 0.0, 1.0);
+        return vec4u(round(vec4f(clamp(c.rgb, vec3f(0.0), vec3f(a)), a) * TAA_COLOR_SCALE));
+    }
+#endif
 
 struct HistoryInfo {
     depth: f32,
@@ -90,8 +107,13 @@ const taaFragmentWGSL = /* wgsl */ `
     var curColorSampler: sampler;
     var curDepth: texture_depth_2d;
 #endif
-// premultiplied colour and coverage, unorm16 (decodeColor)
-var histColor: texture_2d<u32>;
+// premultiplied colour and coverage, unorm16 or half floats (decodeColor)
+#ifdef SSE_TAA_HALF
+    var histColor: texture_2d<f32>;
+    var histColorSampler: sampler;
+#else
+    var histColor: texture_2d<u32>;
+#endif
 // the mean view depth of the pixel's samples and their count, in the previous frame's view
 // depths (decodeInfo)
 var histInfo: texture_2d<u32>;
@@ -124,6 +146,11 @@ uniform taaMoving: vec2f;
 // 1: write the accumulation state instead of colour (r: count / cap, g: history accepted,
 // b: the camera moved since the previous frame)
 uniform taaDebug: f32;
+#ifdef SSE_WARP
+    // variant warp: the view's table (shaders/warp.ts)
+    var<storage, read> warpTable: array<f32>;
+    ${warpWGSL}
+#endif
 
 ${taaHistoryWGSL}
 
@@ -158,19 +185,30 @@ fn reproject(pix: vec2i, viewDepth: f32) -> Reprojected {
     var r: Reprojected;
     let flip = uniform.taaControl.x;
     let uv = (vec2f(pix) + vec2f(0.5)) * uniform.taaViewport.zw;
-    let ndc = vec2f(uv.x * 2.0 - 1.0, flip * (1.0 - 2.0 * uv.y));
+    // variant warp: the texel's place on screen, and the previous frame's points back into the
+    // target; the history's coordinates are the target's
+    #ifdef SSE_WARP
+        let rowFromTop = select(i32(uniform.taaViewport.y) - 1 - pix.y, pix.y, flip > 0.0);
+        let ndc = unwarpTexel(vec2i(pix.x, rowFromTop));
+    #else
+        let ndc = vec2f(uv.x * 2.0 - 1.0, flip * (1.0 - 2.0 * uv.y));
+    #endif
     let u = uniform.unproject;
     let viewXY = select((ndc + u.zw) * viewDepth, ndc - u.zw, uniform.clipZParams.z != 0.0) / u.xy;
     let world = (uniform.cameraWorld * vec4f(viewXY, -viewDepth, 1.0)).xyz;
     let prevClip = uniform.prevViewProj * vec4f(world, 1.0);
     r.prevDepth = -(uniform.prevView * vec4f(world, 1.0)).z;
     r.valid = prevClip.w > 0.0;
-    let prevNdc = prevClip.xy / max(prevClip.w, 1e-9);
-    r.uv = vec2f(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * flip * 0.5);
-    r.valid = r.valid && all(r.uv >= vec2f(0.0)) && all(r.uv <= vec2f(1.0));
+    var prevNdc = prevClip.xy / max(prevClip.w, 1e-9);
     let dir = (uniform.cameraWorld * vec4f(viewXY, -viewDepth, 0.0)).xyz;
     let farClip = uniform.prevViewProj * vec4f(dir, 0.0);
-    let farNdc = farClip.xy / max(farClip.w, 1e-9);
+    var farNdc = farClip.xy / max(farClip.w, 1e-9);
+    #ifdef SSE_WARP
+        prevNdc = warpNdc(prevNdc);
+        farNdc = warpNdc(farNdc);
+    #endif
+    r.uv = vec2f(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * flip * 0.5);
+    r.valid = r.valid && all(r.uv >= vec2f(0.0)) && all(r.uv <= vec2f(1.0));
     r.farUv = select(vec2f(farNdc.x * 0.5 + 0.5, 0.5 - farNdc.y * flip * 0.5), uv, uniform.clipZParams.z != 0.0);
     return r;
 }
@@ -249,8 +287,8 @@ fn historyTexel(p: vec2i, dims: vec2i) -> vec4f {
 // frames a moving history lives. Its lobes over- and undershoot; the encoding clamps both
 fn historyCubicAt(uv: vec2f, dims: vec2i) -> vec4f {
     let p = uv * vec2f(dims) - vec2f(0.5);
-    let i0 = vec2i(floor(p));
-    let f = p - floor(p);
+    let i0 = floor(p);
+    let f = p - i0;
     let f2 = f * f;
     let f3 = f2 * f;
     // Catmull-Rom weights for taps at -1, 0, 1, 2
@@ -258,15 +296,32 @@ fn historyCubicAt(uv: vec2f, dims: vec2i) -> vec4f {
     let w1 = 1.5 * f3 - 2.5 * f2 + vec2f(1.0);
     let w2 = -1.5 * f3 + 2.0 * f2 + 0.5 * f;
     let w3 = 0.5 * f3 - 0.5 * f2;
-    let wx = array<f32, 4>(w0.x, w1.x, w2.x, w3.x);
-    let wy = array<f32, 4>(w0.y, w1.y, w2.y, w3.y);
-    var sum = vec4f(0.0);
-    for (var y = 0; y < 4; y++) {
-        for (var x = 0; x < 4; x++) {
-            sum += historyTexel(i0 + vec2i(x - 1, y - 1), dims) * (wx[x] * wy[y]);
+    #ifdef SSE_TAA_HALF
+        // five bilinear taps (Jimenez, Filmic SMAA, 2016): along each axis the two middle texels
+        // in one tap placed between them by their weights, and the four corner taps, each the
+        // product of two small outer weights, left out and the rest renormalised
+        let size = vec2f(dims);
+        let w12 = w1 + w2;
+        let t0 = (i0 - vec2f(0.5)) / size;
+        let t3 = (i0 + vec2f(2.5)) / size;
+        let t12 = (i0 + vec2f(0.5) + w2 / w12) / size;
+        let sum = textureSampleLevel(histColor, histColorSampler, vec2f(t12.x, t0.y), 0.0) * (w12.x * w0.y) +
+            textureSampleLevel(histColor, histColorSampler, vec2f(t0.x, t12.y), 0.0) * (w0.x * w12.y) +
+            textureSampleLevel(histColor, histColorSampler, t12, 0.0) * (w12.x * w12.y) +
+            textureSampleLevel(histColor, histColorSampler, vec2f(t3.x, t12.y), 0.0) * (w3.x * w12.y) +
+            textureSampleLevel(histColor, histColorSampler, vec2f(t12.x, t3.y), 0.0) * (w12.x * w3.y);
+        return sum / (w12.x * (w0.y + w12.y + w3.y) + (w0.x + w3.x) * w12.y);
+    #else
+        let wx = array<f32, 4>(w0.x, w1.x, w2.x, w3.x);
+        let wy = array<f32, 4>(w0.y, w1.y, w2.y, w3.y);
+        var sum = vec4f(0.0);
+        for (var y = 0; y < 4; y++) {
+            for (var x = 0; x < 4; x++) {
+                sum += historyTexel(vec2i(i0) + vec2i(x - 1, y - 1), dims) * (wx[x] * wy[y]);
+            }
         }
-    }
-    return sum;
+        return sum;
+    #endif
 }
 
 @fragment

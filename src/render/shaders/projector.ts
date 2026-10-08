@@ -3,6 +3,8 @@
 // themselves to a dense cache with one global atomic per workgroup. The chunk table and node
 // visibility come from the cpu (resident-set rebuild on version change, frustum cull per frame).
 
+import { warpWGSL } from './warp';
+
 /** Words per cache entry. See the layout in the plan: ndc, depth, axis1, len2|alpha|flags, rgb, popless, id. */
 const CACHE_WORDS = 7;
 
@@ -68,7 +70,7 @@ const permutations = (() => {
     return out;
 })();
 
-const projectorWGSL = (readChunk: string, occlusion: boolean, coverage: CoverageMode) => /* wgsl */ `
+const projectorWGSL = (readChunk: string, occlusion: boolean, coverage: CoverageMode, warp: boolean) => /* wgsl */ `
 struct ProjectorUniforms {
     view: mat4x4f,
     viewProj: mat4x4f,
@@ -147,6 +149,14 @@ fn setSplat(idx: u32) {
     splat.uv = vec2i(i32(idx % uniforms.splatTextureSize), i32(idx / uniforms.splatTextureSize));
 }
 
+${
+    warp
+        ? `
+// variant warp: the view's table (shaders/warp.ts)
+@group(0) @binding(8) var<storage, read> warpTable: array<f32>;
+${warpWGSL}`
+        : ''
+}
 ${readChunk}
 ${
     coverage !== 'pixel'
@@ -358,6 +368,36 @@ ${
         cov11 = u11 * jy1 + u12 * jy2;
     }
 
+${
+    warp
+        ? `
+    // Variant warp: the splat in the foveated target, through the affine map per axis that is
+    // exact at the two ends of its quad's extent on screen. For a small splat that is the warp's
+    // slope at its centre; for a large one the secant over what is visible, since a near splat
+    // centred off screen, where the slope is all but zero, would shrink to nothing at the edge.
+    // Everything after, the dilation and the culls included, works in the target's pixels
+    let linearNdc = clip.xy / clip.w;
+    let reach = 2.8284 * sqrt(vec2f(cov00, cov11)) * 2.0 / viewport;
+    let lo = clamp(linearNdc - reach, vec2f(-1.0), vec2f(1.0));
+    let hi = clamp(linearNdc + reach, vec2f(-1.0), vec2f(1.0));
+    let span = hi - lo;
+    let warpedLo = warpNdc(lo);
+    let pixelScale = select(
+        warpSlope(lo),
+        (warpNdc(hi) - warpedLo) / max(span, vec2f(1e-9)),
+        span > vec2f(1e-6)
+    );
+    let ndc = warpedLo + pixelScale * (linearNdc - lo);
+    cov00 *= pixelScale.x * pixelScale.x;
+    cov01 *= pixelScale.x * pixelScale.y;
+    cov11 *= pixelScale.y * pixelScale.y;
+`
+        : `
+    let ndc = clip.xy / clip.w;
+    // the target's pixels per screen pixel (variant warp)
+    let pixelScale = vec2f(1.0);
+`
+}
     // the low-pass dilation every splat renderer applies, 0.3 in the chosen units
     let us2 = uniforms.unitScale * uniforms.unitScale;
     cov00 += 0.3 / us2;
@@ -427,7 +467,6 @@ ${
     let len2 = len2Full * radiusScale;
     let axis2 = len2 * vec2f(direction.y, -direction.x);
 
-    let ndc = clip.xy / clip.w;
     let extent = abs(axis1) + abs(axis2);
     let centerPixels = (ndc * 0.5 + 0.5) * viewport;
     if (centerPixels.x + extent.x < 0.0 || centerPixels.x - extent.x > viewport.x
@@ -451,7 +490,7 @@ ${
         let prevDepth = -(uniforms.prevView * vec4f(center, 1.0)).z;
         let prevOrtho = uniforms.prevClipZ.z != 0.0;
         if (prevClip.w > 0.0 && (prevOrtho || prevDepth > 0.0)) {
-            let prevNdc = prevClip.xy / prevClip.w;
+            let prevNdc = ${warp ? 'warpNdc(prevClip.xy / prevClip.w)' : 'prevClip.xy / prevClip.w'};
             let halfExtent = len1 * radiusScale;
             let prevHalfExtent = halfExtent * (uniforms.prevFocal.x / focal.x)
                 * select(depth / max(prevDepth, 0.001), 1.0, prevOrtho);
@@ -566,7 +605,7 @@ ${
     if (abs(denom) > 1e-20) {
         g = n.xy / denom;
         // view units per pixel at the centre's depth, and the quad's half extents in them
-        let viewScale = select(depth, 1.0, ortho) / focal;
+        let viewScale = select(depth, 1.0, ortho) / (focal * pixelScale);
         let ext = (abs(axis1) + abs(axis2)) * viewScale;
         let bound = abs(g.x) * ext.x + abs(g.y) * ext.y;
         let margin = 2.8284 * sqrt(max(c22, 0.0));
@@ -580,7 +619,8 @@ ${
             g *= limit / max(bound, 1e-20);
         }
     }
-    result.words[5] = pack2x16float(g);
+    // per the target's pixel, which the raster offsets the corners by (variant warp)
+    result.words[5] = pack2x16float(g / pixelScale);
 ${
     coverage === 'pixel'
         ? `

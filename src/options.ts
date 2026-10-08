@@ -65,8 +65,9 @@ type ViewerFlags = {
     /**
      * Opt in to the experimental stochastic splat renderer: unsorted, depth-tested splats whose
      * depth buffer also serves picking. WebGPU only; ignored on WebGL, where the engine's sorted
-     * renderer draws. While it is on, XR sessions are not started: where WebGL could host one,
-     * the viewer offers a reload into WebGL instead. Fixed for the life of the viewer. `true`
+     * renderer draws. It draws WebGPU XR sessions too, one view per eye (Safari on Apple Vision
+     * Pro); where only WebGL could host a session, the viewer offers a reload into WebGL. Fixed
+     * for the life of the viewer. `true`
      * gives per-pixel coverage, the high-quality mode; `'mobile'` the faster mode for phones and
      * headsets (interleaved pixel sets).
      */

@@ -13,7 +13,7 @@ const standaloneHeadset = /OculusBrowser|PicoBrowser/.test(globalThis.navigator?
 
 // The viewer reconfigures the camera (clear color, post effects) when state.xrMode changes
 const initXr = (global: Global) => {
-    const { app, config, events, state, camera, renderer, root } = global;
+    const { app, events, state, camera, renderer, root } = global;
     const { xr } = app;
     let destroyed = false;
     let restoreFrame: number | null = null;
@@ -29,15 +29,10 @@ const initXr = (global: Global) => {
     let webglAR = false;
     let webglVR = false;
 
-    // The stochastic renderer has no stereo path yet, and once it has released the engine's
-    // textures the engine's renderer cannot draw a session either: no XR while it draws. The
-    // WebGL reload the ui offers instead runs the engine's renderer, so that stays available
-    const stochastic = config.stochastic && renderer === 'webgpu';
-
     const updateAvailable = () => {
         if (destroyed) return;
-        state.canStartAR = !stochastic && xr.isAvailable('immersive-ar');
-        state.canStartVR = !stochastic && xr.isAvailable('immersive-vr');
+        state.canStartAR = xr.isAvailable('immersive-ar');
+        state.canStartVR = xr.isAvailable('immersive-vr');
         state.hasAR = state.canStartAR || webglAR;
         state.hasVR = state.canStartVR || webglVR;
     };
@@ -141,7 +136,7 @@ const initXr = (global: Global) => {
         if (mode !== 'ar' && mode !== 'vr') throw new Error('startXR: mode must be ar or vr');
         if (rejectStart || rejectEnd || xr.active) throw new Error('startXR: a session is active or pending');
         const type = mode === 'ar' ? 'immersive-ar' : 'immersive-vr';
-        if (stochastic || !xr.isAvailable(type)) {
+        if (!xr.isAvailable(type)) {
             const offered = mode === 'ar' ? state.hasAR : state.hasVR;
             throw new Error(
                 offered ? 'startXR: reload with WebGL to start this session' : 'startXR: XR is not available'

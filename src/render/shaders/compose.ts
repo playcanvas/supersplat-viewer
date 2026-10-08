@@ -4,26 +4,43 @@
 // the engine's own splat shader applies (gsplatOutputVS: tonemap and gamma, or the viewer's
 // pass-through patch under CameraFrame) runs here, once per pixel instead of once per splat.
 import { taaHistoryWGSL } from './taa';
+import { warpWGSL } from './warp';
+
+// The quad's position across the screen, 0 to 1 from the bottom left. The splat targets are read
+// through it rather than through the fragment's position: an XR eye may be rasterised at a
+// variable rate (visionOS draws a 4493x3604 viewport into a 1888x1792 texture), where a
+// fragment's pixel is not a fixed fraction of the screen
+const composeVaryingsWGSL = /* wgsl */ `
+varying screenPos: vec2f;
+`;
 
 const composeVertexWGSL = /* wgsl */ `
 attribute vertex_position: vec2f;
+${composeVaryingsWGSL}
 
 @vertex
 fn vertexMain(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
     output.position = vec4f(vertex_position, 0.0, 1.0);
+    output.screenPos = vertex_position * 0.5 + vec2f(0.5);
     return output;
 }
 `;
 
 const composeFragmentWGSL = /* wgsl */ `
 #include "gsplatOutputVS"
+${composeVaryingsWGSL}
 
 var splatColor: texture_2d<f32>;
 var splatColorSampler: sampler;
 var splatDepth: texture_depth_2d;
-// the temporally accumulated frame (premultiplied colour, coverage), when taa ran this frame
-var taaColor: texture_2d<u32>;
+// the temporally accumulated frame (premultiplied colour, coverage), when taa ran this frame:
+// unorm16, or half floats (variant taaHistory, shaders/taa.ts)
+#ifdef SSE_TAA_HALF
+    var taaColor: texture_2d<f32>;
+#else
+    var taaColor: texture_2d<u32>;
+#endif
 // its depth record: the mean view depth of the pixel's samples and their count
 var taaInfo: texture_2d<u32>;
 // x: 1 when the splat target's rows run the other way to the camera target's; y: 1 for an
@@ -35,6 +52,11 @@ uniform depthViewParams: vec4f;
 // the camera's own depth, the one written for the rest of the scene: clip z = a * viewDepth + b
 // (x, y). The splat target's far plane is at infinity where the camera's is fitted to the scene
 uniform cameraClipZ: vec4f;
+#ifdef SSE_WARP
+    // variant warp: the view's table (shaders/warp.ts)
+    var<storage, read> warpTable: array<f32>;
+    ${warpWGSL}
+#endif
 
 ${taaHistoryWGSL}
 
@@ -74,7 +96,14 @@ fn cameraDepthOf(z: f32) -> f32 {
 fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     var output: FragmentOutput;
     let dims = vec2i(textureDimensions(splatColor));
-    var pix = vec2i(pcPosition.xy);
+    // variant warp: the foveated target holds this pixel where the warp put it
+    #ifdef SSE_WARP
+        let screen = warpNdc(input.screenPos * 2.0 - vec2f(1.0)) * 0.5 + vec2f(0.5);
+    #else
+        let screen = input.screenPos;
+    #endif
+    // the splat target's texel under this fragment, rows from the top as the fragment's are
+    var pix = vec2i(floor(vec2f(screen.x, 1.0 - screen.y) * vec2f(dims)));
     if (uniform.composeParams.x > 0.5) {
         pix.y = dims.y - 1 - pix.y;
     }
