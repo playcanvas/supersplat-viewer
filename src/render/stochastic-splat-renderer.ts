@@ -151,6 +151,19 @@ type Variant = {
     taaReproj: 'sample' | 'history';
     /** Image motion in pixels a frame that halves the moving sample cap (0: fixed cap). */
     taaMotion: number;
+    /**
+     * Count the image motion that shortens the moving cap for no more than the parallax, the
+     * part the camera's translation adds: a rotation moves a pixel's layers alike, so it smears
+     * nothing. A history nearer than the pixel's sample, which an occluder left behind, is cut
+     * short by how far it is misplaced each frame ('off': the whole motion counts, no cut).
+     */
+    taaParallax: 'on' | 'off';
+    /**
+     * The history length at which the moving sample is half the pixel's own sample and half
+     * the 2x2 quad mean; the own sample's share is count / (count + taaSharp), so a long
+     * history, which carries the noise itself, keeps the detail (0: the quad mean).
+     */
+    taaSharp: number;
     /** 1 shows the accumulation state (count, acceptance, sample) instead of the colour. */
     taaDebug: number;
     /** Covariance units: true pixels, or the engine's doubled-focal convention (its dilation and culls scale with it). */
@@ -172,6 +185,8 @@ const defaultVariant = (): Variant => ({
     taaClip: 1.25,
     taaReproj: 'sample',
     taaMotion: 4,
+    taaParallax: 'on',
+    taaSharp: 16,
     taaDebug: 0,
     units: 'engine'
 });
@@ -201,6 +216,8 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'taaClip' && Number.isFinite(Number(value))) variant.taaClip = Math.max(0, Number(value));
         if (key === 'taaReproj' && (value === 'sample' || value === 'history')) variant.taaReproj = value;
         if (key === 'taaMotion' && Number.isFinite(Number(value))) variant.taaMotion = Math.max(0, Number(value));
+        if (key === 'taaParallax' && (value === 'on' || value === 'off')) variant.taaParallax = value;
+        if (key === 'taaSharp' && Number.isFinite(Number(value))) variant.taaSharp = Math.max(0, Number(value));
         if (key === 'taaDebug' && Number.isFinite(Number(value))) variant.taaDebug = Number(value);
         if (key === 'units' && (value === 'px' || value === 'engine')) variant.units = value;
     }
@@ -1561,6 +1578,7 @@ class StochasticSplatRenderer {
                 this.variant.taaReproj === 'history' ? 1 : 0,
                 this.variant.taaMotion
             ]);
+            taa.setParameter('taaMoving', [this.variant.taaParallax === 'on' ? 1 : 0, this.variant.taaSharp]);
             taa.setParameter('taaDebug', this.variant.taaDebug);
             this.taaPass.renderTarget = (folded ? this.taaSetTargets : this.taaTargets)[this.taaWrite];
             this.composeMaterial.setParameter('taaColor', this.taaColor[this.taaWrite]);

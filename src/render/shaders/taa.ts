@@ -116,11 +116,20 @@ uniform taaViewport: vec4f;
 // reproject through the pixel's accumulated mean depth rather than this frame's sample depth;
 // w: image motion in pixels a frame that halves the moving sample cap (0: fixed cap)
 uniform taaControl: vec4f;
+// x: 1 to shorten the moving cap by no more than the parallax motion, and a history an occluder
+// left behind by its misplacement (variant taaParallax);
+// y: the history length at which the moving sample is half the pixel's own, half the quad mean
+// (variant taaSharp, 0: the quad mean)
+uniform taaMoving: vec2f;
 // 1: write the accumulation state instead of colour (r: count / cap, g: history accepted,
 // b: the camera moved since the previous frame)
 uniform taaDebug: f32;
 
 ${taaHistoryWGSL}
+
+// variant taaParallax: the misplacement in pixels a frame that halves the cap of a history an
+// occluder left behind (measured against 1 px, which kept a visible trail)
+const TAA_GHOST_PX = 0.25;
 
 fn viewDepthOf(z: f32) -> f32 {
     let p = uniform.clipZParams;
@@ -132,7 +141,11 @@ fn viewDepthOf(z: f32) -> f32 {
 struct Reprojected {
     valid: bool,
     uv: vec2f,
-    prevDepth: f32
+    prevDepth: f32,
+    // where the camera's rotation alone carries the pixel (its ray's direction, a point at
+    // infinity), so uv - farUv is the parallax its translation adds; for an orthographic camera
+    // the pixel itself, the whole motion
+    farUv: vec2f
 }
 
 // The previous frame's view depth and texture coordinate of this pixel's point at a view
@@ -155,6 +168,10 @@ fn reproject(pix: vec2i, viewDepth: f32) -> Reprojected {
     let prevNdc = prevClip.xy / max(prevClip.w, 1e-9);
     r.uv = vec2f(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * flip * 0.5);
     r.valid = r.valid && all(r.uv >= vec2f(0.0)) && all(r.uv <= vec2f(1.0));
+    let dir = (uniform.cameraWorld * vec4f(viewXY, -viewDepth, 0.0)).xyz;
+    let farClip = uniform.prevViewProj * vec4f(dir, 0.0);
+    let farNdc = farClip.xy / max(farClip.w, 1e-9);
+    r.farUv = select(vec2f(farNdc.x * 0.5 + 0.5, 0.5 - farNdc.y * flip * 0.5), uv, uniform.clipZParams.z != 0.0);
     return r;
 }
 
@@ -271,8 +288,9 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     let historyValid = uniform.taaParams.y > 0.5;
     let moving = uniform.taaParams.z > 0.5;
     // still: this pixel's own sample, so the history converges to full resolution; moving:
-    // the quad's four
-    var sample = select(vec4f(0.0), vec4f(cur.rgb, 1.0), hit);
+    // the quad's four, which a long history takes back toward the pixel's own (below)
+    let single = select(vec4f(0.0), vec4f(cur.rgb, 1.0), hit);
+    var sample = single;
     if (moving) {
         sample = quadSample(pix, dims);
     }
@@ -356,13 +374,33 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         }
         // the faster the image moves, the shorter the history: a stochastic pixel's layers
         // reproject through one layer's depth, so their parallax smears the history by an
-        // amount that grows with the motion, and a raw frame is the better estimate past it
+        // amount that grows with the motion, and a raw frame is the better estimate past it.
+        // A rotation moves every layer alike, whatever its depth, so with variant taaParallax
+        // the motion counts for no more than the parallax the camera's translation adds
         var cap = maxCount;
         if (moving && uniform.taaControl.w > 0.0) {
-            let speed = length(r.uv * vec2f(dims) - vec2f(pix) - vec2f(0.5));
+            var speed = length(r.uv * vec2f(dims) - vec2f(pix) - vec2f(0.5));
+            let parallax = length((r.uv - r.farUv) * vec2f(dims));
+            if (uniform.taaMoving.x > 0.5) {
+                speed = min(speed, parallax);
+            }
             cap = max(2.0, maxCount / (1.0 + speed / uniform.taaControl.w));
+            // A history nearer than this frame's sample is what an occluder left behind as it
+            // moved off the pixel: its surface's parallax is the sample's scaled by their depth
+            // ratio, so it lands that much further each frame from where it is fetched, and a
+            // history the length of the background's own motion would streak. Its cap shrinks
+            // by that misplacement; a rotation has no parallax, so it keeps its history
+            if (uniform.taaMoving.x > 0.5 && hit) {
+                let ghost = parallax * max(r.prevDepth - info.depth, 0.0) / max(info.depth, 1e-6);
+                cap = min(cap, max(2.0, maxCount / (1.0 + ghost / TAA_GHOST_PX)));
+            }
         }
         count = min(info.count + 1.0, cap);
+        // variant taaSharp: the longer the history, the more of the noise it carries and the
+        // less the quad mean's blur buys, so the pixel's own sample takes count / (count + k)
+        if (moving && uniform.taaMoving.y > 0.0) {
+            sample = mix(sample, single, count / (count + uniform.taaMoving.y));
+        }
         let w = 1.0 / count;
         color = mix(hist, sample, w);
         // an empty sample takes at least a step off the coverage: rounded to the nearest, a
