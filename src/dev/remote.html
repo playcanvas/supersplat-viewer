@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <title>SuperSplat Viewer — remote console</title>
+        <meta charset="UTF-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+        />
+        <link rel="stylesheet" href="./index.css" />
+        <style>
+            html,
+            body {
+                height: 100%;
+                margin: 0;
+                overflow: hidden;
+            }
+        </style>
+        <!--
+            Development page: the viewer as the standalone document creates it, plus an agent that
+            sends this page's console, uncaught errors and WebGPU errors to tools/remote-console.mjs
+            on the developer's machine and runs the snippets queued there, returning their results.
+            For devices Web Inspector cannot reach (a headset on a network that drops Bonjour).
+
+            The console is always this page's own host on port 3445, never an address from the url,
+            so a link cannot point the page at someone else's code; the console accepts only the
+            device addresses it was started with. Params: the standalone document's (?content=
+            ?settings= ?stochastic[=mobile] ?debug ...); with none, the toy cat with the debug
+            panel. Use the extensionless url (/remote): the dev server's clean-url redirect drops
+            the query string. Never shipped.
+        -->
+    </head>
+    <body>
+        <script type="module">
+            const url = new URL(location.href);
+            const params = location.search ? url.searchParams : new URLSearchParams('content=./toy-cat.sog&debug');
+            const remote = `https://${location.hostname}:3445`;
+
+            // -- the agent: started before the viewer so a failing load is reported too --
+
+            const queue = [];
+            let flushing = false;
+
+            // a json-safe copy of any value: cycles, functions, errors, typed arrays and dom
+            // nodes become descriptions, and depth and length are bounded
+            const safe = (value, depth = 0, seen = new WeakSet()) => {
+                if (value === null || typeof value === 'number' || typeof value === 'boolean') return value;
+                if (typeof value === 'string') return value.length > 20000 ? `${value.slice(0, 20000)}…` : value;
+                if (value === undefined) return '[undefined]';
+                if (typeof value === 'bigint') return `${value}n`;
+                if (typeof value === 'function') return `[Function ${value.name || 'anonymous'}]`;
+                if (typeof value === 'symbol') return value.toString();
+                if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack };
+                if (typeof Node !== 'undefined' && value instanceof Node) return `[${value.nodeName}]`;
+                if (ArrayBuffer.isView(value)) {
+                    const items = Array.from(value.slice ? value.slice(0, 64) : []);
+                    return { type: value.constructor.name, length: value.length, items };
+                }
+                if (depth >= 5) return `[${value.constructor?.name ?? 'Object'}]`;
+                if (seen.has(value)) return '[Circular]';
+                seen.add(value);
+                if (value instanceof Map)
+                    return { type: 'Map', entries: [...value].slice(0, 200).map((e) => safe(e, depth + 1, seen)) };
+                if (value instanceof Set)
+                    return { type: 'Set', values: [...value].slice(0, 200).map((e) => safe(e, depth + 1, seen)) };
+                if (Array.isArray(value)) return value.slice(0, 500).map((e) => safe(e, depth + 1, seen));
+                const out = {};
+                let count = 0;
+                for (const key in value) {
+                    if (count++ >= 200) {
+                        out['…'] = 'truncated';
+                        break;
+                    }
+                    try {
+                        out[key] = safe(value[key], depth + 1, seen);
+                    } catch (e) {
+                        out[key] = `[throws ${e?.message ?? e}]`;
+                    }
+                }
+                return out;
+            };
+
+            const text = (value) => (typeof value === 'string' ? value : JSON.stringify(safe(value)));
+
+            const post = (path, body) =>
+                // text/plain keeps the request simple, so no cors preflight is needed
+                fetch(`${remote}${path}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify(body)
+                });
+
+            const flush = async () => {
+                if (flushing || queue.length === 0) return;
+                flushing = true;
+                const batch = queue.splice(0, queue.length);
+                try {
+                    await post('/log', batch);
+                } catch {
+                    // the console is not reachable: keep the newest entries for the next try
+                    queue.unshift(...batch.slice(-500));
+                }
+                flushing = false;
+            };
+
+            const log = (level, args) => {
+                queue.push({ time: Date.now(), level, message: args.map(text).join(' ') });
+                if (queue.length > 2000) queue.splice(0, queue.length - 2000);
+            };
+
+            for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
+                const original = console[level].bind(console);
+                console[level] = (...args) => {
+                    log(level, args);
+                    original(...args);
+                };
+            }
+            window.addEventListener('error', (event) =>
+                log('uncaught', [
+                    event.message,
+                    `${event.filename}:${event.lineno}:${event.colno}`,
+                    event.error?.stack ?? ''
+                ])
+            );
+            window.addEventListener('unhandledrejection', (event) => log('rejection', [event.reason]));
+            setInterval(flush, 250);
+
+            log('agent', [
+                `page ${location.href}`,
+                `ua ${navigator.userAgent}`,
+                `secure ${window.isSecureContext} gpu ${!!navigator.gpu} xr ${!!navigator.xr}`
+            ]);
+
+            // Long-poll the console for the next snippet. A snippet is an expression whose value is
+            // returned, or failing that a function body (with its own `return`); either may await.
+            // The viewer handle is window.viewer, its app window.app.
+            const AsyncFunction = (async () => {}).constructor;
+            const compile = (code) => {
+                try {
+                    return new AsyncFunction(`return (${code}\n);`);
+                } catch {
+                    return new AsyncFunction(code);
+                }
+            };
+            const poll = async () => {
+                for (;;) {
+                    let job = null;
+                    try {
+                        const response = await fetch(`${remote}/next`);
+                        if (response.status === 200) job = await response.json();
+                    } catch {
+                        await new Promise((resolve) => setTimeout(resolve, 2000));
+                        continue;
+                    }
+                    if (!job) continue;
+                    let result;
+                    try {
+                        result = { id: job.id, ok: true, value: safe(await compile(job.code)()) };
+                    } catch (e) {
+                        result = { id: job.id, ok: false, error: safe(e) };
+                    }
+                    try {
+                        await post('/result', result);
+                    } catch {
+                        // the console went away; it times the snippet out
+                    }
+                }
+            };
+            poll();
+
+            // -- the viewer, created as the standalone document creates it --
+
+            const { createViewer } = await import('./index.js');
+
+            const settingsUrl = params.get('settings') ?? './settings.json';
+            const contentUrl = params.get('content') ?? './scene.compressed.ply';
+            const budgetParam = params.get('budget');
+
+            try {
+                const viewer = await createViewer({
+                    container: document.body,
+                    settings: fetch(settingsUrl).then((response) => response.json()),
+                    contentUrl,
+                    skyboxUrl: params.get('skybox'),
+                    collisionUrl: params.get('collision'),
+                    ui: !params.has('noui'),
+                    noanim: params.has('noanim'),
+                    nofx: params.has('nofx'),
+                    ministats: params.has('ministats'),
+                    renderer: params.has('webgl') ? 'webgl' : 'webgpu',
+                    aa: params.has('aa'),
+                    stochastic: params.has('stochastic')
+                        ? params.get('stochastic') === 'mobile'
+                            ? 'mobile'
+                            : true
+                        : false,
+                    splatSource: params.get('splatSource') ?? undefined,
+                    variant: params.get('variant') ?? undefined,
+                    budget: budgetParam !== null ? Number(budgetParam) : undefined,
+                    fullload: params.has('fullload'),
+                    debug: params.has('debug'),
+                    exposeGlobals: true
+                });
+                window.viewer = viewer;
+                // the stochastic renderer, when the page runs it, for snippets that switch it
+                viewer.events.once('splatRenderer:ready', (renderer) => {
+                    window.splatRenderer = renderer;
+                });
+
+                // A panel for instructions in a headset, where nothing of the page shows:
+                // window.hud('text') puts it 1.2 m ahead of the eyes, head-locked ('\n' between
+                // lines), and window.hud() takes it away. The page imports no engine classes, so
+                // it takes them from objects the app already has
+                let hud = null;
+                window.hud = (text) => {
+                    const { app } = viewer;
+                    if (!hud) {
+                        const camera = app.root.findComponents('camera')[0].entity;
+                        const entity = new app.root.constructor('remote-hud', app);
+                        entity.addComponent('render', { type: 'plane', castShadows: false, receiveShadows: false });
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 1024;
+                        canvas.height = 384;
+                        const Texture = [...app.graphicsDevice.textures][0].constructor;
+                        const texture = new Texture(app.graphicsDevice, {
+                            name: 'remote-hud',
+                            width: canvas.width,
+                            height: canvas.height,
+                            mipmaps: false
+                        });
+                        const material = new entity.render.meshInstances[0].material.constructor();
+                        material.useLighting = false;
+                        material.useSkybox = false;
+                        material.diffuse.set(0, 0, 0);
+                        material.emissive.set(1, 1, 1);
+                        material.emissiveMap = texture;
+                        material.update();
+                        entity.render.material = material;
+                        // the plane lies flat facing up; stood up, it faces the eyes
+                        entity.setLocalPosition(0, -0.15, -1.2);
+                        entity.setLocalEulerAngles(90, 0, 0);
+                        entity.setLocalScale(0.8, 1, 0.3);
+                        camera.addChild(entity);
+                        hud = { entity, canvas, texture };
+                    }
+                    if (text === undefined || text === null) {
+                        hud.entity.enabled = false;
+                        app.renderNextFrame = true;
+                        return 'hidden';
+                    }
+                    const ctx = hud.canvas.getContext('2d');
+                    ctx.fillStyle = '#14161c';
+                    ctx.fillRect(0, 0, hud.canvas.width, hud.canvas.height);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '44px -apple-system, sans-serif';
+                    ctx.textBaseline = 'top';
+                    // wrap each line to the panel
+                    const rows = [];
+                    for (const line of String(text).split('\n')) {
+                        let row = '';
+                        for (const word of line.split(' ')) {
+                            const next = row ? `${row} ${word}` : word;
+                            if (ctx.measureText(next).width > hud.canvas.width - 64 && row) {
+                                rows.push(row);
+                                row = word;
+                            } else {
+                                row = next;
+                            }
+                        }
+                        rows.push(row);
+                    }
+                    rows.forEach((row, i) => ctx.fillText(row, 32, 28 + i * 56));
+                    hud.texture.setSource(hud.canvas);
+                    hud.texture.upload();
+                    hud.entity.enabled = true;
+                    app.renderNextFrame = true;
+                    return 'shown';
+                };
+
+                const { app } = viewer;
+                const wgpu = app.graphicsDevice.wgpu;
+                if (wgpu) {
+                    wgpu.addEventListener('uncapturederror', (event) =>
+                        log('gpu', [event.error?.message ?? event.error])
+                    );
+                    wgpu.lost?.then((info) => log('gpu', [`device lost: ${info.reason} ${info.message}`]));
+                }
+                const { xr } = app;
+                if (xr) {
+                    xr.on('start', () => log('xr', [`session started: ${xr.type}`]));
+                    xr.on('end', () => log('xr', ['session ended']));
+                    xr.on('error', (error) => log('xr', ['error', error]));
+                }
+                log('agent', [`viewer created, renderer ${app.graphicsDevice.isWebGPU ? 'webgpu' : 'webgl'}`]);
+            } catch (e) {
+                log('agent', ['createViewer failed', e]);
+            }
+        </script>
+    </body>
+</html>

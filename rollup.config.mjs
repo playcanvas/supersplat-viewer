@@ -53,6 +53,7 @@ function htmlPlugin() {
             this.addWatchFile('src/dev/mount-loop.html');
             this.addWatchFile('src/dev/custom-ui.html');
             this.addWatchFile('src/dev/bench.html');
+            this.addWatchFile('src/dev/remote.html');
         },
         generateBundle() {
             const contents = readFileSync('src/index.html', 'utf-8');
@@ -88,6 +89,14 @@ function htmlPlugin() {
                 type: 'asset',
                 fileName: 'bench.html',
                 source: readFileSync('src/dev/bench.html', 'utf-8')
+            });
+
+            // Development page that forwards a device's console to tools/remote-console.mjs and
+            // runs the snippets queued there, for devices Web Inspector cannot reach.
+            this.emitFile({
+                type: 'asset',
+                fileName: 'remote.html',
+                source: readFileSync('src/dev/remote.html', 'utf-8')
             });
         }
     };
