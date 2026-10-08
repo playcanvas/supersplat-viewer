@@ -99,7 +99,7 @@
             MiniStats mode toggles the panel through the debug panel, checks the toggles add no
             engine listeners and that destroy removes it, then destroys during a refused copy.
 
-            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser|input|ministats  ?instances=2  ?webgl  ?stochastic  ?pump (frames without the display, for a hidden tab)  ?content=  ?settings=
+            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser|input|ministats  ?instances=2  ?webgl  ?stochastic[=mobile]  ?pump (frames without the display, for a hidden tab)  ?content=  ?settings=
         -->
         <div id="hosts"></div>
         <pre id="harness"></pre>
@@ -227,8 +227,12 @@
                 contentUrl,
                 renderer,
                 // the opt-in stochastic renderer: its own passes, buffers and textures must go
-                // with the viewer
-                stochastic: url.searchParams.has('stochastic'),
+                // with the viewer, in either mode (?stochastic, ?stochastic=mobile)
+                stochastic: url.searchParams.has('stochastic')
+                    ? url.searchParams.get('stochastic') === 'mobile'
+                        ? 'mobile'
+                        : true
+                    : false,
                 splatSource: url.searchParams.get('splatSource') ?? undefined,
                 exposeGlobals: false,
                 collisionUrl: url.searchParams.get('collision') ?? undefined,
