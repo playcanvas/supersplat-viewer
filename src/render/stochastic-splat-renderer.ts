@@ -89,7 +89,7 @@ import {
     projectorWGSL
 } from './shaders/projector';
 import type { CoverageMode } from './shaders/projector';
-import { FAR_CLIP_Z, QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
+import { QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
 import { TAA_MAX_COUNT, taaFragmentWGSL, taaVertexWGSL } from './shaders/taa';
 import { analyticWarpMap, buildWarpTable } from './shaders/warp';
@@ -116,8 +116,6 @@ type Variant = {
      * scene's own threshold follows when the camera stops. 0 leaves the scene threshold alone.
      */
     contribution: number;
-    /** Popless depth: every fragment gets the depth of the Gaussian's peak along its ray (paper 3.4). */
-    popless: 'on' | 'off';
     /**
      * Where the coverage threshold varies: per pixel (a discarding fragment shader over the
      * whole quad), or per splat and frame, which makes the kept pixels a solid ellipse drawn as
@@ -202,7 +200,6 @@ const defaultVariant = (): Variant => ({
     compose: 'blend',
     cull: 'auto',
     contribution: 0,
-    popless: 'on',
     coverage: 'pixel',
     jitter: 0,
     strata: 4,
@@ -233,7 +230,6 @@ const parseVariant = (text: string | undefined): Variant => {
             variant.cull = value;
         }
         if (key === 'contribution' && Number.isFinite(Number(value))) variant.contribution = Math.max(0, Number(value));
-        if (key === 'popless' && (value === 'on' || value === 'off')) variant.popless = value;
         if (key === 'coverage' && (value === 'pixel' || value === 'splat' || value === 'interleaved'))
             variant.coverage = value;
         if (key === 'jitter' && ['0', '1', '2'].includes(value)) variant.jitter = Number(value);
@@ -1385,7 +1381,6 @@ class StochasticSplatRenderer {
     applyVariant() {
         // a switch changes what the frames hold; an old history would leak into the new ones
         this.resetHistory();
-        this.rasterMaterial.setDefine('SSE_POPLESS', this.variant.popless === 'on' ? '' : undefined);
         const splatCoverage = this.variant.coverage !== 'pixel';
         this.rasterMaterial.setDefine('SSE_COVERAGE_SPLAT', splatCoverage ? '' : undefined);
         this.rasterMaterial.setDefine('SSE_INTERLEAVED', this.variant.coverage === 'interleaved' ? '' : undefined);
@@ -1765,12 +1760,6 @@ class StochasticSplatRenderer {
         // the order key spans the fitted clip range, log-spaced
         const logNear = Math.log(Math.max(cam.nearClip, 1e-6));
         const invLogRange = 1 / Math.max(Math.log(Math.max(cam.farClip, 1e-6)) - logNear, 1e-6);
-        // the view depths where the raster's clip z reaches 0 and its far clamp (FAR_CLIP_Z), from
-        // clip z = a * depth + b (over w = depth for a perspective camera)
-        const [clipA, clipB] = clipZ;
-        const depthNear = -clipB / clipA;
-        const depthFar = isOrtho ? (FAR_CLIP_Z - clipB) / clipA : clipB / (FAR_CLIP_Z - clipA);
-
         // the view's position, for the view-dependent colour: an eye's is its own
         view.cameraWorld.copy(viewMatrix).invert();
         const position = eye ? view.cameraWorld.getTranslation(tmpVec3) : camera.entity.getPosition();
@@ -1813,8 +1802,6 @@ class StochasticSplatRenderer {
             projector.setParameter('prevFlip', view.prevFlip);
             projector.setParameter('keyLogNear', logNear);
             projector.setParameter('keyInvLogRange', invLogRange);
-            projector.setParameter('depthNear', depthNear);
-            projector.setParameter('depthFar', depthFar);
             projector.setParameter('frameSeed', this.frameSeed);
             projector.setParameter('jitterSubs', this.variant.jitter);
             projector.setParameter('strata', this.variant.strata);
@@ -1884,7 +1871,6 @@ class StochasticSplatRenderer {
         bind(raster, 'orderedSlots', view.orderedBuffer!);
         bind(raster, 'viewportSize', [width, height, 2 / width, 2 / height]);
         bind(raster, 'clipZParams', clipZParams);
-        bind(raster, 'focalParams', [focal[0], focal[1], 0, 0]);
         bind(raster, 'sseAlphaClip', alphaClip);
         bind(raster, 'frameSeed', this.frameSeed);
         if (interleaved) bind(raster, 'setRanges', view.setRanges);
@@ -2268,8 +2254,6 @@ class StochasticSplatRenderer {
                     new UniformFormat('modelScale', UNIFORMTYPE_VEC4),
                     new UniformFormat('cameraPosition', UNIFORMTYPE_VEC4),
                     new UniformFormat('unitScale', UNIFORMTYPE_FLOAT),
-                    new UniformFormat('depthNear', UNIFORMTYPE_FLOAT),
-                    new UniformFormat('depthFar', UNIFORMTYPE_FLOAT),
                     new UniformFormat('frameSeed', UNIFORMTYPE_UINT),
                     new UniformFormat('jitterSubs', UNIFORMTYPE_UINT),
                     new UniformFormat('strata', UNIFORMTYPE_UINT),

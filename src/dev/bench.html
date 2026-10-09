@@ -62,7 +62,7 @@
                                             or { name, position, target, fov }; default: the start pose
               modes=sorted,stochastic       which renderers to load
               variants=cull:off;cull:l2     stochastic variant strings, ; separated (keys: coverage, jitter, strata, interleaveArea,
-                                            cull, contribution, popless, compose, taa and the taa* keys, units)
+                                            cull, contribution, compose, taa and the taa* keys, units)
               splatSource=direct            stochastic data path: direct or workbuffer
               dpr=1.5                       pin the pixel ratio and screen size: target = host * dpr
               move=0.25                     orbit the camera this many degrees per measured frame (0: still)
@@ -538,7 +538,7 @@
                     });
                 }
                 // the sorted renderer's order: radial distance (the viewer's setting) or view depth,
-                // the depth the stochastic raster tests when popless is off
+                // the depth the stochastic raster tests
                 if (mode === 'sorted' && params.get('radial') === '0') {
                     app.scene.gsplat.radialSorting = false;
                 }
@@ -805,7 +805,7 @@
                 renderer.setVariant('cull:off,taa:off');
                 const W = app.graphicsDevice.width;
                 const H = app.graphicsDevice.height;
-                const WORDS = 7;
+                const WORDS = 6;
                 const f16 = (h) => {
                     const s = h & 0x8000 ? -1 : 1;
                     const e = (h >> 10) & 0x1f;

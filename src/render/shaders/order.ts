@@ -68,7 +68,7 @@ fn main(
 `;
 
 // Variant coverage:interleaved: the same, with an entry for each pixel set a survivor keeps
-// pixels in (the nibbles of its cache word 6), in that set's buckets, or one entry in the full
+// pixels in (the nibbles of its cache word 5), in that set's buckets, or one entry in the full
 // target's group for a splat drawn per splat (bit 15), so each group's entries are one
 // contiguous range of the ordered list, front to back
 const orderScatterSetsWGSL = /* wgsl */ `
@@ -97,12 +97,12 @@ fn main(
     workgroupBarrier();
     if (live) {
         let depthKey = ((cache[slot * ${CACHE_WORDS}u + 3u] >> 24u) * ${SET_BUCKETS}u) >> 8u;
-        let word6 = cache[slot * ${CACHE_WORDS}u + 6u];
-        if ((word6 & ${FULL_ENTRY_BIT}u) != 0u) {
+        let word5 = cache[slot * ${CACHE_WORDS}u + 5u];
+        if ((word5 & ${FULL_ENTRY_BIT}u) != 0u) {
             groups = 1u << 4u;
         } else {
             for (var s = 0u; s < 4u; s++) {
-                groups |= ((word6 >> (16u + 4u * s)) & 1u) << s;
+                groups |= ((word5 >> (16u + 4u * s)) & 1u) << s;
             }
         }
         for (var g = 0u; g < ${SET_GROUPS}u; g++) {

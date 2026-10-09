@@ -5,8 +5,8 @@
 
 import { warpWGSL } from './warp';
 
-/** Words per cache entry. See the layout in the plan: ndc, depth, axis1, len2|alpha|flags, rgb, popless, id. */
-const CACHE_WORDS = 7;
+/** Words per cache entry: ndc, depth, axis1, len2 | alpha | bucket, rgb, id (or the coverage draw). */
+const CACHE_WORDS = 6;
 
 const PROJECTOR_WORKGROUP_SIZE = 256;
 
@@ -49,9 +49,9 @@ const SET_GROUPS = 5;
 /** Depth buckets per draw group with coverage:interleaved; the groups share the ORDER_BUCKETS. */
 const SET_BUCKETS = Math.floor(ORDER_BUCKETS / SET_GROUPS);
 
-/** Cache word 6 with coverage other than pixel: bit 15 marks a full-target entry of the interleaved mode. */
+/** Cache word 5 with coverage other than pixel: bit 15 marks a full-target entry of the interleaved mode. */
 const FULL_ENTRY_BIT = 0x8000;
-/** The bits of word 6 below it: the splat's threshold draw. */
+/** The bits of word 5 below it: the splat's threshold draw. */
 const DRAW_BITS = 15;
 
 // the 24 orders of the four strata, 2 bits a set, for the jittered pixel sets
@@ -111,9 +111,6 @@ struct ProjectorUniforms {
     // 1: covariance in true pixels. 2: the engine's convention (its focal is viewport * proj[0][0],
     // twice the pixel focal), which makes its 0.3 dilation 0.075 px^2 and scales its culls
     unitScale: f32,
-    // the view depths of the near plane and of the raster's far clamp
-    depthNear: f32,
-    depthFar: f32,
     // the coverage seed (variant coverage:splat; see the raster's frameSeed)
     frameSeed: u32,
     // variant jitter: sub-strata a stratum splits into (0: no jitter), and the strata a per-splat
@@ -248,7 +245,7 @@ ${
     // splat, would keep two splats' thresholds a fixed distance apart, so their coverage would
     // stay correlated over frames and the accumulation would converge to the wrong image. A
     // splat whose opacity does not exceed its threshold keeps nothing this frame and stops here.
-    // The draw goes into cache word 6 as ${DRAW_BITS} bits, and the raster rebuilds the same
+    // The draw goes into cache word 5 as ${DRAW_BITS} bits, and the raster rebuilds the same
     // thresholds from them (shaders/raster.ts).
     let id = slot ^ (file * 2654435761u);
     let hashed = hashU32(((id + 1u) * 26699u) ^ uniforms.frameSeed);
@@ -574,71 +571,24 @@ ${
     let key = clamp((log(max(depth, 1e-6)) - uniforms.keyLogNear) * uniforms.keyInvLogRange, 0.0, 0.999) * ${ORDER_BUCKETS}.0;
     result.words[3] |= u32(key) << 24u;
     result.words[4] = rgb.r | (rgb.g << 10u) | (rgb.b << 20u) | (exponent << 30u);
-    // Popless depth (StochasticSplats 3.4): the quad is tilted onto the plane through the
-    // centre with normal adj(Sigma) mu (view space; adj rather than the inverse, so a flat
-    // splat needs no division by its tiny determinant), and the raster gives each corner the
-    // depth where its own view ray meets that plane, so hardware interpolation hands every
-    // fragment the depth of the Gaussian's peak along its ray instead of the centre's. Stored
-    // as g = n.xy / (n . mu): a corner at view offset d (in the plane z = -depth) lands at
-    // depth / (1 + g . d). Orthographic rays are parallel, so there n = adj(Sigma) e_z and
-    // the corner depth is depth + g . d with g = n.xy / n.z. Bounded so every corner stays
-    // within 2 sqrt(2) sigma_z of the centre (the occlusion cull's front margin) and the
-    // perspective scale stays positive, and so no corner crosses the near plane or the
-    // raster's far clamp: a corner clamped there while the others are not bends the quad, whose
-    // two triangles then take different depths and show as polygons (large far splats, the
-    // sky, sit right at a far plane fitted to the scene). A centre beyond the clamp stays flat.
-    let ortho = uniforms.isOrtho != 0u;
-    let a00 = c11 * c22 - c12 * c12;
-    let a01 = c02 * c12 - c01 * c22;
-    let a02 = c01 * c12 - c02 * c11;
-    let a11 = c00 * c22 - c02 * c02;
-    let a12 = c01 * c02 - c00 * c12;
-    let a22 = c00 * c11 - c01 * c01;
-    let toward = select(viewCenter.xyz, vec3f(0.0, 0.0, -1.0), ortho);
-    let n = vec3f(
-        a00 * toward.x + a01 * toward.y + a02 * toward.z,
-        a01 * toward.x + a11 * toward.y + a12 * toward.z,
-        a02 * toward.x + a12 * toward.y + a22 * toward.z
-    );
-    let denom = select(dot(n, viewCenter.xyz), n.z, ortho);
-    var g = vec2f(0.0);
-    if (abs(denom) > 1e-20) {
-        g = n.xy / denom;
-        // view units per pixel at the centre's depth, and the quad's half extents in them
-        let viewScale = select(depth, 1.0, ortho) / (focal * pixelScale);
-        let ext = (abs(axis1) + abs(axis2)) * viewScale;
-        let bound = abs(g.x) * ext.x + abs(g.y) * ext.y;
-        let margin = 2.8284 * sqrt(max(c22, 0.0));
-        let inRange = select(
-            min(1.0 - depth / uniforms.depthFar, depth / max(uniforms.depthNear, 1e-6) - 1.0),
-            min(uniforms.depthFar - depth, depth - uniforms.depthNear),
-            ortho
-        );
-        let limit = max(0.0, min(select(min(0.25, margin / max(depth, 1e-6)), margin, ortho), 0.999 * inRange));
-        if (bound > limit) {
-            g *= limit / max(bound, 1e-20);
-        }
-    }
-    // per the target's pixel, which the raster offsets the corners by (variant warp)
-    result.words[5] = pack2x16float(g / pixelScale);
 ${
     coverage === 'pixel'
         ? `
     // the stable id the coverage hash seeds from: the slot, salted by the file for sources
     // whose indices restart per file
-    result.words[6] = slot ^ (file * 2654435761u);
+    result.words[5] = slot ^ (file * 2654435761u);
 `
         : coverage === 'interleaved'
           ? `
     // the draw's bits, bit 15 for a full-target entry, and a nibble per pixel set (0: the set
     // keeps nothing): the raster rebuilds every threshold from them
     let nibbles = select(setNibbles, vec4u(splatNibble, 0u, 0u, 0u), fullEntry);
-    result.words[6] = drawnBits | select(0u, ${FULL_ENTRY_BIT}u, fullEntry)
+    result.words[5] = drawnBits | select(0u, ${FULL_ENTRY_BIT}u, fullEntry)
         | (nibbles.x << 16u) | (nibbles.y << 20u) | (nibbles.z << 24u) | (nibbles.w << 28u);
 `
           : `
     // the draw's bits and the per-splat nibble (shaders/raster.ts)
-    result.words[6] = drawnBits | (splatNibble << 16u);
+    result.words[5] = drawnBits | (splatNibble << 16u);
 `
 }
     return result;
@@ -698,11 +648,11 @@ ${
         // one entry per kept pixel set, or one in the full target's group: the group's
         // ${SET_BUCKETS} buckets, front to back, from the depth bucket
         let depthKey = ((projected.words[3] >> 24u) * ${SET_BUCKETS}u) >> 8u;
-        if ((projected.words[6] & ${FULL_ENTRY_BIT}u) != 0u) {
+        if ((projected.words[5] & ${FULL_ENTRY_BIT}u) != 0u) {
             atomicAdd(&wgBuckets[4u * ${SET_BUCKETS}u + depthKey], 1u);
         } else {
             for (var s = 0u; s < 4u; s++) {
-                if (((projected.words[6] >> (16u + 4u * s)) & 1u) != 0u) {
+                if (((projected.words[5] >> (16u + 4u * s)) & 1u) != 0u) {
                     atomicAdd(&wgBuckets[s * ${SET_BUCKETS}u + depthKey], 1u);
                 }
             }

@@ -46,8 +46,6 @@ uniform viewportSize: vec4f;
 uniform clipZParams: vec4f;
 // set by the engine's forward renderer for the target being rendered
 uniform projectionFlipY: f32;
-// focal length in pixels (x, y), for the popless corner depths
-uniform focalParams: vec4f;
 // the fragment shader's alpha clip, which also bounds the quad
 uniform sseAlphaClip: f32;
 
@@ -120,20 +118,20 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
     #ifdef SSE_COVERAGE_SPLAT
         // Coverage other than pixel: the projector kept only the splats with pixels to keep this
         // frame and stored the full quad's axes; the square of the pixels this draw keeps is
-        // sized here from its threshold, rebuilt from cache word 6 as the projector built it
+        // sized here from its threshold, rebuilt from cache word 5 as the projector built it
         // (shaders/projector.ts): the splat's 15-bit draw, and a nibble per draw group holding
         // the stratum and sub-stratum of the jittered modes
-        let word6 = splatCache[base + 6u];
+        let word5 = splatCache[base + 5u];
         let opacityS = f32((word3 >> 16u) & 0xffu) / 255.0;
-        let drawn = f32(word6 & ${(1 << DRAW_BITS) - 1}u) * (1.0 / ${(1 << DRAW_BITS) - 1}.0);
+        let drawn = f32(word5 & ${(1 << DRAW_BITS) - 1}u) * (1.0 / ${(1 << DRAW_BITS) - 1}.0);
         #ifdef SSE_INTERLEAVED
             let group = uniform.setIndex;
             let fullGroup = group == 4u;
-            let nibble = (word6 >> (16u + 4u * select(group, 0u, fullGroup))) & 0xfu;
+            let nibble = (word5 >> (16u + 4u * select(group, 0u, fullGroup))) & 0xfu;
             // the sets' thresholds are the four quarters from the draw; the full target's is the draw
             let plain = select(fract(drawn + f32(group) * 0.25), drawn, fullGroup);
         #else
-            let nibble = (word6 >> 16u) & 0xfu;
+            let nibble = (word5 >> 16u) & 0xfu;
             let plain = drawn;
         #endif
         let subs = uniform.jitterParams.x;
@@ -162,20 +160,11 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
         let corner = vertex_position.xy * min(1.0, sqrt(max(0.0, log(opacity / uniform.sseAlphaClip))) * 0.5);
     #endif
     let pixelOffset = corner.x * axis1 + corner.y * axis2;
-    #ifdef SSE_POPLESS
-        // the corner's depth on the splat's plane (see the projector): its view-space offset
-        // at the centre's depth, times the stored gradient
-        let g = unpack2x16float(splatCache[base + 5u]);
-        let shift = dot(g, pixelOffset * select(depth, 1.0, ortho) / uniform.focalParams.xy);
-        let cornerDepth = select(depth / (1.0 + shift), depth + shift, ortho);
-    #else
-        let cornerDepth = depth;
-    #endif
-    let w = select(cornerDepth, 1.0, ortho);
+    let w = select(depth, 1.0, ortho);
     let ndcCorner = ndc + pixelOffset * uniform.viewportSize.zw;
     // clip z clamped into range like the engine's splat shader, so splats beyond the far plane
     // still draw; just inside it, since the compose and the accumulation read depth 1 as empty
-    let pos = vec4f(ndcCorner * w, clamp(uniform.clipZParams.x * cornerDepth + uniform.clipZParams.y, 0.0, w * ${FAR_CLIP_Z}), w);
+    let pos = vec4f(ndcCorner * w, clamp(uniform.clipZParams.x * depth + uniform.clipZParams.y, 0.0, w * ${FAR_CLIP_Z}), w);
     output.position = vec4f(pos.x, pos.y * uniform.projectionFlipY, pos.z, pos.w);
     #ifdef SSE_INTERLEAVED
         // into the set's own target, in framebuffer space: the full target's pixel (2i + x, 2j + y)
@@ -196,7 +185,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
         output.jitterVary = vec4f(strataIndex * uniform.jitterParams.z, f32(entryKey >> 8u) * (1.0 / 16777216.0), opacityS, 0.0);
         output.packedAlpha = word3 >> 16u;
     #else
-        let seed = hashU32(((splatCache[base + 6u] + 1u) * 26699u) ^ uniform.frameSeed);
+        let seed = hashU32(((splatCache[base + 5u] + 1u) * 26699u) ^ uniform.frameSeed);
         output.packedAlpha = ((word3 >> 16u) & 0xffu) | (seed & 0xffffff00u);
     #endif
     return output;
