@@ -263,6 +263,12 @@ const MODE_VARIANTS = {
     mobile: 'coverage:interleaved,jitter:2,interleaveArea:256,taaClip:0'
 };
 
+// The switches a stereo session adds over the mode's. A head never rests, so every frame takes the
+// moving history, whose cap of 16 left the coverage noise pulsing in semi-transparent areas; the
+// eyes keep up to 64 samples and shorten them four times as fast with the motion
+// (docs/stochastic-renderer.md, XR stereo)
+const STEREO_VARIANT = 'taaMoveMax:64,taaMotion:1';
+
 type StochasticMode = keyof typeof MODE_VARIANTS;
 
 type StochasticRendererOptions = {
@@ -737,6 +743,9 @@ class StochasticSplatRenderer {
     /** The mode's switches, which setVariant's string applies over. */
     private readonly modeVariant: string;
 
+    /** setVariant's last string, applied again when a stereo session starts or ends. */
+    private variantText: string;
+
     readonly source: SplatSource;
 
     private app: AppBase;
@@ -1061,7 +1070,8 @@ class StochasticSplatRenderer {
         this.camera = camera;
         this.worldLayer = worldLayer;
         this.modeVariant = MODE_VARIANTS[options.mode ?? 'pixel'];
-        this.variant = parseVariant(`${this.modeVariant},${options.variant ?? ''}`);
+        this.variantText = options.variant ?? '';
+        this.variant = parseVariant(`${this.modeVariant},${this.variantText}`);
 
         const { device } = this;
         this.passCamera = new Camera(device);
@@ -1355,9 +1365,11 @@ class StochasticSplatRenderer {
         this.app.renderNextFrame = true;
     }
 
-    /** Replace the experiment switches from a `key:value,key:value` string (unset keys reset to the mode's). */
+    /** Replace the experiment switches from a `key:value,key:value` string (unset keys reset to the mode's, and the session's). */
     setVariant(text: string) {
-        Object.assign(this.variant, parseVariant(`${this.modeVariant},${text}`));
+        this.variantText = text;
+        const stereo = this.stereo ? STEREO_VARIANT : '';
+        Object.assign(this.variant, parseVariant(`${this.modeVariant},${stereo},${text}`));
         // the cull decides afresh under new switches
         this.cullActive = true;
         this.cullSuspendedFrames = 0;
@@ -1496,7 +1508,11 @@ class StochasticSplatRenderer {
 
         // one view per eye while the engine renders a stereo session, the camera's otherwise
         const eyes = this.stereoViews();
-        this.stereo = !!eyes;
+        if (this.stereo !== !!eyes) {
+            this.stereo = !!eyes;
+            // the stereo switches come and go with the session
+            this.setVariant(this.variantText);
+        }
         const count = eyes ? eyes.length : 1;
         while (this.views.length < count) {
             const view = new SplatView(device, this.viewShaders, `-eye${this.views.length}`);
