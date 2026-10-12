@@ -114,15 +114,18 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     if (uniform.composeParams.z > 0.5) {
         // the accumulated history: coverage in alpha, colour premultiplied by it
         color = decodeColor(textureLoad(taaColor, pix, 0));
-        if (depth >= 1.0 && color.a > 0.001) {
-            // covered by the history but no sample this frame, which a faint pixel sees on
-            // most frames: the mean depth of the pixel's own samples, or, for a history this
-            // frame started (moving, from the quad's samples), the nearest sampled neighbour's,
-            // so the pixel still occludes what is behind the splats
+        if (color.a > 0.001) {
+            // The mean depth of the pixel's own samples wherever it has a history, rather than
+            // this frame's nearest sample: a faint splat in front takes a sample on a few frames
+            // only, so the depth would flicker between it and what lies behind, which a compositor
+            // reprojecting a late XR frame by depth shows as judder there, and which hides what
+            // is drawn after the splats on some frames only. For a history this frame started
+            // (moving, from the quad's samples), this frame's sample, or where none landed the
+            // nearest sampled neighbour's, so the pixel still occludes what is behind the splats
             let info = decodeInfo(textureLoad(taaInfo, pix, 0).x);
             if (info.count > 0.5) {
                 depth = clipZOf(info.depth);
-            } else {
+            } else if (depth >= 1.0) {
                 for (var dy = -1; dy <= 1; dy++) {
                     for (var dx = -1; dx <= 1; dx++) {
                         depth = min(depth, sampleDepth(clamp(pix + vec2i(dx, dy), vec2i(0), dims - vec2i(1))));
