@@ -70,7 +70,209 @@ const permutations = (() => {
     return out;
 })();
 
-const projectorWGSL = (readChunk: string, occlusion: boolean, coverage: CoverageMode, warp: boolean) => /* wgsl */ `
+// the warp's lookups again for the second eye (stereo), whose table follows the first eye's in
+// the same buffer
+const warpEye1WGSL = warpWGSL
+    .replace(/warpTable\[/g, 'warpTable[uniforms.warpBaseEye1 + ')
+    .replace(/\b(warpStep|warpAxis|warpNdc|warpSlope|unwarpTexel)\(/g, '$1Eye1(');
+
+// The occlusion test against one eye's previous frame (see the cull in project below): '' for
+// the view's own grid, 'Eye1' for the second eye's in stereo. The previous frame's farthest depth
+// over the (2g+1)^2 blocks around a block, on either grid level, bounds what could still have
+// shown behind a splat there
+const occlusionWGSL = (eye: string, warp: boolean) => /* wgsl */ `
+fn farthestL1${eye}(block: vec2i, gather: i32, blocks: vec2i) -> u32 {
+    var farthest = 0u;
+    for (var dy = -gather; dy <= gather; dy++) {
+        for (var dx = -gather; dx <= gather; dx++) {
+            farthest = max(farthest, occ${eye}[u32((block.y + dy) * blocks.x + block.x + dx)]);
+        }
+    }
+    return farthest;
+}
+
+fn farthestL2${eye}(block: vec2i, gather: i32, blocks: vec2i) -> u32 {
+    var farthest = 0u;
+    for (var dy = -gather; dy <= gather; dy++) {
+        for (var dx = -gather; dx <= gather; dx++) {
+            farthest = max(farthest, occ${eye}[uniforms.occL2Base + u32((block.y + dy) * blocks.x + block.x + dx)]);
+        }
+    }
+    return farthest;
+}
+
+// whether a splat at a centre and view depth, whose largest polygon reaches halfExtent pixels at
+// a focal length, lay wholly behind the eye's previous frame
+fn occludedIn${eye}(center: vec3f, depth: f32, focalX: f32, halfExtent: f32, c22: f32) -> bool {
+    let prevClip = uniforms.prevViewProj${eye} * vec4f(center, 1.0);
+    let prevDepth = -(uniforms.prevView${eye} * vec4f(center, 1.0)).z;
+    let prevOrtho = uniforms.prevClipZ.z != 0.0;
+    if (prevClip.w <= 0.0 || (!prevOrtho && prevDepth <= 0.0)) {
+        return false;
+    }
+    let prevNdc = ${warp ? `warpNdc${eye}(prevClip.xy / prevClip.w)` : 'prevClip.xy / prevClip.w'};
+    let prevHalfExtent = halfExtent * (uniforms.prevFocal${eye}.x / focalX)
+        * select(depth / max(prevDepth, 0.001), 1.0, prevOrtho);
+    let footprint = max(halfExtent, prevHalfExtent);
+    var level = 1u;
+    var blockSize = 8.0;
+    var blocks = vec2i(i32(uniforms.occBlocksX1), i32(uniforms.occBlocksY1));
+    if (footprint > 16.0) {
+        level = 2u;
+        blockSize = 32.0;
+        blocks = vec2i(i32(uniforms.occBlocksX2), i32(uniforms.occBlocksY2));
+    }
+    if (footprint > 64.0 || level > uniforms.occlusionMode) {
+        return false;
+    }
+    let gather = max(i32(ceil(footprint / blockSize)), 1);
+    let prevPixel = vec2f(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * uniforms.prevFlip * 0.5) * uniforms.prevViewport;
+    let block = vec2i(floor(prevPixel / blockSize));
+    if (block.x < gather || block.y < gather || block.x >= blocks.x - gather || block.y >= blocks.y - gather) {
+        return false;
+    }
+    let front = prevDepth - 2.8284 * sqrt(c22);
+    let w = select(front, 1.0, prevOrtho);
+    if (w <= 0.0) {
+        return false;
+    }
+    let frontZ = clamp(uniforms.prevClipZ.x * front + uniforms.prevClipZ.y, 0.0, w) / w;
+    // the block under the centre first: the neighbourhood's maximum is at least its maximum, so
+    // a splat that block alone cannot cull is visible, and most splats leave here after one load
+    let centreIndex = u32(block.y * blocks.x + block.x);
+    var farthest = select(occ${eye}[centreIndex], occ${eye}[uniforms.occL2Base + centreIndex], level == 2u);
+    if (frontZ <= bitcast<f32>(farthest)) {
+        return false;
+    }
+    if (level == 1u) {
+        farthest = farthestL1${eye}(block, gather, blocks);
+    } else {
+        farthest = farthestL2${eye}(block, gather, blocks);
+    }
+    return frontZ > bitcast<f32>(farthest);
+}
+`;
+
+// Stereo: the second eye's own footprint of a splat, the same 3D Gaussian through that eye's view,
+// focal length and warp, as project() below does for the view (only the shape: the depth, colour
+// and order stay the view's). The quad's axes are the full quad's, clamped, as cache words 2 and
+// 3 hold them
+const footprintEye1WGSL = (warp: boolean) => /* wgsl */ `
+struct FootprintEye1 {
+    visible: bool,
+    depth: f32,
+    ndc: vec2f,
+    axis1: vec2f,
+    len2: f32,
+    lambda1: f32,
+    determinant: f32
+}
+
+fn footprintEye1(center: vec3f, rot: vec4f, scale: vec3f, viewport: vec2f) -> FootprintEye1 {
+    var f: FootprintEye1;
+    f.visible = false;
+    f.ndc = vec2f(1e4);
+    f.axis1 = vec2f(1.0, 0.0);
+    f.len2 = 1.0;
+    let viewCenter = uniforms.viewEye1 * vec4f(center, 1.0);
+    let ortho = uniforms.isOrtho != 0u;
+    f.depth = -viewCenter.z;
+    let clip = uniforms.viewProjEye1 * vec4f(center, 1.0);
+    if ((!ortho && f.depth <= 0.0) || clip.w <= 0.0) {
+        return f;
+    }
+    let focal = uniforms.focalEye1;
+    let linear = mat3x3f(uniforms.viewEye1[0].xyz, uniforms.viewEye1[1].xyz, uniforms.viewEye1[2].xyz);
+    let gaussian = linear * rotationMatrix(vec4f(rot.yzw, rot.x)) * mat3x3f(
+        vec3f(scale.x, 0.0, 0.0),
+        vec3f(0.0, scale.y, 0.0),
+        vec3f(0.0, 0.0, scale.z)
+    );
+    let row0 = vec3f(gaussian[0].x, gaussian[1].x, gaussian[2].x);
+    let row1 = vec3f(gaussian[0].y, gaussian[1].y, gaussian[2].y);
+    let row2 = vec3f(gaussian[0].z, gaussian[1].z, gaussian[2].z);
+    let c00 = dot(row0, row0);
+    let c01 = dot(row0, row1);
+    let c02 = dot(row0, row2);
+    let c11 = dot(row1, row1);
+    let c12 = dot(row1, row2);
+    let c22 = dot(row2, row2);
+    var cov00: f32;
+    var cov01: f32;
+    var cov11: f32;
+    if (ortho) {
+        cov00 = focal.x * focal.x * c00;
+        cov01 = focal.x * focal.y * c01;
+        cov11 = focal.y * focal.y * c11;
+    } else {
+        let invDepth = 1.0 / max(f.depth, 0.001);
+        let jx0 = focal.x * invDepth;
+        let jx2 = focal.x * viewCenter.x * invDepth * invDepth;
+        let jy1 = focal.y * invDepth;
+        let jy2 = focal.y * viewCenter.y * invDepth * invDepth;
+        let u00 = jx0 * c00 + jx2 * c02;
+        let u01 = jx0 * c01 + jx2 * c12;
+        let u02 = jx0 * c02 + jx2 * c22;
+        let u11 = jy1 * c11 + jy2 * c12;
+        let u12 = jy1 * c12 + jy2 * c22;
+        cov00 = u00 * jx0 + u02 * jx2;
+        cov01 = u01 * jy1 + u02 * jy2;
+        cov11 = u11 * jy1 + u12 * jy2;
+    }
+${
+    warp
+        ? `
+    let linearNdc = clip.xy / clip.w;
+    let reach = 2.8284 * sqrt(vec2f(cov00, cov11)) * 2.0 / viewport;
+    let lo = clamp(linearNdc - reach, vec2f(-1.0), vec2f(1.0));
+    let hi = clamp(linearNdc + reach, vec2f(-1.0), vec2f(1.0));
+    let span = hi - lo;
+    let warpedLo = warpNdcEye1(lo);
+    let pixelScale = select(
+        warpSlopeEye1(lo),
+        (warpNdcEye1(hi) - warpedLo) / max(span, vec2f(1e-9)),
+        span > vec2f(1e-6)
+    );
+    f.ndc = warpedLo + pixelScale * (linearNdc - lo);
+    cov00 *= pixelScale.x * pixelScale.x;
+    cov01 *= pixelScale.x * pixelScale.y;
+    cov11 *= pixelScale.y * pixelScale.y;
+`
+        : `
+    f.ndc = clip.xy / clip.w;
+`
+}
+    let us2 = uniforms.unitScale * uniforms.unitScale;
+    cov00 += 0.3 / us2;
+    cov11 += 0.3 / us2;
+    f.determinant = cov00 * cov11 - cov01 * cov01;
+    if (f.determinant <= 0.0) {
+        f.ndc = vec2f(1e4);
+        return f;
+    }
+    let mid = 0.5 * (cov00 + cov11);
+    let radius = length(vec2f(0.5 * (cov00 - cov11), cov01));
+    f.lambda1 = mid + radius;
+    let lambda2 = max(mid - radius, 0.1 / us2);
+    let eigenVec = vec2f(cov01, f.lambda1 - cov00);
+    let eigenLen = length(eigenVec);
+    let direction = select(vec2f(1.0, 0.0), eigenVec / eigenLen, eigenLen > 1e-9);
+    let len1 = 2.0 * sqrt(2.0 * f.lambda1);
+    let clampScale = min(1.0, min(1024.0, min(viewport.x, viewport.y)) / len1);
+    f.axis1 = len1 * clampScale * direction;
+    f.len2 = 2.0 * sqrt(2.0 * lambda2) * clampScale;
+    f.visible = true;
+    return f;
+}
+`;
+
+const projectorWGSL = (
+    readChunk: string,
+    occlusion: boolean,
+    coverage: CoverageMode,
+    warp: boolean,
+    stereo: boolean
+) => /* wgsl */ `
 struct ProjectorUniforms {
     view: mat4x4f,
     viewProj: mat4x4f,
@@ -119,7 +321,20 @@ struct ProjectorUniforms {
     strata: u32,
     // coverage:interleaved: splats whose footprint at the alpha clip is below this many pixels
     // draw per splat into the full target instead of into the pixel sets (0: none)
-    interleaveArea: f32
+    interleaveArea: f32,
+    // stereo: the second eye this projection also serves, which shapes and places the splats by
+    // its own view, focal length and warp and culls against its own previous frame
+    viewEye1: mat4x4f,
+    viewProjEye1: mat4x4f,
+    prevViewProjEye1: mat4x4f,
+    prevViewEye1: mat4x4f,
+    focalEye1: vec2f,
+    prevFocalEye1: vec2f,
+    // where level 2 starts in a view's grid; where the second eye's words start in the cache
+    // and its warp table in warpTable
+    occL2Base: u32,
+    stereoBase: u32,
+    warpBaseEye1: u32
 }
 
 // chunk table entry: slotBase, count, node, lod | file << 16
@@ -130,11 +345,11 @@ struct ProjectorUniforms {
 // [0] survivors this frame, [1] splats the occlusion cull removed
 @group(0) @binding(3) var<storage, read_write> counter: array<atomic<u32>>;
 @group(0) @binding(4) var<uniform> uniforms: ProjectorUniforms;
-// the previous frame's farthest depth per block, as f32 bits (see shaders/reduce.ts)
-@group(0) @binding(5) var<storage, read> occL1: array<u32>;
-@group(0) @binding(6) var<storage, read> occL2: array<u32>;
+// the previous frame's farthest depth per block, as f32 bits, level 1 then level 2 (see
+// shaders/reduce.ts)
+@group(0) @binding(5) var<storage, read> occ: array<u32>;
 // survivors per depth bucket (see shaders/order.ts)
-@group(0) @binding(7) var<storage, read_write> buckets: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read_write> buckets: array<atomic<u32>>;
 
 struct Splat {
     index: u32,
@@ -149,9 +364,18 @@ fn setSplat(idx: u32) {
 ${
     warp
         ? `
-// variant warp: the view's table (shaders/warp.ts)
-@group(0) @binding(8) var<storage, read> warpTable: array<f32>;
+// variant warp: the view's table (shaders/warp.ts), and in stereo the second eye's after it
+@group(0) @binding(7) var<storage, read> warpTable: array<f32>;
 ${warpWGSL}`
+        : ''
+}
+${
+    stereo
+        ? `
+// stereo: the second eye's occlusion grid, and its warp's lookups
+@group(0) @binding(8) var<storage, read> occEye1: array<u32>;
+${warp ? warpEye1WGSL : ''}
+`
         : ''
 }
 ${readChunk}
@@ -198,30 +422,9 @@ fn rotationMatrix(qIn: vec4f) -> mat3x3f {
 struct Projected {
     valid: bool,
     occluded: bool,
-    words: array<u32, ${CACHE_WORDS}>
+    words: array<u32, ${CACHE_WORDS}>,${stereo ? '\n    eye1: vec3u' : ''}
 }
-
-// The farthest depth over the (2g+1)^2 blocks around a block, on one grid level.
-fn farthestL1(block: vec2i, gather: i32, blocks: vec2i) -> u32 {
-    var farthest = 0u;
-    for (var dy = -gather; dy <= gather; dy++) {
-        for (var dx = -gather; dx <= gather; dx++) {
-            farthest = max(farthest, occL1[u32((block.y + dy) * blocks.x + block.x + dx)]);
-        }
-    }
-    return farthest;
-}
-
-fn farthestL2(block: vec2i, gather: i32, blocks: vec2i) -> u32 {
-    var farthest = 0u;
-    for (var dy = -gather; dy <= gather; dy++) {
-        for (var dx = -gather; dx <= gather; dx++) {
-            farthest = max(farthest, occL2[u32((block.y + dy) * blocks.x + block.x + dx)]);
-        }
-    }
-    return farthest;
-}
-
+${occlusion ? occlusionWGSL('', warp) : ''}${occlusion && stereo ? occlusionWGSL('Eye1', warp) : ''}${stereo ? footprintEye1WGSL(warp) : ''}
 fn project(slot: u32, file: u32) -> Projected {
     var result: Projected;
     result.valid = false;
@@ -408,16 +611,33 @@ ${
     let radius = length(vec2f(0.5 * (cov00 - cov11), cov01));
     let lambda1 = mid + radius;
     let lambda2 = max(mid - radius, 0.1 / us2);
-
+${
+    stereo
+        ? `
+    // Stereo: one projection serves both eyes, as the engine's own stereo projector does: the
+    // second eye takes this view's depth, colour, coverage and order and its own footprint, and
+    // every cull keeps what either eye would
+    let eye1 = footprintEye1(center, rot, scale, viewport);
+`
+        : ''
+}
     // size cull on the footprint's radius in pixels. minPixelSize is a diameter: the engine's
     // projector is dispatched with half of it, and its quad path tests the full extent
     // (2 sqrt(2 lambda)) against the whole value, so both cut at the same place
-    if (uniforms.unitScale * sqrt(2.0 * lambda1) < 0.5 * uniforms.minPixelSize) {
+    if (uniforms.unitScale * sqrt(2.0 * lambda1) < 0.5 * uniforms.minPixelSize${
+        stereo
+            ? ' && (!eye1.visible || uniforms.unitScale * sqrt(2.0 * eye1.lambda1) < 0.5 * uniforms.minPixelSize)'
+            : ''
+    }) {
         return result;
     }
 
     // contribution cull: the splat's alpha mass in pixels (the engine's minContribution rule)
-    if (opacity * 6.283185 * sqrt(determinant) * us2 < uniforms.minContribution) {
+    if (opacity * 6.283185 * sqrt(determinant) * us2 < uniforms.minContribution${
+        stereo
+            ? ' && (!eye1.visible || opacity * 6.283185 * sqrt(eye1.determinant) * us2 < uniforms.minContribution)'
+            : ''
+    }) {
         return result;
     }
 
@@ -466,8 +686,24 @@ ${
 
     let extent = abs(axis1) + abs(axis2);
     let centerPixels = (ndc * 0.5 + 0.5) * viewport;
-    if (centerPixels.x + extent.x < 0.0 || centerPixels.x - extent.x > viewport.x
-        || centerPixels.y + extent.y < 0.0 || centerPixels.y - extent.y > viewport.y) {
+    var outside = centerPixels.x + extent.x < 0.0 || centerPixels.x - extent.x > viewport.x
+        || centerPixels.y + extent.y < 0.0 || centerPixels.y - extent.y > viewport.y;
+${
+    stereo
+        ? `
+    // a splat either eye sees survives: the second eye's largest polygon is to its full quad as
+    // this view's is (both eyes' targets are the same size)
+    let polygonRatio = radiusScale / clampScale;
+    let axis1Eye1 = eye1.axis1 * polygonRatio;
+    let axis2Eye1 = eye1.len2 * polygonRatio * normalize(vec2f(eye1.axis1.y, -eye1.axis1.x));
+    let extentEye1 = abs(axis1Eye1) + abs(axis2Eye1);
+    let centerEye1 = (eye1.ndc * 0.5 + 0.5) * viewport;
+    outside = outside && (!eye1.visible || centerEye1.x + extentEye1.x < 0.0 || centerEye1.x - extentEye1.x > viewport.x
+        || centerEye1.y + extentEye1.y < 0.0 || centerEye1.y - extentEye1.y > viewport.y);
+`
+        : ''
+}
+    if (outside) {
         return result;
     }
 
@@ -481,53 +717,16 @@ ${
     // frame, up to sampling. Static splats reproject exactly through the previous view, so only
     // true disocclusions arrive a frame late. The footprint the splat had last frame bounds the
     // gather; footprints up to 16 px use the 8 px grid, up to 64 px the 32 px grid, larger ones
-    // skip the test.
+    // skip the test. In stereo a splat goes only when both eyes' previous frames hid it.
     if (uniforms.occlusionMode != 0u) {
-        let prevClip = uniforms.prevViewProj * vec4f(center, 1.0);
-        let prevDepth = -(uniforms.prevView * vec4f(center, 1.0)).z;
-        let prevOrtho = uniforms.prevClipZ.z != 0.0;
-        if (prevClip.w > 0.0 && (prevOrtho || prevDepth > 0.0)) {
-            let prevNdc = ${warp ? 'warpNdc(prevClip.xy / prevClip.w)' : 'prevClip.xy / prevClip.w'};
-            let halfExtent = len1 * radiusScale;
-            let prevHalfExtent = halfExtent * (uniforms.prevFocal.x / focal.x)
-                * select(depth / max(prevDepth, 0.001), 1.0, prevOrtho);
-            let footprint = max(halfExtent, prevHalfExtent);
-            var level = 1u;
-            var blockSize = 8.0;
-            var blocks = vec2i(i32(uniforms.occBlocksX1), i32(uniforms.occBlocksY1));
-            if (footprint > 16.0) {
-                level = 2u;
-                blockSize = 32.0;
-                blocks = vec2i(i32(uniforms.occBlocksX2), i32(uniforms.occBlocksY2));
-            }
-            if (footprint <= 64.0 && level <= uniforms.occlusionMode) {
-                let gather = max(i32(ceil(footprint / blockSize)), 1);
-                let prevPixel = vec2f(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * uniforms.prevFlip * 0.5) * uniforms.prevViewport;
-                let block = vec2i(floor(prevPixel / blockSize));
-                if (block.x >= gather && block.y >= gather && block.x < blocks.x - gather && block.y < blocks.y - gather) {
-                    let front = prevDepth - 2.8284 * sqrt(c22);
-                    let w = select(front, 1.0, prevOrtho);
-                    if (w > 0.0) {
-                        let frontZ = clamp(uniforms.prevClipZ.x * front + uniforms.prevClipZ.y, 0.0, w) / w;
-                        // the block under the centre first: the neighbourhood's maximum is at
-                        // least its maximum, so a splat that block alone cannot cull is visible,
-                        // and most splats leave here after one load
-                        let centreIndex = u32(block.y * blocks.x + block.x);
-                        var farthest = select(occL1[centreIndex], occL2[centreIndex], level == 2u);
-                        if (frontZ > bitcast<f32>(farthest)) {
-                            if (level == 1u) {
-                                farthest = farthestL1(block, gather, blocks);
-                            } else {
-                                farthest = farthestL2(block, gather, blocks);
-                            }
-                            if (frontZ > bitcast<f32>(farthest)) {
-                                result.occluded = true;
-                                return result;
-                            }
-                        }
-                    }
-                }
-            }
+        let halfExtent = len1 * radiusScale;
+        if (occludedIn(center, depth, focal.x, halfExtent, c22)${
+            stereo
+                ? ' && (!eye1.visible || occludedInEye1(center, eye1.depth, uniforms.focalEye1.x, length(axis1Eye1), c22))'
+                : ''
+        }) {
+            result.occluded = true;
+            return result;
         }
     }
 
@@ -590,6 +789,16 @@ ${
     // the draw's bits and the per-splat nibble (shaders/raster.ts)
     result.words[5] = drawnBits | (splatNibble << 16u);
 `
+}${
+    stereo
+        ? `
+    // the second eye's centre, in the same range, and its full quad's axes (shaders/raster.ts)
+    result.eye1 = vec3u(
+        pack2x16snorm(eye1.ndc / ndcRange),
+        pack2x16float(eye1.axis1),
+        pack2x16float(vec2f(eye1.len2, 0.0))
+    );`
+        : ''
 }
     return result;
 }
@@ -641,6 +850,15 @@ fn main(
         let base = (wgBase + localSlot) * ${CACHE_WORDS}u;
         for (var i = 0u; i < ${CACHE_WORDS}u; i++) {
             cache[base + i] = projected.words[i];
+        }${
+            stereo
+                ? `
+        // the second eye's three words, after every entry
+        let stereoBase = uniforms.stereoBase + (wgBase + localSlot) * 3u;
+        cache[stereoBase] = projected.eye1.x;
+        cache[stereoBase + 1u] = projected.eye1.y;
+        cache[stereoBase + 2u] = projected.eye1.z;`
+                : ''
         }
 ${
     coverage === 'interleaved'

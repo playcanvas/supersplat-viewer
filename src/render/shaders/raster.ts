@@ -61,6 +61,13 @@ var<storage, read> orderedSlots: array<u32>;
     uniform setMap: vec4f;
     var<storage, read> setRanges: array<vec2u>;
 #endif
+#ifdef SSE_STEREO
+    // variant stereo: one projection serves both eyes; the second draws each splat at its own
+    // centre with its own quad (shaders/projector.ts), from the three words per cache slot that
+    // follow the entries
+    uniform stereoEye: u32;
+    uniform stereoBase: u32;
+#endif
 #ifdef SSE_COVERAGE_SPLAT
     // x: the sub-strata a stratum splits into (variant jitter; 0: no jitter), y: the strata this
     // draw's thresholds come from, z: 1 / (strata * sub-strata), the width of a pixel's jitter,
@@ -106,13 +113,21 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
     let base = orderedSlots[order] * ${CACHE_WORDS}u;
     let maxRadius = min(1024.0, min(uniform.viewportSize.x, uniform.viewportSize.y));
     let ndcRange = vec2f(1.0) + vec2f(4.0 * maxRadius) / uniform.viewportSize.xy;
-    let ndc = unpack2x16snorm(splatCache[base]) * ndcRange;
+    var ndc = unpack2x16snorm(splatCache[base]) * ndcRange;
     let depth = bitcast<f32>(splatCache[base + 1u]);
     let ortho = uniform.clipZParams.z != 0.0;
 
-    let axis1 = unpack2x16float(splatCache[base + 2u]);
+    var axis1 = unpack2x16float(splatCache[base + 2u]);
     let word3 = splatCache[base + 3u];
-    let len2 = unpack2x16float(word3).x;
+    var len2 = unpack2x16float(word3).x;
+    #ifdef SSE_STEREO
+        if (uniform.stereoEye != 0u) {
+            let stereoWord = uniform.stereoBase + orderedSlots[order] * 3u;
+            ndc = unpack2x16snorm(splatCache[stereoWord]) * ndcRange;
+            axis1 = unpack2x16float(splatCache[stereoWord + 1u]);
+            len2 = unpack2x16float(splatCache[stereoWord + 2u]).x;
+        }
+    #endif
     let axis2 = len2 * normalize(vec2f(axis1.y, -axis1.x));
 
     #ifdef SSE_COVERAGE_SPLAT

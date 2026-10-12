@@ -192,6 +192,12 @@ type Variant = {
      * depth frame.
      */
     warp: 'auto' | 'off' | number;
+    /**
+     * A stereo session's projection: `shared` projects once for both eyes, as the engine's stereo
+     * projector does, the first eye's depth, colour, coverage and order with the second eye's own
+     * centre and footprint (shaders/projector.ts); `separate` projects and orders every eye on its own.
+     */
+    stereo: 'shared' | 'separate';
     /** Covariance units: true pixels, or the engine's doubled-focal convention (its dilation and culls scale with it). */
     units: 'px' | 'engine';
 };
@@ -215,6 +221,7 @@ const defaultVariant = (): Variant => ({
     taaHistory: 'auto',
     taaDebug: 0,
     warp: 'auto',
+    stereo: 'shared',
     units: 'engine'
 });
 
@@ -249,6 +256,7 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'taaDebug' && Number.isFinite(Number(value))) variant.taaDebug = Number(value);
         if (key === 'warp' && (value === 'auto' || value === 'off')) variant.warp = value;
         if (key === 'warp' && Number(value) > 1) variant.warp = Number(value);
+        if (key === 'stereo' && (value === 'shared' || value === 'separate')) variant.stereo = value;
         if (key === 'units' && (value === 'px' || value === 'engine')) variant.units = value;
     }
     return variant;
@@ -496,10 +504,8 @@ class SplatView {
     // frames since the view or the scene last changed, for converging at rest
     restFrames = 0;
 
-    // the occlusion grid: farthest depth per 8 px block (level 1) and per 32 px block (level 2)
-    occL1: StorageBuffer;
-
-    occL2: StorageBuffer;
+    // the occlusion grid: farthest depth per 8 px block (level 1), then per 32 px block (level 2)
+    occGrid: StorageBuffer;
 
     occBlocks = { x1: 0, y1: 0, x2: 0, y2: 0 };
 
@@ -546,6 +552,9 @@ class SplatView {
 
     cacheSlots = 0;
 
+    // whether the cache has room for a shared stereo projection's second eye
+    cacheStereo = false;
+
     readonly counter: StorageBuffer;
 
     // the draw order (shaders/order.ts): bucket counts then offsets, and the ordered slot list
@@ -579,6 +588,9 @@ class SplatView {
     warpBuffer: StorageBuffer;
 
     warpKey = '';
+
+    // the table itself, for a shared stereo projection's combined one
+    warpTable: Float32Array | null = null;
 
     warpWidth = 0;
 
@@ -622,8 +634,7 @@ class SplatView {
             );
         }
         this.createHistoryColor();
-        this.occL1 = new StorageBuffer(device, 4, BUFFERUSAGE_COPY_DST);
-        this.occL2 = new StorageBuffer(device, 4, BUFFERUSAGE_COPY_DST);
+        this.occGrid = new StorageBuffer(device, 8, BUFFERUSAGE_COPY_DST);
         this.reduceL1 = new Compute(device, shaders.reduceL1, 'sse-splat-reduce1');
         this.reduceL2 = new Compute(device, shaders.reduceL2, 'sse-splat-reduce2');
         this.counter = new StorageBuffer(device, 16, BUFFERUSAGE_COPY_DST | BUFFERUSAGE_COPY_SRC);
@@ -682,6 +693,7 @@ class SplatView {
             this.warpBuffer = new StorageBuffer(this.device, bytes, BUFFERUSAGE_COPY_DST);
         }
         if (table) this.warpBuffer.write(0, table, 0, table.length);
+        this.warpTable = table;
         this.warpKey = key;
         this.warpWidth = map ? map.width : 0;
         this.warpHeight = map ? map.height : 0;
@@ -701,7 +713,7 @@ class SplatView {
             this.orderBuckets,
             this.warpBuffer
         ];
-        for (const buffer of [...buffers, this.occL1, this.occL2]) bytes += buffer?.byteSize ?? 0;
+        for (const buffer of [...buffers, this.occGrid]) bytes += buffer?.byteSize ?? 0;
         bytes += this.colorTexture.gpuSize + this.depthTexture.gpuSize;
         for (const texture of [...this.taaColor, ...this.taaInfo]) bytes += texture.gpuSize;
         return bytes;
@@ -723,7 +735,7 @@ class SplatView {
         for (const compute of [this.args, this.orderScan, this.orderScatter, this.orderScatterSets, this.setArgs])
             compute.destroy();
         for (const compute of [this.reduceL1, this.reduceL2]) compute.destroy();
-        for (const buffer of [this.occL1, this.occL2, this.counter, this.orderBuckets, this.setRanges, this.warpBuffer])
+        for (const buffer of [this.occGrid, this.counter, this.orderBuckets, this.setRanges, this.warpBuffer])
             buffer.destroy();
         this.orderedBuffer?.destroy();
         this.cacheBuffer?.destroy();
@@ -778,6 +790,20 @@ class StochasticSplatRenderer {
 
     // whether this frame draws one view per eye of an XR session
     private stereo = false;
+
+    // variant stereo:shared: both eyes' warp tables, the first eye's then the second's, for the
+    // projector that serves both (and what it holds); whether the raster is built to read the
+    // second eye's words (SSE_STEREO); and the first eye's indirect draw slots this frame, which
+    // the second eye's draws share
+    private stereoWarp: StorageBuffer | null = null;
+
+    private stereoWarpKey = '';
+
+    private stereoDefined = false;
+
+    private stereoSlots = { draw: 0, sets: 0 };
+
+    private eye1ViewProjection = new Mat4();
 
     // what the renderer's own passes draw with in a stereo session: the XR camera would set each
     // eye's viewport on their targets
@@ -987,7 +1013,7 @@ class StochasticSplatRenderer {
 
     /** Byte sizes of the buffers this renderer owns, for the bench harness and the debug panel. */
     get gpuBytes() {
-        let bytes = this.chunkBuffer?.byteSize ?? 0;
+        let bytes = (this.chunkBuffer?.byteSize ?? 0) + (this.stereoWarp?.byteSize ?? 0);
         for (const view of this.views) bytes += view.gpuBytes;
         return bytes + this.source.gpuBytes();
     }
@@ -1021,10 +1047,8 @@ class StochasticSplatRenderer {
         const x2 = Math.ceil(x1 / 4);
         const y2 = Math.ceil(y1 / 4);
         if (view.occBlocks.x1 !== x1 || view.occBlocks.y1 !== y1) {
-            view.occL1.destroy();
-            view.occL2.destroy();
-            view.occL1 = new StorageBuffer(this.device, x1 * y1 * 4, BUFFERUSAGE_COPY_DST);
-            view.occL2 = new StorageBuffer(this.device, x2 * y2 * 4, BUFFERUSAGE_COPY_DST);
+            view.occGrid.destroy();
+            view.occGrid = new StorageBuffer(this.device, (x1 * y1 + x2 * y2) * 4, BUFFERUSAGE_COPY_DST);
             view.occBlocks = { x1, y1, x2, y2 };
         }
     }
@@ -1033,8 +1057,7 @@ class StochasticSplatRenderer {
     private reduceLevel2(view: SplatView) {
         const { x1, y1, x2, y2 } = view.occBlocks;
         const l2 = view.reduceL2;
-        l2.setParameter('level1', view.occL1);
-        l2.setParameter('level2', view.occL2);
+        l2.setParameter('grid', view.occGrid);
         l2.setParameter('blocksX1', x1);
         l2.setParameter('blocksY1', y1);
         l2.setParameter('blocksX2', x2);
@@ -1051,7 +1074,7 @@ class StochasticSplatRenderer {
         const { x1, y1 } = view.occBlocks;
         const l1 = view.reduceL1;
         l1.setParameter('prevDepth', view.depthTexture);
-        l1.setParameter('blockMax', view.occL1);
+        l1.setParameter('blockMax', view.occGrid);
         l1.setParameter('width', width);
         l1.setParameter('height', height);
         l1.setParameter('blocksX', x1);
@@ -1156,8 +1179,7 @@ class StochasticSplatRenderer {
             new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE)
         ]);
         const reduceL2Format = new BindGroupFormat(device, [
-            new BindStorageBufferFormat('level1', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('level2', SHADERSTAGE_COMPUTE),
+            new BindStorageBufferFormat('grid', SHADERSTAGE_COMPUTE),
             new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE)
         ]);
         this.reduceFormats = [reduceL1Format, reduceL2Format];
@@ -1494,7 +1516,6 @@ class StochasticSplatRenderer {
             this.residentAllocIds = ids;
             this.source.update(set, manager);
             this.rebuildChunkTable(set);
-            for (const view of this.views) this.ensureCache(view, set.activeSplats);
             this.activeSplats = set.activeSplats;
             this.pruneProjectorComputes(set);
             // recorded last, so a rebuild that throws is retried next frame
@@ -1515,9 +1536,7 @@ class StochasticSplatRenderer {
         }
         const count = eyes ? eyes.length : 1;
         while (this.views.length < count) {
-            const view = new SplatView(device, this.viewShaders, `-eye${this.views.length}`);
-            this.ensureCache(view, set.activeSplats);
-            this.views.push(view);
+            this.views.push(new SplatView(device, this.viewShaders, `-eye${this.views.length}`));
         }
         while (this.views.length > count) this.views.pop()!.destroy();
         // the eyes' matrices are refreshed at render time, after this hook
@@ -1581,14 +1600,43 @@ class StochasticSplatRenderer {
             }
         }
 
+        // every view's target first: a shared projection places the splats in both eyes' at once
+        const targets = this.views.map((view, i) => this.prepareTarget(view, i, !!eyes, width, height));
+        // variant stereo:shared, while the two eyes render alike targets
+        const shared =
+            count === 2 &&
+            this.variant.stereo === 'shared' &&
+            targets[0].width === targets[1].width &&
+            targets[0].height === targets[1].height &&
+            targets[0].warped === targets[1].warped;
+        if (shared !== this.stereoDefined) {
+            this.stereoDefined = shared;
+            this.rasterMaterial.setDefine('SSE_STEREO', shared ? '' : undefined);
+            this.rasterMaterial.update();
+        }
+        // the projector reads both eyes' tables from one buffer
+        const stereoWarpKey = shared && targets[0].warped ? `${this.views[0].warpKey}|${this.views[1].warpKey}` : '';
+        if (stereoWarpKey !== this.stereoWarpKey) {
+            this.stereoWarpKey = stereoWarpKey;
+            this.stereoWarp?.destroy();
+            this.stereoWarp = null;
+            const [a, b] = [this.views[0].warpTable, this.views[1]?.warpTable];
+            if (stereoWarpKey && a && b) {
+                this.stereoWarp = new StorageBuffer(device, (a.length + b.length) * 4, BUFFERUSAGE_COPY_DST);
+                this.stereoWarp.write(0, a, 0, a.length);
+                this.stereoWarp.write(a.length * 4, b, 0, b.length);
+            }
+        }
+
         for (let i = 0; i < count; i++) {
-            this.frameView(this.views[i], i, set, changed, viewOf(i), projectionOf(i), !!eyes, {
-                width,
-                height,
+            const role = shared ? (i === 0 ? 'lead' : 'follow') : 'own';
+            this.frameView(this.views[i], i, set, changed, viewOf(i), projectionOf(i), !!eyes, role, {
+                ...targets[i],
                 isOrtho,
                 isQuery,
                 taaOn,
-                cullWanted: wanted
+                cullWanted: wanted,
+                eye1: shared ? { view: this.views[1], viewMatrix: viewOf(1), projection: projectionOf(1) } : null
             });
         }
 
@@ -1614,6 +1662,34 @@ class StochasticSplatRenderer {
         // the picker reads it: nothing for the picker
         if (isQuery || eyes || warped) this.depthFrame = null;
         this.setReady(true);
+    }
+
+    // The view's target this frame, the frame's size or with variant warp its table's, which the
+    // view renders through from now on
+    private prepareTarget(view: SplatView, index: number, eye: boolean, frameWidth: number, frameHeight: number) {
+        const warp = this.warpOf(index, eye, frameWidth, frameHeight);
+        if (view.warpKey !== (warp?.key ?? '')) view.setWarp(warp?.key ?? '', warp ? warp.map() : null);
+        const warped = !!warp;
+        const width = warped ? view.warpWidth : frameWidth;
+        const height = warped ? view.warpHeight : frameHeight;
+        if (view.target.width !== width || view.target.height !== height) {
+            view.target.resize(width, height);
+            // their views point at the depth texture just rebuilt
+            view.releaseTaaSetTargets();
+        }
+        return { width, height, warped };
+    }
+
+    // whether the view's occlusion grid can come from its previous frame (see frame())
+    private canCull(view: SplatView, width: number, height: number, isOrtho: boolean, isQuery: boolean) {
+        return (
+            (!isQuery || this.allowQueryCull) &&
+            view.prevValid &&
+            view.prevWidth === width &&
+            view.prevHeight === height &&
+            !this.nodesRemoved &&
+            view.prevOrtho === isOrtho
+        );
     }
 
     // The warp a view renders through this frame (variant warp), as the key of its table and the
@@ -1652,7 +1728,9 @@ class StochasticSplatRenderer {
     }
 
     // One view's share of the frame: its projection, cull, dispatches, accumulation and the
-    // bindings its passes draw with
+    // bindings its passes draw with. With variant stereo:shared the first eye ('lead') projects
+    // and orders the splats for both eyes and the second ('follow') draws the lead's; otherwise
+    // every view projects its own ('own')
     private frameView(
         view: SplatView,
         index: number,
@@ -1661,34 +1739,29 @@ class StochasticSplatRenderer {
         viewMatrix: Mat4,
         projection: Mat4,
         eye: boolean,
+        role: 'own' | 'lead' | 'follow',
         frame: {
             width: number;
             height: number;
+            warped: boolean;
             isOrtho: boolean;
             isQuery: boolean;
             taaOn: boolean;
             cullWanted: boolean;
+            // the lead's second eye
+            eye1: { view: SplatView; viewMatrix: Mat4; projection: Mat4 } | null;
         }
     ) {
         const { device, camera } = this;
         const cam = camera.camera;
-        const { isOrtho, isQuery, taaOn } = frame;
-        // variant warp: the view renders through a table, into a target of the table's size
-        const warp = this.warpOf(index, eye, frame.width, frame.height);
-        if (view.warpKey !== (warp?.key ?? '')) view.setWarp(warp?.key ?? '', warp ? warp.map() : null);
-        const warped = !!warp;
-        const width = warped ? view.warpWidth : frame.width;
-        const height = warped ? view.warpHeight : frame.height;
+        const { width, height, warped, isOrtho, isQuery, taaOn } = frame;
         const bindings = view.bindings;
         bindings.length = 0;
         const bind = (target: { setParameter(name: string, value: unknown): void }, name: string, value: unknown) =>
             bindings.push(() => target.setParameter(name, value));
-
-        if (view.target.width !== width || view.target.height !== height) {
-            view.target.resize(width, height);
-            // their views point at the depth texture just rebuilt
-            view.releaseTaaSetTargets();
-        }
+        const projects = role !== 'follow';
+        // the views whose buffers the passes draw: the lead's for both eyes
+        const source = role === 'follow' ? this.views[0] : view;
 
         // the clip z the raster shader reconstructs must match the engine's WebGPU depth range;
         // an eye's projection is already the session's
@@ -1707,7 +1780,15 @@ class StochasticSplatRenderer {
         const clipZ = isOrtho ? cameraClipZ : [1, cameraClipZ[1] / cameraClipZ[0]];
         const clipZParams = [clipZ[0], clipZ[1], isOrtho ? 1 : 0, 0];
 
-        this.cullNodes(view, set, view.viewProjection);
+        // the lead's second eye, whose view the node cull and the projector take as well
+        const { eye1 } = frame;
+        const eye1ViewProjection = eye1 ? this.eye1ViewProjection.mul2(eye1.projection, eye1.viewMatrix) : null;
+        if (projects)
+            this.cullNodes(
+                view,
+                set,
+                eye1ViewProjection ? [view.viewProjection, eye1ViewProjection] : [view.viewProjection]
+            );
 
         const focal = [Math.abs(projection.data[0]) * width * 0.5, Math.abs(projection.data[5]) * height * 0.5];
         const gsplat = this.app.scene.gsplat;
@@ -1752,128 +1833,155 @@ class StochasticSplatRenderer {
         }
 
         const cullMode = this.variant.cull;
+        // a shared projection culls only against both eyes' previous frames
         const culling =
             frame.cullWanted &&
-            (!isQuery || this.allowQueryCull) &&
-            view.prevValid &&
-            view.prevWidth === width &&
-            view.prevHeight === height &&
-            !this.nodesRemoved &&
-            view.prevOrtho === isOrtho;
+            this.canCull(view, width, height, isOrtho, isQuery) &&
+            (!eye1 || this.canCull(eye1.view, width, height, isOrtho, isQuery));
         if (index === 0) this.culling = culling;
-        if (culling) this.reduceDepth(view, width, height);
+        if (culling && projects) {
+            this.reduceDepth(view, width, height);
+            if (eye1) this.reduceDepth(eye1.view, width, height);
+        }
 
-        view.counter.clear();
         const { coverage } = this.variant;
         const interleaved = coverage === 'interleaved';
         // variant interleaveArea: the small splats draw per splat into the full target, over the
         // sets copied back, so the accumulation reads the full target as usual
         const smallSplats = interleaved && this.variant.interleaveArea > 0;
-        // the draw order (shaders/order.ts): front to back, so early depth rejection takes most
-        // of what the depth test would; the interleaved pixel sets split their draws by it too
-        view.orderBuckets.clear();
-        this.ensureOrdered(view, view.cacheSlots * (interleaved ? 4 : 1));
-        // the order key spans the fitted clip range, log-spaced
-        const logNear = Math.log(Math.max(cam.nearClip, 1e-6));
-        const invLogRange = 1 / Math.max(Math.log(Math.max(cam.farClip, 1e-6)) - logNear, 1e-6);
         // the view's position, for the view-dependent colour: an eye's is its own
         view.cameraWorld.copy(viewMatrix).invert();
-        const position = eye ? view.cameraWorld.getTranslation(tmpVec3) : camera.entity.getPosition();
-        const groups = this.source.dispatchPlan(set, this.numChunks);
-        for (const group of groups) {
-            // a file with no node in the frustum has nothing to dispatch
-            if (group.fileIndex >= 0 && !this.anyNodeVisible(view, set.files[group.fileIndex].nodes)) continue;
-            const projector = this.ensureProjector(view, culling, coverage, warped, group);
-            this.source.bind(projector, group, set);
-            projector.setParameter('chunks', this.chunkBuffer!);
-            projector.setParameter('nodeVisible', view.nodeVisibleBuffer!);
-            projector.setParameter('cache', view.cacheBuffer!);
-            projector.setParameter('counter', view.counter);
-            projector.setParameter('occL1', view.occL1);
-            projector.setParameter('occL2', view.occL2);
-            projector.setParameter('buckets', view.orderBuckets);
-            projector.setParameter('view', viewMatrix.data);
-            projector.setParameter('viewProj', view.viewProjection.data);
-            projector.setParameter('prevViewProj', view.prevViewProjection.data);
-            projector.setParameter('prevView', view.prevView.data);
-            projector.setParameter('prevClipZ', view.prevClipZ);
-            projector.setParameter('viewport', [width, height]);
-            projector.setParameter('focal', focal);
-            projector.setParameter('prevViewport', view.prevViewport);
-            projector.setParameter('prevFocal', view.prevFocal);
-            projector.setParameter('numChunks', group.chunkCount);
-            projector.setParameter('chunkBase', group.chunkBase);
-            projector.setParameter('cameraPosition', [position.x, position.y, position.z, 0]);
-            projector.setParameter('splatTextureSize', this.source.textureSize(group));
-            projector.setParameter('isOrtho', isOrtho ? 1 : 0);
-            projector.setParameter('minPixelSize', gsplat.minPixelSize);
-            projector.setParameter('alphaClip', alphaClip);
-            projector.setParameter('minContribution', minContribution);
-            projector.setParameter('unitScale', this.variant.units === 'engine' ? 2 : 1);
-            projector.setParameter('occBlocksX1', view.occBlocks.x1);
-            projector.setParameter('occBlocksY1', view.occBlocks.y1);
-            projector.setParameter('occBlocksX2', view.occBlocks.x2);
-            projector.setParameter('occBlocksY2', view.occBlocks.y2);
-            projector.setParameter('occlusionMode', culling ? (cullMode === 'l1' ? 1 : 2) : 0);
-            projector.setParameter('prevFlip', view.prevFlip);
-            projector.setParameter('keyLogNear', logNear);
-            projector.setParameter('keyInvLogRange', invLogRange);
-            projector.setParameter('frameSeed', this.frameSeed);
-            projector.setParameter('jitterSubs', this.variant.jitter);
-            projector.setParameter('strata', this.variant.strata);
-            projector.setParameter('interleaveArea', interleaved ? this.variant.interleaveArea : 0);
-            projector.setParameter('warpTable', view.warpBuffer);
-            Compute.calcDispatchSize(group.chunkCount, tmpVec2);
-            projector.setupDispatch(tmpVec2.x, tmpVec2.y, 1);
-            device.computeDispatch([projector], 'sse-splat-project');
+        // the indirect draws: the projecting view's slots, which a follower's draws share
+        let drawSlot = this.stereoSlots.draw;
+        let setSlot = this.stereoSlots.sets;
+        if (projects) {
+            view.counter.clear();
+            this.ensureCache(view, set.activeSplats, !!eye1);
+            // the draw order (shaders/order.ts): front to back, so early depth rejection takes most
+            // of what the depth test would; the interleaved pixel sets split their draws by it too
+            view.orderBuckets.clear();
+            this.ensureOrdered(view, view.cacheSlots * (interleaved ? 4 : 1));
+            // the order key spans the fitted clip range, log-spaced
+            const logNear = Math.log(Math.max(cam.nearClip, 1e-6));
+            const invLogRange = 1 / Math.max(Math.log(Math.max(cam.farClip, 1e-6)) - logNear, 1e-6);
+            const position = eye ? view.cameraWorld.getTranslation(tmpVec3) : camera.entity.getPosition();
+            // variant stereo:shared: the second eye's view, or this view's again where it projects
+            // alone (the shader reads them only in stereo)
+            const other = eye1?.view ?? view;
+            const otherProjection = eye1?.projection ?? projection;
+            const focalEye1 = [
+                Math.abs(otherProjection.data[0]) * width * 0.5,
+                Math.abs(otherProjection.data[5]) * height * 0.5
+            ];
+            const groups = this.source.dispatchPlan(set, this.numChunks);
+            for (const group of groups) {
+                // a file with no node in the frustum has nothing to dispatch
+                if (group.fileIndex >= 0 && !this.anyNodeVisible(view, set.files[group.fileIndex].nodes)) continue;
+                const projector = this.ensureProjector(view, culling, coverage, warped, !!eye1, group);
+                this.source.bind(projector, group, set);
+                projector.setParameter('chunks', this.chunkBuffer!);
+                projector.setParameter('nodeVisible', view.nodeVisibleBuffer!);
+                projector.setParameter('cache', view.cacheBuffer!);
+                projector.setParameter('counter', view.counter);
+                projector.setParameter('occ', view.occGrid);
+                projector.setParameter('buckets', view.orderBuckets);
+                projector.setParameter('view', viewMatrix.data);
+                projector.setParameter('viewProj', view.viewProjection.data);
+                projector.setParameter('prevViewProj', view.prevViewProjection.data);
+                projector.setParameter('prevView', view.prevView.data);
+                projector.setParameter('prevClipZ', view.prevClipZ);
+                projector.setParameter('viewport', [width, height]);
+                projector.setParameter('focal', focal);
+                projector.setParameter('prevViewport', view.prevViewport);
+                projector.setParameter('prevFocal', view.prevFocal);
+                projector.setParameter('numChunks', group.chunkCount);
+                projector.setParameter('chunkBase', group.chunkBase);
+                projector.setParameter('cameraPosition', [position.x, position.y, position.z, 0]);
+                projector.setParameter('splatTextureSize', this.source.textureSize(group));
+                projector.setParameter('isOrtho', isOrtho ? 1 : 0);
+                projector.setParameter('minPixelSize', gsplat.minPixelSize);
+                projector.setParameter('alphaClip', alphaClip);
+                projector.setParameter('minContribution', minContribution);
+                projector.setParameter('unitScale', this.variant.units === 'engine' ? 2 : 1);
+                projector.setParameter('occBlocksX1', view.occBlocks.x1);
+                projector.setParameter('occBlocksY1', view.occBlocks.y1);
+                projector.setParameter('occBlocksX2', view.occBlocks.x2);
+                projector.setParameter('occBlocksY2', view.occBlocks.y2);
+                projector.setParameter('occlusionMode', culling ? (cullMode === 'l1' ? 1 : 2) : 0);
+                projector.setParameter('prevFlip', view.prevFlip);
+                projector.setParameter('keyLogNear', logNear);
+                projector.setParameter('keyInvLogRange', invLogRange);
+                projector.setParameter('frameSeed', this.frameSeed);
+                projector.setParameter('jitterSubs', this.variant.jitter);
+                projector.setParameter('strata', this.variant.strata);
+                projector.setParameter('interleaveArea', interleaved ? this.variant.interleaveArea : 0);
+                projector.setParameter('warpTable', eye1 && this.stereoWarp ? this.stereoWarp : view.warpBuffer);
+                projector.setParameter('viewEye1', (eye1?.viewMatrix ?? viewMatrix).data);
+                projector.setParameter('viewProjEye1', (eye1ViewProjection ?? view.viewProjection).data);
+                projector.setParameter('prevViewProjEye1', other.prevViewProjection.data);
+                projector.setParameter('prevViewEye1', other.prevView.data);
+                projector.setParameter('focalEye1', focalEye1);
+                projector.setParameter('prevFocalEye1', other.prevFocal);
+                projector.setParameter('occEye1', other.occGrid);
+                projector.setParameter('occL2Base', view.occBlocks.x1 * view.occBlocks.y1);
+                projector.setParameter('stereoBase', view.cacheSlots * CACHE_WORDS);
+                projector.setParameter('warpBaseEye1', view.warpTable?.length ?? 0);
+                Compute.calcDispatchSize(group.chunkCount, tmpVec2);
+                projector.setupDispatch(tmpVec2.x, tmpVec2.y, 1);
+                device.computeDispatch([projector], 'sse-splat-project');
+            }
+
+            // indirect draw arguments for the raster and dispatch size for the scatter; slots are
+            // per frame
+            drawSlot = device.getIndirectDrawSlot(1);
+            const dispatchSlot = device.getIndirectDispatchSlot(1);
+            const args = view.args;
+            args.setParameter('counter', view.counter);
+            args.setParameter('indirectDrawArgs', device.indirectDrawBuffer);
+            args.setParameter('indirectDispatchArgs', device.indirectDispatchBuffer);
+            args.setParameter('drawSlot', drawSlot);
+            // two triangles per splat, the quad's or the square's
+            const indicesPerSplat = 6;
+            args.setParameter('indexCount', QUADS_PER_INSTANCE * indicesPerSplat);
+            args.setParameter('quadsPerInstance', QUADS_PER_INSTANCE);
+            args.setParameter('dispatchSlot', dispatchSlot);
+            args.setParameter('scatterWorkgroupSize', ORDER_BUCKETS);
+            args.setupDispatch(1, 1, 1);
+            device.computeDispatch([args], 'sse-splat-args');
+
+            // bucket offsets, then every survivor claims its place in its bucket
+            view.orderScan.setParameter('buckets', view.orderBuckets);
+            view.orderScan.setupDispatch(1, 1, 1);
+            device.computeDispatch([view.orderScan], 'sse-splat-order-scan');
+            if (interleaved) {
+                // each group's range and draw, from the offsets before the scatter advances them:
+                // the four sets, and the full target's small splats
+                setSlot = device.getIndirectDrawSlot(SET_GROUPS);
+                const setArgs = view.setArgs;
+                setArgs.setParameter('buckets', view.orderBuckets);
+                setArgs.setParameter('indirectDrawArgs', device.indirectDrawBuffer);
+                setArgs.setParameter('setRanges', view.setRanges);
+                setArgs.setParameter('drawSlot', setSlot);
+                setArgs.setParameter('indexCount', QUADS_PER_INSTANCE * indicesPerSplat);
+                setArgs.setParameter('quadsPerInstance', QUADS_PER_INSTANCE);
+                setArgs.setupDispatch(1, 1, 1);
+                device.computeDispatch([setArgs], 'sse-splat-set-args');
+            }
+            const scatter = interleaved ? view.orderScatterSets : view.orderScatter;
+            scatter.setParameter('counter', view.counter);
+            scatter.setParameter('cache', view.cacheBuffer!);
+            scatter.setParameter('buckets', view.orderBuckets);
+            scatter.setParameter('ordered', view.orderedBuffer!);
+            scatter.setupIndirectDispatch(dispatchSlot);
+            device.computeDispatch([scatter], 'sse-splat-order-scatter');
+            this.stereoSlots = { draw: drawSlot, sets: setSlot };
         }
-
-        // indirect draw arguments for the raster and dispatch size for the scatter; slots are
-        // per frame
-        const drawSlot = device.getIndirectDrawSlot(1);
-        const dispatchSlot = device.getIndirectDispatchSlot(1);
-        const args = view.args;
-        args.setParameter('counter', view.counter);
-        args.setParameter('indirectDrawArgs', device.indirectDrawBuffer);
-        args.setParameter('indirectDispatchArgs', device.indirectDispatchBuffer);
-        args.setParameter('drawSlot', drawSlot);
-        // two triangles per splat, the quad's or the square's
-        const indicesPerSplat = 6;
-        args.setParameter('indexCount', QUADS_PER_INSTANCE * indicesPerSplat);
-        args.setParameter('quadsPerInstance', QUADS_PER_INSTANCE);
-        args.setParameter('dispatchSlot', dispatchSlot);
-        args.setParameter('scatterWorkgroupSize', ORDER_BUCKETS);
-        args.setupDispatch(1, 1, 1);
-        device.computeDispatch([args], 'sse-splat-args');
-        if (!interleaved) bindings.push(() => this.rasterInstance.setIndirect(null, drawSlot, 1));
-
-        // bucket offsets, then every survivor claims its place in its bucket
-        view.orderScan.setParameter('buckets', view.orderBuckets);
-        view.orderScan.setupDispatch(1, 1, 1);
-        device.computeDispatch([view.orderScan], 'sse-splat-order-scan');
         if (interleaved) {
-            // each group's range and draw, from the offsets before the scatter advances them:
-            // the four sets, and the full target's small splats
-            const setSlot = device.getIndirectDrawSlot(SET_GROUPS);
             bindings.push(() => this.rasterInstance.setIndirect(null, setSlot + 4, 1));
-            const setArgs = view.setArgs;
-            setArgs.setParameter('buckets', view.orderBuckets);
-            setArgs.setParameter('indirectDrawArgs', device.indirectDrawBuffer);
-            setArgs.setParameter('setRanges', view.setRanges);
-            setArgs.setParameter('drawSlot', setSlot);
-            setArgs.setParameter('indexCount', QUADS_PER_INSTANCE * indicesPerSplat);
-            setArgs.setParameter('quadsPerInstance', QUADS_PER_INSTANCE);
-            setArgs.setupDispatch(1, 1, 1);
-            device.computeDispatch([setArgs], 'sse-splat-set-args');
             this.prepareSets(view, width, height, setSlot);
+        } else {
+            bindings.push(() => this.rasterInstance.setIndirect(null, drawSlot, 1));
         }
-        const scatter = interleaved ? view.orderScatterSets : view.orderScatter;
-        scatter.setParameter('counter', view.counter);
-        scatter.setParameter('cache', view.cacheBuffer!);
-        scatter.setParameter('buckets', view.orderBuckets);
-        scatter.setParameter('ordered', view.orderedBuffer!);
-        scatter.setupIndirectDispatch(dispatchSlot);
-        device.computeDispatch([scatter], 'sse-splat-order-scatter');
 
         // the view's targets, where the passes draw
         bindings.push(() => {
@@ -1882,14 +1990,18 @@ class StochasticSplatRenderer {
             this.bindSetTextures(view);
         });
         const raster = this.rasterMaterial;
-        bind(raster, 'splatCache', view.cacheBuffer!);
-        bind(raster, 'splatCount', view.counter);
-        bind(raster, 'orderedSlots', view.orderedBuffer!);
+        bind(raster, 'splatCache', source.cacheBuffer!);
+        bind(raster, 'splatCount', source.counter);
+        bind(raster, 'orderedSlots', source.orderedBuffer!);
         bind(raster, 'viewportSize', [width, height, 2 / width, 2 / height]);
         bind(raster, 'clipZParams', clipZParams);
         bind(raster, 'sseAlphaClip', alphaClip);
         bind(raster, 'frameSeed', this.frameSeed);
-        if (interleaved) bind(raster, 'setRanges', view.setRanges);
+        if (interleaved) bind(raster, 'setRanges', source.setRanges);
+        if (role !== 'own') {
+            bind(raster, 'stereoBase', source.cacheSlots * CACHE_WORDS);
+            bind(raster, 'stereoEye', role === 'follow' ? 1 : 0);
+        }
 
         // the pixel sets draw in their own passes; the raster pass copies them back, after the
         // small splats it draws into the full target first
@@ -2104,13 +2216,16 @@ class StochasticSplatRenderer {
     }
 
     // the cache is dense (indexed by compact slot), so it only needs room for the resident
-    // splats, not the allocator's address space; grown geometrically, never shrunk
-    private ensureCache(view: SplatView, splats: number) {
-        if (splats <= view.cacheSlots) return;
+    // splats, not the allocator's address space; grown geometrically, never shrunk. A shared
+    // stereo projection appends the second eye's three words per slot after the entries
+    private ensureCache(view: SplatView, splats: number, stereo = false) {
+        if (splats <= view.cacheSlots && (view.cacheStereo || !stereo)) return;
         view.cacheBuffer?.destroy();
         view.orderedBuffer?.destroy();
-        view.cacheSlots = Math.max(1, Math.ceil(splats * 1.25));
-        view.cacheBuffer = new StorageBuffer(this.device, view.cacheSlots * CACHE_WORDS * 4, BUFFERUSAGE_COPY_SRC);
+        if (splats > view.cacheSlots) view.cacheSlots = Math.max(1, Math.ceil(splats * 1.25));
+        view.cacheStereo ||= stereo;
+        const words = CACHE_WORDS + (view.cacheStereo ? 3 : 0);
+        view.cacheBuffer = new StorageBuffer(this.device, view.cacheSlots * words * 4, BUFFERUSAGE_COPY_SRC);
         view.orderedBuffer = null;
         view.orderedCapacity = 0;
     }
@@ -2150,8 +2265,9 @@ class StochasticSplatRenderer {
         }
     }
 
-    // sphere-frustum test per node on the cpu: thousands of nodes, one bit each
-    private cullNodes(view: SplatView, set: ResidentSet, viewProjection: Mat4) {
+    // sphere-frustum test per node on the cpu: thousands of nodes, one bit each, set where any
+    // of the view-projections (both eyes' for a shared projection) sees the node
+    private cullNodes(view: SplatView, set: ResidentSet, viewProjections: Mat4[]) {
         const words = Math.max(1, Math.ceil(set.nodes.length / 32));
         if (view.nodeVisibleData.length < words) {
             view.nodeVisibleData = new Uint32Array(words);
@@ -2160,14 +2276,16 @@ class StochasticSplatRenderer {
         }
         const bits = view.nodeVisibleData;
         bits.fill(0);
-        this.frustum.setFromMat4(viewProjection);
         const spheres = set.nodeSpheres;
         const { sphere } = this;
-        for (let i = 0; i < set.nodes.length; i++) {
-            sphere.center.set(spheres[i * 4], spheres[i * 4 + 1], spheres[i * 4 + 2]);
-            sphere.radius = spheres[i * 4 + 3];
-            if (this.frustum.containsSphere(sphere) !== 0) {
-                bits[i >> 5] |= 1 << (i & 31);
+        for (const viewProjection of viewProjections) {
+            this.frustum.setFromMat4(viewProjection);
+            for (let i = 0; i < set.nodes.length; i++) {
+                sphere.center.set(spheres[i * 4], spheres[i * 4 + 1], spheres[i * 4 + 2]);
+                sphere.radius = spheres[i * 4 + 3];
+                if (this.frustum.containsSphere(sphere) !== 0) {
+                    bits[i >> 5] |= 1 << (i & 31);
+                }
             }
         }
         view.nodeVisibleBuffer!.write(0, bits, 0, words);
@@ -2183,6 +2301,7 @@ class StochasticSplatRenderer {
         occlusion: boolean,
         coverage: CoverageMode,
         warp: boolean,
+        stereo: boolean,
         group: DispatchGroup
     ) {
         const sourceKey = this.source.shaderKey();
@@ -2191,11 +2310,11 @@ class StochasticSplatRenderer {
             this.destroyProjector();
             this.projectorSourceKey = sourceKey;
         }
-        const key = `${occlusion ? 'occlusion' : 'plain'}-${coverage}${warp ? '-warp' : ''}`;
+        const key = `${occlusion ? 'occlusion' : 'plain'}-${coverage}${warp ? '-warp' : ''}${stereo ? '-stereo' : ''}`;
         const computeKey = `${key}:${group.fileIndex}`;
         const existing = view.projectorComputes.get(computeKey);
         if (existing) return existing;
-        const shader = this.ensureProjectorShader(key, occlusion, coverage, warp);
+        const shader = this.ensureProjectorShader(key, occlusion, coverage, warp, stereo);
         const compute = new Compute(this.device, shader, 'sse-splat-project');
         view.projectorComputes.set(computeKey, compute);
         return compute;
@@ -2214,7 +2333,13 @@ class StochasticSplatRenderer {
         }
     }
 
-    private ensureProjectorShader(key: string, occlusion: boolean, coverage: CoverageMode, warp: boolean) {
+    private ensureProjectorShader(
+        key: string,
+        occlusion: boolean,
+        coverage: CoverageMode,
+        warp: boolean,
+        stereo: boolean
+    ) {
         const existing = this.projectorShaders.get(key);
         if (existing) return existing;
         const { device } = this;
@@ -2224,18 +2349,21 @@ class StochasticSplatRenderer {
             new BindStorageBufferFormat('cache', SHADERSTAGE_COMPUTE),
             new BindStorageBufferFormat('counter', SHADERSTAGE_COMPUTE),
             new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE),
-            new BindStorageBufferFormat('occL1', SHADERSTAGE_COMPUTE, true),
-            new BindStorageBufferFormat('occL2', SHADERSTAGE_COMPUTE, true),
+            new BindStorageBufferFormat('occ', SHADERSTAGE_COMPUTE, true),
             new BindStorageBufferFormat('buckets', SHADERSTAGE_COMPUTE),
             // read only by the warped shaders, bound always (a placeholder while unwarped)
-            new BindStorageBufferFormat('warpTable', SHADERSTAGE_COMPUTE, true)
+            new BindStorageBufferFormat('warpTable', SHADERSTAGE_COMPUTE, true),
+            // read only by the stereo shaders, bound always (the view's own grid while it projects
+            // alone). Eight storage buffers in all, the WebGPU default per stage: the second eye's
+            // warp table follows the first's in warpTable, and its words follow the entries in cache
+            new BindStorageBufferFormat('occEye1', SHADERSTAGE_COMPUTE, true)
         ];
         const formats = [...fixed, ...this.source.bindFormats()] as ConstructorParameters<typeof BindGroupFormat>[1];
         this.projectorBindGroupFormat ??= new BindGroupFormat(device, formats);
         const shader = new Shader(device, {
             name: `sse-splat-project-${key}`,
             shaderLanguage: SHADERLANGUAGE_WGSL,
-            cshader: projectorWGSL(this.source.readChunk(fixed.length), occlusion, coverage, warp),
+            cshader: projectorWGSL(this.source.readChunk(fixed.length), occlusion, coverage, warp, stereo),
             cincludes: this.source.shaderIncludes(),
             cdefines: this.source.shaderDefines(),
             computeUniformBufferFormats: {
@@ -2273,7 +2401,16 @@ class StochasticSplatRenderer {
                     new UniformFormat('frameSeed', UNIFORMTYPE_UINT),
                     new UniformFormat('jitterSubs', UNIFORMTYPE_UINT),
                     new UniformFormat('strata', UNIFORMTYPE_UINT),
-                    new UniformFormat('interleaveArea', UNIFORMTYPE_FLOAT)
+                    new UniformFormat('interleaveArea', UNIFORMTYPE_FLOAT),
+                    new UniformFormat('viewEye1', UNIFORMTYPE_MAT4),
+                    new UniformFormat('viewProjEye1', UNIFORMTYPE_MAT4),
+                    new UniformFormat('prevViewProjEye1', UNIFORMTYPE_MAT4),
+                    new UniformFormat('prevViewEye1', UNIFORMTYPE_MAT4),
+                    new UniformFormat('focalEye1', UNIFORMTYPE_VEC2),
+                    new UniformFormat('prevFocalEye1', UNIFORMTYPE_VEC2),
+                    new UniformFormat('occL2Base', UNIFORMTYPE_UINT),
+                    new UniformFormat('stereoBase', UNIFORMTYPE_UINT),
+                    new UniformFormat('warpBaseEye1', UNIFORMTYPE_UINT)
                 ])
             },
             computeBindGroupFormat: this.projectorBindGroupFormat
@@ -2307,6 +2444,8 @@ class StochasticSplatRenderer {
         for (const format of [...this.reduceFormats, ...this.orderFormats]) format.destroy();
         this.chunkBuffer?.destroy();
         this.chunkBuffer = null;
+        this.stereoWarp?.destroy();
+        this.stereoWarp = null;
 
         this.bindPass.destroy();
         this.rasterPass.destroy();
