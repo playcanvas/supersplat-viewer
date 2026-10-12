@@ -4,7 +4,22 @@ import { XrControllers } from 'playcanvas/scripts/esm/xr/xr-controllers.mjs';
 import { XrManipulation } from 'playcanvas/scripts/esm/xr/xr-manipulation.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 
+import type { Collision } from './collision';
 import type { Global, XrMode } from './types';
+
+// Teleporting onto the scene's collision, when it has some: the navigation tests its arc against
+// it segment by segment, so walls and furniture stop the arc, and a hit is a target only where
+// someone could stand: a surface within 35 degrees of level, floor at about the same height in a
+// ring around the hit (so a pew's rail or a ledge does not count), and room above it for the walk
+// controller's capsule (cameras/walk-controller.ts: 1.5 m tall, 0.2 m radius, 0.2 m above the
+// floor). Without collision the arc lands on the navigation's plane at the session's floor.
+const STAND_SLOPE = Math.cos(35 * math.DEG_TO_RAD);
+const STAND_RING = 0.25;
+const STAND_RING_SAMPLES = 8;
+const STAND_STEP = 0.15;
+const CAPSULE_HEIGHT = 1.5;
+const CAPSULE_RADIUS = 0.2;
+const CAPSULE_HOVER = 0.2;
 
 // Standalone headsets run XR on a mobile gpu, which draws every splat once per eye, but their
 // browsers report a desktop platform. Their sessions render with fixed foveation and a 72 Hz
@@ -61,7 +76,49 @@ const initXr = (global: Global) => {
 
     parent.addComponent('script');
     parent.script.create(XrControllers);
-    parent.script.create(XrNavigation);
+    // the members of the navigation the viewer sets (the script's own typing is Script)
+    const navigation = parent.script.create(XrNavigation) as unknown as {
+        castRay: ((from: Vec3, to: Vec3) => Vec3 | null) | null;
+        groundHeight: number;
+        isValidTeleportDistance(point: Vec3): boolean;
+    };
+
+    // the scene's collision once it has loaded, for teleporting onto it (see STAND_SLOPE)
+    let collision: Collision | null = null;
+    const rayDir = new Vec3();
+    const rayHit = new Vec3();
+    const pushOut = { x: 0, y: 0, z: 0 };
+    // whether the arc's last hit is somewhere to stand, which the navigation checks right after
+    let hitStandable = false;
+    const canStand = (c: Collision, x: number, y: number, z: number) => {
+        if (c.querySurfaceNormal(x, y, z, rayDir.x, rayDir.y, rayDir.z).ny < STAND_SLOPE) return false;
+        for (let i = 0; i < STAND_RING_SAMPLES; i++) {
+            const angle = (i / STAND_RING_SAMPLES) * Math.PI * 2;
+            const rx = x + Math.cos(angle) * STAND_RING;
+            const rz = z + Math.sin(angle) * STAND_RING;
+            if (!c.queryRay(rx, y + STAND_STEP, rz, 0, -1, 0, 2 * STAND_STEP)) return false;
+        }
+        const center = y + CAPSULE_HOVER + CAPSULE_HEIGHT * 0.5;
+        return !c.queryCapsule(x, center, z, CAPSULE_HEIGHT * 0.5 - CAPSULE_RADIUS, CAPSULE_RADIUS, pushOut);
+    };
+    const castRay = (from: Vec3, to: Vec3) => {
+        if (!collision) return null;
+        rayDir.sub2(to, from);
+        const length = rayDir.length();
+        if (length < 1e-6) return null;
+        rayDir.mulScalar(1 / length);
+        const hit = collision.queryRay(from.x, from.y, from.z, rayDir.x, rayDir.y, rayDir.z, length);
+        if (!hit) return null;
+        hitStandable = canStand(collision, hit.x, hit.y, hit.z);
+        return rayHit.set(hit.x, hit.y, hit.z);
+    };
+    const validDistance = navigation.isValidTeleportDistance.bind(navigation);
+    navigation.isValidTeleportDistance = (point: Vec3) => validDistance(point) && (!collision || hitStandable);
+    // the floor under a point, from collision, or null without
+    const floorBelow = (point: Vec3) => {
+        const hit = collision?.queryRay(point.x, point.y, point.z, 0, -1, 0, 1000);
+        return hit ? hit.y : null;
+    };
 
     // Grabbing with both hands drags, turns and scales the scene. Created once the splat entity
     // it moves has loaded, which is before XR can start, and put back when the session ends, as
@@ -91,8 +148,13 @@ const initXr = (global: Global) => {
             x = up.x * sign;
             z = up.z * sign;
         }
-        parent.setPosition(cameraPosition.x, 0, cameraPosition.z);
+        // standing on the floor under the camera where collision has one, else at the plane
+        const floorY = floorBelow(cameraPosition) ?? navigation.groundHeight;
+        parent.setPosition(cameraPosition.x, floorY, cameraPosition.z);
         parent.setEulerAngles(0, Math.atan2(-x, -z) * math.RAD_TO_DEG, 0);
+        // the navigation keeps the rig's height above the floor it stands on when it teleports,
+        // and has no setter for that floor
+        (navigation as unknown as { _currentGroundY: number })._currentGroundY = floorY;
 
         if (standaloneHeadset) {
             xr.fixedFoveation = 1;
@@ -211,6 +273,10 @@ const initXr = (global: Global) => {
     return {
         start,
         end,
+        setCollision: (value: Collision) => {
+            collision = value;
+            navigation.castRay = castRay;
+        },
         setManipulationTarget: (entity: Entity) => {
             manipulation = parent.script.create(XrManipulation, {
                 properties: { target: entity }

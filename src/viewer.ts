@@ -608,6 +608,7 @@ class Viewer {
             attachCollision = (collision: Collision) => {
                 this.inputController.collision = collision;
                 this.cameraManager.setCollision(collision);
+                this.xr.setCollision(collision);
                 if (this.navCursor) {
                     this.navCursor.collision = collision;
                 }
