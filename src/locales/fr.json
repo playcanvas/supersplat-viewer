@@ -73,6 +73,6 @@
     "vr-prompt.enter": "Touchez pour entrer en RV",
     "xr-menu.exit-vr": "Quitter la VR",
     "xr-menu.exit-ar": "Quitter l'AR",
-    "xr-menu.ice-cream": "Cornet de glace",
+    "xr-menu.ice-cream": "Mode glace",
     "xr-hint.stalled": "Rien ne se passe ? Changez d'onglet puis revenez."
 }

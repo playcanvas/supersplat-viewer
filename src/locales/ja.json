@@ -73,6 +73,6 @@
     "vr-prompt.enter": "タップしてVRを開始",
     "xr-menu.exit-vr": "VRを終了",
     "xr-menu.exit-ar": "ARを終了",
-    "xr-menu.ice-cream": "アイスクリーム",
+    "xr-menu.ice-cream": "アイスクリームモード",
     "xr-hint.stalled": "反応がない場合は、タブを切り替えてから戻ってください。"
 }
