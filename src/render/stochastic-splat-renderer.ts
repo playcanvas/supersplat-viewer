@@ -422,6 +422,8 @@ const tmpVec2 = new Vec2();
 
 const tmpVec3 = new Vec3();
 
+const tmpMat4 = new Mat4();
+
 // the shaders a view's computes share
 type ViewShaders = {
     args: Shader;
@@ -498,6 +500,9 @@ class SplatView {
 
     readonly taaLastView = new Mat4();
 
+    // the model the last taa frame's matrices were recorded under (see followModel)
+    readonly taaLastModel = new Mat4();
+
     // the view's world transform, for the accumulation's reprojection
     readonly cameraWorld = new Mat4();
 
@@ -522,6 +527,9 @@ class SplatView {
     readonly prevView = new Mat4();
 
     readonly prevProjection = new Mat4();
+
+    // the model the previous frame's matrices were recorded under (see followModel)
+    readonly prevModel = new Mat4();
 
     prevClipZ = [0, 0, 0, 0];
 
@@ -1551,6 +1559,7 @@ class StochasticSplatRenderer {
         while (this.views.length > count) this.views.pop()!.destroy();
         // the eyes' matrices are refreshed at render time, after this hook
         if (eyes) (cam as Camera & { updateViewTransforms(): void }).updateViewTransforms();
+        this.followModel(set);
 
         // variant warp:auto: a session whose eyes the browser rasterises at a variable rate has
         // their rate maps measured at the end of a frame, once its sub-images are known
@@ -2089,6 +2098,7 @@ class StochasticSplatRenderer {
             bind(this.composeMaterial, 'taaInfo', view.taaInfo[view.taaWrite]);
             view.taaLastViewProjection.copy(view.viewProjection);
             view.taaLastView.copy(viewMatrix);
+            view.taaLastModel.copy(set.files[0]?.modelMatrix ?? Mat4.IDENTITY);
             view.taaHistoryValid = true;
             view.taaWrite ^= 1;
         }
@@ -2149,6 +2159,7 @@ class StochasticSplatRenderer {
         view.prevViewProjection.copy(view.viewProjection);
         view.prevView.copy(viewMatrix);
         view.prevProjection.copy(projection);
+        view.prevModel.copy(set.files[0]?.modelMatrix ?? Mat4.IDENTITY);
         view.prevClipZ = clipZParams;
         view.prevViewport = [width, height];
         view.prevFocal = focal;
@@ -2192,6 +2203,31 @@ class StochasticSplatRenderer {
     // whether the view or the projection differs from the view's previous on-screen frame's
     // beyond float noise (the camera controllers settle over many frames; a fov animation moves
     // the image without moving the camera)
+    // A model that moved since a view's previous frame (an XR grab moves the splat entity) moved its
+    // splats under the camera, which the previous frame's matrices know nothing of. They are
+    // composed with that motion, previous model times inverse current model, so the occlusion cull
+    // and the accumulation reproject each splat to where it was, as for a camera move, and the
+    // frame counts as moving. The viewer moves one entity, whose files share its transform: the
+    // first file's stands for all of them
+    private followModel(set: ResidentSet) {
+        const model = set.files[0]?.modelMatrix;
+        if (!model) return;
+        for (const view of this.views) {
+            if (!view.prevModel.equals(model)) {
+                tmpMat4.copy(model).invert().mul2(view.prevModel, tmpMat4);
+                view.prevViewProjection.mul(tmpMat4);
+                view.prevView.mul(tmpMat4);
+                view.prevModel.copy(model);
+            }
+            if (!view.taaLastModel.equals(model)) {
+                tmpMat4.copy(model).invert().mul2(view.taaLastModel, tmpMat4);
+                view.taaLastViewProjection.mul(tmpMat4);
+                view.taaLastView.mul(tmpMat4);
+                view.taaLastModel.copy(model);
+            }
+        }
+    }
+
     private viewMoved(view: SplatView, viewMatrix: Mat4, projection: Mat4) {
         for (let i = 0; i < 16; i++) {
             if (Math.abs(viewMatrix.data[i] - view.prevView.data[i]) > 1e-6) return true;
