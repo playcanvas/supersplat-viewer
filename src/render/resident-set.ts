@@ -205,7 +205,14 @@ class EngineResidentSetProvider {
                 this.takeOver(manager);
                 const state = manager.world.currentState;
                 if (!state) return;
-                const changed = !this.set || this.set.version !== state.version;
+                // A file's entity can move without a new world state (an XR grab moves a single
+                // file's, whose state never changes): the set's matrices and bounds follow it
+                const changed =
+                    !this.set ||
+                    this.set.version !== state.version ||
+                    state.splats.some(
+                        (info, i) => !this.set.files[i]?.modelMatrix.equals(info.node.getWorldTransform())
+                    );
                 if (changed) {
                     this.set = buildResidentSet(state);
                 }
