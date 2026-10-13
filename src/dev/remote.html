@@ -292,16 +292,39 @@
                 }
                 const { xr } = app;
                 if (xr) {
-                    xr.on('start', () => log('xr', [`session started: ${xr.type}`]));
+                    // what each session was granted, and its input sources and their models, for
+                    // sessions that come up without hands
+                    xr.on('start', () => {
+                        const { session } = xr;
+                        log('xr', [
+                            `session started: ${xr.type}`,
+                            `features ${session?.enabledFeatures?.join(',') ?? '-'}`,
+                            `visibility ${session?.visibilityState ?? '-'}`
+                        ]);
+                        session?.addEventListener('visibilitychange', () =>
+                            log('xr', [`session visibility ${session.visibilityState}`])
+                        );
+                    });
                     xr.on('end', () => log('xr', ['session ended']));
                     xr.on('error', (error) => log('xr', ['error', error]));
+                    const describe = (source) =>
+                        `${source.handedness} ${source.targetRayMode} ${source.hand ? 'hand' : 'no hand'}`;
+                    xr.input.on('add', (source) =>
+                        log('xr', ['input add', describe(source), source.profiles.join(',')])
+                    );
+                    xr.input.on('remove', (source) => log('xr', ['input remove', describe(source)]));
+                    app.on('xr:controller:add', (source) => log('xr', ['model added', describe(source)]));
                 }
                 // A heartbeat every 5 s, for when Safari's web process is killed (memory, most
                 // likely), which nothing on the page can report: the last ones before an
                 // unexplained reload show what the page held. And the page's lifecycle around it
                 const mb = (bytes) => Math.round(bytes / 1048576);
                 const started = performance.now();
+                let frames = 0;
+                app.on('postrender', () => frames++);
                 setInterval(() => {
+                    const fps = Math.round(frames / 5);
+                    frames = 0;
                     const vram = app.graphicsDevice._vram;
                     const heap = performance.memory ? `${mb(performance.memory.usedJSHeapSize)} MB` : '-';
                     log('heartbeat', [
@@ -311,6 +334,7 @@
                         `drawn ${app.stats.frame.gsplats ?? '-'}`,
                         `active ${window.splatRenderer?.activeSplats ?? '-'}`,
                         `xr ${xr?.active ? xr.type : 'off'}`,
+                        `fps ${fps}`,
                         `heap ${heap}`
                     ]);
                 }, 5000);
