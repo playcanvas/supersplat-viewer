@@ -1527,6 +1527,16 @@ class StochasticSplatRenderer {
             return;
         }
 
+        // A session's views arrive with its first XR frame, and until then the camera is in the
+        // session with none: the released engine then binds no view bind group for a pass drawing
+        // with it (fixed on the engine's feat/webgpu-xr-depth), so draw nothing that frame
+        const xrCamera = cam as Camera & { xrActive: boolean; xrViews: XrViewMatrices[] | null };
+        if (xrCamera.xrActive && !xrCamera.xrViews?.length) {
+            this.setReady(false);
+            this.taaPass.enabled = false;
+            return;
+        }
+
         // one view per eye while the engine renders a stereo session, the camera's otherwise
         const eyes = this.stereoViews();
         if (this.stereo !== !!eyes) {
