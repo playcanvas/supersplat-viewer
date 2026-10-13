@@ -283,6 +283,9 @@ type StochasticRendererOptions = {
     source?: SplatSourceKind;
     mode?: StochasticMode;
     variant?: string;
+    // how the renderer asks for the next frame when it wants one (accumulating, a raised cull
+    // while moving); by default it sets renderNextFrame
+    requestFrame?: () => void;
 };
 
 // the engine internals this file drives directly
@@ -963,12 +966,14 @@ class StochasticSplatRenderer {
     // after render(), so the request is applied on frameend instead
     private frameWanted = false;
 
+    private requestFrame: () => void;
+
     private onFrameEnd = () => {
         this.source.frameEnd();
         if (this.rateMapState === 'wanted') this.measureRateMaps();
         if (this.frameWanted) {
             this.frameWanted = false;
-            this.app.renderNextFrame = true;
+            this.requestFrame();
         }
     };
 
@@ -1100,6 +1105,11 @@ class StochasticSplatRenderer {
         this.device = app.graphicsDevice as EngineDevice;
         this.camera = camera;
         this.worldLayer = worldLayer;
+        this.requestFrame =
+            options.requestFrame ??
+            (() => {
+                this.app.renderNextFrame = true;
+            });
         this.modeVariant = MODE_VARIANTS[options.mode ?? 'pixel'];
         this.variantText = options.variant ?? '';
         this.variant = parseVariant(`${this.modeVariant},${this.variantText}`);

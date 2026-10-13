@@ -102,6 +102,7 @@
                 splatSource: url.searchParams.get('splatSource') ?? undefined,
                 variant: url.searchParams.get('variant') ?? undefined,
                 budget,
+                framesInFlight: url.searchParams.has('fif') ? Number(url.searchParams.get('fif')) : undefined,
                 heatmap: url.searchParams.has('heatmap'),
                 fullload: url.searchParams.has('fullload'),
                 vr: url.searchParams.has('vr'),

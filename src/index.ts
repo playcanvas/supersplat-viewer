@@ -297,6 +297,7 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     splatSource: options.splatSource ?? 'direct',
     variant: options.variant ?? '',
     budget: options.budget,
+    framesInFlight: options.framesInFlight ?? 2,
     heatmap: options.heatmap ?? false,
     debug: options.debug ?? false,
     lang: options.lang,

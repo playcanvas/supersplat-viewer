@@ -197,6 +197,7 @@
                     splatSource: params.get('splatSource') ?? undefined,
                     variant: params.get('variant') ?? undefined,
                     budget: budgetParam !== null ? Number(budgetParam) : undefined,
+                    framesInFlight: params.has('fif') ? Number(params.get('fif')) : undefined,
                     fullload: params.has('fullload'),
                     vr: params.has('vr'),
                     debug: params.has('debug'),
@@ -206,6 +207,9 @@
                 // the stochastic renderer, when the page runs it, for snippets that switch it
                 viewer.events.once('splatRenderer:ready', (renderer) => {
                     window.splatRenderer = renderer;
+                });
+                viewer.events.once('frameGate:ready', (gate) => {
+                    window.frameGate = gate;
                 });
 
                 // A panel for instructions in a headset, where nothing of the page shows:

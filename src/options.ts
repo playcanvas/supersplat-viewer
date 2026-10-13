@@ -92,6 +92,12 @@ type ViewerFlags = {
     variant?: string;
     /** Splat budget in millions, overriding the platform and performance-mode table. */
     budget?: number;
+    /**
+     * Developer knob: while the viewer renders on demand, the most rendered frames the gpu may
+     * have unfinished before the next continuous render (the camera moving, the stochastic
+     * renderer accumulating) waits for one to finish; `0` lets them queue. Defaults to `2`.
+     */
+    framesInFlight?: number;
     /** Render the collision heatmap debug overlay (WebGPU only). */
     heatmap?: boolean;
     /** Open the developer debug panel on load; Ctrl+Shift+D toggles it either way. */

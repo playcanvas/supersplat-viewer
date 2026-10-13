@@ -33,6 +33,7 @@ import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
 import { DebugPanel } from './debug';
+import { FrameGate } from './frame-gate';
 import { initFullscreen } from './fullscreen';
 import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
@@ -218,6 +219,9 @@ class Viewer {
     /** The opt-in stochastic renderer (WebGPU only); null when the engine's sorted renderer draws. */
     splatRenderer: StochasticSplatRenderer | null = null;
 
+    /** Holds the continuous on-demand renders while the gpu is behind (frame-gate.ts). */
+    frameGate: FrameGate;
+
     /**
      * The engine's MiniStats panel once first shown (`?ministats` or the debug panel), else null.
      * Hiding disables it rather than destroying it.
@@ -316,6 +320,13 @@ class Viewer {
         // mirrors the engine's simple-on-demand gsplat example.
         app.autoRender = true;
 
+        // created before the stochastic renderer, so its frame end counts a rendered frame before
+        // the renderer asks for the next
+        this.frameGate = new FrameGate(app, config.framesInFlight);
+        this.onDestroy(() => this.frameGate.destroy());
+        // for development pages, as splatRenderer:ready
+        events.once('firstFrame', () => events.fire('frameGate:ready', this.frameGate));
+
         // configure the camera
         this.configureCamera(settings);
 
@@ -337,7 +348,8 @@ class Viewer {
                 this.splatRenderer = new StochasticSplatRenderer(app, camera.camera, worldLayer, {
                     source: config.splatSource,
                     mode: config.stochastic === 'mobile' ? 'mobile' : 'pixel',
-                    variant: config.variant
+                    variant: config.variant,
+                    requestFrame: () => this.frameGate.request()
                 });
                 // announced on the first frame rather than here: createViewer resolves after this
                 // constructor, so a page can only subscribe once loading is under way
@@ -376,7 +388,7 @@ class Viewer {
                     !nearlyEquals(world.data, prevWorld.data) ||
                     !nearlyEquals(proj.data, prevProj.data)
                 ) {
-                    app.renderNextFrame = true;
+                    this.frameGate.request();
                 }
             }
 
