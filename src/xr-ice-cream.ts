@@ -13,13 +13,14 @@ import type { AppBase, BoundingBox, Color, XrHand, XrInputSource } from 'playcan
 
 import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 
-// Holding the splat on the back of the left fist, the world in miniature (Stoakley, Conway and
-// Pausch, CHI 1995). Closing the left hand, palm down, while the right is open fills a ring on its
-// back over ARM_TIME seconds; then the splat jumps onto the fist, upright on the back of the hand: a scene at
-// SCENE_SCALE pinned where the user stands, an object fitted to OBJECT_SIZE. Opening the hand, or
-// losing it for LOST_TIME, puts it back where it was at once. The sizes are for a user at real size
-// and scale with them as the hold starts; a scene held keeps its size while the two-hand grab
-// scales the user, so the grab grows or shrinks it in the hand.
+// Holding the splat on top of the left fist, where a cone's scoop would be: the world in miniature
+// (Stoakley, Conway and Pausch, CHI 1995). Closing the left hand, held upright, while the right is
+// open fills a ring on top of the fist over ARM_TIME seconds; then the splat jumps there, standing
+// along the axis through the fist: a scene at SCENE_SCALE pinned where the user stands, an object
+// fitted to OBJECT_SIZE. Twisting the wrist turns it like a turntable and bending it tips it.
+// Opening the hand, or losing it for LOST_TIME, puts it back where it was at once. The sizes are for
+// a user at real size and scale with them as the hold starts; a scene held keeps its size while the
+// two-hand grab scales the user, so the grab grows or shrinks it in the hand.
 //
 // A fist closes by the engine's test (all four fingers folded back, its emulated squeeze), and
 // then holds while HELD_FINGERS of them stay folded past a right angle: on Apple Vision Pro the
@@ -28,10 +29,12 @@ import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 // engine's fist for a few frames now and then. And the left keeps its state while the right is a
 // fist (the two-hand grab) or within COVER_DISTANCE of it: a right hand over the left hides its
 // fingers, which visionOS then reports open.
-// The ring fills while the back of the hand faces up, where it is in view: within FACE_START of
-// straight up as it starts (the cosine, about 50 degrees) and FACE_KEEP once filling (about 65)
-const FACE_START = 0.65;
-const FACE_KEEP = 0.42;
+//
+// The ring fills while the fist is upright, where its top is in view: the axis through it within
+// UPRIGHT_START of straight up as it starts (the cosine, about 50 degrees) and UPRIGHT_KEEP once
+// filling (about 65)
+const UPRIGHT_START = 0.65;
+const UPRIGHT_KEEP = 0.42;
 const ARM_TIME = 2;
 const FLICKER_TIME = 0.2;
 const HELD_FINGERS = 3;
@@ -39,12 +42,12 @@ const LOST_TIME = 1;
 const COVER_DISTANCE = 0.15;
 const SCENE_SCALE = 0.01;
 const OBJECT_SIZE = 0.15;
-// above the joint along the back of the hand's normal: the splat's floor or bottom, and the ring
-const LIFT = 0.01;
-const RING_LIFT = 0.03;
+// above the top of the fist along its axis: the splat's floor or bottom, and the ring
+const LIFT = 0.02;
+const RING_LIFT = 0.02;
 const RING_SIZE = 0.05;
-// the joint the splat sits on, whose +Y points out of the back of the hand (WebXR Hand Input)
-const JOINT = 'middle-finger-metacarpal';
+// the right hand's joint the cover test measures from
+const COVER_JOINT = 'middle-finger-metacarpal';
 
 // The ring fills clockwise from the top, a faint track ahead of it
 const vertexGLSL = /* glsl */ `
@@ -148,12 +151,51 @@ const foldedFingers = (hand: XrHand) => {
     return folded;
 };
 
+// The top of a fist, where a cone held in it would come out, and the fist's frame there: +Y along
+// the axis through the fist (the little finger's knuckle to the index finger's, which points out of
+// the top of a thumb-up fist), -Z the way the knuckles point from the wrist. The top is between the
+// index finger's knuckle and the thumb's last joint, the rim of the fist's opening. False where the
+// hand lacks a joint
+const axisX = new Vec3();
+const axisY = new Vec3();
+const axisZ = new Vec3();
+const frame = new Mat4();
+const measureFist = (hand: XrHand, top: Vec3, turned: Quat) => {
+    const pinky = hand.getJointById('pinky-finger-phalanx-proximal');
+    const index = hand.getJointById('index-finger-phalanx-proximal');
+    const middle = hand.getJointById('middle-finger-phalanx-proximal');
+    const thumb = hand.getJointById('thumb-phalanx-distal');
+    const wrist = hand.getJointById('wrist');
+    if (!pinky || !index || !middle || !thumb || !wrist) return false;
+
+    axisY.sub2(index.getPosition(), pinky.getPosition()).normalize();
+    // back along the hand, square to the axis
+    axisZ.sub2(wrist.getPosition(), middle.getPosition());
+    axisX.copy(axisY).mulScalar(axisZ.dot(axisY));
+    axisZ.sub(axisX).normalize();
+    axisX.cross(axisY, axisZ);
+    const m = frame.data;
+    m[0] = axisX.x;
+    m[1] = axisX.y;
+    m[2] = axisX.z;
+    m[4] = axisY.x;
+    m[5] = axisY.y;
+    m[6] = axisY.z;
+    m[8] = axisZ.x;
+    m[9] = axisZ.y;
+    m[10] = axisZ.z;
+    turned.setFromMat4(frame);
+
+    top.add2(index.getPosition(), thumb.getPosition()).mulScalar(0.5);
+    return true;
+};
+
 /**
- * Holds the loaded splat on the back of the left fist while {@link XrFistHold#enabled} (the XR
- * menu's World on Fist). The two-hand grab carries on while it is held; the viewer pauses the
- * teleport ({@link XrFistHold#holding}).
+ * Holds the loaded splat on top of the left fist, like an ice cream in its cone, while
+ * {@link XrIceCream#enabled} (the XR menu's Ice Cream). The two-hand grab carries on while it is
+ * held; the viewer pauses the teleport ({@link XrIceCream#holding}).
  */
-class XrFistHold {
+class XrIceCream {
     private app: AppBase;
 
     private entity: Entity;
@@ -187,7 +229,7 @@ class XrFistHold {
     // whether the splat is on the fist
     private hold = false;
 
-    // the left hand's joint as last tracked
+    // the top of the left fist and its frame (measureFist), as last tracked
     private handPosition = new Vec3();
 
     private handRotation = new Quat();
@@ -253,7 +295,7 @@ class XrFistHold {
         this.color.set([color.r, color.g, color.b, color.a]);
         this.material.setParameter('uColor', this.color);
 
-        this.ring = new Entity('XrFistHoldRing', app);
+        this.ring = new Entity('XrIceCreamRing', app);
         this.ring.addComponent('render', { type: 'plane', castShadows: false, receiveShadows: false });
         this.ring.render.material = this.material;
         for (const meshInstance of this.ring.render.meshInstances) meshInstance.drawBucket = XR_OVERLAY_DRAW_BUCKET;
@@ -304,23 +346,21 @@ class XrFistHold {
         if (!xr?.active) return;
         const sources = xr.input.inputSources;
         const left = handOf(sources, 'left');
-        const joint = left?.hand.tracking ? left.hand.getJointById(JOINT) : null;
-        if (joint) {
-            this.handPosition.copy(joint.getPosition());
-            this.handRotation.copy(joint.getRotation());
+        const tracked = !!left?.hand.tracking && measureFist(left.hand, this.handPosition, this.handRotation);
+        if (tracked) {
             this.lostFor = 0;
         } else {
             this.lostFor += dt;
         }
         const right = handOf(sources, 'right');
-        const rightJoint = right?.hand.tracking ? right.hand.getJointById(JOINT) : null;
+        const rightJoint = right?.hand.tracking ? right.hand.getJointById(COVER_JOINT) : null;
         const covered =
             !!right?.squeezing ||
-            (!!joint &&
+            (tracked &&
                 !!rightJoint &&
                 rightJoint.getPosition().distance(this.handPosition) < COVER_DISTANCE * this.userScale());
         // a hand out of sight, or covered, is neither open nor closed: losing it counts by LOST_TIME
-        if (joint && left && !covered) {
+        if (tracked && left && !covered) {
             const wasFist = this.openFor < FLICKER_TIME;
             const closed = left.squeezing || (wasFist && foldedFingers(left.hand) >= HELD_FINGERS);
             this.openFor = closed ? 0 : this.openFor + dt;
@@ -331,9 +371,9 @@ class XrFistHold {
 
         if (this.hold) {
             if (!fist || this.lostFor > LOST_TIME || !this.on) this.release();
-        } else if (this.on && fist && !rightFist && this.lostFor < FLICKER_TIME && this.facingUp()) {
+        } else if (this.on && fist && !rightFist && this.lostFor < FLICKER_TIME && this.upright()) {
             // a moment without the hand pauses the ring
-            if (joint) this.armed += dt;
+            if (tracked) this.armed += dt;
             if (this.armed >= ARM_TIME) {
                 this.armed = 0;
                 this.take();
@@ -348,10 +388,10 @@ class XrFistHold {
         if (this.hold) this.place();
     }
 
-    // whether the back of the hand faces up (the palm down), with the ring on it in view
-    private facingUp() {
+    // whether the fist is upright, with its top in view
+    private upright() {
         this.handRotation.transformVector(Vec3.UP, up);
-        return up.y > (this.armed > 0 ? FACE_KEEP : FACE_START);
+        return up.y > (this.armed > 0 ? UPRIGHT_KEEP : UPRIGHT_START);
     }
 
     private placeRing() {
@@ -396,7 +436,7 @@ class XrFistHold {
         this.onHolding(true);
     }
 
-    // the splat on the fist: its pinned point above the joint, turned with the hand
+    // the splat on the fist: its pinned point above the top, turned with the fist
     private place() {
         const { entity } = this;
         this.handRotation.transformVector(Vec3.UP, up);
@@ -425,4 +465,4 @@ class XrFistHold {
     }
 }
 
-export { XrFistHold };
+export { XrIceCream };

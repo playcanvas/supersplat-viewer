@@ -80,11 +80,11 @@ type State = {
      */
     lookNavigation: boolean;
     /**
-     * In XR with tracked hands, a left fist held for two seconds, the right hand open, puts the
-     * scene or object on the back of the hand until it opens. Persisted; off by default. The XR
-     * menu offers it.
+     * In XR with tracked hands, a left fist held upright for two seconds, the right hand open,
+     * puts the scene or object in miniature on top of the fist, like an ice cream in its cone,
+     * until the hand opens. Persisted; off by default. The XR menu offers it as Ice Cream.
      */
-    worldOnFist: boolean;
+    iceCream: boolean;
     /**
      * Gates the inputs the dom cannot route by hit-testing, because their listeners sit on
      * `window`: the keyboard (both the engine's source and the viewer's own shortcuts) and the
@@ -104,7 +104,7 @@ type WritableStateKey =
     | 'showAnnotations'
     | 'gamingControls'
     | 'lookNavigation'
-    | 'worldOnFist'
+    | 'iceCream'
     | 'animationPaused'
     | 'collisionOverlayEnabled'
     | 'controlsHidden'
