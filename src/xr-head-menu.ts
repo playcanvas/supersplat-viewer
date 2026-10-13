@@ -28,11 +28,32 @@ const ROW_HEIGHT = 0.07;
 const ROW_GAP = 0.012;
 const PIXELS = 1600;
 
+// The rows fade and drop in over ROW_TIME seconds each, STAGGER apart down the column, from DROP
+// above and at ROW_GROW of their size; closing plays it back from the bottom row. The icon's bars
+// turn into a cross over MORPH_TIME, and a switch's knob slides over KNOB_TIME. A pressed quad
+// shrinks to PRESS_SCALE while the select stays on it
+const ROW_TIME = 0.12;
+const STAGGER = 0.04;
+const DROP = 0.012;
+const ROW_GROW = 0.96;
+const MORPH_TIME = 0.15;
+const KNOB_TIME = 0.15;
+const PRESS_SCALE = 0.95;
+
+// A press clicks, a short falling tone, and pulses a controller's haptic actuator
+const CLICK_PITCH = 1500;
+const CLICK_DROP = 700;
+const CLICK_TIME = 0.05;
+const CLICK_GAIN = 0.08;
+const PULSE_STRENGTH = 0.4;
+const PULSE_MS = 25;
+
 const GLASS = 'rgba(20, 22, 28, 0.86)';
 // the icon is always in view, so it is fainter than the menu
 const ICON_GLASS = 'rgba(20, 22, 28, 0.55)';
 const ICON_BARS = 'rgba(255, 255, 255, 0.7)';
 const GLASS_HOVER = 'rgba(58, 62, 72, 0.92)';
+const GLASS_PRESS = 'rgba(88, 94, 108, 0.96)';
 const ON = '#4cc38a';
 const OFF = 'rgba(255, 255, 255, 0.28)';
 
@@ -51,6 +72,19 @@ type Quad = {
     material: StandardMaterial;
 };
 
+// a select held on a quad: whether its ray is still on it, as of the last frame
+type Press = {
+    source: XrInputSource;
+    quad: Quad;
+    over: boolean;
+    release: () => void;
+};
+
+// a controller's gamepad, with the WebXR haptic actuators the dom typings leave out
+type HapticGamepad = Gamepad & {
+    hapticActuators?: readonly { pulse(value: number, duration: number): Promise<boolean> }[];
+};
+
 const rayOrigin = new Vec3();
 const rayDirection = new Vec3();
 const localOrigin = new Vec3();
@@ -63,14 +97,25 @@ const roundRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
     ctx.fill();
 };
 
+const ease = (t: number) => t * t * (3 - 2 * t);
+
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+// moves value toward goal by step
+const approach = (value: number, goal: number, step: number) =>
+    value < goal ? Math.min(goal, value + step) : Math.max(goal, value - step);
+
 /**
  * A head-locked menu for XR sessions: a burger icon low in the view, which opens a column of
- * rows in front of the eyes. A select (a pinch, a trigger) on the icon opens and closes it, on a
- * row runs it, and anywhere else while it is open closes it. The viewer hands the menu every
- * select before the navigation aims with it ({@link XrHeadMenu#select}), so the selects it takes
- * do not teleport. It follows the camera, so it also scales with a scaled rig, staying the same
- * size in view. Controllers' rays highlight what they point at; Apple Vision Pro shows the eyes'
- * direction only as a pinch starts, so nothing highlights there.
+ * rows in front of the eyes. A select (a pinch, a trigger) presses the icon or a row it starts on,
+ * which runs when the select ends still on it, as a button does: sliding off before letting go
+ * cancels it. A select anywhere else while the menu is open closes it. A press clicks, pulses a
+ * controller, and shows on the quad while the select stays on it; the rows fade in and out, the
+ * icon turns into a cross and the switches slide. The viewer hands the menu every select before
+ * the navigation aims with it ({@link XrHeadMenu#select}), so the selects it takes do not
+ * teleport. It follows the camera, so it also scales with a scaled rig, staying the same size in
+ * view. Controllers' rays also highlight what they point at; Apple Vision Pro shows the eyes'
+ * direction only as a pinch starts, so nothing highlights there before a press.
  */
 class XrHeadMenu {
     private app: AppBase;
@@ -83,8 +128,23 @@ class XrHeadMenu {
 
     private open = false;
 
-    // the hovered quad, highlighted
+    // how far the column is through opening (0 closed, 1 open), the icon's morph into a cross, each
+    // switch's knob (0 off, 1 on), and each row's opacity as last set
+    private openness = 0;
+
+    private morph = 0;
+
+    private knobs: number[];
+
+    private shown: number[];
+
+    // the hovered quad, highlighted, and the press, if any
     private hovered: Quad | null = null;
+
+    private press: Press | null = null;
+
+    // made on the first press
+    private audio: AudioContext | null = null;
 
     private handles: { off(): void }[];
 
@@ -100,54 +160,50 @@ class XrHeadMenu {
         this.icon = this.createQuad(camera, ICON_SIZE, ICON_SIZE);
         this.icon.entity.setLocalPosition(ICON_POSITION);
         this.rows = items.map(() => this.createQuad(camera, ROW_WIDTH, ROW_HEIGHT));
+        this.knobs = items.map((item) => (item.checked?.() ? 1 : 0));
+        this.shown = items.map(() => 0);
 
         const { xr } = app;
         this.handles = [
             xr.on('start', () => this.show(true)),
             xr.on('end', () => this.show(false)),
-            app.on('update', () => this.updateHover())
+            app.on('update', (dt: number) => this.update(dt))
         ];
         this.show(xr.active);
     }
 
     /**
-     * Takes a select that starts on the menu, running what it selects, and one anywhere while the
-     * menu is open, closing it.
+     * Takes a select that starts on the menu, pressing what it starts on, and one anywhere while
+     * the menu is open, closing it.
      *
      * @param source - The input source whose select starts.
      * @returns True when the menu took the select.
      */
     select(source: XrInputSource) {
         if (!this.icon.entity.enabled) return false;
-        rayOrigin.copy(source.getOrigin());
-        rayDirection.copy(source.getDirection());
-
-        if (this.hits(this.icon, ICON_HIT)) {
-            this.setOpen(!this.open);
+        const quad = this.pointedAt(source);
+        if (!quad) {
+            if (!this.open) return false;
+            this.setOpen(false);
             return true;
         }
-        if (!this.open) return false;
-
-        const index = this.rows.findIndex((row) => row.entity.enabled && this.hits(row, 1));
-        if (index >= 0) {
-            const item = this.items[index];
-            item.action();
-            // a switch stays open to show its new state
-            if (item.checked) this.draw();
-            else this.setOpen(false);
-        } else {
-            this.setOpen(false);
-        }
+        // a second select while one is held is taken, and does nothing
+        if (!this.press) this.startPress(source, quad);
         return true;
     }
 
     destroy() {
+        this.cancelPress();
         for (const handle of this.handles) handle.off();
         for (const quad of [this.icon, ...this.rows]) {
             quad.entity.destroy();
             quad.material.destroy();
             quad.texture.destroy();
         }
+        void this.audio?.close().catch(() => {
+            /* already closed */
+        });
+        this.audio = null;
     }
 
     private createQuad(camera: Entity, width: number, height: number): Quad {
@@ -204,102 +260,263 @@ class XrHeadMenu {
         return Math.abs(origin.x + direction.x * t) <= half && Math.abs(origin.z + direction.z * t) <= half;
     }
 
+    // the icon, or a row of the open menu, the input source's ray points at
+    private pointedAt(source: XrInputSource) {
+        rayOrigin.copy(source.getOrigin());
+        rayDirection.copy(source.getDirection());
+        if (this.hits(this.icon, ICON_HIT)) return this.icon;
+        if (!this.open) return null;
+        return this.rows.find((row) => row.entity.enabled && this.hits(row, 1)) ?? null;
+    }
+
     private show(visible: boolean) {
         this.icon.entity.enabled = visible;
         this.setOpen(false);
+        // a session starts with the menu closed, not closing
+        this.openness = 0;
+        this.morph = 0;
+        this.drawIcon();
+        for (const row of this.rows) row.entity.enabled = false;
     }
 
     private setOpen(open: boolean) {
+        this.cancelPress();
         this.open = open;
         this.hovered = null;
-        this.draw();
+        this.drawIcon();
+        if (open) this.items.forEach((item, i) => this.drawRow(i));
+    }
+
+    private startPress(source: XrInputSource, quad: Quad) {
+        const release = () => this.endPress();
+        source.once('selectend', release);
+        this.press = { source, quad, over: true, release };
+        this.feedback(source);
+        this.drawQuad(quad);
+    }
+
+    // a select ending: runs what it pressed if it ended there. The ray flicks as a pinch lets go,
+    // so where it was on the last frame decides
+    private endPress() {
+        const { press } = this;
+        if (!press) return;
+        this.press = null;
+        press.source.off('selectend', press.release);
+        this.drawQuad(press.quad);
+        if (!press.over) return;
+        if (press.quad === this.icon) {
+            this.setOpen(!this.open);
+            return;
+        }
+        const index = this.rows.indexOf(press.quad);
+        const item = this.items[index];
+        item.action();
+        // a switch stays open, its knob sliding to its new state
+        if (!item.checked) this.setOpen(false);
+    }
+
+    private cancelPress() {
+        if (this.press) this.press.over = false;
+        this.endPress();
+    }
+
+    // a click, and a pulse of a controller's haptics
+    private feedback(source: XrInputSource) {
+        const actuator = (source.gamepad as HapticGamepad | null)?.hapticActuators?.[0];
+        actuator?.pulse(PULSE_STRENGTH, PULSE_MS).catch(() => {
+            /* no haptics */
+        });
+
+        try {
+            this.audio ??= new AudioContext();
+        } catch {
+            return;
+        }
+        const { audio } = this;
+        if (audio.state === 'suspended') {
+            audio.resume().catch(() => {
+                /* not allowed yet */
+            });
+        }
+        const t = audio.currentTime;
+        const tone = audio.createOscillator();
+        tone.frequency.setValueAtTime(CLICK_PITCH, t);
+        tone.frequency.exponentialRampToValueAtTime(CLICK_DROP, t + CLICK_TIME);
+        const gain = audio.createGain();
+        gain.gain.setValueAtTime(CLICK_GAIN, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + CLICK_TIME);
+        tone.connect(gain).connect(audio.destination);
+        tone.start(t);
+        tone.stop(t + CLICK_TIME);
+    }
+
+    private update(dt: number) {
+        if (!this.icon.entity.enabled) return;
+        this.updateHover();
+        this.updatePress();
+        this.animate(dt);
     }
 
     // Controllers' rays highlight what they point at; hands' rays do not, as a hand's ray points
     // along the hand rather than where it selects (Apple Vision Pro's look and pinch)
     private updateHover() {
-        if (!this.icon.entity.enabled) return;
         let hovered: Quad | null = null;
         for (const source of this.app.xr.input.inputSources) {
             if (source.targetRayMode !== 'tracked-pointer' || source.hand) continue;
-            rayOrigin.copy(source.getOrigin());
-            rayDirection.copy(source.getDirection());
-            if (this.hits(this.icon, ICON_HIT)) hovered = this.icon;
-            else if (this.open) hovered = this.rows.find((row) => row.entity.enabled && this.hits(row, 1)) ?? hovered;
+            hovered = this.pointedAt(source) ?? hovered;
         }
         if (hovered !== this.hovered) {
+            const previous = this.hovered;
             this.hovered = hovered;
-            this.draw();
+            if (previous) this.drawQuad(previous);
+            if (hovered) this.drawQuad(hovered);
         }
     }
 
-    private draw() {
-        this.drawIcon();
+    // whether the press is still on its quad; a source gone without ending its select cancels it
+    private updatePress() {
+        const { press } = this;
+        if (!press) return;
+        if (!this.app.xr.input.inputSources.includes(press.source)) {
+            this.cancelPress();
+            return;
+        }
+        const over = this.pointedAt(press.source) === press.quad;
+        if (over !== press.over) {
+            press.over = over;
+            this.drawQuad(press.quad);
+        }
+    }
+
+    private animate(dt: number) {
+        // the icon's bars and cross, and its press
+        const morph = approach(this.morph, this.open ? 1 : 0, dt / MORPH_TIME);
+        if (morph !== this.morph) {
+            this.morph = morph;
+            this.drawIcon();
+        }
+        const iconSize = ICON_SIZE * this.pressScale(this.icon);
+        this.icon.entity.setLocalScale(iconSize, 1, iconSize);
+
+        // the column: each shown row ROW_TIME after the one above it starts, closing from the bottom
+        const shown = this.items.filter((item) => item.visible?.() ?? true).length;
+        const total = ROW_TIME + STAGGER * Math.max(shown - 1, 0);
+        this.openness = approach(this.openness, this.open ? 1 : 0, dt / total);
+        let k = 0;
         let y = MENU_TOP;
         this.items.forEach((item, i) => {
             const row = this.rows[i];
-            const visible = this.open && this.icon.entity.enabled && (item.visible?.() ?? true);
-            row.entity.enabled = visible;
-            if (!visible) return;
-            row.entity.setLocalPosition(0, y - ROW_HEIGHT * 0.5, -MENU_DISTANCE);
-            y -= ROW_HEIGHT + ROW_GAP;
-            this.drawRow(row, item);
+            const visible = item.visible?.() ?? true;
+            const t = visible ? Math.min(Math.max((this.openness * total - k * STAGGER) / ROW_TIME, 0), 1) : 0;
+            const e = ease(t);
+            row.entity.enabled = t > 0;
+
+            // a switch's knob, set at once while the row is hidden
+            if (item.checked) {
+                const goal = item.checked() ? 1 : 0;
+                const knob = row.entity.enabled ? approach(this.knobs[i], goal, dt / KNOB_TIME) : goal;
+                if (knob !== this.knobs[i]) {
+                    this.knobs[i] = knob;
+                    if (row.entity.enabled) this.drawRow(i);
+                }
+            }
+
+            if (visible) {
+                if (row.entity.enabled) {
+                    row.entity.setLocalPosition(0, y - ROW_HEIGHT * 0.5 + (1 - e) * DROP, -MENU_DISTANCE);
+                    const s = lerp(ROW_GROW, 1, e) * this.pressScale(row);
+                    row.entity.setLocalScale(ROW_WIDTH * s, 1, ROW_HEIGHT * s);
+                    if (e !== this.shown[i]) {
+                        this.shown[i] = e;
+                        row.material.opacity = e;
+                        row.material.update();
+                    }
+                }
+                y -= ROW_HEIGHT + ROW_GAP;
+                k++;
+            }
         });
     }
 
-    // three bars, or a cross while the menu is open
+    private pressScale(quad: Quad) {
+        return this.press?.quad === quad && this.press.over ? PRESS_SCALE : 1;
+    }
+
+    private fill(quad: Quad, normal: string) {
+        if (this.press?.quad === quad && this.press.over) return GLASS_PRESS;
+        return this.hovered === quad ? GLASS_HOVER : normal;
+    }
+
+    private drawQuad(quad: Quad) {
+        if (quad === this.icon) {
+            this.drawIcon();
+        } else {
+            this.drawRow(this.rows.indexOf(quad));
+        }
+    }
+
+    // three bars, the top and bottom turning into a cross and the middle fading as the menu opens
     private drawIcon() {
         const { canvas } = this.icon;
         const ctx = canvas.getContext('2d');
         const s = canvas.width;
+        const m = ease(this.morph);
         ctx.clearRect(0, 0, s, s);
-        ctx.fillStyle = this.hovered === this.icon ? GLASS_HOVER : ICON_GLASS;
+        ctx.fillStyle = this.fill(this.icon, ICON_GLASS);
         ctx.beginPath();
         ctx.arc(s / 2, s / 2, s / 2 - 1, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = ICON_BARS;
         ctx.lineWidth = s * 0.07;
         ctx.lineCap = 'round';
+        const d = 0.17;
+        const line = (x0: number, y0: number, x1: number, y1: number) => {
+            ctx.moveTo(s * x0, s * y0);
+            ctx.lineTo(s * x1, s * y1);
+        };
         ctx.beginPath();
-        if (this.open) {
-            const d = s * 0.17;
-            ctx.moveTo(s / 2 - d, s / 2 - d);
-            ctx.lineTo(s / 2 + d, s / 2 + d);
-            ctx.moveTo(s / 2 + d, s / 2 - d);
-            ctx.lineTo(s / 2 - d, s / 2 + d);
-        } else {
-            for (const dy of [-0.15, 0, 0.15]) {
-                ctx.moveTo(s * 0.32, s * (0.5 + dy));
-                ctx.lineTo(s * 0.68, s * (0.5 + dy));
-            }
-        }
+        line(lerp(0.32, 0.5 - d, m), lerp(0.35, 0.5 - d, m), lerp(0.68, 0.5 + d, m), lerp(0.35, 0.5 + d, m));
+        line(lerp(0.32, 0.5 - d, m), lerp(0.65, 0.5 + d, m), lerp(0.68, 0.5 + d, m), lerp(0.65, 0.5 - d, m));
         ctx.stroke();
+        if (m < 1) {
+            ctx.globalAlpha = 1 - m;
+            ctx.beginPath();
+            line(lerp(0.32, 0.5, m), 0.5, lerp(0.68, 0.5, m), 0.5);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
         this.upload(this.icon);
     }
 
-    private drawRow(row: Quad, item: XrHeadMenuItem) {
+    private drawRow(index: number) {
+        const row = this.rows[index];
+        const item = this.items[index];
         const { canvas } = row;
         const ctx = canvas.getContext('2d');
         const { width, height } = canvas;
         ctx.clearRect(0, 0, width, height);
-        ctx.fillStyle = this.hovered === row ? GLASS_HOVER : GLASS;
+        ctx.fillStyle = this.fill(row, GLASS);
         roundRect(ctx, 1, 1, width - 2, height - 2, height * 0.3);
         ctx.fillStyle = '#ffffff';
         ctx.font = `500 ${Math.round(height * 0.36)}px -apple-system, system-ui, sans-serif`;
         ctx.textBaseline = 'middle';
         ctx.fillText(item.label(), height * 0.36, height / 2);
         if (item.checked) {
-            // a switch at the end
-            const on = item.checked();
+            // a switch at the end, its track blending to green as the knob slides across
+            const k = ease(this.knobs[index]);
             const w = height * 0.8;
             const h = height * 0.44;
             const x = width - height * 0.3 - w;
             const y = (height - h) / 2;
-            ctx.fillStyle = on ? ON : OFF;
+            ctx.fillStyle = OFF;
             roundRect(ctx, x, y, w, h, h / 2);
+            ctx.globalAlpha = k;
+            ctx.fillStyle = ON;
+            roundRect(ctx, x, y, w, h, h / 2);
+            ctx.globalAlpha = 1;
             ctx.fillStyle = '#ffffff';
             ctx.beginPath();
-            ctx.arc(on ? x + w - h / 2 : x + h / 2, height / 2, h * 0.4, 0, Math.PI * 2);
+            ctx.arc(lerp(x + h / 2, x + w - h / 2, k), height / 2, h * 0.4, 0, Math.PI * 2);
             ctx.fill();
         }
         this.upload(row);
