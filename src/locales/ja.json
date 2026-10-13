@@ -73,5 +73,6 @@
     "vr-prompt.enter": "タップしてVRを開始",
     "xr-menu.exit-vr": "VRを終了",
     "xr-menu.exit-ar": "ARを終了",
+    "xr-menu.world-on-fist": "拳の上の世界",
     "xr-hint.stalled": "反応がない場合は、タブを切り替えてから戻ってください。"
 }

@@ -8,6 +8,7 @@ import { VoxelCollision } from './collision';
 import type { Collision } from './collision';
 import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
+import { XrFistHold } from './xr-fist-hold';
 import { XrGrabMove } from './xr-grab-move';
 import { XrHeadMenu } from './xr-head-menu';
 import { replaceTeleportArc } from './xr-teleport-arc';
@@ -215,6 +216,11 @@ const initXr = (global: Global) => {
     // (XrGrabMove), so the scene stays on its collision, and the user's feet on its floor.
     let manipulation: XrManipulation | null = null;
     let grabMove: XrGrabMove | null = null;
+    // and holding it on the back of the left fist (state.worldOnFist, a switch in the menu)
+    let fistHold: XrFistHold | null = null;
+    const worldOnFist = events.on('worldOnFist:changed', (value: boolean) => {
+        if (fistHold) fistHold.enabled = value;
+    });
 
     // Where the session started, which the headset's recenter (holding the Meta button on Quest,
     // the Digital Crown on Vision Pro) puts the user back to, at real size and with a grabbed
@@ -226,6 +232,7 @@ const initXr = (global: Global) => {
     let startFloorY = 0;
     let referenceSpace: EventTarget | null = null;
     const placeAtStart = () => {
+        fistHold?.cancel();
         grabMove?.reset();
         manipulation?.reset();
         parent.setPosition(startPosition);
@@ -286,8 +293,9 @@ const initXr = (global: Global) => {
         app.autoRender = false;
         forgetReferenceSpace();
 
-        // restore camera to pre-XR state, the rig to real size first, as the camera's position is
-        // set in the world
+        // put a held splat back, and restore camera to pre-XR state, the rig to real size first, as
+        // the camera's position is set in the world
+        fistHold?.cancel();
         grabMove?.reset();
         parent.setPosition(parentPosition);
         parent.setRotation(parentRotation);
@@ -394,6 +402,15 @@ const initXr = (global: Global) => {
             }
         },
         {
+            label: () => localize('xr-menu.world-on-fist'),
+            checked: () => state.worldOnFist,
+            // tracked hands only: a session without them has no fist
+            visible: () => !!fistHold && xr.input.inputSources.some((source) => !!source.hand),
+            action: () => {
+                state.worldOnFist = !state.worldOnFist;
+            }
+        },
+        {
             label: () => localize(xr.type === 'immersive-ar' ? 'xr-menu.exit-ar' : 'xr-menu.exit-vr'),
             action: () => {
                 void end().catch(() => {
@@ -402,8 +419,10 @@ const initXr = (global: Global) => {
             }
         }
     ]);
+    // and, while the splat is held, takes the rest: the world to teleport in is in the hand
     const isSystemSelect = navigation._isSystemSelect.bind(navigation);
-    navigation._isSystemSelect = (source: XrInputSource) => isSystemSelect(source) || menu.select(source);
+    navigation._isSystemSelect = (source: XrInputSource) =>
+        isSystemSelect(source) || menu.select(source) || !!fistHold?.holding;
 
     const cancel = events.on('inputEvent', (event) => {
         if (event === 'cancel' && xr.active) {
@@ -430,6 +449,21 @@ const initXr = (global: Global) => {
                     properties: { target: entity, scalePivot: 'hands', minScale: 0.25, maxScale: 4 }
                 }) as unknown as XrManipulation;
             }
+            // A held scene's grab scales the user, so the scene in the hand; an object's would
+            // move the object the hold places, so it waits (the event the engine's XrMenu pauses
+            // XrManipulation with)
+            fistHold = new XrFistHold(
+                app,
+                entity,
+                scene,
+                parent,
+                () => userScale,
+                navigation.validTeleportColor,
+                (holding) => {
+                    if (manipulation) app.fire('xr:menu:active', holding);
+                }
+            );
+            fistHold.enabled = state.worldOnFist;
         },
         destroy: () => {
             destroyed = true;
@@ -441,6 +475,9 @@ const initXr = (global: Global) => {
             modelAdded.off();
             forgetReferenceSpace();
             menu.destroy();
+            worldOnFist.off();
+            fistHold?.destroy();
+            fistHold = null;
             grabMove?.destroy();
             grabMove = null;
             target?.destroy();

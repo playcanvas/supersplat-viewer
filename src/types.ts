@@ -80,6 +80,12 @@ type State = {
      */
     lookNavigation: boolean;
     /**
+     * In XR with tracked hands, a left fist held for two seconds, the right hand open, puts the
+     * scene or object on the back of the hand until it opens. Persisted; off by default. The XR
+     * menu offers it.
+     */
+    worldOnFist: boolean;
+    /**
      * Gates the inputs the dom cannot route by hit-testing, because their listeners sit on
      * `window`: the keyboard (both the engine's source and the viewer's own shortcuts) and the
      * gamepad. Pointer input on the canvas is unaffected. Clear it while your own controls have
@@ -98,6 +104,7 @@ type WritableStateKey =
     | 'showAnnotations'
     | 'gamingControls'
     | 'lookNavigation'
+    | 'worldOnFist'
     | 'animationPaused'
     | 'collisionOverlayEnabled'
     | 'controlsHidden'

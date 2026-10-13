@@ -73,5 +73,6 @@
     "vr-prompt.enter": "Tippen, um VR zu starten",
     "xr-menu.exit-vr": "VR beenden",
     "xr-menu.exit-ar": "AR beenden",
+    "xr-menu.world-on-fist": "Welt auf der Faust",
     "xr-hint.stalled": "Passiert nichts? Wechsle den Tab und wieder zurück."
 }
