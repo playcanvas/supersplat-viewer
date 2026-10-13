@@ -92,7 +92,7 @@ class XrGrabMove {
 
     private setYaw = 0;
 
-    private updating: { off(): void };
+    private updating: { off(): void } | null;
 
     /**
      * @param app - The application.
@@ -103,7 +103,10 @@ class XrGrabMove {
         this.app = app;
         this.rig = rig;
         this.onScale = onScale;
-        this.updating = app.on('update', () => this.update());
+        // as each frame's poses arrive, before the scripts update: the engine's XrControllers
+        // poses the hand and controller models in the world in its update, from the rig as it is
+        // then, so moving the rig after it would leave them a frame behind the eyes
+        this.updating = app.xr?.on('update', () => this.update()) ?? null;
     }
 
     /** Ends the grab, if any. */
@@ -123,7 +126,7 @@ class XrGrabMove {
     }
 
     destroy() {
-        this.updating.off();
+        this.updating?.off();
         this.end();
     }
 
