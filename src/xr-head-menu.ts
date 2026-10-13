@@ -497,16 +497,25 @@ class XrHeadMenu {
         ctx.clearRect(0, 0, width, height);
         ctx.fillStyle = this.fill(row, GLASS);
         roundRect(ctx, 1, 1, width - 2, height - 2, height * 0.3);
+
+        // the label, made smaller where it would run into the switch or off the row
+        const w = height * 0.8;
+        const x = width - height * 0.3 - w;
+        const left = height * 0.36;
+        const room = item.checked ? x - height * 0.2 - left : width - 2 * left;
+        const label = item.label();
+        const font = (size: number) => `500 ${size}px -apple-system, system-ui, sans-serif`;
+        const size = Math.round(height * 0.36);
+        ctx.font = font(size);
+        const measured = ctx.measureText(label).width;
+        if (measured > room) ctx.font = font(Math.floor((size * room) / measured));
         ctx.fillStyle = '#ffffff';
-        ctx.font = `500 ${Math.round(height * 0.36)}px -apple-system, system-ui, sans-serif`;
         ctx.textBaseline = 'middle';
-        ctx.fillText(item.label(), height * 0.36, height / 2);
+        ctx.fillText(label, left, height / 2);
         if (item.checked) {
             // a switch at the end, its track blending to green as the knob slides across
             const k = ease(this.knobs[index]);
-            const w = height * 0.8;
             const h = height * 0.44;
-            const x = width - height * 0.3 - w;
             const y = (height - h) / 2;
             ctx.fillStyle = OFF;
             roundRect(ctx, x, y, w, h, h / 2);
