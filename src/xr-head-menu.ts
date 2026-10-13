@@ -10,6 +10,8 @@ import {
 } from 'playcanvas';
 import type { AppBase, XrInputSource } from 'playcanvas';
 
+import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
+
 // The burger icon, in the camera's space (meters): low and to the left of the view, a metre away,
 // out of the scene's middle but a glance from it. Eye targeting on Apple Vision Pro is good to a
 // degree or two, so its hit area is ICON_HIT times its drawn size, about 4.6 degrees across
@@ -183,6 +185,7 @@ class XrHeadMenu {
         const entity = new Entity('XrHeadMenu', this.app);
         entity.addComponent('render', { type: 'plane', castShadows: false, receiveShadows: false });
         entity.render.material = material;
+        for (const meshInstance of entity.render.meshInstances) meshInstance.drawBucket = XR_OVERLAY_DRAW_BUCKET;
         // the plane lies flat facing up; stood up, it faces the eyes
         entity.setLocalEulerAngles(90, 0, 0);
         entity.setLocalScale(width, 1, height);

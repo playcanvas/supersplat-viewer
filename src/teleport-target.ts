@@ -13,6 +13,7 @@ import {
 import type { AppBase, Color } from 'playcanvas';
 
 import type { VoxelCollision } from './collision';
+import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 
 // The floor around an XR teleport target, drawn as a grid of its voxels' tops: the floor joined to
 // the target's across steps of a voxel at most, within FLOOR_DRIFT of its height and with
@@ -419,7 +420,9 @@ class TeleportTarget {
         mesh.setUvs(0, uvs);
         mesh.setIndices(indices);
         mesh.update(PRIMITIVE_TRIANGLES);
-        this.entity.render.meshInstances = [new MeshInstance(mesh, this.material)];
+        const meshInstance = new MeshInstance(mesh, this.material);
+        meshInstance.drawBucket = XR_OVERLAY_DRAW_BUCKET;
+        this.entity.render.meshInstances = [meshInstance];
     }
 }
 

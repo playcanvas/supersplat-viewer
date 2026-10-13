@@ -1,8 +1,8 @@
 import { Vec3 } from 'playcanvas';
-import type { Entity, XrInputSource } from 'playcanvas';
+import type { Entity, MeshInstance, XrInputSource } from 'playcanvas';
 
 // The members of the engine's XR teleport (playcanvas/scripts/esm/xr/xr-navigation.mjs) its arc
-// reads, and the two the viewer replaces: the script's own typing is Script, and these are its
+// reads, and the three the viewer replaces: the script's own typing is Script, and these are its
 // private methods, so check them when updating the engine
 type TeleportArcNavigation = {
     entity: Entity;
@@ -14,7 +14,14 @@ type TeleportArcNavigation = {
     _arcPoints: Vec3[];
     _getAimRay(inputSource: XrInputSource): void;
     _computeArcHit(origin: Vec3, direction: Vec3, rec: { point: Vec3; valid: boolean }): void;
+    _getArcVisual(inputSource: XrInputSource): { meshInstance: MeshInstance; ringEntity: Entity };
 };
+
+// The draw bucket of what XR draws over the scene (the arc, its ring, the floor grid, the menu).
+// The World layer draws its transparent instances by bucket, then back to front by their centres,
+// and the sorted renderer's splats are one transparent instance, whose centre can lie nearer than
+// the arc: it would then draw over it. A bucket below theirs (127) draws after them
+const XR_OVERLAY_DRAW_BUCKET = 0;
 
 // the engine's gravity for the arc
 const ARC_GRAVITY = 9.81;
@@ -29,7 +36,7 @@ const ARC_LIFT = 0.15;
  * look aim on, a pinch whose ray follows the eyes (a transient pointer: Apple Vision Pro's look
  * and pinch) teleports where that ray first meets the ground, the arc drawn from the hand to it.
  * visionOS reveals the eyes' direction only as the pinch starts; the hand then moves the ray.
- * Controllers keep the ballistic arc.
+ * Controllers keep the ballistic arc. The arc and its ring draw after the splats.
  *
  * @param navigation - The XrNavigation script.
  * @param lookAim - Whether the look aim is on.
@@ -44,6 +51,19 @@ const replaceTeleportArc = (navigation: TeleportArcNavigation, lookAim: () => bo
     navigation._getAimRay = (inputSource: XrInputSource) => {
         source = inputSource;
         getAimRay(inputSource);
+    };
+
+    // the arc and ring the navigation makes for an input source, on its first aim
+    const getArcVisual = navigation._getArcVisual.bind(navigation);
+    navigation._getArcVisual = (inputSource: XrInputSource) => {
+        const visual = getArcVisual(inputSource);
+        if (visual.meshInstance.drawBucket !== XR_OVERLAY_DRAW_BUCKET) {
+            visual.meshInstance.drawBucket = XR_OVERLAY_DRAW_BUCKET;
+            for (const meshInstance of visual.ringEntity.render.meshInstances) {
+                meshInstance.drawBucket = XR_OVERLAY_DRAW_BUCKET;
+            }
+        }
+        return visual;
     };
 
     // the arc's positions at even steps over its first duration seconds
@@ -150,5 +170,5 @@ const replaceTeleportArc = (navigation: TeleportArcNavigation, lookAim: () => bo
     };
 };
 
-export { replaceTeleportArc };
+export { replaceTeleportArc, XR_OVERLAY_DRAW_BUCKET };
 export type { TeleportArcNavigation };
