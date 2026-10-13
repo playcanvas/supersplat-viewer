@@ -75,6 +75,11 @@ type State = {
     /** Mouse-look and joystick movement rather than click-to-navigate. Persisted. */
     gamingControls: boolean;
     /**
+     * In VR on Apple Vision Pro, a pinch teleports where the eyes look as it starts rather than
+     * along the hand's arc. Persisted; off by default. The settings offer it on Apple Vision Pro only.
+     */
+    lookNavigation: boolean;
+    /**
      * Gates the inputs the dom cannot route by hit-testing, because their listeners sit on
      * `window`: the keyboard (both the engine's source and the viewer's own shortcuts) and the
      * gamepad. Pointer input on the canvas is unaffected. Clear it while your own controls have
@@ -92,6 +97,7 @@ type WritableStateKey =
     | 'performanceMode'
     | 'showAnnotations'
     | 'gamingControls'
+    | 'lookNavigation'
     | 'animationPaused'
     | 'collisionOverlayEnabled'
     | 'controlsHidden'

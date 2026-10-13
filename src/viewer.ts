@@ -25,7 +25,7 @@ import {
 } from 'playcanvas';
 import type { CameraComponent, Entity, GraphicsDevice, GSplatComponent, Layer } from 'playcanvas';
 
-import { CameraManager, isWalkAllowed } from './camera-manager';
+import { CameraManager, isWalkableSize, isWalkAllowed } from './camera-manager';
 import type { Camera } from './cameras/camera';
 import { Capture } from './capture';
 import type { CaptureResult } from './capture';
@@ -435,7 +435,8 @@ class Viewer {
 
         // update state on first frame
         events.on('firstFrame', () => {
-            state.animationPaused = !!config.noanim;
+            // the vr flag's prompt waits over a still camera
+            state.animationPaused = config.noanim || config.vr;
             state.loaded = true;
 
             // the window.* hooks below are the standalone document's api for the thumbnail
@@ -578,13 +579,13 @@ class Viewer {
 
             const gsplatComponent = results[0].gsplat as GSplatComponent;
 
-            this.xr.setManipulationTarget(results[0]);
-
             // get scene bounding box
             const gsplatBbox = gsplatComponent.customAabb;
             if (gsplatBbox) {
                 sceneBound.setFromTransformedAabb(gsplatBbox, results[0].getWorldTransform());
             }
+
+            this.xr.setGrabTarget(results[0], isWalkableSize(sceneBound));
 
             // the stochastic renderer leaves its frame's depth behind, so no pick pass is needed
             this.picker = this.splatRenderer
@@ -596,6 +597,20 @@ class Viewer {
 
             this.cameraManager = new CameraManager(global, sceneBound);
             applyCamera(this.cameraManager.camera);
+
+            // the vr flag's prompt (ui/vr-prompt.ts) can start a session from here on, where
+            // startXR waits for the scene to finish loading: the camera is where the session
+            // starts, and the rest of the scene streams in during it
+            if (config.vr) {
+                const promptStart = events.on('vrPrompt:start', () => {
+                    if (this.destroyed || !state.canStartVR) return;
+                    void this.xr.start('vr').catch(() => {
+                        // a declined permission leaves the prompt up for another tap
+                    });
+                });
+                this.onDestroy(() => promptStart.off());
+                events.fire('vrPrompt:ready');
+            }
 
             if (config.ui) {
                 this.navCursor = new NavCursor(app, camera, null, events, state, config.reticle);
@@ -619,7 +634,10 @@ class Viewer {
                 // Create collision debug overlay (voxel uses a compute shader, mesh
                 // uses standard line rendering). The voxel path requires WebGPU.
                 if (collision instanceof VoxelCollision && renderer !== 'webgl') {
-                    const setOverlayEnabled = (value: boolean) => {
+                    // The overlay ray-marches one screen-sized view, which an XR session's eyes
+                    // would share, so it is off while one runs
+                    const setOverlayEnabled = () => {
+                        const value = state.collisionOverlayEnabled && state.xrMode === null;
                         // Upload the voxel data and allocate the screen-sized texture only
                         // when the debug overlay is first used.
                         if (value && !this.voxelOverlay) {
@@ -630,8 +648,9 @@ class Viewer {
                         app.renderNextFrame = true;
                     };
                     events.on('collisionOverlayEnabled:changed', setOverlayEnabled);
+                    events.on('xrMode:changed', setOverlayEnabled);
                     state.hasCollisionOverlay = true;
-                    setOverlayEnabled(state.collisionOverlayEnabled);
+                    setOverlayEnabled();
                 } else if (collision instanceof MeshCollision) {
                     this.meshOverlay = new MeshDebugOverlay(app, collision, camera, !!this.cameraFrame);
                     state.hasCollisionOverlay = true;
@@ -703,6 +722,13 @@ class Viewer {
             const octree = (gsplatComponent.resource as GSplatOctreeResourceLike | null)?.octree ?? null;
             let streamingStarted = !octree;
 
+            // a session that ends during loading leaves rendering every frame, which loading needs
+            let revealed = false;
+            const xrEnded = events.on('xrMode:changed', (mode) => {
+                if (!mode && !revealed) app.autoRender = true;
+            });
+            this.onDestroy(() => xrEnded.off());
+
             const readyHandler = (camera: CameraComponent, layer: Layer, ready: boolean, loading: number) => {
                 // `frame.gsplats` is the rendered splat count, the same stat the ministats panel
                 // above reads. It covers an octree that renders before it reports work in flight.
@@ -717,8 +743,11 @@ class Viewer {
                     stopProgress?.();
                     state.progress = 100;
 
-                    // switch to on-demand rendering (frame:request + camera-change detection)
-                    app.autoRender = false;
+                    // switch to on-demand rendering (frame:request + camera-change detection),
+                    // except in a session started while loading (the vr flag), which renders
+                    // every frame until it ends
+                    revealed = true;
+                    if (!app.xr.active) app.autoRender = false;
 
                     // handle quality mode changes
                     events.on('performanceMode:changed', applyPerfSettings);

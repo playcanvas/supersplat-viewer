@@ -219,6 +219,13 @@
                     <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
                 </div>
             </div>
+            <!-- Apple Vision Pro only: teleport where the eyes look when pinching -->
+            <div class="sse-lookNavigationRow sse-settingsRow sse-hidden">
+                <div class="sse-lookNavigationOption" data-i18n="settings.look-navigation">Look to Teleport</div>
+                <div class="sse-lookNavigationCheck sse-toggleSwitch">
+                    <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
+                </div>
+            </div>
         </div>
         <!-- camera actions -->
         <div class="sse-settingsGroup">
@@ -318,6 +325,17 @@
                 <button class="sse-xrModalCancel" data-i18n="xr-modal.cancel">Cancel</button>
                 <button class="sse-xrModalOk" data-i18n="xr-modal.ok">OK</button>
             </div>
+        </div>
+    </div>
+
+    <!-- The vr flag's prompt: a tap anywhere enters VR, as soon as the scene is placed -->
+    <div class="sse-vrPrompt sse-hidden" onwheel="event.stopPropagation()">
+        <div class="sse-vrPromptPill">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
+                <g class="sse-stroke"><use href="#vrIcon" /></g>
+                <g class="sse-fill"><use href="#vrIcon" /></g>
+            </svg>
+            <span class="sse-vrPromptText" data-i18n="vr-prompt.loading">Loading…</span>
         </div>
     </div>
 </div>

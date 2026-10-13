@@ -901,6 +901,54 @@ class VoxelCollision implements Collision {
     }
 
     /**
+     * Read a whole block of voxels (leafSize on a side) with one descent of the tree, for scanning
+     * a region faster than isVoxelSolid can voxel by voxel.
+     *
+     * @param bx - Block X index (the voxel index over leafSize).
+     * @param by - Block Y index.
+     * @param bz - Block Z index.
+     * @param out - Receives the block's 64-bit solid mask as (lo, hi), bit z * 16 + y * 4 + x.
+     */
+    readBlock(bx: number, by: number, bz: number, out: Uint32Array) {
+        out[0] = 0;
+        out[1] = 0;
+        const { leafSize, treeDepth, nodes, leafData } = this;
+        if (
+            nodes.length === 0 ||
+            bx < 0 ||
+            by < 0 ||
+            bz < 0 ||
+            bx * leafSize >= this.numVoxelsX ||
+            by * leafSize >= this.numVoxelsY ||
+            bz * leafSize >= this.numVoxelsZ
+        ) {
+            return;
+        }
+
+        let nodeIndex = 0;
+        for (let level = treeDepth - 1; level >= -1; level--) {
+            const node = nodes[nodeIndex] >>> 0;
+            if (node === SOLID_LEAF_MARKER) {
+                out[0] = 0xffffffff;
+                out[1] = 0xffffffff;
+                return;
+            }
+            const childMask = (node >>> 24) & 0xff;
+            if (childMask === 0 || level < 0) {
+                const leafDataIndex = node & 0x00ffffff;
+                out[0] = leafData[leafDataIndex * 2];
+                out[1] = leafData[leafDataIndex * 2 + 1];
+                return;
+            }
+            const octant = (((bz >>> level) & 1) << 2) | (((by >>> level) & 1) << 1) | ((bx >>> level) & 1);
+            if ((childMask & (1 << octant)) === 0) {
+                return;
+            }
+            nodeIndex = (node & 0x00ffffff) + popcount(childMask & ((1 << octant) - 1));
+        }
+    }
+
+    /**
      * Check a mixed leaf node using voxel grid indices.
      * The solid leaf sentinel must be checked before calling this method.
      *

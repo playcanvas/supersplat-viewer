@@ -1,5 +1,6 @@
 {
     "settings.performance-mode": "Режим производительности",
+    "settings.look-navigation": "Телепорт взглядом",
     "settings.gaming-controls": "Игровое управление",
     "settings.show-annotations": "Показать аннотации",
     "settings.show-collision": "Показать коллизию",
@@ -67,5 +68,7 @@
     "xr-modal.title": "Требуется WebGL",
     "xr-modal.message": "AR и VR не поддерживаются рендером WebGPU. Нажмите OK, чтобы перезагрузить просмотрщик с WebGL.",
     "xr-modal.cancel": "Отмена",
-    "xr-modal.ok": "OK"
+    "xr-modal.ok": "OK",
+    "vr-prompt.loading": "Загрузка…",
+    "vr-prompt.enter": "Нажмите, чтобы войти в VR"
 }

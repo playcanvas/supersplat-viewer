@@ -60,6 +60,14 @@ type ViewerFlags = {
     colorize?: boolean;
     /** Load all streaming LOD data before the first frame. */
     fullload?: boolean;
+    /**
+     * Offer VR at once: where VR can start, a prompt shows over the viewer while it loads, and a
+     * tap on it starts a VR session as soon as the scene is placed, the rest of the scene streaming
+     * in during the session; a tap elsewhere dismisses it. A session needs a tap: browsers start
+     * none without one. The camera animation starts paused, as with `noanim`. Needs the ui.
+     * Defaults to `false`.
+     */
+    vr?: boolean;
     /** Render with antialiasing. */
     aa?: boolean;
     /**

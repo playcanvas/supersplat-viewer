@@ -198,6 +198,7 @@
                     variant: params.get('variant') ?? undefined,
                     budget: budgetParam !== null ? Number(budgetParam) : undefined,
                     fullload: params.has('fullload'),
+                    vr: params.has('vr'),
                     debug: params.has('debug'),
                     exposeGlobals: true
                 });
@@ -291,6 +292,30 @@
                     xr.on('end', () => log('xr', ['session ended']));
                     xr.on('error', (error) => log('xr', ['error', error]));
                 }
+                // A heartbeat every 5 s, for when Safari's web process is killed (memory, most
+                // likely), which nothing on the page can report: the last ones before an
+                // unexplained reload show what the page held. And the page's lifecycle around it
+                const mb = (bytes) => Math.round(bytes / 1048576);
+                const started = performance.now();
+                setInterval(() => {
+                    const vram = app.graphicsDevice._vram;
+                    const heap = performance.memory ? `${mb(performance.memory.usedJSHeapSize)} MB` : '-';
+                    log('heartbeat', [
+                        `${Math.round((performance.now() - started) / 1000)} s`,
+                        `vram MB tex ${mb(vram.tex)} vb ${mb(vram.vb)} ib ${mb(vram.ib)} ub ${mb(vram.ub)} sb ${mb(vram.sb)}`,
+                        `budget ${app.scene.gsplat?.splatBudget ?? '-'}`,
+                        `drawn ${app.stats.frame.gsplats ?? '-'}`,
+                        `active ${window.splatRenderer?.activeSplats ?? '-'}`,
+                        `xr ${xr?.active ? xr.type : 'off'}`,
+                        `heap ${heap}`
+                    ]);
+                }, 5000);
+                for (const type of ['pagehide', 'pageshow', 'freeze', 'resume']) {
+                    window.addEventListener(type, () => log('page', [type]));
+                }
+                document.addEventListener('visibilitychange', () =>
+                    log('page', [`visibility ${document.visibilityState}`])
+                );
                 log('agent', [`viewer created, renderer ${app.graphicsDevice.isWebGPU ? 'webgpu' : 'webgl'}`]);
             } catch (e) {
                 log('agent', ['createViewer failed', e]);

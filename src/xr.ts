@@ -1,21 +1,26 @@
 import { DEVICETYPE_WEBGL2, math, Quat, Vec3, XrManager } from 'playcanvas';
-import type { Entity } from 'playcanvas';
+import type { Color, Entity, XrInputSource } from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr/xr-controllers.mjs';
 import { XrManipulation } from 'playcanvas/scripts/esm/xr/xr-manipulation.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 
+import { VoxelCollision } from './collision';
 import type { Collision } from './collision';
+import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
+import { XrGrabMove } from './xr-grab-move';
+import { replaceTeleportArc } from './xr-teleport-arc';
+import type { TeleportArcNavigation } from './xr-teleport-arc';
 
 // Teleporting onto the scene's collision, when it has some: the navigation tests its arc against
 // it segment by segment, so walls and furniture stop the arc, and a hit is a target only where
-// someone could stand: a surface within 35 degrees of level, floor at about the same height in a
-// ring around the hit (so a pew's rail or a ledge does not count), and room above it for the walk
-// controller's capsule (cameras/walk-controller.ts: 1.5 m tall, 0.2 m radius, 0.2 m above the
-// floor). Without collision the arc lands on the navigation's plane at the session's floor.
-const STAND_SLOPE = Math.cos(35 * math.DEG_TO_RAD);
-const STAND_RING = 0.25;
-const STAND_RING_SAMPLES = 8;
+// someone could stand: the walk controller's capsule fits there (cameras/walk-controller.ts: 1.5 m
+// tall, 0.2 m radius, 0.2 m above the floor), and most of the ground within STAND_RADIUS is within
+// STAND_STEP of the hit's height (so a pew's rail or a fence top does not count). All of them
+// scale with the user (grabbing a scene scales them, xr-grab-move.ts). Without collision the arc
+// lands on the navigation's plane at the session's floor.
+const STAND_RADIUS = 0.3;
+const STAND_SHARE = 0.8;
 const STAND_STEP = 0.15;
 const CAPSULE_HEIGHT = 1.5;
 const CAPSULE_RADIUS = 0.2;
@@ -25,6 +30,11 @@ const CAPSULE_HOVER = 0.2;
 // browsers report a desktop platform. Their sessions render with fixed foveation and a 72 Hz
 // target, at 0.8x resolution in performance mode, and the viewer lowers the splat budget.
 const standaloneHeadset = /OculusBrowser|PicoBrowser/.test(globalThis.navigator?.userAgent ?? '');
+
+// Apple Vision Pro's Safari reports a Mac, but one with touch points. Its pinches aim by the eyes,
+// which the lookNavigation setting can teleport by (iPad's Safari reports the same, but offers no VR)
+const visionPro =
+    /Macintosh/.test(globalThis.navigator?.userAgent ?? '') && (globalThis.navigator?.maxTouchPoints ?? 0) > 0;
 
 // The viewer reconfigures the camera (clear color, post effects) when state.xrMode changes
 const initXr = (global: Global) => {
@@ -75,12 +85,53 @@ const initXr = (global: Global) => {
     const cameraRotation = new Quat();
 
     parent.addComponent('script');
-    parent.script.create(XrControllers);
-    // the members of the navigation the viewer sets (the script's own typing is Script)
-    const navigation = parent.script.create(XrNavigation) as unknown as {
-        castRay: ((from: Vec3, to: Vec3) => Vec3 | null) | null;
-        groundHeight: number;
-        isValidTeleportDistance(point: Vec3): boolean;
+    // its models by input source (the script's own typing is Script)
+    const controllers = parent.script.create(XrControllers) as unknown as {
+        controllers: Map<XrInputSource, { entity: Entity }>;
+    };
+    // the members of the navigation the viewer uses (the script's own typing is Script)
+    const navigation = parent.script.create(XrNavigation) as unknown as TeleportArcNavigation & {
+        validTeleportColor: Color;
+        movementSpeed: number;
+        arcWidth: number;
+        teleportIndicatorRadius: number;
+        snapVerticalHeight: number;
+        snapVerticalBoostHeight: number;
+        _rotateRigAroundCamera(degrees: number): void;
+    };
+    replaceTeleportArc(navigation, () => state.lookNavigation);
+
+    // The user's scale, which grabbing a scene changes, and the navigation's distances and sizes
+    // with it: its arc's speed by the square root, so the arc's reach and height scale
+    let userScale = 1;
+    const unscaled = {
+        maxTeleportDistance: navigation.maxTeleportDistance,
+        movementSpeed: navigation.movementSpeed,
+        arcWidth: navigation.arcWidth,
+        teleportIndicatorRadius: navigation.teleportIndicatorRadius,
+        snapVerticalHeight: navigation.snapVerticalHeight,
+        snapVerticalBoostHeight: navigation.snapVerticalBoostHeight
+    };
+    const unscaledArcSpeed = navigation.teleportArcSpeed;
+    // The hand and controller models sit in the world, posed joint by joint in it, so they scale
+    // with the user too: otherwise a grown user's fingers spread out at real thickness
+    const scaleModel = (entity: Entity) => entity.setLocalScale(userScale, userScale, userScale);
+    const modelAdded = app.on('xr:controller:add', (_source: XrInputSource, entity: Entity) => scaleModel(entity));
+    const setUserScale = (scale: number) => {
+        userScale = scale;
+        for (const key of Object.keys(unscaled) as (keyof typeof unscaled)[]) {
+            navigation[key] = unscaled[key] * scale;
+        }
+        navigation.teleportArcSpeed = unscaledArcSpeed * Math.sqrt(scale);
+        for (const { entity } of controllers.controllers.values()) scaleModel(entity);
+    };
+    // The navigation turns the rig about the camera's local position, which is not where the
+    // camera is in a scaled rig: turn it about the camera's world position
+    const turnPivot = new Vec3();
+    navigation._rotateRigAroundCamera = (degrees: number) => {
+        turnPivot.copy(camera.getPosition());
+        parent.rotateLocal(0, degrees, 0);
+        parent.translate(turnPivot.sub(camera.getPosition()));
     };
 
     // the scene's collision once it has loaded, for teleporting onto it (see STAND_SLOPE)
@@ -91,15 +142,27 @@ const initXr = (global: Global) => {
     // whether the arc's last hit is somewhere to stand, which the navigation checks right after
     let hitStandable = false;
     const canStand = (c: Collision, x: number, y: number, z: number) => {
-        if (c.querySurfaceNormal(x, y, z, rayDir.x, rayDir.y, rayDir.z).ny < STAND_SLOPE) return false;
-        for (let i = 0; i < STAND_RING_SAMPLES; i++) {
-            const angle = (i / STAND_RING_SAMPLES) * Math.PI * 2;
-            const rx = x + Math.cos(angle) * STAND_RING;
-            const rz = z + Math.sin(angle) * STAND_RING;
-            if (!c.queryRay(rx, y + STAND_STEP, rz, 0, -1, 0, 2 * STAND_STEP)) return false;
+        const s = userScale;
+        const center = y + (CAPSULE_HOVER + CAPSULE_HEIGHT * 0.5) * s;
+        if (c.queryCapsule(x, center, z, (CAPSULE_HEIGHT * 0.5 - CAPSULE_RADIUS) * s, CAPSULE_RADIUS * s, pushOut)) {
+            return false;
         }
-        const center = y + CAPSULE_HOVER + CAPSULE_HEIGHT * 0.5;
-        return !c.queryCapsule(x, center, z, CAPSULE_HEIGHT * 0.5 - CAPSULE_RADIUS, CAPSULE_RADIUS, pushOut);
+        // down-rays a voxel apart across the disc, or further apart for a grown user, so at most
+        // 13 across
+        const radius = STAND_RADIUS * s;
+        const standStep = STAND_STEP * s;
+        const step = Math.max(c.voxelResolution, radius / 6);
+        const cells = Math.floor(radius / step);
+        let rays = 0;
+        let ground = 0;
+        for (let i = -cells; i <= cells; i++) {
+            for (let j = -cells; j <= cells; j++) {
+                if (i * i + j * j > cells * cells) continue;
+                rays++;
+                if (c.queryRay(x + i * step, y + standStep, z + j * step, 0, -1, 0, 2 * standStep)) ground++;
+            }
+        }
+        return ground >= rays * STAND_SHARE;
     };
     const castRay = (from: Vec3, to: Vec3) => {
         if (!collision) return null;
@@ -113,17 +176,69 @@ const initXr = (global: Global) => {
         return rayHit.set(hit.x, hit.y, hit.z);
     };
     const validDistance = navigation.isValidTeleportDistance.bind(navigation);
-    navigation.isValidTeleportDistance = (point: Vec3) => validDistance(point) && (!collision || hitStandable);
+    // The floor around where the arc lands, while it is aimed somewhere to stand (teleport-target.ts;
+    // elsewhere the floor joined to the hit is a fragment, if any). The navigation tests every
+    // landing it draws here, after its update and before the app's
+    const aimPoint = new Vec3();
+    let aimed = false;
+    let aimValid = false;
+    let target: TeleportTarget | null = null;
+    navigation.isValidTeleportDistance = (point: Vec3) => {
+        const valid = validDistance(point) && (!collision || hitStandable);
+        aimPoint.copy(point);
+        aimed = true;
+        aimValid = valid;
+        return valid;
+    };
+    const updating = app.on('update', (dt: number) => {
+        if (target) {
+            if (aimed && aimValid && xr.active) {
+                target.show(aimPoint, navigation.validTeleportColor, dt, userScale);
+            } else {
+                target.hide();
+            }
+        }
+        aimed = false;
+    });
     // the floor under a point, from collision, or null without
     const floorBelow = (point: Vec3) => {
         const hit = collision?.queryRay(point.x, point.y, point.z, 0, -1, 0, 1000);
         return hit ? hit.y : null;
     };
 
-    // Grabbing with both hands drags, turns and scales the scene. Created once the splat entity
-    // it moves has loaded, which is before XR can start, and put back when the session ends, as
-    // the viewer's camera, collision and annotations assume the authored placement.
+    // Grabbing with both hands drags, turns and scales what was loaded, chosen once the splat
+    // entity has loaded, which is before XR can start: an object moves, scaling about the hands
+    // (the engine's XrManipulation, put back when the session ends, as the viewer's camera,
+    // collision and annotations assume the authored placement); in a scene the user moves instead
+    // (XrGrabMove), so the scene stays on its collision, and the user's feet on its floor.
     let manipulation: XrManipulation | null = null;
+    let grabMove: XrGrabMove | null = null;
+
+    // Where the session started, which the headset's recenter (holding the Meta button on Quest,
+    // the Digital Crown on Vision Pro) puts the user back to, at real size and with a grabbed
+    // object back in place: the browser moves the session's origin to where they stand, facing
+    // where they look, and fires reset on its reference space. Trackers that lose and regain the
+    // origin may fire it too.
+    const startPosition = new Vec3();
+    let startYaw = 0;
+    let startFloorY = 0;
+    let referenceSpace: EventTarget | null = null;
+    const placeAtStart = () => {
+        grabMove?.reset();
+        manipulation?.reset();
+        parent.setPosition(startPosition);
+        parent.setEulerAngles(0, startYaw, 0);
+        // the navigation keeps the rig's height above the floor it stands on when it teleports,
+        // and has no setter for that floor
+        (navigation as unknown as { _currentGroundY: number })._currentGroundY = startFloorY;
+    };
+    const recentered = () => {
+        if (!destroyed && xr.active) placeAtStart();
+    };
+    const forgetReferenceSpace = () => {
+        referenceSpace?.removeEventListener('reset', recentered);
+        referenceSpace = null;
+    };
 
     const started = xr.on('start', () => {
         if (destroyed) return;
@@ -149,21 +264,17 @@ const initXr = (global: Global) => {
             z = up.z * sign;
         }
         // standing on the floor under the camera where collision has one, else at the plane
-        const floorY = floorBelow(cameraPosition) ?? navigation.groundHeight;
-        parent.setPosition(cameraPosition.x, floorY, cameraPosition.z);
-        parent.setEulerAngles(0, Math.atan2(-x, -z) * math.RAD_TO_DEG, 0);
-        // the navigation keeps the rig's height above the floor it stands on when it teleports,
-        // and has no setter for that floor
-        (navigation as unknown as { _currentGroundY: number })._currentGroundY = floorY;
+        startFloorY = floorBelow(cameraPosition) ?? navigation.groundHeight;
+        startPosition.set(cameraPosition.x, startFloorY, cameraPosition.z);
+        startYaw = Math.atan2(-x, -z) * math.RAD_TO_DEG;
+        placeAtStart();
+        referenceSpace = (xr as unknown as { _referenceSpace: EventTarget | null })._referenceSpace;
+        referenceSpace?.addEventListener('reset', recentered);
 
         if (standaloneHeadset) {
             xr.fixedFoveation = 1;
             if (xr.supportedFrameRates?.includes(72)) xr.updateTargetFrameRate(72);
         }
-
-        // AR scales about the hands, for content brought to a tabletop; VR about the feet, so
-        // the user stays standing on the scene
-        if (manipulation) manipulation.scalePivot = xr.type === 'immersive-ar' ? 'hands' : 'feet';
 
         state.xrMode = xr.type === 'immersive-ar' ? 'ar' : 'vr';
     });
@@ -171,8 +282,11 @@ const initXr = (global: Global) => {
     const ended = xr.on('end', () => {
         if (destroyed) return;
         app.autoRender = false;
+        forgetReferenceSpace();
 
-        // restore camera to pre-XR state
+        // restore camera to pre-XR state, the rig to real size first, as the camera's position is
+        // set in the world
+        grabMove?.reset();
         parent.setPosition(parentPosition);
         parent.setRotation(parentRotation);
         camera.setPosition(cameraPosition);
@@ -276,11 +390,17 @@ const initXr = (global: Global) => {
         setCollision: (value: Collision) => {
             collision = value;
             navigation.castRay = castRay;
+            target?.destroy();
+            target = value instanceof VoxelCollision ? new TeleportTarget(app, value) : null;
         },
-        setManipulationTarget: (entity: Entity) => {
-            manipulation = parent.script.create(XrManipulation, {
-                properties: { target: entity }
-            }) as unknown as XrManipulation;
+        setGrabTarget: (entity: Entity, scene: boolean) => {
+            if (scene) {
+                grabMove = new XrGrabMove(app, parent, setUserScale);
+            } else {
+                manipulation = parent.script.create(XrManipulation, {
+                    properties: { target: entity, scalePivot: 'hands', minScale: 0.25, maxScale: 4 }
+                }) as unknown as XrManipulation;
+            }
         },
         destroy: () => {
             destroyed = true;
@@ -288,6 +408,13 @@ const initXr = (global: Global) => {
             started.off();
             ended.off();
             cancel.off();
+            updating.off();
+            modelAdded.off();
+            forgetReferenceSpace();
+            grabMove?.destroy();
+            grabMove = null;
+            target?.destroy();
+            target = null;
             if (restoreFrame !== null) cancelAnimationFrame(restoreFrame);
             rejectStart?.(gone());
             rejectEnd?.(gone());
@@ -296,4 +423,4 @@ const initXr = (global: Global) => {
     };
 };
 
-export { initXr, standaloneHeadset };
+export { initXr, standaloneHeadset, visionPro };

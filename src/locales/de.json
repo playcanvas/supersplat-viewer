@@ -1,5 +1,6 @@
 {
     "settings.performance-mode": "Leistungsmodus",
+    "settings.look-navigation": "Teleport per Blick",
     "settings.gaming-controls": "Gaming-Steuerung",
     "settings.show-annotations": "Anmerkungen anzeigen",
     "settings.show-collision": "Kollision anzeigen",
@@ -67,5 +68,7 @@
     "xr-modal.title": "WebGL erforderlich",
     "xr-modal.message": "AR und VR werden vom WebGPU-Renderer nicht unterstützt. Mit OK wird der Viewer mit WebGL neu geladen.",
     "xr-modal.cancel": "Abbrechen",
-    "xr-modal.ok": "OK"
+    "xr-modal.ok": "OK",
+    "vr-prompt.loading": "Wird geladen…",
+    "vr-prompt.enter": "Tippen, um VR zu starten"
 }

@@ -2,10 +2,10 @@ import type { EventHandler } from 'playcanvas';
 
 import type { State } from './types';
 
-type Preferences = Pick<State, 'performanceMode' | 'gamingControls' | 'showAnnotations'>;
+type Preferences = Pick<State, 'performanceMode' | 'gamingControls' | 'showAnnotations' | 'lookNavigation'>;
 
 const readPreferences = (mobile: boolean): Preferences => {
-    const defaults = { performanceMode: mobile, gamingControls: false, showAnnotations: true };
+    const defaults = { performanceMode: mobile, gamingControls: false, showAnnotations: true, lookNavigation: false };
     try {
         // Preserve the legacy preference migration and origin-wide keys.
         const legacyRetina = localStorage.getItem('retinaDisplay');
@@ -22,7 +22,8 @@ const readPreferences = (mobile: boolean): Preferences => {
         return {
             performanceMode: performanceMode === null ? mobile : performanceMode === 'true',
             gamingControls: localStorage.getItem('gamingControls') === 'true',
-            showAnnotations: localStorage.getItem('showAnnotations') !== 'false'
+            showAnnotations: localStorage.getItem('showAnnotations') !== 'false',
+            lookNavigation: localStorage.getItem('lookNavigation') === 'true'
         };
     } catch {
         // Embedded documents can be denied storage. Preferences must not prevent viewing.
@@ -32,14 +33,15 @@ const readPreferences = (mobile: boolean): Preferences => {
 
 const persistPreferences = (events: EventHandler) => {
     // Write changes only, so creating a viewer does not persist platform defaults.
-    const subscriptions = (['performanceMode', 'gamingControls', 'showAnnotations'] as const).map((key) =>
-        events.on(`${key}:changed`, (value: boolean) => {
-            try {
-                localStorage.setItem(key, String(value));
-            } catch {
-                // Storage may be blocked or full; runtime state still takes effect.
-            }
-        })
+    const subscriptions = (['performanceMode', 'gamingControls', 'showAnnotations', 'lookNavigation'] as const).map(
+        (key) =>
+            events.on(`${key}:changed`, (value: boolean) => {
+                try {
+                    localStorage.setItem(key, String(value));
+                } catch {
+                    // Storage may be blocked or full; runtime state still takes effect.
+                }
+            })
     );
     return () => subscriptions.forEach((subscription) => subscription.off());
 };
