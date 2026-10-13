@@ -15,6 +15,7 @@ import { initJoystick } from './ui/joystick';
 import { initPlayback } from './ui/playback';
 import { initVrPrompt } from './ui/vr-prompt';
 import { initXrControls } from './ui/xr-controls';
+import { initXrHint } from './ui/xr-hint';
 import { visionPro } from './xr';
 
 // show the poster image over the hidden canvas, blurry at first and sharpening as loading
@@ -471,6 +472,9 @@ const initUI = (
     disposers.push(initControlsHint(viewer, root, localize));
     disposers.push(initFullscreenControls(viewer, root));
     disposers.push(initXrControls(viewer, root));
+    if (visionPro) {
+        disposers.push(initXrHint(viewer, root));
+    }
     if (global.config.vr) {
         disposers.push(initVrPrompt(viewer, root, localize));
     }

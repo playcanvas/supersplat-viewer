@@ -70,5 +70,8 @@
     "xr-modal.cancel": "Cancelar",
     "xr-modal.ok": "OK",
     "vr-prompt.loading": "Cargando…",
-    "vr-prompt.enter": "Toca para entrar en RV"
+    "vr-prompt.enter": "Toca para entrar en RV",
+    "xr-menu.exit-vr": "Salir de VR",
+    "xr-menu.exit-ar": "Salir de AR",
+    "xr-hint.stalled": "¿No pasa nada? Cambia de pestaña y vuelve."
 }

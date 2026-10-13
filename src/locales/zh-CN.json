@@ -70,5 +70,8 @@
     "xr-modal.cancel": "取消",
     "xr-modal.ok": "确定",
     "vr-prompt.loading": "加载中…",
-    "vr-prompt.enter": "点击进入 VR"
+    "vr-prompt.enter": "点击进入 VR",
+    "xr-menu.exit-vr": "退出 VR",
+    "xr-menu.exit-ar": "退出 AR",
+    "xr-hint.stalled": "没有反应？切换到其他标签页再切回来。"
 }

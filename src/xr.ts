@@ -9,6 +9,7 @@ import type { Collision } from './collision';
 import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
 import { XrGrabMove } from './xr-grab-move';
+import { XrHeadMenu } from './xr-head-menu';
 import { replaceTeleportArc } from './xr-teleport-arc';
 import type { TeleportArcNavigation } from './xr-teleport-arc';
 
@@ -38,7 +39,7 @@ const visionPro =
 
 // The viewer reconfigures the camera (clear color, post effects) when state.xrMode changes
 const initXr = (global: Global) => {
-    const { app, events, state, camera, renderer, root } = global;
+    const { app, events, state, camera, renderer, root, localize } = global;
     const { xr } = app;
     let destroyed = false;
     let restoreFrame: number | null = null;
@@ -98,6 +99,7 @@ const initXr = (global: Global) => {
         snapVerticalHeight: number;
         snapVerticalBoostHeight: number;
         _rotateRigAroundCamera(degrees: number): void;
+        _isSystemSelect(inputSource: XrInputSource): boolean;
     };
     replaceTeleportArc(navigation, () => state.lookNavigation);
 
@@ -321,6 +323,8 @@ const initXr = (global: Global) => {
         const { nearClip, farClip } = camera.camera;
         camera.camera.nearClip = 0.01;
         camera.camera.farClip = 1000;
+        // while the browser's request is pending, for the hint about Safari's stalls (ui/xr-hint.ts)
+        events.fire('xrRequest:pending', true);
         try {
             await new Promise<void>((resolve, reject) => {
                 rejectStart = reject;
@@ -350,6 +354,7 @@ const initXr = (global: Global) => {
             throw error;
         } finally {
             rejectStart = null;
+            if (!destroyed) events.fire('xrRequest:pending', false);
         }
     };
 
@@ -375,6 +380,30 @@ const initXr = (global: Global) => {
             rejectEnd = null;
         }
     };
+
+    // The head-locked menu, which takes the selects that start on it (or anywhere while it is open)
+    // before the navigation aims with them
+    const menu = new XrHeadMenu(app, camera, [
+        { label: () => localize('tooltip.reset-camera'), action: placeAtStart },
+        {
+            label: () => localize('settings.look-navigation'),
+            checked: () => state.lookNavigation,
+            visible: () => visionPro,
+            action: () => {
+                state.lookNavigation = !state.lookNavigation;
+            }
+        },
+        {
+            label: () => localize(xr.type === 'immersive-ar' ? 'xr-menu.exit-ar' : 'xr-menu.exit-vr'),
+            action: () => {
+                void end().catch(() => {
+                    /* the browser may already be ending the session */
+                });
+            }
+        }
+    ]);
+    const isSystemSelect = navigation._isSystemSelect.bind(navigation);
+    navigation._isSystemSelect = (source: XrInputSource) => isSystemSelect(source) || menu.select(source);
 
     const cancel = events.on('inputEvent', (event) => {
         if (event === 'cancel' && xr.active) {
@@ -411,6 +440,7 @@ const initXr = (global: Global) => {
             updating.off();
             modelAdded.off();
             forgetReferenceSpace();
+            menu.destroy();
             grabMove?.destroy();
             grabMove = null;
             target?.destroy();

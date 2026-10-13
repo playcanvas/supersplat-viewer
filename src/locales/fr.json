@@ -70,5 +70,8 @@
     "xr-modal.cancel": "Annuler",
     "xr-modal.ok": "OK",
     "vr-prompt.loading": "Chargement…",
-    "vr-prompt.enter": "Touchez pour entrer en RV"
+    "vr-prompt.enter": "Touchez pour entrer en RV",
+    "xr-menu.exit-vr": "Quitter la VR",
+    "xr-menu.exit-ar": "Quitter l'AR",
+    "xr-hint.stalled": "Rien ne se passe ? Changez d'onglet puis revenez."
 }

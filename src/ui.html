@@ -328,16 +328,20 @@
         </div>
     </div>
 
-    <!-- The vr flag's prompt: a tap anywhere enters VR, as soon as the scene is placed -->
+    <!-- The vr flag's prompt: a tap on its pill enters VR, as soon as the scene is placed, and a tap
+         elsewhere dismisses it -->
     <div class="sse-vrPrompt sse-hidden" onwheel="event.stopPropagation()">
-        <div class="sse-vrPromptPill">
+        <button class="sse-vrPromptPill" type="button">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">
                 <g class="sse-stroke"><use href="#vrIcon" /></g>
                 <g class="sse-fill"><use href="#vrIcon" /></g>
             </svg>
             <span class="sse-vrPromptText" data-i18n="vr-prompt.loading">Loading…</span>
-        </div>
+        </button>
     </div>
+
+    <!-- What to do when Safari on Apple Vision Pro stalls a VR request (ui/xr-hint.ts) -->
+    <div class="sse-xrHint sse-hidden" data-i18n="xr-hint.stalled">Nothing happening? Switch tabs and back.</div>
 </div>
 
 <!-- SVG Icons -->

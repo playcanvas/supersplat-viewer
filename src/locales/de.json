@@ -70,5 +70,8 @@
     "xr-modal.cancel": "Abbrechen",
     "xr-modal.ok": "OK",
     "vr-prompt.loading": "Wird geladen…",
-    "vr-prompt.enter": "Tippen, um VR zu starten"
+    "vr-prompt.enter": "Tippen, um VR zu starten",
+    "xr-menu.exit-vr": "VR beenden",
+    "xr-menu.exit-ar": "AR beenden",
+    "xr-hint.stalled": "Passiert nichts? Wechsle den Tab und wieder zurück."
 }

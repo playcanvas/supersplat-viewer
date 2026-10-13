@@ -70,5 +70,8 @@
     "xr-modal.cancel": "취소",
     "xr-modal.ok": "확인",
     "vr-prompt.loading": "로드 중…",
-    "vr-prompt.enter": "탭하여 VR 시작"
+    "vr-prompt.enter": "탭하여 VR 시작",
+    "xr-menu.exit-vr": "VR 종료",
+    "xr-menu.exit-ar": "AR 종료",
+    "xr-hint.stalled": "반응이 없나요? 다른 탭으로 전환했다가 돌아오세요."
 }
