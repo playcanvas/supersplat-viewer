@@ -30,7 +30,10 @@ const initVrPrompt = (viewer: Pick<ViewerHandle, 'state' | 'events'>, root: HTML
         if (state.canStartVR) {
             events.fire('vrPrompt:start');
         } else {
-            // VR only after reloading into WebGL, which the VR button offers too
+            // VR only after reloading into WebGL, which the VR button offers too. The prompt goes
+            // first: it is above the dialog and would take its buttons' taps
+            done = true;
+            update();
             modal.classList.remove('sse-hidden');
         }
     };
