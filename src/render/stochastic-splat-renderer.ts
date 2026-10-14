@@ -451,6 +451,13 @@ const createViewTexture = (device: GraphicsDevice, name: string, format: number,
         addressV: ADDRESS_CLAMP_TO_EDGE
     });
 
+// whether a projected cache of this size fits one storage binding on the device
+const cacheBytesFit = (device: GraphicsDevice, bytes: number) => {
+    const limit = (device as { wgpu?: { limits?: { maxStorageBufferBindingSize?: number } } }).wgpu?.limits
+        ?.maxStorageBufferBindingSize;
+    return !limit || bytes <= limit;
+};
+
 // Everything one image needs and remembers: the camera's, or one eye's in a stereo session. A
 // compute owns the uniform buffer its dispatch reads, so each view dispatches its own.
 class SplatView {
@@ -870,9 +877,7 @@ class StochasticSplatRenderer {
      * (128 MiB is the WebGPU default), so a viewer checks before opting in.
      */
     static cacheFits(device: GraphicsDevice, splats: number) {
-        const limit = (device as { wgpu?: { limits?: { maxStorageBufferBindingSize?: number } } }).wgpu?.limits
-            ?.maxStorageBufferBindingSize;
-        return !limit || Math.ceil(splats * 1.25) * CACHE_WORDS * 4 <= limit;
+        return cacheBytesFit(device, Math.ceil(splats * 1.25) * CACHE_WORDS * 4);
     }
 
     static CULL_SUSPEND_FRAMES = 60;
@@ -1631,13 +1636,16 @@ class StochasticSplatRenderer {
 
         // every view's target first: a shared projection places the splats in both eyes' at once
         const targets = this.views.map((view, i) => this.prepareTarget(view, i, !!eyes, width, height));
-        // variant stereo:shared, while the two eyes render alike targets
+        // variant stereo:shared, while the two eyes render alike targets and the lead's cache has
+        // room for the second eye's words in one storage binding. Otherwise each eye projects into
+        // its own cache, which the viewer's startup check (cacheFits) sized
         const shared =
             count === 2 &&
             this.variant.stereo === 'shared' &&
             targets[0].width === targets[1].width &&
             targets[0].height === targets[1].height &&
-            targets[0].warped === targets[1].warped;
+            targets[0].warped === targets[1].warped &&
+            cacheBytesFit(device, this.cacheSlotsFor(first, set.activeSplats) * (CACHE_WORDS + 3) * 4);
         if (shared !== this.stereoDefined) {
             this.stereoDefined = shared;
             this.rasterMaterial.setDefine('SSE_STEREO', shared ? '' : undefined);
@@ -2273,17 +2281,23 @@ class StochasticSplatRenderer {
 
     // the cache is dense (indexed by compact slot), so it only needs room for the resident
     // splats, not the allocator's address space; grown geometrically, never shrunk. A shared
-    // stereo projection appends the second eye's three words per slot after the entries
+    // stereo projection appends the second eye's three words per slot after the entries, kept
+    // until the cache next grows without one
     private ensureCache(view: SplatView, splats: number, stereo = false) {
         if (splats <= view.cacheSlots && (view.cacheStereo || !stereo)) return;
         view.cacheBuffer?.destroy();
         view.orderedBuffer?.destroy();
-        if (splats > view.cacheSlots) view.cacheSlots = Math.max(1, Math.ceil(splats * 1.25));
-        view.cacheStereo ||= stereo;
+        view.cacheSlots = this.cacheSlotsFor(view, splats);
+        view.cacheStereo = stereo;
         const words = CACHE_WORDS + (view.cacheStereo ? 3 : 0);
         view.cacheBuffer = new StorageBuffer(this.device, view.cacheSlots * words * 4, BUFFERUSAGE_COPY_SRC);
         view.orderedBuffer = null;
         view.orderedCapacity = 0;
+    }
+
+    // the slots ensureCache gives the view's cache for this many resident splats
+    private cacheSlotsFor(view: SplatView, splats: number) {
+        return splats <= view.cacheSlots ? view.cacheSlots : Math.max(1, Math.ceil(splats * 1.25));
     }
 
     // the ordered list: one entry per survivor, or with interleaved pixel sets one per set it
