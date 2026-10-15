@@ -8,6 +8,7 @@ import { VoxelCollision } from './collision';
 import type { Collision } from './collision';
 import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
+import { initXrDepthClear } from './xr-depth-clear';
 import { XrGrabMove } from './xr-grab-move';
 import { XrHeadMenu } from './xr-head-menu';
 import { XrIceCream } from './xr-ice-cream';
@@ -66,6 +67,9 @@ const initXr = (global: Global) => {
 
     updateAvailable();
     const availability = xr.on('available', updateAvailable);
+
+    // TEMPORARY, until the viewer requires an engine that clears Safari's XR depth (xr-depth-clear.ts)
+    const depthClear = renderer === 'webgpu' ? initXrDepthClear(app) : null;
 
     if (renderer === 'webgpu') {
         Promise.all([
@@ -468,6 +472,7 @@ const initXr = (global: Global) => {
         destroy: () => {
             destroyed = true;
             availability.off();
+            depthClear?.off();
             started.off();
             ended.off();
             cancel.off();
