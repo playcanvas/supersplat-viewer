@@ -422,10 +422,10 @@ fn rotationMatrix(qIn: vec4f) -> mat3x3f {
 struct Projected {
     valid: bool,
     occluded: bool,
-    words: array<u32, ${CACHE_WORDS}>,${stereo ? '\n    eye1: vec3u' : ''}
+    words: array<u32, ${CACHE_WORDS}>
 }
 ${occlusion ? occlusionWGSL('', warp) : ''}${occlusion && stereo ? occlusionWGSL('Eye1', warp) : ''}${stereo ? footprintEye1WGSL(warp) : ''}
-fn project(slot: u32, file: u32) -> Projected {
+fn project(slot: u32, file: u32${stereo ? ', local: u32' : ''}) -> Projected {
     var result: Projected;
     result.valid = false;
     result.occluded = false;
@@ -792,8 +792,11 @@ ${
 }${
     stereo
         ? `
-    // the second eye's centre, in the same range, and its full quad's axes (shaders/raster.ts)
-    result.eye1 = vec3u(
+    // the second eye's centre, in the same range, and its full quad's axes (shaders/raster.ts),
+    // stashed in workgroup memory rather than returned: three more words in the per-thread state
+    // that main() holds across its barriers put the Adreno 740's compiler on a slow path, 6-9x
+    // the mono projector (Quest 3, 2026-10-16, docs/device-benchmarks-2026-10-14.md)
+    wgEye1[local] = vec3u(
         pack2x16snorm(eye1.ndc / ndcRange),
         pack2x16float(eye1.axis1),
         pack2x16float(vec2f(eye1.len2, 0.0))
@@ -806,7 +809,13 @@ ${
 var<workgroup> wgCount: atomic<u32>;
 var<workgroup> wgOccluded: atomic<u32>;
 var<workgroup> wgBase: u32;
-var<workgroup> wgBuckets: array<atomic<u32>, ${ORDER_BUCKETS}>;
+var<workgroup> wgBuckets: array<atomic<u32>, ${ORDER_BUCKETS}>;${
+    stereo
+        ? `
+// stereo: each thread's second-eye words, from project() to the cache write
+var<workgroup> wgEye1: array<vec3u, ${PROJECTOR_WORKGROUP_SIZE}>;`
+        : ''
+}
 
 @compute @workgroup_size(${PROJECTOR_WORKGROUP_SIZE})
 fn main(
@@ -824,7 +833,7 @@ fn main(
         let chunk = chunks[uniforms.chunkBase + chunkIndex];
         let visible = (nodeVisible[chunk.z >> 5u] >> (chunk.z & 31u)) & 1u;
         if (visible != 0u && local < chunk.y) {
-            projected = project(chunk.x + local, chunk.w >> 16u);
+            projected = project(chunk.x + local, chunk.w >> 16u${stereo ? ', local' : ''});
         }
     }
 
@@ -855,9 +864,10 @@ fn main(
                 ? `
         // the second eye's three words, after every entry
         let stereoBase = uniforms.stereoBase + (wgBase + localSlot) * 3u;
-        cache[stereoBase] = projected.eye1.x;
-        cache[stereoBase + 1u] = projected.eye1.y;
-        cache[stereoBase + 2u] = projected.eye1.z;`
+        let eye1Words = wgEye1[local];
+        cache[stereoBase] = eye1Words.x;
+        cache[stereoBase + 1u] = eye1Words.y;
+        cache[stereoBase + 2u] = eye1Words.z;`
                 : ''
         }
 ${
