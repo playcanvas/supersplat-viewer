@@ -46,5 +46,5 @@ Measuring trap: the debug panel's `setCameraState` calls the camera manager's `s
 
 ## If stalls remain
 
-- **The budget**: the Vision Pro's flat window gets the desktop 4M; the adaptive quality plan ([quality-plan.md](quality-plan.md)) treats it as mobile class and lets Auto step the budget down when the gpu falls behind.
+- **The budget**: the Vision Pro's flat window gets the desktop 4M. Treating it as mobile class, or stepping the budget down when the gpu falls behind, would lighten the gpu's load.
 - **LOD image uploads**: `copyExternalImageToTexture` takes about 6 ms on average and up to about 35 ms on the main thread. Options are to decode ahead of time (`createImageBitmap` in a worker) or to spread the uploads across frames.

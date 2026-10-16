@@ -3,8 +3,8 @@
 // streaming and the block allocator (one slot range per node); the stochastic renderer
 // consumes its decisions and owns everything after them.
 //
-// Read through the engine's internal (@ignore) gsplat-unified classes until the public
-// `world:update` api lands (engine change E3 in the plan). Every internal shape used is
+// Read through the engine's internal (@ignore) gsplat-unified classes until the engine has a
+// public api for them (a `world:update` event). Every internal shape used is
 // narrowed here to the members this file reads, so a change in the engine fails in one place.
 //
 // The engine's own splat rendering is switched off after the fact, through the same internals:

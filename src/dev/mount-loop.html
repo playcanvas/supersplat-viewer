@@ -73,10 +73,8 @@
             that all reach a first frame is itself the leak test; each iteration also reports
             whether the previous context was released and whether the subtree was removed.
 
-            TEMPORARY. This page is run by hand before any change to teardown-sensitive code
-            merges (viewer-api-plan.md, phases D and E). It is rewritten as a browser test
-            against createViewer at E4; delete it, and its emit in rollup.config.mjs, when that
-            test lands.
+            This page is run by hand before any change to teardown-sensitive code merges: it is
+            the only teardown check, as there is no automated one.
 
             With ?instances=N it instead mounts N viewers at once into sibling hosts laid out
             side by side, checks they do not share dom, state or window globals, destroys the
