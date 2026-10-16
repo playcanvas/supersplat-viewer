@@ -68,7 +68,8 @@ const initXr = (global: Global) => {
     updateAvailable();
     const availability = xr.on('available', updateAvailable);
 
-    // TEMPORARY, until the viewer requires an engine that clears Safari's XR depth (xr-depth-clear.ts)
+    // TEMPORARY, until the viewer requires an engine that clears Safari's XR depth
+    // (playcanvas/engine#9748): then delete this, its off() in destroy and xr-depth-clear.ts
     const depthClear = renderer === 'webgpu' ? initXrDepthClear(app) : null;
 
     if (renderer === 'webgpu') {
@@ -133,7 +134,9 @@ const initXr = (global: Global) => {
         for (const { entity } of controllers.controllers.values()) scaleModel(entity);
     };
     // The navigation turns the rig about the camera's local position, which is not where the
-    // camera is in a scaled rig: turn it about the camera's world position
+    // camera is in a scaled rig: turn it about the camera's world position. TEMPORARY: the engine
+    // does the same with playcanvas/engine#9750. Once the viewer requires an engine with it, delete
+    // this and _rotateRigAroundCamera from the navigation's type
     const turnPivot = new Vec3();
     navigation._rotateRigAroundCamera = (degrees: number) => {
         turnPivot.copy(camera.getPosition());
@@ -242,7 +245,8 @@ const initXr = (global: Global) => {
         parent.setPosition(startPosition);
         parent.setEulerAngles(0, startYaw, 0);
         // the navigation keeps the rig's height above the floor it stands on when it teleports,
-        // and has no setter for that floor
+        // and has no setter for that floor. TEMPORARY: playcanvas/engine#9750 adds one; once the
+        // viewer requires an engine with it, set navigation.currentGroundHeight instead
         (navigation as unknown as { _currentGroundY: number })._currentGroundY = startFloorY;
     };
     const recentered = () => {

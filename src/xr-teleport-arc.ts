@@ -36,7 +36,8 @@ const ARC_LIFT = 0.15;
  * look aim on, a pinch whose ray follows the eyes (a transient pointer: Apple Vision Pro's look
  * and pinch) teleports where that ray first meets the ground, the arc drawn from the hand to it.
  * visionOS reveals the eyes' direction only as the pinch starts; the hand then moves the ray.
- * Controllers keep the ballistic arc. The arc and its ring draw after the splats.
+ * Controllers keep the ballistic arc. The arc and its ring draw after the splats. The ballistic
+ * arc is TEMPORARY (see `ballistic` below); the look aim and the draw order stay.
  *
  * @param navigation - The XrNavigation script.
  * @param lookAim - Whether the look aim is on.
@@ -75,7 +76,9 @@ const replaceTeleportArc = (navigation: TeleportArcNavigation, lookAim: () => bo
     };
 
     // The engine's ballistic arc, to the navigation's plane or the first segment castRay hits, and
-    // sampled again to end at the hit, so the ribbon keeps all its segments and fades out there
+    // sampled again to end at the hit, so the ribbon keeps all its segments and fades out there.
+    // TEMPORARY: the engine's _computeArcHit does the same with playcanvas/engine#9750. Once the
+    // viewer requires an engine with it, bind that before replacing it and call it in place of this
     const ballistic = (origin: Vec3, direction: Vec3, rec: { point: Vec3; valid: boolean }) => {
         const speed = navigation.teleportArcSpeed;
         const vx = direction.x * speed;

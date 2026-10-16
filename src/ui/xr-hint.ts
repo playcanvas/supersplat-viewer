@@ -1,9 +1,13 @@
 import type { ViewerHandle } from '../types';
 
-// Safari on Apple Vision Pro now and then leaves a session request pending without showing its
-// permission dialogs, until the page is hidden and shown again (2026-10-13: switching tabs and
-// back let a stalled request through, with WebGL and WebGPU alike). A dialog that does show hides
-// the page, so once a request has waited HINT_DELAY with the page showing, a hint says what to do.
+// TEMPORARY workaround for Safari on Apple Vision Pro (https://bugs.webkit.org/show_bug.cgi?id=327687):
+// after a session with hand tracking, it leaves the next session request pending without showing
+// its permission dialogs, until the page is hidden and shown again, which lets the request through
+// without hand tracking (2026-10-13: switching tabs and back let a stalled request through, with
+// WebGL and WebGPU alike). A dialog that does show hides the page, so once a request has waited
+// HINT_DELAY with the page showing, a hint says what to do. Once Safari is fixed, delete this file
+// and its init in ui.ts, the .sse-xrHint element in ui.html and its style in index.scss, the
+// xr-hint.stalled string in every locale, and the xrRequest:pending events xr.ts fires for it.
 const HINT_DELAY = 4000;
 
 const initXrHint = (viewer: Pick<ViewerHandle, 'events'>, root: HTMLElement) => {

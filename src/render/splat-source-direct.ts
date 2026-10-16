@@ -327,6 +327,10 @@ class DirectSplatSource implements SplatSource {
         let requested = workBuffer.textureSize;
         if (requested > 1) {
             resize.call(workBuffer, 1);
+            // TEMPORARY: with playcanvas/engine#9763 the order buffer grows only for a CPU sort, so
+            // it stays at 4 bytes here, where the engine sorts on the GPU. Once the viewer requires
+            // an engine with it, delete these two lines, their imports and "order buffer included"
+            // above
             workBuffer.orderBuffer.destroy();
             workBuffer.orderBuffer = new StorageBuffer(workBuffer.device, 4, BUFFERUSAGE_COPY_DST);
         }
