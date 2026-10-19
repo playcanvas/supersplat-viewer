@@ -181,6 +181,12 @@ type Variant = {
      * of sixteen loads; `auto` gives the XR eyes half floats, since a head never rests.
      */
     taaHistory: 'auto' | 'fixed' | 'half';
+    /**
+     * The strength of an unsharp mask on the history at display (shaders/compose.ts), fading out
+     * as the history converges: 0 off. Takes back some of the blur the moving path's resampling
+     * compounds in a headset; a sharper kernel inside the accumulation would diverge instead.
+     */
+    taaSharpen: number;
     /** 1 shows the accumulation state (count, acceptance, sample) instead of the colour. */
     taaDebug: number;
     /**
@@ -219,6 +225,7 @@ const defaultVariant = (): Variant => ({
     taaParallax: 'on',
     taaSharp: 16,
     taaHistory: 'auto',
+    taaSharpen: 0,
     taaDebug: 0,
     warp: 'auto',
     stereo: 'shared',
@@ -253,6 +260,7 @@ const parseVariant = (text: string | undefined): Variant => {
         if (key === 'taaSharp' && Number.isFinite(Number(value))) variant.taaSharp = Math.max(0, Number(value));
         if (key === 'taaHistory' && (value === 'auto' || value === 'fixed' || value === 'half'))
             variant.taaHistory = value;
+        if (key === 'taaSharpen' && Number(value) >= 0) variant.taaSharpen = Number(value);
         if (key === 'taaDebug' && Number.isFinite(Number(value))) variant.taaDebug = Number(value);
         if (key === 'warp' && (value === 'auto' || value === 'off')) variant.warp = value;
         if (key === 'warp' && Number(value) > 1) variant.warp = Number(value);
@@ -274,8 +282,10 @@ const MODE_VARIANTS = {
 // The switches a stereo session adds over the mode's. A head never rests, so every frame takes the
 // moving history, whose cap of 16 left the coverage noise pulsing in semi-transparent areas; the
 // eyes keep up to 64 samples and shorten them four times as fast with the motion
-// (docs/stochastic-renderer.md, XR stereo)
-const STEREO_VARIANT = 'taaMoveMax:64,taaMotion:1';
+// (docs/stochastic-renderer.md, XR stereo). The moving history's resampling blur is a texel or
+// two, which at a headset's few pixels per degree is well above what the eye resolves, so the
+// eyes also get the display sharpen (judged in the Quest 3, 2026-10-16: 2 helps, 1 hardly shows)
+const STEREO_VARIANT = 'taaMoveMax:64,taaMotion:1,taaSharpen:2';
 
 type StochasticMode = keyof typeof MODE_VARIANTS;
 
@@ -1434,6 +1444,12 @@ class StochasticSplatRenderer {
         this.frameIndex = 0;
     }
 
+    /** Set the display sharpen (variant taaSharpen): a display-only switch, so the history stays. */
+    setSharpen(strength: number) {
+        this.variant.taaSharpen = Math.max(0, strength);
+        this.app.renderNextFrame = true;
+    }
+
     /** Re-read {@link variant} after a field changed. */
     applyVariant() {
         // a switch changes what the frames hold; an old history would leak into the new ones
@@ -2128,6 +2144,7 @@ class StochasticSplatRenderer {
         bind(compose, 'splatColor', view.colorTexture);
         bind(compose, 'splatDepth', view.depthTexture);
         bind(compose, 'composeParams', [view.target.flipY !== targetFlipY ? 1 : 0, isOrtho ? 1 : 0, taaOn ? 1 : 0, 0]);
+        bind(compose, 'sharpenParams', [this.variant.taaSharpen, this.variant.taaMax, 0, 0]);
         bind(compose, 'depthViewParams', [
             clipZ[0],
             clipZ[1],

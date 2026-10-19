@@ -6,6 +6,7 @@ import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 
 import { VoxelCollision } from './collision';
 import type { Collision } from './collision';
+import type { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
 import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
 import { initXrDepthClear } from './xr-depth-clear';
@@ -397,6 +398,12 @@ const initXr = (global: Global) => {
         }
     };
 
+    // the stochastic renderer, once the viewer has made one, for the menu's sharpen switch
+    let splatRenderer: StochasticSplatRenderer | null = null;
+    events.on('splatRenderer:ready', (renderer: StochasticSplatRenderer | null) => {
+        splatRenderer = renderer;
+    });
+
     // The head-locked menu, which takes the selects that start on it (or anywhere while it is open)
     // before the navigation aims with them
     const menu = new XrHeadMenu(
@@ -419,6 +426,21 @@ const initXr = (global: Global) => {
                 visible: () => !!iceCream && xr.input.inputSources.some((source) => !!source.hand),
                 action: () => {
                     state.iceCream = !state.iceCream;
+                }
+            },
+            {
+                // the display sharpen (variant taaSharpen), cycled off, 1, 2; a development switch, so
+                // its label is not localized
+                label: () => {
+                    const k = splatRenderer?.variant.taaSharpen ?? 0;
+                    return `Sharpen: ${k > 0 ? k : 'off'}`;
+                },
+                checked: () => (splatRenderer?.variant.taaSharpen ?? 0) > 0,
+                visible: () => !!splatRenderer,
+                action: () => {
+                    if (!splatRenderer) return;
+                    const k = splatRenderer.variant.taaSharpen;
+                    splatRenderer.setSharpen(k >= 2 ? 0 : k >= 1 ? 2 : 1);
                 }
             },
             {

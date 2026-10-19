@@ -155,6 +155,8 @@ class DebugPanel {
 
     private _coverageButton: HTMLButtonElement | null = null;
 
+    private _sharpenButton: HTMLButtonElement | null = null;
+
     private _culledValue: HTMLSpanElement | null = null;
 
     private _cullStatsFrames = 0;
@@ -311,6 +313,7 @@ class DebugPanel {
                 <button data-id="depth-cull" title="Stochastic renderer: cull splats hidden in the previous frame's depth (auto suspends the test when it removes too little)">Depth cull</button>
                 <button data-id="taa" title="Stochastic renderer: accumulate the samples over frames (reprojected while the camera moves)">TAA</button>
                 <button data-id="coverage" title="Stochastic renderer: pick the coverage threshold per pixel (dither), per splat (a solid ellipse of random size, drawn without discard) or per splat and interleaved pixel set (four sizes per 2x2 pixel quad)">Coverage</button>
+                <button data-id="sharpen" title="Stochastic renderer: an unsharp mask on the accumulated history at display, fading out as it converges (off, 1, 2)">Sharpen</button>
             </div>
             <div class="sse-debug-row"><span class="sse-debug-label">culled</span><span class="sse-debug-value" data-id="culled">—</span></div>`
                     : ''
@@ -354,6 +357,14 @@ class DebugPanel {
                 const next = { pixel: 'splat', splat: 'interleaved', interleaved: 'pixel' } as const;
                 renderer.variant.coverage = next[renderer.variant.coverage];
                 renderer.applyVariant();
+                this._renderCull();
+            });
+            this._sharpenButton = root.querySelector('[data-id="sharpen"]')!;
+            // cycles the display sharpen: off -> 1 -> 2 -> off, without resetting the history
+            this._sharpenButton.addEventListener('click', () => {
+                const renderer = this._splatRenderer!;
+                const k = renderer.variant.taaSharpen;
+                renderer.setSharpen(k >= 2 ? 0 : k >= 1 ? 2 : 1);
                 this._renderCull();
             });
             this._culledValue = root.querySelector('[data-id="culled"]')!;
@@ -485,6 +496,11 @@ class DebugPanel {
         if (this._coverageButton) {
             this._coverageButton.textContent = `Coverage: ${renderer.variant.coverage}`;
             this._coverageButton.classList.toggle('sse-debug-on', renderer.variant.coverage !== 'pixel');
+        }
+        if (this._sharpenButton) {
+            const k = renderer.variant.taaSharpen;
+            this._sharpenButton.textContent = `Sharpen: ${k > 0 ? k : 'off'}`;
+            this._sharpenButton.classList.toggle('sse-debug-on', k > 0);
         }
         if (mode === 'off') {
             this._culledValue.textContent = 'off';

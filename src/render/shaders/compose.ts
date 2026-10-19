@@ -52,6 +52,9 @@ uniform depthViewParams: vec4f;
 // the camera's own depth, the one written for the rest of the scene: clip z = a * viewDepth + b
 // (x, y). The splat target's far plane is at infinity where the camera's is fitted to the scene
 uniform cameraClipZ: vec4f;
+// variant taaSharpen: x the strength of an unsharp mask on the history at display, y the sample
+// count at which it has faded out (a still camera's converged history needs none)
+uniform sharpenParams: vec4f;
 #ifdef SSE_WARP
     // variant warp: the view's table (shaders/warp.ts)
     var<storage, read> warpTable: array<f32>;
@@ -115,6 +118,27 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         // the accumulated history: coverage in alpha, colour premultiplied by it
         color = decodeColor(textureLoad(taaColor, pix, 0));
         if (color.a > 0.001) {
+            let info = decodeInfo(textureLoad(taaInfo, pix, 0).x);
+            // Variant taaSharpen: an unsharp mask applied here at display, where nothing feeds back
+            // (a sharper kernel inside the accumulation diverges), to take back some of the blur
+            // the moving path's resampling compounds. The blur is a few pixels wide, so the mask
+            // takes its mean over a 5x5 tent; it fades out as the history lengthens toward a still
+            // camera's, which is sharp already
+            if (uniform.sharpenParams.x > 0.0 && info.count > 0.5) {
+                var mean = vec4f(0.0);
+                var weight = 0.0;
+                for (var dy = -2; dy <= 2; dy++) {
+                    for (var dx = -2; dx <= 2; dx++) {
+                        let w = f32((3 - abs(dx)) * (3 - abs(dy)));
+                        mean += decodeColor(textureLoad(taaColor, clamp(pix + vec2i(dx, dy), vec2i(0), dims - vec2i(1)), 0)) * w;
+                        weight += w;
+                    }
+                }
+                let k = uniform.sharpenParams.x * clamp(1.0 - info.count / max(uniform.sharpenParams.y, 1.0), 0.0, 1.0);
+                color += (color - mean / weight) * k;
+                let a = clamp(color.a, 0.0, 1.0);
+                color = vec4f(clamp(color.rgb, vec3f(0.0), vec3f(a)), a);
+            }
             // The mean depth of the pixel's own samples wherever it has a history, rather than
             // this frame's nearest sample: a faint splat in front takes a sample on a few frames
             // only, so the depth would flicker between it and what lies behind, which a compositor
@@ -122,7 +146,6 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             // is drawn after the splats on some frames only. For a history this frame started
             // (moving, from the quad's samples), this frame's sample, or where none landed the
             // nearest sampled neighbour's, so the pixel still occludes what is behind the splats
-            let info = decodeInfo(textureLoad(taaInfo, pix, 0).x);
             if (info.count > 0.5) {
                 depth = clipZOf(info.depth);
             } else if (depth >= 1.0) {
