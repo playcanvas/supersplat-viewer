@@ -1,21 +1,49 @@
-// Data path (ii): the projector reads each resident file's own textures (sog, ply or
-// compressed ply) through the engine's format read chunks, so nothing is copied into a work
-// buffer: no decoded 24-byte copy per splat, no re-copy when a node's lod changes, no
-// colour refresh when the camera turns. The price is one dispatch per resident file, the
+// Data path (ii): the projector reads each resident file's own textures, so nothing is copied
+// into a work buffer: no decoded 24-byte copy per splat, no re-copy when a node's lod changes,
+// no colour refresh when the camera turns. The price is one dispatch per resident file, the
 // model transform and the sh evaluation per splat per frame.
 //
-// Interim: the engine still allocates its work buffer and would keep copying into it, so the
-// copy passes are switched off on the work buffer this source sees; the textures themselves
-// stay until engine change E2 (no work buffer in external mode) lands.
+// A sog v2 file is repacked once at load into two textures and its sh palette decoded to
+// 11/11/10 bits (shaders/packed-source.ts), so the projector reads one texel per active splat,
+// a second per survivor and no codebook per coefficient; measured on the Pixel 7 Pro against
+// reading the six textures as they are: house 11.3 to 9.3 ms, large 11.2 to 9.4. Other formats
+// (sog v1, ply, compressed ply) are read through the engine's format read chunks as they are.
+//
+// The engine's work buffer is not read by this path, so its copy passes are switched off on
+// the buffer this source sees and its textures are kept at 1x1 (shrunk if the engine sized them
+// before the patch). Once a file's repack and palette decode have been submitted, the engine's
+// six textures and its palette are destroyed too, leaving the packed copy as the only one on
+// the gpu; the 4 KB codebook stays, the packed read uses it, and the engine's own unload of the
+// file finds the textures destroyed and does nothing more.
 import {
+    ADDRESS_CLAMP_TO_EDGE,
+    BindGroupFormat,
+    BindStorageTextureFormat,
+    BindTextureFormat,
+    BindUniformBufferFormat,
+    BUFFERUSAGE_COPY_DST,
+    Compute,
+    FILTER_NEAREST,
+    PIXELFORMAT_R32U,
     PIXELFORMAT_RGBA32F,
+    PIXELFORMAT_RGBA32U,
     Quat,
+    SAMPLETYPE_FLOAT,
+    SAMPLETYPE_UINT,
     SAMPLETYPE_UNFILTERABLE_FLOAT,
+    Shader,
     ShaderChunks,
     SHADERLANGUAGE_WGSL,
+    SHADERSTAGE_COMPUTE,
+    StorageBuffer,
+    Texture,
+    TEXTUREDIMENSION_2D,
+    UniformBufferFormat,
+    UniformFormat,
+    UNIFORMTYPE_VEC4,
     Vec3
 } from 'playcanvas';
-import type { BindTextureFormat, Compute, GraphicsDevice } from 'playcanvas';
+import type { GraphicsDevice } from 'playcanvas';
 
 import type {
     EngineManager,
@@ -25,6 +53,7 @@ import type {
     ResidentNode,
     ResidentSet
 } from './resident-set';
+import { decodeSHWGSL, packedReadWGSL, repackWGSL } from './shaders/packed-source';
 import type { DispatchGroup, SplatSource } from './splat-source';
 
 const tmpScale = new Vec3();
@@ -44,10 +73,29 @@ class DirectSplatSource implements SplatSource {
 
     private constants = new Map<number, FileConstants>();
 
+    // the repacked textures per resident sog v2 file, and the compute that fills them
+    private packed = new Map<EngineResource, { geom: Texture; color: Texture }>();
+
+    // files repacked (and decoded) this frame: their engine textures go once the frame's
+    // commands are submitted
+    private pendingRelease: EngineResource[] = [];
+
+    private repack: Compute | null = null;
+
+    // the decoded palette per file, with its decode compute: a compute owns the uniform buffer
+    // its dispatch reads, and the codebook range is the file's
+    private decodedSH = new Map<EngineResource, { texture: Texture; compute: Compute }>();
+
+    private decodeSHShader: Shader | null = null;
+
+    // the files' codebook ranges (min, extent), the palette's dequantisation constants
+    private ranges = new Map<EngineResource, number[]>();
+
     private patched: {
         workBuffer: EngineWorkBuffer;
         render: EngineWorkBuffer['render'];
         renderColor: EngineWorkBuffer['renderColor'];
+        resize: EngineWorkBuffer['resize'];
     } | null = null;
 
     constructor(device: GraphicsDevice) {
@@ -71,27 +119,243 @@ class DirectSplatSource implements SplatSource {
             });
         }
         this.patchWorkBuffer(manager.world.workBuffer);
+        this.evict();
+        if (this.packedActive()) {
+            for (const file of set.files) this.prepare(file.resource);
+        }
     }
 
-    // the engine's copy into the work buffer is wasted work for this path
+    // Repack a file (and decode its palette) the first time it is seen, before any node of it
+    // is drawn, and queue the engine's textures of it for release at the frame's end, when
+    // every read of them has been submitted.
+    private prepare(resource: EngineResource) {
+        if (this.packed.has(resource)) return;
+        this.ensurePacked(resource);
+        if (this.decodedActive()) this.ensureDecodedSH(resource);
+        this.pendingRelease.push(resource);
+    }
+
+    // The copies of the files the engine has unloaded: their textures leave the resource and the
+    // codebook, which this source never destroys itself, goes with them. A file merely out of
+    // the resident set keeps its copy, as the engine keeps the file through its cooldown and
+    // brings it back without a reload. The last dispatch reading a copy was a frame ago.
+    private evict() {
+        const alive = (resource: EngineResource) => {
+            const codebook = resource.streams.textures.get('sogCodebook') as { device: unknown } | undefined;
+            return !!codebook?.device;
+        };
+        for (const [resource, { geom, color }] of this.packed) {
+            if (alive(resource)) continue;
+            geom.destroy();
+            color.destroy();
+            this.packed.delete(resource);
+        }
+        for (const [resource, { texture, compute }] of this.decodedSH) {
+            if (alive(resource)) continue;
+            texture.destroy();
+            compute.destroy();
+            this.decodedSH.delete(resource);
+        }
+        for (const resource of this.ranges.keys()) {
+            if (!alive(resource)) this.ranges.delete(resource);
+        }
+    }
+
+    frameEnd() {
+        // the engine applies its file releases inside its update, with or without a new version
+        this.evict();
+        for (const resource of this.pendingRelease) {
+            // the cpu image sources go with the textures: the octree already asked for this, a
+            // single-file scene would keep them for device-loss recovery
+            resource.releaseTextureSources?.();
+            const { textures } = resource.streams;
+            for (const name of ['means_l', 'means_u', 'quats', 'scales', 'sh0', 'sh_labels', 'sh_centroids']) {
+                textures.get(name)?.destroy();
+            }
+        }
+        this.pendingRelease.length = 0;
+    }
+
+    private decodedActive() {
+        return this.packedActive() && this.hasSH();
+    }
+
+    // the file's codebook range
+    private codebookRange(resource: EngineResource) {
+        let range = this.ranges.get(resource);
+        if (!range) {
+            const codebook = resource.gsplatData?.meta?.shN?.codebook ?? [0, 1];
+            let min = Infinity;
+            let max = -Infinity;
+            for (const value of codebook) {
+                min = Math.min(min, value);
+                max = Math.max(max, value);
+            }
+            range = [min, Math.max(max - min, 1e-6), 0, 0];
+            this.ranges.set(resource, range);
+        }
+        return range;
+    }
+
+    // decode a file's sh palette once: codebook indices to 11/11/10-bit coefficients
+    private ensureDecodedSH(resource: EngineResource) {
+        if (this.decodedSH.has(resource)) return;
+        const { device } = this;
+        const centroids = resource.streams.textures.get('sh_centroids')!;
+        const texture = new Texture(device, {
+            name: 'sse-splat-sh-decoded',
+            width: centroids.width,
+            height: centroids.height,
+            format: PIXELFORMAT_R32U,
+            mipmaps: false,
+            storage: true,
+            minFilter: FILTER_NEAREST,
+            magFilter: FILTER_NEAREST,
+            addressU: ADDRESS_CLAMP_TO_EDGE,
+            addressV: ADDRESS_CLAMP_TO_EDGE
+        });
+        if (!this.decodeSHShader) {
+            this.decodeSHShader = new Shader(device, {
+                name: 'sse-splat-decode-sh',
+                shaderLanguage: SHADERLANGUAGE_WGSL,
+                cshader: decodeSHWGSL,
+                computeUniformBufferFormats: {
+                    uniforms: new UniformBufferFormat(device, [new UniformFormat('shRange', UNIFORMTYPE_VEC4)])
+                },
+                computeBindGroupFormat: new BindGroupFormat(device, [
+                    new BindUniformBufferFormat('uniforms', SHADERSTAGE_COMPUTE),
+                    new BindTextureFormat('sh_centroids', SHADERSTAGE_COMPUTE, undefined, SAMPLETYPE_FLOAT, false),
+                    new BindTextureFormat(
+                        'sogCodebook',
+                        SHADERSTAGE_COMPUTE,
+                        undefined,
+                        SAMPLETYPE_UNFILTERABLE_FLOAT,
+                        false
+                    ),
+                    new BindStorageTextureFormat('outSH', PIXELFORMAT_R32U, TEXTUREDIMENSION_2D)
+                ])
+            });
+        }
+        const compute = new Compute(device, this.decodeSHShader, 'sse-splat-decode-sh');
+        compute.setParameter('sh_centroids', centroids);
+        compute.setParameter('sogCodebook', resource.streams.textures.get('sogCodebook')!);
+        compute.setParameter('outSH', texture);
+        compute.setParameter('shRange', this.codebookRange(resource));
+        compute.setupDispatch(Math.ceil(centroids.width / 16), Math.ceil(centroids.height / 16), 1);
+        device.computeDispatch([compute], 'sse-splat-decode-sh');
+        this.decodedSH.set(resource, { texture, compute });
+    }
+
+    // the packed layout applies to sog v2 files, the only ones the repack reads
+    private packedActive() {
+        const textures = this.resource?.streams.textures;
+        return !!textures && textures.has('sogCodebook');
+    }
+
+    private hasSH() {
+        const textures = this.resource?.streams.textures;
+        return !!textures && textures.has('sh_labels') && textures.has('sh_centroids');
+    }
+
+    // repack a file once: its six RGBA8 textures into one geometry texel and one colour texel
+    private ensurePacked(resource: EngineResource) {
+        if (this.packed.has(resource)) return;
+        const { device } = this;
+        const { x: width, y: height } = resource.textureDimensions;
+        const options = {
+            width,
+            height,
+            mipmaps: false,
+            storage: true,
+            minFilter: FILTER_NEAREST,
+            magFilter: FILTER_NEAREST,
+            addressU: ADDRESS_CLAMP_TO_EDGE,
+            addressV: ADDRESS_CLAMP_TO_EDGE
+        };
+        const geom = new Texture(device, { ...options, name: 'sse-splat-packed-geom', format: PIXELFORMAT_RGBA32U });
+        const color = new Texture(device, { ...options, name: 'sse-splat-packed-color', format: PIXELFORMAT_R32U });
+        if (!this.repack) {
+            const inputs = ['means_l', 'means_u', 'quats', 'scales', 'sh0', 'sh_labels'];
+            this.repack = new Compute(
+                device,
+                new Shader(device, {
+                    name: 'sse-splat-repack',
+                    shaderLanguage: SHADERLANGUAGE_WGSL,
+                    cshader: repackWGSL,
+                    computeBindGroupFormat: new BindGroupFormat(device, [
+                        ...inputs.map(
+                            (name) =>
+                                new BindTextureFormat(name, SHADERSTAGE_COMPUTE, undefined, SAMPLETYPE_FLOAT, false)
+                        ),
+                        new BindStorageTextureFormat('outGeom', PIXELFORMAT_RGBA32U, TEXTUREDIMENSION_2D),
+                        new BindStorageTextureFormat('outColor', PIXELFORMAT_R32U, TEXTUREDIMENSION_2D)
+                    ])
+                }),
+                'sse-splat-repack'
+            );
+        }
+        const compute = this.repack;
+        for (const name of ['means_l', 'means_u', 'quats', 'scales', 'sh0']) {
+            compute.setParameter(name, resource.streams.textures.get(name)!);
+        }
+        // a file without sh has no labels: any texture serves, the label bits go unread
+        const textures = resource.streams.textures;
+        compute.setParameter('sh_labels', textures.get('sh_labels') ?? textures.get('sh0')!);
+        compute.setParameter('outGeom', geom);
+        compute.setParameter('outColor', color);
+        compute.setupDispatch(Math.ceil(width / 16), Math.ceil(height / 16), 1);
+        device.computeDispatch([compute], 'sse-splat-repack');
+        this.packed.set(resource, { geom, color });
+    }
+
+    suspend() {
+        this.restoreWorkBuffer();
+    }
+
+    // The engine's copies into the work buffer are wasted work for this path and its textures
+    // wasted memory (28 bytes a slot over the whole budget), so the copies are skipped and the
+    // buffer kept at 1x1. The engine's manager sizes and fills it once before the first
+    // frame:ready, so a buffer already sized is shrunk here, order buffer included (the engine
+    // only ever grows that one). The size the engine asks for is still reported back to it: its
+    // budget enforcement pads its estimate to the buffer's row width, and must see the width its
+    // own renderer would, or the lod it chooses differs from the engine's.
     private patchWorkBuffer(workBuffer: EngineWorkBuffer) {
         if (this.patched?.workBuffer === workBuffer) return;
         this.restoreWorkBuffer();
-        this.patched = { workBuffer, render: workBuffer.render, renderColor: workBuffer.renderColor };
+        const { render, renderColor, resize } = workBuffer;
+        this.patched = { workBuffer, render, renderColor, resize };
+        let requested = workBuffer.textureSize;
+        if (requested > 1) {
+            resize.call(workBuffer, 1);
+            // TEMPORARY: with playcanvas/engine#9763 the order buffer grows only for a CPU sort, so
+            // it stays at 4 bytes here, where the engine sorts on the GPU. Once the viewer requires
+            // an engine with it, delete these two lines, their imports and "order buffer included"
+            // above
+            workBuffer.orderBuffer.destroy();
+            workBuffer.orderBuffer = new StorageBuffer(workBuffer.device, 4, BUFFERUSAGE_COPY_DST);
+        }
         const skip = (): void => undefined;
         workBuffer.render = skip;
         workBuffer.renderColor = skip;
+        workBuffer.resize = (textureSize: number) => {
+            requested = textureSize;
+        };
+        Object.defineProperty(workBuffer, 'textureSize', { configurable: true, get: () => requested });
     }
 
     private restoreWorkBuffer() {
         if (!this.patched) return;
-        const { workBuffer, render, renderColor } = this.patched;
+        const { workBuffer, render, renderColor, resize } = this.patched;
         workBuffer.render = render;
         workBuffer.renderColor = renderColor;
+        workBuffer.resize = resize;
+        // the class getter reports the real (1x1) size again, so the engine's rebuild resizes
+        Reflect.deleteProperty(workBuffer, 'textureSize');
         this.patched = null;
     }
 
     readChunk(bindingBase: number) {
+        if (this.packedActive()) return packedReadWGSL(bindingBase, this.fileBands());
         const format = this.require().format;
         // The format's read chunk reads the file's own space and returns sh0 colour + alpha;
         // the adapter below applies the file's model transform and evaluates its sh for this
@@ -162,6 +426,22 @@ fn srcColor() -> vec3f {
     }
 
     bindFormats() {
+        if (this.packedActive()) {
+            return [
+                new BindTextureFormat('packedGeom', SHADERSTAGE_COMPUTE, undefined, SAMPLETYPE_UINT, false),
+                new BindTextureFormat('packedColor', SHADERSTAGE_COMPUTE, undefined, SAMPLETYPE_UINT, false),
+                ...(this.hasSH()
+                    ? [new BindTextureFormat('sh_centroids', SHADERSTAGE_COMPUTE, undefined, SAMPLETYPE_UINT, false)]
+                    : []),
+                new BindTextureFormat(
+                    'sogCodebook',
+                    SHADERSTAGE_COMPUTE,
+                    undefined,
+                    SAMPLETYPE_UNFILTERABLE_FLOAT,
+                    false
+                )
+            ];
+        }
         const format = this.require().format;
         const entries = format.getComputeBindFormats() as BindTextureFormat[];
         for (const entry of entries) {
@@ -179,7 +459,16 @@ fn srcColor() -> vec3f {
     shaderDefines() {
         const defines = new Map<string, string>();
         this.require().configureMaterialDefines(defines);
+        if (this.packedActive()) defines.set('SSE_PACKED_SOURCE', '1');
+        if (this.decodedActive()) defines.set('SSE_SH_DECODED', '1');
         return defines;
+    }
+
+    // the file's sh bands, from the defines the engine sets for it
+    private fileBands() {
+        const defines = new Map<string, string>();
+        this.require().configureMaterialDefines(defines);
+        return Number(defines.get('SH_BANDS') ?? 0);
     }
 
     chunkBase(node: ResidentNode) {
@@ -205,8 +494,21 @@ fn srcColor() -> vec3f {
     bind(compute: Compute, group: DispatchGroup, set: ResidentSet) {
         const file: ResidentFile = set.files[group.fileIndex];
         const { resource } = file;
-        for (const [name, texture] of resource.streams.textures) {
-            compute.setParameter(name, texture);
+        if (this.packedActive()) {
+            // update() repacks the set's files; this covers one it has not seen
+            this.prepare(resource);
+            const packed = this.packed.get(resource)!;
+            compute.setParameter('packedGeom', packed.geom);
+            compute.setParameter('packedColor', packed.color);
+            if (this.decodedActive()) {
+                compute.setParameter('sh_centroids', this.decodedSH.get(resource)!.texture);
+                compute.setParameter('shRange', this.codebookRange(resource));
+            }
+            compute.setParameter('sogCodebook', resource.streams.textures.get('sogCodebook')!);
+        } else {
+            for (const [name, texture] of resource.streams.textures) {
+                compute.setParameter(name, texture);
+            }
         }
         for (const [name, value] of resource.parameters) {
             compute.setParameter(name, value as number | number[]);
@@ -222,8 +524,12 @@ fn srcColor() -> vec3f {
     }
 
     gpuBytes() {
-        // the file textures belong to the engine and are counted by app.stats.vram
-        return 0;
+        // the engine's file textures are released once repacked (counted by app.stats.vram until
+        // then); the repacked copies are this source's
+        let bytes = 0;
+        for (const { geom, color } of this.packed.values()) bytes += geom.gpuSize + color.gpuSize;
+        for (const { texture } of this.decodedSH.values()) bytes += texture.gpuSize;
+        return bytes;
     }
 
     shaderKey() {
@@ -235,6 +541,23 @@ fn srcColor() -> vec3f {
 
     destroy() {
         this.restoreWorkBuffer();
+        this.pendingRelease.length = 0;
+        for (const { geom, color } of this.packed.values()) {
+            geom.destroy();
+            color.destroy();
+        }
+        this.packed.clear();
+        this.repack?.shader.destroy();
+        this.repack?.destroy();
+        this.repack = null;
+        for (const { texture, compute } of this.decodedSH.values()) {
+            texture.destroy();
+            compute.destroy();
+        }
+        this.decodedSH.clear();
+        this.ranges.clear();
+        this.decodeSHShader?.destroy();
+        this.decodeSHShader = null;
         this.resource = null;
         this.set = null;
         this.constants.clear();

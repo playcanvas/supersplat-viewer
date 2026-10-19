@@ -1,9 +1,9 @@
-// The ordering passes (variant order:bucket): the projector counts its survivors into 256
-// depth buckets, front to back; a one-workgroup scan turns the counts into bucket offsets, and
-// the scatter writes each survivor's cache slot into the ordered list the raster then follows.
-// Splats inside a bucket land in append order, so a bucket keeps its chunks' locality.
+// The ordering passes: the projector counts its survivors into 256 depth buckets, front to
+// back; a one-workgroup scan turns the counts into bucket offsets, and the scatter writes each
+// survivor's cache slot into the ordered list the raster then follows. Splats inside a bucket
+// land in append order, so a bucket keeps its chunks' locality.
 
-import { CACHE_WORDS, ORDER_BUCKETS } from './projector';
+import { CACHE_WORDS, FULL_ENTRY_BIT, ORDER_BUCKETS, SET_BUCKETS, SET_GROUPS } from './projector';
 
 // exclusive prefix sum of the bucket counts into the bucket offsets, in one workgroup
 const orderScanWGSL = /* wgsl */ `
@@ -67,4 +67,65 @@ fn main(
 }
 `;
 
-export { orderScanWGSL, orderScatterWGSL };
+// Variant coverage:interleaved: the same, with an entry for each pixel set a survivor keeps
+// pixels in (the nibbles of its cache word 5), in that set's buckets, or one entry in the full
+// target's group for a splat drawn per splat (bit 15), so each group's entries are one
+// contiguous range of the ordered list, front to back
+const orderScatterSetsWGSL = /* wgsl */ `
+@group(0) @binding(0) var<storage, read> counter: array<u32>;
+@group(0) @binding(1) var<storage, read> cache: array<u32>;
+@group(0) @binding(2) var<storage, read_write> buckets: array<atomic<u32>>;
+@group(0) @binding(3) var<storage, read_write> ordered: array<u32>;
+
+var<workgroup> wgCounts: array<atomic<u32>, ${ORDER_BUCKETS}>;
+var<workgroup> wgBase: array<u32, ${ORDER_BUCKETS}>;
+
+@compute @workgroup_size(${ORDER_BUCKETS})
+fn main(
+    @builtin(workgroup_id) wg: vec3u,
+    @builtin(num_workgroups) numWorkgroups: vec3u,
+    @builtin(local_invocation_index) local: u32
+) {
+    // no early returns: the barriers need every thread
+    atomicStore(&wgCounts[local], 0u);
+    let slot = (wg.x + wg.y * numWorkgroups.x) * ${ORDER_BUCKETS}u + local;
+    let live = slot < counter[0];
+    // bit g: an entry in group g
+    var groups = 0u;
+    var keys = array<u32, ${SET_GROUPS}>();
+    var ranks = array<u32, ${SET_GROUPS}>();
+    workgroupBarrier();
+    if (live) {
+        let depthKey = ((cache[slot * ${CACHE_WORDS}u + 3u] >> 24u) * ${SET_BUCKETS}u) >> 8u;
+        let word5 = cache[slot * ${CACHE_WORDS}u + 5u];
+        if ((word5 & ${FULL_ENTRY_BIT}u) != 0u) {
+            groups = 1u << 4u;
+        } else {
+            for (var s = 0u; s < 4u; s++) {
+                groups |= ((word5 >> (16u + 4u * s)) & 1u) << s;
+            }
+        }
+        for (var g = 0u; g < ${SET_GROUPS}u; g++) {
+            if (((groups >> g) & 1u) != 0u) {
+                keys[g] = g * ${SET_BUCKETS}u + depthKey;
+                ranks[g] = atomicAdd(&wgCounts[keys[g]], 1u);
+            }
+        }
+    }
+    workgroupBarrier();
+    let count = atomicLoad(&wgCounts[local]);
+    if (count > 0u) {
+        wgBase[local] = atomicAdd(&buckets[${ORDER_BUCKETS}u + local], count);
+    }
+    workgroupBarrier();
+    if (live) {
+        for (var g = 0u; g < ${SET_GROUPS}u; g++) {
+            if (((groups >> g) & 1u) != 0u) {
+                ordered[wgBase[keys[g]] + ranks[g]] = slot;
+            }
+        }
+    }
+}
+`;
+
+export { orderScanWGSL, orderScatterSetsWGSL, orderScatterWGSL };

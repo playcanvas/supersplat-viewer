@@ -1,5 +1,6 @@
 {
     "settings.performance-mode": "性能模式",
+    "settings.look-navigation": "注视传送",
     "settings.gaming-controls": "游戏控制",
     "settings.show-annotations": "显示注释",
     "settings.show-collision": "显示碰撞",
@@ -67,5 +68,11 @@
     "xr-modal.title": "需要 WebGL",
     "xr-modal.message": "WebGPU 渲染器不支持 AR 和 VR。按下确定将以 WebGL 重新加载查看器。",
     "xr-modal.cancel": "取消",
-    "xr-modal.ok": "确定"
+    "xr-modal.ok": "确定",
+    "vr-prompt.loading": "加载中…",
+    "vr-prompt.enter": "点击进入 VR",
+    "xr-menu.exit-vr": "退出 VR",
+    "xr-menu.exit-ar": "退出 AR",
+    "xr-menu.ice-cream": "冰淇淋模式",
+    "xr-hint.stalled": "没有反应？切换到其他标签页再切回来。"
 }

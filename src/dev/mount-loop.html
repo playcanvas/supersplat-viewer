@@ -73,10 +73,8 @@
             that all reach a first frame is itself the leak test; each iteration also reports
             whether the previous context was released and whether the subtree was removed.
 
-            TEMPORARY. This page is run by hand before any change to teardown-sensitive code
-            merges (viewer-api-plan.md, phases D and E). It is rewritten as a browser test
-            against createViewer at E4; delete it, and its emit in rollup.config.mjs, when that
-            test lands.
+            This page is run by hand before any change to teardown-sensitive code merges: it is
+            the only teardown check, as there is no automated one.
 
             With ?instances=N it instead mounts N viewers at once into sibling hosts laid out
             side by side, checks they do not share dom, state or window globals, destroys the
@@ -99,7 +97,7 @@
             MiniStats mode toggles the panel through the debug panel, checks the toggles add no
             engine listeners and that destroy removes it, then destroys during a refused copy.
 
-            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser|input|ministats  ?instances=2  ?webgl  ?stochastic  ?pump (frames without the display, for a hidden tab)  ?content=  ?settings=
+            Params: ?iterations=20  ?mode=loaded|immediate|playback|camera|annotations|browser|input|ministats  ?instances=2  ?webgl  ?stochastic[=mobile]  ?pump (frames without the display, for a hidden tab)  ?content=  ?settings=
         -->
         <div id="hosts"></div>
         <pre id="harness"></pre>
@@ -227,8 +225,12 @@
                 contentUrl,
                 renderer,
                 // the opt-in stochastic renderer: its own passes, buffers and textures must go
-                // with the viewer
-                stochastic: url.searchParams.has('stochastic'),
+                // with the viewer, in either mode (?stochastic, ?stochastic=mobile)
+                stochastic: url.searchParams.has('stochastic')
+                    ? url.searchParams.get('stochastic') === 'mobile'
+                        ? 'mobile'
+                        : true
+                    : false,
                 splatSource: url.searchParams.get('splatSource') ?? undefined,
                 exposeGlobals: false,
                 collisionUrl: url.searchParams.get('collision') ?? undefined,

@@ -3,18 +3,276 @@
 // themselves to a dense cache with one global atomic per workgroup. The chunk table and node
 // visibility come from the cpu (resident-set rebuild on version change, frustum cull per frame).
 
-/** Words per cache entry. See the layout in the plan: ndc, depth, axis1, len2|alpha|flags, rgb, popless, id. */
-const CACHE_WORDS = 7;
+import { warpWGSL } from './warp';
+
+/** Words per cache entry: ndc, depth, axis1, len2 | alpha | bucket, rgb, id (or the coverage draw). */
+const CACHE_WORDS = 6;
 
 const PROJECTOR_WORKGROUP_SIZE = 256;
 
-/** Buckets of the counting order (order:bucket); the workgroup size, so each thread owns one. */
+/** Buckets of the counting order (shaders/order.ts); the workgroup size, so each thread owns one. */
 const ORDER_BUCKETS = PROJECTOR_WORKGROUP_SIZE;
 
 /** Splats per chunk-table entry; a chunk is one workgroup. */
 const CHUNK_SIZE = PROJECTOR_WORKGROUP_SIZE;
 
-const projectorWGSL = (readChunk: string, occlusion: boolean, order: boolean) => /* wgsl */ `
+/**
+ * Sides of the polygon a splat's kept region draws as, with coverage other than pixel. The
+ * tiler's cost is per triangle: on the Pixel 7 Pro the interleaved sets' octagons cost 4.1 ms at
+ * the house start view and squares 1.2 ms, the image the same; triangles are cheaper still but
+ * blur the converged image measurably.
+ */
+const POLYGON_SIDES = 4;
+
+// the square's circumradius over the ellipse's: so the two cover the same area, or so the
+// square contains the ellipse (variant jitter, whose fragments discard outside it)
+const polygonScale = (circumscribed = false) =>
+    (circumscribed
+        ? 1 / Math.cos(Math.PI / POLYGON_SIDES)
+        : Math.sqrt((2 * Math.PI) / (POLYGON_SIDES * Math.sin((2 * Math.PI) / POLYGON_SIDES)))
+    ).toFixed(6);
+
+/** Where the coverage threshold varies: per pixel, per splat, or per splat and interleaved pixel set. */
+type CoverageMode = 'pixel' | 'splat' | 'interleaved';
+
+/**
+ * Draw groups with coverage:interleaved: the four pixel sets (0-3) and the full target (4),
+ * which takes the splats below the variant's interleaveArea; each is one contiguous range of the
+ * ordered list. (A third tier, the largest splats into quarter-resolution targets per set, one
+ * fragment per 4x4 block, was tried and lost on the Pixel 7 Pro: drawn in their own passes the
+ * large splats lose the occlusion the sets' nearer splats give them, and the fullscreen draw
+ * that carried them into a set's target with frag_depth disabled early depth rejection for the
+ * polygons drawn after it in that pass, 3-5 ms with nothing in the targets.)
+ */
+const SET_GROUPS = 5;
+
+/** Depth buckets per draw group with coverage:interleaved; the groups share the ORDER_BUCKETS. */
+const SET_BUCKETS = Math.floor(ORDER_BUCKETS / SET_GROUPS);
+
+/** Cache word 5 with coverage other than pixel: bit 15 marks a full-target entry of the interleaved mode. */
+const FULL_ENTRY_BIT = 0x8000;
+/** The bits of word 5 below it: the splat's threshold draw. */
+const DRAW_BITS = 15;
+
+// the 24 orders of the four strata, 2 bits a set, for the jittered pixel sets
+const permutations = (() => {
+    const out: number[] = [];
+    const walk = (rest: number[], packed: number, shift: number) => {
+        if (!rest.length) {
+            out.push(packed);
+            return;
+        }
+        for (let i = 0; i < rest.length; i++) {
+            walk([...rest.slice(0, i), ...rest.slice(i + 1)], packed | (rest[i] << shift), shift + 2);
+        }
+    };
+    walk([0, 1, 2, 3], 0, 0);
+    return out;
+})();
+
+// the warp's lookups again for the second eye (stereo), whose table follows the first eye's in
+// the same buffer
+const warpEye1WGSL = warpWGSL
+    .replace(/warpTable\[/g, 'warpTable[uniforms.warpBaseEye1 + ')
+    .replace(/\b(warpStep|warpAxis|warpNdc|warpSlope|unwarpTexel)\(/g, '$1Eye1(');
+
+// The occlusion test against one eye's previous frame (see the cull in project below): '' for
+// the view's own grid, 'Eye1' for the second eye's in stereo. The previous frame's farthest depth
+// over the (2g+1)^2 blocks around a block, on either grid level, bounds what could still have
+// shown behind a splat there
+const occlusionWGSL = (eye: string, warp: boolean) => /* wgsl */ `
+fn farthestL1${eye}(block: vec2i, gather: i32, blocks: vec2i) -> u32 {
+    var farthest = 0u;
+    for (var dy = -gather; dy <= gather; dy++) {
+        for (var dx = -gather; dx <= gather; dx++) {
+            farthest = max(farthest, occ${eye}[u32((block.y + dy) * blocks.x + block.x + dx)]);
+        }
+    }
+    return farthest;
+}
+
+fn farthestL2${eye}(block: vec2i, gather: i32, blocks: vec2i) -> u32 {
+    var farthest = 0u;
+    for (var dy = -gather; dy <= gather; dy++) {
+        for (var dx = -gather; dx <= gather; dx++) {
+            farthest = max(farthest, occ${eye}[uniforms.occL2Base + u32((block.y + dy) * blocks.x + block.x + dx)]);
+        }
+    }
+    return farthest;
+}
+
+// whether a splat at a centre and view depth, whose largest polygon reaches halfExtent pixels at
+// a focal length, lay wholly behind the eye's previous frame
+fn occludedIn${eye}(center: vec3f, depth: f32, focalX: f32, halfExtent: f32, c22: f32) -> bool {
+    let prevClip = uniforms.prevViewProj${eye} * vec4f(center, 1.0);
+    let prevDepth = -(uniforms.prevView${eye} * vec4f(center, 1.0)).z;
+    let prevOrtho = uniforms.prevClipZ.z != 0.0;
+    if (prevClip.w <= 0.0 || (!prevOrtho && prevDepth <= 0.0)) {
+        return false;
+    }
+    let prevNdc = ${warp ? `warpNdc${eye}(prevClip.xy / prevClip.w)` : 'prevClip.xy / prevClip.w'};
+    let prevHalfExtent = halfExtent * (uniforms.prevFocal${eye}.x / focalX)
+        * select(depth / max(prevDepth, 0.001), 1.0, prevOrtho);
+    let footprint = max(halfExtent, prevHalfExtent);
+    var level = 1u;
+    var blockSize = 8.0;
+    var blocks = vec2i(i32(uniforms.occBlocksX1), i32(uniforms.occBlocksY1));
+    if (footprint > 16.0) {
+        level = 2u;
+        blockSize = 32.0;
+        blocks = vec2i(i32(uniforms.occBlocksX2), i32(uniforms.occBlocksY2));
+    }
+    if (footprint > 64.0 || level > uniforms.occlusionMode) {
+        return false;
+    }
+    let gather = max(i32(ceil(footprint / blockSize)), 1);
+    let prevPixel = vec2f(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * uniforms.prevFlip * 0.5) * uniforms.prevViewport;
+    let block = vec2i(floor(prevPixel / blockSize));
+    if (block.x < gather || block.y < gather || block.x >= blocks.x - gather || block.y >= blocks.y - gather) {
+        return false;
+    }
+    let front = prevDepth - 2.8284 * sqrt(c22);
+    let w = select(front, 1.0, prevOrtho);
+    if (w <= 0.0) {
+        return false;
+    }
+    let frontZ = clamp(uniforms.prevClipZ.x * front + uniforms.prevClipZ.y, 0.0, w) / w;
+    // the block under the centre first: the neighbourhood's maximum is at least its maximum, so
+    // a splat that block alone cannot cull is visible, and most splats leave here after one load
+    let centreIndex = u32(block.y * blocks.x + block.x);
+    var farthest = select(occ${eye}[centreIndex], occ${eye}[uniforms.occL2Base + centreIndex], level == 2u);
+    if (frontZ <= bitcast<f32>(farthest)) {
+        return false;
+    }
+    if (level == 1u) {
+        farthest = farthestL1${eye}(block, gather, blocks);
+    } else {
+        farthest = farthestL2${eye}(block, gather, blocks);
+    }
+    return frontZ > bitcast<f32>(farthest);
+}
+`;
+
+// Stereo: the second eye's own footprint of a splat, the same 3D Gaussian through that eye's view,
+// focal length and warp, as project() below does for the view (only the shape: the depth, colour
+// and order stay the view's). The quad's axes are the full quad's, clamped, as cache words 2 and
+// 3 hold them
+const footprintEye1WGSL = (warp: boolean) => /* wgsl */ `
+struct FootprintEye1 {
+    visible: bool,
+    depth: f32,
+    ndc: vec2f,
+    axis1: vec2f,
+    len2: f32,
+    lambda1: f32,
+    determinant: f32
+}
+
+fn footprintEye1(center: vec3f, rot: vec4f, scale: vec3f, viewport: vec2f) -> FootprintEye1 {
+    var f: FootprintEye1;
+    f.visible = false;
+    f.ndc = vec2f(1e4);
+    f.axis1 = vec2f(1.0, 0.0);
+    f.len2 = 1.0;
+    let viewCenter = uniforms.viewEye1 * vec4f(center, 1.0);
+    let ortho = uniforms.isOrtho != 0u;
+    f.depth = -viewCenter.z;
+    let clip = uniforms.viewProjEye1 * vec4f(center, 1.0);
+    if ((!ortho && f.depth <= 0.0) || clip.w <= 0.0) {
+        return f;
+    }
+    let focal = uniforms.focalEye1;
+    let linear = mat3x3f(uniforms.viewEye1[0].xyz, uniforms.viewEye1[1].xyz, uniforms.viewEye1[2].xyz);
+    let gaussian = linear * rotationMatrix(vec4f(rot.yzw, rot.x)) * mat3x3f(
+        vec3f(scale.x, 0.0, 0.0),
+        vec3f(0.0, scale.y, 0.0),
+        vec3f(0.0, 0.0, scale.z)
+    );
+    let row0 = vec3f(gaussian[0].x, gaussian[1].x, gaussian[2].x);
+    let row1 = vec3f(gaussian[0].y, gaussian[1].y, gaussian[2].y);
+    let row2 = vec3f(gaussian[0].z, gaussian[1].z, gaussian[2].z);
+    let c00 = dot(row0, row0);
+    let c01 = dot(row0, row1);
+    let c02 = dot(row0, row2);
+    let c11 = dot(row1, row1);
+    let c12 = dot(row1, row2);
+    let c22 = dot(row2, row2);
+    var cov00: f32;
+    var cov01: f32;
+    var cov11: f32;
+    if (ortho) {
+        cov00 = focal.x * focal.x * c00;
+        cov01 = focal.x * focal.y * c01;
+        cov11 = focal.y * focal.y * c11;
+    } else {
+        let invDepth = 1.0 / max(f.depth, 0.001);
+        let jx0 = focal.x * invDepth;
+        let jx2 = focal.x * viewCenter.x * invDepth * invDepth;
+        let jy1 = focal.y * invDepth;
+        let jy2 = focal.y * viewCenter.y * invDepth * invDepth;
+        let u00 = jx0 * c00 + jx2 * c02;
+        let u01 = jx0 * c01 + jx2 * c12;
+        let u02 = jx0 * c02 + jx2 * c22;
+        let u11 = jy1 * c11 + jy2 * c12;
+        let u12 = jy1 * c12 + jy2 * c22;
+        cov00 = u00 * jx0 + u02 * jx2;
+        cov01 = u01 * jy1 + u02 * jy2;
+        cov11 = u11 * jy1 + u12 * jy2;
+    }
+${
+    warp
+        ? `
+    let linearNdc = clip.xy / clip.w;
+    let reach = 2.8284 * sqrt(vec2f(cov00, cov11)) * 2.0 / viewport;
+    let lo = clamp(linearNdc - reach, vec2f(-1.0), vec2f(1.0));
+    let hi = clamp(linearNdc + reach, vec2f(-1.0), vec2f(1.0));
+    let span = hi - lo;
+    let warpedLo = warpNdcEye1(lo);
+    let pixelScale = select(
+        warpSlopeEye1(lo),
+        (warpNdcEye1(hi) - warpedLo) / max(span, vec2f(1e-9)),
+        span > vec2f(1e-6)
+    );
+    f.ndc = warpedLo + pixelScale * (linearNdc - lo);
+    cov00 *= pixelScale.x * pixelScale.x;
+    cov01 *= pixelScale.x * pixelScale.y;
+    cov11 *= pixelScale.y * pixelScale.y;
+`
+        : `
+    f.ndc = clip.xy / clip.w;
+`
+}
+    let us2 = uniforms.unitScale * uniforms.unitScale;
+    cov00 += 0.3 / us2;
+    cov11 += 0.3 / us2;
+    f.determinant = cov00 * cov11 - cov01 * cov01;
+    if (f.determinant <= 0.0) {
+        f.ndc = vec2f(1e4);
+        return f;
+    }
+    let mid = 0.5 * (cov00 + cov11);
+    let radius = length(vec2f(0.5 * (cov00 - cov11), cov01));
+    f.lambda1 = mid + radius;
+    let lambda2 = max(mid - radius, 0.1 / us2);
+    let eigenVec = vec2f(cov01, f.lambda1 - cov00);
+    let eigenLen = length(eigenVec);
+    let direction = select(vec2f(1.0, 0.0), eigenVec / eigenLen, eigenLen > 1e-9);
+    let len1 = 2.0 * sqrt(2.0 * f.lambda1);
+    let clampScale = min(1.0, min(1024.0, min(viewport.x, viewport.y)) / len1);
+    f.axis1 = len1 * clampScale * direction;
+    f.len2 = 2.0 * sqrt(2.0 * lambda2) * clampScale;
+    f.visible = true;
+    return f;
+}
+`;
+
+const projectorWGSL = (
+    readChunk: string,
+    occlusion: boolean,
+    coverage: CoverageMode,
+    warp: boolean,
+    stereo: boolean
+) => /* wgsl */ `
 struct ProjectorUniforms {
     view: mat4x4f,
     viewProj: mat4x4f,
@@ -52,14 +310,31 @@ struct ProjectorUniforms {
     modelRotation: vec4f,
     modelScale: vec4f,
     cameraPosition: vec4f,
-    // colour ceiling per channel: 8 keeps the cache's range, 1 clamps like the engine's 8-bit cache
-    colorMax: f32,
     // 1: covariance in true pixels. 2: the engine's convention (its focal is viewport * proj[0][0],
     // twice the pixel focal), which makes its 0.3 dilation 0.075 px^2 and scales its culls
     unitScale: f32,
-    // the view depths of the near plane and of the raster's far clamp
-    depthNear: f32,
-    depthFar: f32
+    // the coverage seed (variant coverage:splat; see the raster's frameSeed)
+    frameSeed: u32,
+    // variant jitter: sub-strata a stratum splits into (0: no jitter), and the strata a per-splat
+    // threshold draws from (coverage:splat, and the full target's splats of the interleaved mode)
+    jitterSubs: u32,
+    strata: u32,
+    // coverage:interleaved: splats whose footprint at the alpha clip is below this many pixels
+    // draw per splat into the full target instead of into the pixel sets (0: none)
+    interleaveArea: f32,
+    // stereo: the second eye this projection also serves, which shapes and places the splats by
+    // its own view, focal length and warp and culls against its own previous frame
+    viewEye1: mat4x4f,
+    viewProjEye1: mat4x4f,
+    prevViewProjEye1: mat4x4f,
+    prevViewEye1: mat4x4f,
+    focalEye1: vec2f,
+    prevFocalEye1: vec2f,
+    // where level 2 starts in a view's grid; where the second eye's words start in the cache
+    // and its warp table in warpTable
+    occL2Base: u32,
+    stereoBase: u32,
+    warpBaseEye1: u32
 }
 
 // chunk table entry: slotBase, count, node, lod | file << 16
@@ -70,11 +345,11 @@ struct ProjectorUniforms {
 // [0] survivors this frame, [1] splats the occlusion cull removed
 @group(0) @binding(3) var<storage, read_write> counter: array<atomic<u32>>;
 @group(0) @binding(4) var<uniform> uniforms: ProjectorUniforms;
-// the previous frame's farthest depth per block, as f32 bits (see shaders/reduce.ts)
-@group(0) @binding(5) var<storage, read> occL1: array<u32>;
-@group(0) @binding(6) var<storage, read> occL2: array<u32>;
-// order:bucket: survivors per depth bucket (see shaders/order.ts)
-@group(0) @binding(7) var<storage, read_write> buckets: array<atomic<u32>>;
+// the previous frame's farthest depth per block, as f32 bits, level 1 then level 2 (see
+// shaders/reduce.ts)
+@group(0) @binding(5) var<storage, read> occ: array<u32>;
+// survivors per depth bucket (see shaders/order.ts)
+@group(0) @binding(6) var<storage, read_write> buckets: array<atomic<u32>>;
 
 struct Splat {
     index: u32,
@@ -86,8 +361,50 @@ fn setSplat(idx: u32) {
     splat.uv = vec2i(i32(idx % uniforms.splatTextureSize), i32(idx / uniforms.splatTextureSize));
 }
 
+${
+    warp
+        ? `
+// variant warp: the view's table (shaders/warp.ts), and in stereo the second eye's after it
+@group(0) @binding(7) var<storage, read> warpTable: array<f32>;
+${warpWGSL}`
+        : ''
+}
+${
+    stereo
+        ? `
+// stereo: the second eye's occlusion grid, and its warp's lookups
+@group(0) @binding(8) var<storage, read> occEye1: array<u32>;
+${warp ? warpEye1WGSL : ''}
+`
+        : ''
+}
 ${readChunk}
+${
+    coverage !== 'pixel'
+        ? `
+// integer hash (Wellons' prospector mix), as the raster's
+fn hashU32(x: u32) -> u32 {
+    var v = x;
+    v ^= v >> 16u;
+    v *= 0x7feb352du;
+    v ^= v >> 15u;
+    v *= 0x846ca68bu;
+    v ^= v >> 16u;
+    return v;
+}
 
+// the radius, in units of the quad's half extent, where alpha = opacity * falloff(r^2) falls to
+// a threshold, with falloff(x) = (exp(-4 x) - exp(-4)) / (1 - exp(-4))
+fn radiusAt(threshold: f32, opacity: f32) -> f32 {
+    let e4 = exp(-4.0);
+    return sqrt(max(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25, 0.0));
+}
+
+// the 24 orders of four strata, 2 bits a set
+const PERMUTATIONS = array<u32, 24>(${permutations.map((p) => `${p}u`).join(', ')});
+`
+        : ''
+}
 // quaternion (x, y, z, w) to a rotation matrix (columns)
 fn rotationMatrix(qIn: vec4f) -> mat3x3f {
     let q = normalize(qIn);
@@ -107,29 +424,8 @@ struct Projected {
     occluded: bool,
     words: array<u32, ${CACHE_WORDS}>
 }
-
-// The farthest depth over the (2g+1)^2 blocks around a block, on one grid level.
-fn farthestL1(block: vec2i, gather: i32, blocks: vec2i) -> u32 {
-    var farthest = 0u;
-    for (var dy = -gather; dy <= gather; dy++) {
-        for (var dx = -gather; dx <= gather; dx++) {
-            farthest = max(farthest, occL1[u32((block.y + dy) * blocks.x + block.x + dx)]);
-        }
-    }
-    return farthest;
-}
-
-fn farthestL2(block: vec2i, gather: i32, blocks: vec2i) -> u32 {
-    var farthest = 0u;
-    for (var dy = -gather; dy <= gather; dy++) {
-        for (var dx = -gather; dx <= gather; dx++) {
-            farthest = max(farthest, occL2[u32((block.y + dy) * blocks.x + block.x + dx)]);
-        }
-    }
-    return farthest;
-}
-
-fn project(slot: u32, file: u32) -> Projected {
+${occlusion ? occlusionWGSL('', warp) : ''}${occlusion && stereo ? occlusionWGSL('Eye1', warp) : ''}${stereo ? footprintEye1WGSL(warp) : ''}
+fn project(slot: u32, file: u32${stereo ? ', local: u32' : ''}) -> Projected {
     var result: Projected;
     result.valid = false;
     result.occluded = false;
@@ -140,7 +436,82 @@ fn project(slot: u32, file: u32) -> Projected {
     if (opacity < uniforms.alphaClip) {
         return result;
     }
-
+${
+    coverage !== 'pixel'
+        ? `
+    // Variant coverage:splat: one coverage threshold per splat and frame instead of one per
+    // pixel. The pixels where alpha exceeds it form a solid ellipse, which the raster draws as a
+    // polygon of the same area with no discard, so a gpu updates depth early and rejects what
+    // lies behind it before rasterising it. Each pixel is still kept with probability alpha,
+    // independently per splat; the noise is a splat at a random size rather than a dither. The
+    // threshold is hashed afresh every frame: one sequence shared by every splat, rotated per
+    // splat, would keep two splats' thresholds a fixed distance apart, so their coverage would
+    // stay correlated over frames and the accumulation would converge to the wrong image. A
+    // splat whose opacity does not exceed its threshold keeps nothing this frame and stops here.
+    // The draw goes into cache word 5 as ${DRAW_BITS} bits, and the raster rebuilds the same
+    // thresholds from them (shaders/raster.ts).
+    let id = slot ^ (file * 2654435761u);
+    let hashed = hashU32(((id + 1u) * 26699u) ^ uniforms.frameSeed);
+    let drawnBits = hashed >> ${32 - DRAW_BITS}u;
+    let drawn = f32(drawnBits) * (1.0 / ${(1 << DRAW_BITS) - 1}.0);
+    // Variant jitter: the threshold is the base of a random stratum instead of the draw itself,
+    // and every pixel adds its own jitter within the stratum in the raster, so the kept region
+    // is the stratum's ellipse with a dithered rim rather than a solid one. Each pixel's
+    // threshold is still uniform over [0, 1) and independent per splat, so the expectation is
+    // unchanged, but neighbouring pixels no longer all agree. Sub-strata (jitterSubs above 1)
+    // narrow the jitter: smaller polygons, more agreement.
+    let subs = uniforms.jitterSubs;
+    let jittered = subs > 0u;
+    let subMask = max(subs, 1u) - 1u;
+    // the per-splat threshold (coverage:splat, and the small splats of the interleaved mode): a
+    // stratum of \`strata\`, its sub-stratum, and the nibble the raster reads them back from
+    // (kept | stratum << 1 | sub << 3)
+    let strata = max(uniforms.strata, 1u);
+    let splatStratum = min(u32(drawn * f32(strata)), strata - 1u);
+    let splatSub = (hashed >> 15u) & subMask;
+    let splatBase = select(drawn, f32(splatStratum * max(subs, 1u) + splatSub) / f32(strata * max(subs, 1u)), jittered);
+    let splatNibble = 1u | (splatStratum << 1u) | (splatSub << 3u);
+    let splatThreshold = max(splatBase, uniforms.alphaClip);
+    let splatKept = splatThreshold < opacity;
+${
+    coverage === 'interleaved'
+        ? `
+    // Variant coverage:interleaved: the pixels split into four interleaved sets, the four of a
+    // 2x2 quad, and each set takes its own threshold, the four quarters of [0, 1) from the one
+    // draw: a quad holds the splat at four stratified sizes, so its mean is nearly the splat's
+    // alpha, as the per-pixel thresholds' is, and neighbouring pixels are no longer all one
+    // splat. Jittered, the sets take the four strata in a random order, each within a random
+    // sub-stratum, and their pixels jitter inside it
+    var setBases = fract(vec4f(drawn) + vec4f(0.0, 0.25, 0.5, 0.75));
+    var setNibbles = vec4u(0u);
+    if (jittered) {
+        let bits = hashU32(hashed ^ 0x9e3779b9u);
+        let packed = PERMUTATIONS[bits % 24u];
+        let perm = (vec4u(packed) >> vec4u(0u, 2u, 4u, 6u)) & vec4u(3u);
+        let subsOf = (vec4u(bits) >> vec4u(8u, 10u, 12u, 14u)) & vec4u(subMask);
+        setBases = vec4f(perm * subs + subsOf) / f32(4u * subs);
+        setNibbles = (perm << vec4u(1u)) | (subsOf << vec4u(3u));
+    }
+    let setThresholds = max(setBases, vec4f(uniforms.alphaClip));
+    let keptSets = setThresholds < vec4f(opacity);
+    setNibbles = select(vec4u(0u), setNibbles | vec4u(1u), keptSets);
+    // whether the splat draws into the sets or the full target waits for its footprint; a splat
+    // keeping nothing either way stops here
+    if (!any(keptSets) && !splatKept) {
+        return result;
+    }
+    let lowest = select(vec4f(2.0), setThresholds, keptSets);
+    let setThreshold = min(min(lowest.x, lowest.y), min(lowest.z, lowest.w));
+`
+        : `
+    if (!splatKept) {
+        return result;
+    }
+`
+}
+`
+        : ''
+}
     let viewCenter = uniforms.view * vec4f(center, 1.0);
     let depth = -viewCenter.z;
     if (uniforms.isOrtho == 0u && depth <= 0.0) {
@@ -197,6 +568,36 @@ fn project(slot: u32, file: u32) -> Projected {
         cov11 = u11 * jy1 + u12 * jy2;
     }
 
+${
+    warp
+        ? `
+    // Variant warp: the splat in the foveated target, through the affine map per axis that is
+    // exact at the two ends of its quad's extent on screen. For a small splat that is the warp's
+    // slope at its centre; for a large one the secant over what is visible, since a near splat
+    // centred off screen, where the slope is all but zero, would shrink to nothing at the edge.
+    // Everything after, the dilation and the culls included, works in the target's pixels
+    let linearNdc = clip.xy / clip.w;
+    let reach = 2.8284 * sqrt(vec2f(cov00, cov11)) * 2.0 / viewport;
+    let lo = clamp(linearNdc - reach, vec2f(-1.0), vec2f(1.0));
+    let hi = clamp(linearNdc + reach, vec2f(-1.0), vec2f(1.0));
+    let span = hi - lo;
+    let warpedLo = warpNdc(lo);
+    let pixelScale = select(
+        warpSlope(lo),
+        (warpNdc(hi) - warpedLo) / max(span, vec2f(1e-9)),
+        span > vec2f(1e-6)
+    );
+    let ndc = warpedLo + pixelScale * (linearNdc - lo);
+    cov00 *= pixelScale.x * pixelScale.x;
+    cov01 *= pixelScale.x * pixelScale.y;
+    cov11 *= pixelScale.y * pixelScale.y;
+`
+        : `
+    let ndc = clip.xy / clip.w;
+    // the target's pixels per screen pixel (variant warp)
+    let pixelScale = vec2f(1.0);
+`
+}
     // the low-pass dilation every splat renderer applies, 0.3 in the chosen units
     let us2 = uniforms.unitScale * uniforms.unitScale;
     cov00 += 0.3 / us2;
@@ -210,16 +611,33 @@ fn project(slot: u32, file: u32) -> Projected {
     let radius = length(vec2f(0.5 * (cov00 - cov11), cov01));
     let lambda1 = mid + radius;
     let lambda2 = max(mid - radius, 0.1 / us2);
-
+${
+    stereo
+        ? `
+    // Stereo: one projection serves both eyes, as the engine's own stereo projector does: the
+    // second eye takes this view's depth, colour, coverage and order and its own footprint, and
+    // every cull keeps what either eye would
+    let eye1 = footprintEye1(center, rot, scale, viewport);
+`
+        : ''
+}
     // size cull on the footprint's radius in pixels. minPixelSize is a diameter: the engine's
     // projector is dispatched with half of it, and its quad path tests the full extent
     // (2 sqrt(2 lambda)) against the whole value, so both cut at the same place
-    if (uniforms.unitScale * sqrt(2.0 * lambda1) < 0.5 * uniforms.minPixelSize) {
+    if (uniforms.unitScale * sqrt(2.0 * lambda1) < 0.5 * uniforms.minPixelSize${
+        stereo
+            ? ' && (!eye1.visible || uniforms.unitScale * sqrt(2.0 * eye1.lambda1) < 0.5 * uniforms.minPixelSize)'
+            : ''
+    }) {
         return result;
     }
 
     // contribution cull: the splat's alpha mass in pixels (the engine's minContribution rule)
-    if (opacity * 6.283185 * sqrt(determinant) * us2 < uniforms.minContribution) {
+    if (opacity * 6.283185 * sqrt(determinant) * us2 < uniforms.minContribution${
+        stereo
+            ? ' && (!eye1.visible || opacity * 6.283185 * sqrt(eye1.determinant) * us2 < uniforms.minContribution)'
+            : ''
+    }) {
         return result;
     }
 
@@ -229,16 +647,63 @@ fn project(slot: u32, file: u32) -> Projected {
     let direction = select(vec2f(1.0, 0.0), eigenVec / eigenLen, eigenLen > 1e-9);
     let maxRadius = min(1024.0, min(viewport.x, viewport.y));
     let len1 = 2.0 * sqrt(2.0 * lambda1);
-    let radiusScale = min(1.0, maxRadius / len1);
+    let len2Full = 2.0 * sqrt(2.0 * lambda2);
+    let clampScale = min(1.0, maxRadius / len1);
+${
+    coverage !== 'pixel'
+        ? `
+    // The kept ellipse's polygon, in units of the quad's half extent: area matched to the
+    // ellipse, or containing it when the raster discards outside it (jitter). The cache keeps
+    // the full quad's axes and the raster sizes each polygon itself; here the largest bounds the
+    // culls below
+    let polygonScale = select(${polygonScale()}, ${polygonScale(true)}, jittered);
+${
+    coverage === 'interleaved'
+        ? `
+    // the small splats of the interleaved mode draw per splat into the full target: the
+    // footprint at the alpha clip, in pixels, decides
+    let footprint = 3.14159265 * len1 * len2Full * pow(radiusAt(max(uniforms.alphaClip, 1e-6), opacity), 2.0);
+    let fullEntry = uniforms.interleaveArea > 0.0 && footprint < uniforms.interleaveArea;
+    if (select(!any(keptSets), !splatKept, fullEntry)) {
+        return result;
+    }
+    let threshold = select(setThreshold, splatThreshold, fullEntry);
+    let radiusScale = clampScale * radiusAt(threshold, opacity) * polygonScale;
+`
+        : `
+    let radiusScale = clampScale * radiusAt(splatThreshold, opacity) * polygonScale;
+`
+}
+`
+        : `
+    let radiusScale = clampScale;
+`
+}
+    // the extent the culls test: the largest polygon the raster will draw
     let axis1 = len1 * radiusScale * direction;
-    let len2 = 2.0 * sqrt(2.0 * lambda2) * radiusScale;
+    let len2 = len2Full * radiusScale;
     let axis2 = len2 * vec2f(direction.y, -direction.x);
 
-    let ndc = clip.xy / clip.w;
     let extent = abs(axis1) + abs(axis2);
     let centerPixels = (ndc * 0.5 + 0.5) * viewport;
-    if (centerPixels.x + extent.x < 0.0 || centerPixels.x - extent.x > viewport.x
-        || centerPixels.y + extent.y < 0.0 || centerPixels.y - extent.y > viewport.y) {
+    var outside = centerPixels.x + extent.x < 0.0 || centerPixels.x - extent.x > viewport.x
+        || centerPixels.y + extent.y < 0.0 || centerPixels.y - extent.y > viewport.y;
+${
+    stereo
+        ? `
+    // a splat either eye sees survives: the second eye's largest polygon is to its full quad as
+    // this view's is (both eyes' targets are the same size)
+    let polygonRatio = radiusScale / clampScale;
+    let axis1Eye1 = eye1.axis1 * polygonRatio;
+    let axis2Eye1 = eye1.len2 * polygonRatio * normalize(vec2f(eye1.axis1.y, -eye1.axis1.x));
+    let extentEye1 = abs(axis1Eye1) + abs(axis2Eye1);
+    let centerEye1 = (eye1.ndc * 0.5 + 0.5) * viewport;
+    outside = outside && (!eye1.visible || centerEye1.x + extentEye1.x < 0.0 || centerEye1.x - extentEye1.x > viewport.x
+        || centerEye1.y + extentEye1.y < 0.0 || centerEye1.y - extentEye1.y > viewport.y);
+`
+        : ''
+}
+    if (outside) {
         return result;
     }
 
@@ -252,60 +717,23 @@ ${
     // frame, up to sampling. Static splats reproject exactly through the previous view, so only
     // true disocclusions arrive a frame late. The footprint the splat had last frame bounds the
     // gather; footprints up to 16 px use the 8 px grid, up to 64 px the 32 px grid, larger ones
-    // skip the test.
+    // skip the test. In stereo a splat goes only when both eyes' previous frames hid it.
     if (uniforms.occlusionMode != 0u) {
-        let prevClip = uniforms.prevViewProj * vec4f(center, 1.0);
-        let prevDepth = -(uniforms.prevView * vec4f(center, 1.0)).z;
-        let prevOrtho = uniforms.prevClipZ.z != 0.0;
-        if (prevClip.w > 0.0 && (prevOrtho || prevDepth > 0.0)) {
-            let prevNdc = prevClip.xy / prevClip.w;
-            let halfExtent = len1 * radiusScale;
-            let prevHalfExtent = halfExtent * (uniforms.prevFocal.x / focal.x)
-                * select(depth / max(prevDepth, 0.001), 1.0, prevOrtho);
-            let footprint = max(halfExtent, prevHalfExtent);
-            var level = 1u;
-            var blockSize = 8.0;
-            var blocks = vec2i(i32(uniforms.occBlocksX1), i32(uniforms.occBlocksY1));
-            if (footprint > 16.0) {
-                level = 2u;
-                blockSize = 32.0;
-                blocks = vec2i(i32(uniforms.occBlocksX2), i32(uniforms.occBlocksY2));
-            }
-            if (footprint <= 64.0 && level <= uniforms.occlusionMode) {
-                let gather = max(i32(ceil(footprint / blockSize)), 1);
-                let prevPixel = vec2f(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * uniforms.prevFlip * 0.5) * uniforms.prevViewport;
-                let block = vec2i(floor(prevPixel / blockSize));
-                if (block.x >= gather && block.y >= gather && block.x < blocks.x - gather && block.y < blocks.y - gather) {
-                    let front = prevDepth - 2.8284 * sqrt(c22);
-                    let w = select(front, 1.0, prevOrtho);
-                    if (w > 0.0) {
-                        let frontZ = clamp(uniforms.prevClipZ.x * front + uniforms.prevClipZ.y, 0.0, w) / w;
-                        // the block under the centre first: the neighbourhood's maximum is at
-                        // least its maximum, so a splat that block alone cannot cull is visible,
-                        // and most splats leave here after one load
-                        let centreIndex = u32(block.y * blocks.x + block.x);
-                        var farthest = select(occL1[centreIndex], occL2[centreIndex], level == 2u);
-                        if (frontZ > bitcast<f32>(farthest)) {
-                            if (level == 1u) {
-                                farthest = farthestL1(block, gather, blocks);
-                            } else {
-                                farthest = farthestL2(block, gather, blocks);
-                            }
-                            if (frontZ > bitcast<f32>(farthest)) {
-                                result.occluded = true;
-                                return result;
-                            }
-                        }
-                    }
-                }
-            }
+        let halfExtent = len1 * radiusScale;
+        if (occludedIn(center, depth, focal.x, halfExtent, c22)${
+            stereo
+                ? ' && (!eye1.visible || occludedInEye1(center, eye1.depth, uniforms.focalEye1.x, length(axis1Eye1), c22))'
+                : ''
+        }) {
+            result.occluded = true;
+            return result;
         }
     }
 
 `
         : ''
 }
-    let color = clamp(srcColor(), vec3f(0.0), vec3f(uniforms.colorMax));
+    let color = clamp(srcColor(), vec3f(0.0), vec3f(8.0));
 
     // rgb: 10/10/10 unorm with a 2-bit shared exponent (scale 1/2/4/8, range [0, 8])
     let maxChannel = max(color.r, max(color.g, color.b));
@@ -326,74 +754,68 @@ ${
     result.valid = true;
     result.words[0] = pack2x16snorm(ndc / ndcRange);
     result.words[1] = bitcast<u32>(depth);
+${
+    coverage !== 'pixel'
+        ? `
+    // the full quad's axes (clamped to the radius limit); the raster scales them to each polygon
+    result.words[2] = pack2x16float(len1 * clampScale * direction);
+    result.words[3] = pack2x16float(vec2f(len2Full * clampScale, 0.0)) | (u32(clamp(opacity, 0.0, 1.0) * 255.0 + 0.5) << 16u);
+`
+        : `
     result.words[2] = pack2x16float(axis1);
     result.words[3] = pack2x16float(vec2f(len2, 0.0)) | (u32(clamp(opacity, 0.0, 1.0) * 255.0 + 0.5) << 16u);
-${
-    order
-        ? `
+`
+}
     // the depth bucket, log-spaced from the near plane, in the flags byte
     let key = clamp((log(max(depth, 1e-6)) - uniforms.keyLogNear) * uniforms.keyInvLogRange, 0.0, 0.999) * ${ORDER_BUCKETS}.0;
     result.words[3] |= u32(key) << 24u;
-`
-        : ''
-}
     result.words[4] = rgb.r | (rgb.g << 10u) | (rgb.b << 20u) | (exponent << 30u);
-    // Popless depth (StochasticSplats 3.4): the quad is tilted onto the plane through the
-    // centre with normal adj(Sigma) mu (view space; adj rather than the inverse, so a flat
-    // splat needs no division by its tiny determinant), and the raster gives each corner the
-    // depth where its own view ray meets that plane, so hardware interpolation hands every
-    // fragment the depth of the Gaussian's peak along its ray instead of the centre's. Stored
-    // as g = n.xy / (n . mu): a corner at view offset d (in the plane z = -depth) lands at
-    // depth / (1 + g . d). Orthographic rays are parallel, so there n = adj(Sigma) e_z and
-    // the corner depth is depth + g . d with g = n.xy / n.z. Bounded so every corner stays
-    // within 2 sqrt(2) sigma_z of the centre (the occlusion cull's front margin) and the
-    // perspective scale stays positive, and so no corner crosses the near plane or the
-    // raster's far clamp: a corner clamped there while the others are not bends the quad, whose
-    // two triangles then take different depths and show as polygons (large far splats, the
-    // sky, sit right at a far plane fitted to the scene). A centre beyond the clamp stays flat.
-    let ortho = uniforms.isOrtho != 0u;
-    let a00 = c11 * c22 - c12 * c12;
-    let a01 = c02 * c12 - c01 * c22;
-    let a02 = c01 * c12 - c02 * c11;
-    let a11 = c00 * c22 - c02 * c02;
-    let a12 = c01 * c02 - c00 * c12;
-    let a22 = c00 * c11 - c01 * c01;
-    let toward = select(viewCenter.xyz, vec3f(0.0, 0.0, -1.0), ortho);
-    let n = vec3f(
-        a00 * toward.x + a01 * toward.y + a02 * toward.z,
-        a01 * toward.x + a11 * toward.y + a12 * toward.z,
-        a02 * toward.x + a12 * toward.y + a22 * toward.z
-    );
-    let denom = select(dot(n, viewCenter.xyz), n.z, ortho);
-    var g = vec2f(0.0);
-    if (abs(denom) > 1e-20) {
-        g = n.xy / denom;
-        // view units per pixel at the centre's depth, and the quad's half extents in them
-        let viewScale = select(depth, 1.0, ortho) / focal;
-        let ext = (abs(axis1) + abs(axis2)) * viewScale;
-        let bound = abs(g.x) * ext.x + abs(g.y) * ext.y;
-        let margin = 2.8284 * sqrt(max(c22, 0.0));
-        let inRange = select(
-            min(1.0 - depth / uniforms.depthFar, depth / max(uniforms.depthNear, 1e-6) - 1.0),
-            min(uniforms.depthFar - depth, depth - uniforms.depthNear),
-            ortho
-        );
-        let limit = max(0.0, min(select(min(0.25, margin / max(depth, 1e-6)), margin, ortho), 0.999 * inRange));
-        if (bound > limit) {
-            g *= limit / max(bound, 1e-20);
-        }
-    }
-    result.words[5] = pack2x16float(g);
+${
+    coverage === 'pixel'
+        ? `
     // the stable id the coverage hash seeds from: the slot, salted by the file for sources
     // whose indices restart per file
-    result.words[6] = slot ^ (file * 2654435761u);
+    result.words[5] = slot ^ (file * 2654435761u);
+`
+        : coverage === 'interleaved'
+          ? `
+    // the draw's bits, bit 15 for a full-target entry, and a nibble per pixel set (0: the set
+    // keeps nothing): the raster rebuilds every threshold from them
+    let nibbles = select(setNibbles, vec4u(splatNibble, 0u, 0u, 0u), fullEntry);
+    result.words[5] = drawnBits | select(0u, ${FULL_ENTRY_BIT}u, fullEntry)
+        | (nibbles.x << 16u) | (nibbles.y << 20u) | (nibbles.z << 24u) | (nibbles.w << 28u);
+`
+          : `
+    // the draw's bits and the per-splat nibble (shaders/raster.ts)
+    result.words[5] = drawnBits | (splatNibble << 16u);
+`
+}${
+    stereo
+        ? `
+    // the second eye's centre, in the same range, and its full quad's axes (shaders/raster.ts),
+    // stashed in workgroup memory rather than returned: three more words in the per-thread state
+    // that main() holds across its barriers put the Adreno 740's compiler on a slow path, 6-9x
+    // the mono projector (Quest 3, 2026-10-16, docs/device-benchmarks-2026-10-14.md)
+    wgEye1[local] = vec3u(
+        pack2x16snorm(eye1.ndc / ndcRange),
+        pack2x16float(eye1.axis1),
+        pack2x16float(vec2f(eye1.len2, 0.0))
+    );`
+        : ''
+}
     return result;
 }
 
 var<workgroup> wgCount: atomic<u32>;
 var<workgroup> wgOccluded: atomic<u32>;
 var<workgroup> wgBase: u32;
-${order ? `var<workgroup> wgBuckets: array<atomic<u32>, ${ORDER_BUCKETS}>;` : ''}
+var<workgroup> wgBuckets: array<atomic<u32>, ${ORDER_BUCKETS}>;${
+    stereo
+        ? `
+// stereo: each thread's second-eye words, from project() to the cache write
+var<workgroup> wgEye1: array<vec3u, ${PROJECTOR_WORKGROUP_SIZE}>;`
+        : ''
+}
 
 @compute @workgroup_size(${PROJECTOR_WORKGROUP_SIZE})
 fn main(
@@ -403,7 +825,7 @@ fn main(
 ) {
     // no early returns: the barriers below need every thread of the workgroup
     let chunkIndex = wg.x + wg.y * numWorkgroups.x;
-${order ? `    atomicStore(&wgBuckets[local], 0u);` : ''}
+    atomicStore(&wgBuckets[local], 0u);
     var projected: Projected;
     projected.valid = false;
     projected.occluded = false;
@@ -411,7 +833,7 @@ ${order ? `    atomicStore(&wgBuckets[local], 0u);` : ''}
         let chunk = chunks[uniforms.chunkBase + chunkIndex];
         let visible = (nodeVisible[chunk.z >> 5u] >> (chunk.z & 31u)) & 1u;
         if (visible != 0u && local < chunk.y) {
-            projected = project(chunk.x + local, chunk.w >> 16u);
+            projected = project(chunk.x + local, chunk.w >> 16u${stereo ? ', local' : ''});
         }
     }
 
@@ -437,12 +859,35 @@ ${order ? `    atomicStore(&wgBuckets[local], 0u);` : ''}
         let base = (wgBase + localSlot) * ${CACHE_WORDS}u;
         for (var i = 0u; i < ${CACHE_WORDS}u; i++) {
             cache[base + i] = projected.words[i];
+        }${
+            stereo
+                ? `
+        // the second eye's three words, after every entry
+        let stereoBase = uniforms.stereoBase + (wgBase + localSlot) * 3u;
+        let eye1Words = wgEye1[local];
+        cache[stereoBase] = eye1Words.x;
+        cache[stereoBase + 1u] = eye1Words.y;
+        cache[stereoBase + 2u] = eye1Words.z;`
+                : ''
         }
-${order ? `        atomicAdd(&wgBuckets[projected.words[3] >> 24u], 1u);` : ''}
-    }
 ${
-    order
+    coverage === 'interleaved'
         ? `
+        // one entry per kept pixel set, or one in the full target's group: the group's
+        // ${SET_BUCKETS} buckets, front to back, from the depth bucket
+        let depthKey = ((projected.words[3] >> 24u) * ${SET_BUCKETS}u) >> 8u;
+        if ((projected.words[5] & ${FULL_ENTRY_BIT}u) != 0u) {
+            atomicAdd(&wgBuckets[4u * ${SET_BUCKETS}u + depthKey], 1u);
+        } else {
+            for (var s = 0u; s < 4u; s++) {
+                if (((projected.words[5] >> (16u + 4u * s)) & 1u) != 0u) {
+                    atomicAdd(&wgBuckets[s * ${SET_BUCKETS}u + depthKey], 1u);
+                }
+            }
+        }`
+        : `        atomicAdd(&wgBuckets[projected.words[3] >> 24u], 1u);`
+}
+    }
     // a chunk's splats are spatially coherent, so few of its buckets are non-empty: one
     // workgroup count each, then one global atomic per non-empty bucket
     workgroupBarrier();
@@ -450,10 +895,20 @@ ${
     if (bucketCount > 0u) {
         atomicAdd(&buckets[local], bucketCount);
     }
-`
-        : ''
-}
 }
 `;
 
-export { CACHE_WORDS, CHUNK_SIZE, ORDER_BUCKETS, PROJECTOR_WORKGROUP_SIZE, projectorWGSL };
+export {
+    CACHE_WORDS,
+    CHUNK_SIZE,
+    DRAW_BITS,
+    FULL_ENTRY_BIT,
+    ORDER_BUCKETS,
+    POLYGON_SIDES,
+    PROJECTOR_WORKGROUP_SIZE,
+    SET_BUCKETS,
+    SET_GROUPS,
+    polygonScale,
+    projectorWGSL
+};
+export type { CoverageMode };

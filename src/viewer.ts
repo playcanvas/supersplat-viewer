@@ -25,7 +25,7 @@ import {
 } from 'playcanvas';
 import type { CameraComponent, Entity, GraphicsDevice, GSplatComponent, Layer } from 'playcanvas';
 
-import { CameraManager, isWalkAllowed } from './camera-manager';
+import { CameraManager, isWalkableSize, isWalkAllowed } from './camera-manager';
 import type { Camera } from './cameras/camera';
 import { Capture } from './capture';
 import type { CaptureResult } from './capture';
@@ -33,6 +33,7 @@ import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
 import { DebugPanel } from './debug';
+import { FrameGate } from './frame-gate';
 import { initFullscreen } from './fullscreen';
 import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
@@ -218,6 +219,9 @@ class Viewer {
     /** The opt-in stochastic renderer (WebGPU only); null when the engine's sorted renderer draws. */
     splatRenderer: StochasticSplatRenderer | null = null;
 
+    /** Holds the continuous on-demand renders while the gpu is behind (frame-gate.ts). */
+    frameGate: FrameGate;
+
     /**
      * The engine's MiniStats panel once first shown (`?ministats` or the debug panel), else null.
      * Hiding disables it rather than destroying it.
@@ -316,6 +320,13 @@ class Viewer {
         // mirrors the engine's simple-on-demand gsplat example.
         app.autoRender = true;
 
+        // created before the stochastic renderer, so its frame end counts a rendered frame before
+        // the renderer asks for the next
+        this.frameGate = new FrameGate(app, config.framesInFlight);
+        this.onDestroy(() => this.frameGate.destroy());
+        // for development pages, as splatRenderer:ready
+        events.once('firstFrame', () => events.fire('frameGate:ready', this.frameGate));
+
         // configure the camera
         this.configureCamera(settings);
 
@@ -336,7 +347,9 @@ class Viewer {
             } else if (worldLayer) {
                 this.splatRenderer = new StochasticSplatRenderer(app, camera.camera, worldLayer, {
                     source: config.splatSource,
-                    variant: config.variant
+                    mode: config.stochastic === 'mobile' ? 'mobile' : 'pixel',
+                    variant: config.variant,
+                    requestFrame: () => this.frameGate.request()
                 });
                 // announced on the first frame rather than here: createViewer resolves after this
                 // constructor, so a page can only subscribe once loading is under way
@@ -344,13 +357,12 @@ class Viewer {
             }
         }
 
-        // reconfigure camera when entering/exiting XR. The stochastic renderer has no stereo
-        // path yet, so the engine's renderer draws the splats for the session. Follows xrMode
-        // rather than app.xr.active, which still reports the session while its 'end' handlers run
+        // reconfigure camera when entering/exiting XR. The stochastic renderer draws the session
+        // too, one view per eye on WebGPU. Follows xrMode rather than app.xr.active, which still
+        // reports the session while its 'end' handlers run
         const xrModeChanged = events.on('xrMode:changed', () => {
             if (this.destroyed) return;
             this.configureCamera(settings);
-            this.splatRenderer?.setEnabled(state.xrMode === null);
         });
         this.onDestroy(() => xrModeChanged.off());
 
@@ -376,7 +388,7 @@ class Viewer {
                     !nearlyEquals(world.data, prevWorld.data) ||
                     !nearlyEquals(proj.data, prevProj.data)
                 ) {
-                    app.renderNextFrame = true;
+                    this.frameGate.request();
                 }
             }
 
@@ -435,7 +447,8 @@ class Viewer {
 
         // update state on first frame
         events.on('firstFrame', () => {
-            state.animationPaused = !!config.noanim;
+            // the vr flag's prompt waits over a still camera
+            state.animationPaused = config.noanim || config.vr;
             state.loaded = true;
 
             // the window.* hooks below are the standalone document's api for the thumbnail
@@ -578,13 +591,13 @@ class Viewer {
 
             const gsplatComponent = results[0].gsplat as GSplatComponent;
 
-            this.xr.setManipulationTarget(results[0]);
-
             // get scene bounding box
             const gsplatBbox = gsplatComponent.customAabb;
             if (gsplatBbox) {
                 sceneBound.setFromTransformedAabb(gsplatBbox, results[0].getWorldTransform());
             }
+
+            this.xr.setGrabTarget(results[0], isWalkableSize(sceneBound));
 
             // the stochastic renderer leaves its frame's depth behind, so no pick pass is needed
             this.picker = this.splatRenderer
@@ -597,6 +610,20 @@ class Viewer {
             this.cameraManager = new CameraManager(global, sceneBound);
             applyCamera(this.cameraManager.camera);
 
+            // the vr flag's prompt (ui/vr-prompt.ts) can start a session from here on, where
+            // startXR waits for the scene to finish loading: the camera is where the session
+            // starts, and the rest of the scene streams in during it
+            if (config.vr) {
+                const promptStart = events.on('vrPrompt:start', () => {
+                    if (this.destroyed || !state.canStartVR) return;
+                    void this.xr.start('vr').catch(() => {
+                        // a declined permission leaves the prompt up for another tap
+                    });
+                });
+                this.onDestroy(() => promptStart.off());
+                events.fire('vrPrompt:ready');
+            }
+
             if (config.ui) {
                 this.navCursor = new NavCursor(app, camera, null, events, state, config.reticle);
             }
@@ -608,6 +635,7 @@ class Viewer {
             attachCollision = (collision: Collision) => {
                 this.inputController.collision = collision;
                 this.cameraManager.setCollision(collision);
+                this.xr.setCollision(collision);
                 if (this.navCursor) {
                     this.navCursor.collision = collision;
                 }
@@ -618,7 +646,10 @@ class Viewer {
                 // Create collision debug overlay (voxel uses a compute shader, mesh
                 // uses standard line rendering). The voxel path requires WebGPU.
                 if (collision instanceof VoxelCollision && renderer !== 'webgl') {
-                    const setOverlayEnabled = (value: boolean) => {
+                    // The overlay ray-marches one screen-sized view, which an XR session's eyes
+                    // would share, so it is off while one runs
+                    const setOverlayEnabled = () => {
+                        const value = state.collisionOverlayEnabled && state.xrMode === null;
                         // Upload the voxel data and allocate the screen-sized texture only
                         // when the debug overlay is first used.
                         if (value && !this.voxelOverlay) {
@@ -629,8 +660,9 @@ class Viewer {
                         app.renderNextFrame = true;
                     };
                     events.on('collisionOverlayEnabled:changed', setOverlayEnabled);
+                    events.on('xrMode:changed', setOverlayEnabled);
                     state.hasCollisionOverlay = true;
-                    setOverlayEnabled(state.collisionOverlayEnabled);
+                    setOverlayEnabled();
                 } else if (collision instanceof MeshCollision) {
                     this.meshOverlay = new MeshDebugOverlay(app, collision, camera, !!this.cameraFrame);
                     state.hasCollisionOverlay = true;
@@ -702,6 +734,13 @@ class Viewer {
             const octree = (gsplatComponent.resource as GSplatOctreeResourceLike | null)?.octree ?? null;
             let streamingStarted = !octree;
 
+            // a session that ends during loading leaves rendering every frame, which loading needs
+            let revealed = false;
+            const xrEnded = events.on('xrMode:changed', (mode) => {
+                if (!mode && !revealed) app.autoRender = true;
+            });
+            this.onDestroy(() => xrEnded.off());
+
             const readyHandler = (camera: CameraComponent, layer: Layer, ready: boolean, loading: number) => {
                 // `frame.gsplats` is the rendered splat count, the same stat the ministats panel
                 // above reads. It covers an octree that renders before it reports work in flight.
@@ -716,8 +755,11 @@ class Viewer {
                     stopProgress?.();
                     state.progress = 100;
 
-                    // switch to on-demand rendering (frame:request + camera-change detection)
-                    app.autoRender = false;
+                    // switch to on-demand rendering (frame:request + camera-change detection),
+                    // except in a session started while loading (the vr flag), which renders
+                    // every frame until it ends
+                    revealed = true;
+                    if (!app.xr.active) app.autoRender = false;
 
                     // handle quality mode changes
                     events.on('performanceMode:changed', applyPerfSettings);
@@ -925,24 +967,14 @@ class Viewer {
         const options = MiniStats.getDefaultOptions() as NonNullable<ConstructorParameters<typeof MiniStats>[1]>;
         options.cpu.enabled = false;
         options.stats = options.stats.filter((s) => s.name !== 'DrawCalls');
-        options.stats.push(
-            {
-                name: 'VRAM',
-                stats: ['vram.tex'],
-                decimalPlaces: 1,
-                multiplier: 1 / (1024 * 1024),
-                unitsName: 'MB',
-                watermark: 1024
-            } as (typeof options.stats)[number],
-            {
-                name: 'Splats',
-                stats: ['frame.gsplats'],
-                decimalPlaces: 3,
-                multiplier: 1 / 1000000,
-                unitsName: 'M',
-                watermark: 5
-            } as (typeof options.stats)[number]
-        );
+        options.stats.push({
+            name: 'Splats',
+            stats: ['frame.gsplats'],
+            decimalPlaces: 3,
+            multiplier: 1 / 1000000,
+            unitsName: 'M',
+            watermark: 5
+        } as (typeof options.stats)[number]);
         this.miniStats = new MiniStats(this.global.app, options);
         this.global.app.renderNextFrame = true;
     }

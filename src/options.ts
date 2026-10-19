@@ -60,26 +60,44 @@ type ViewerFlags = {
     colorize?: boolean;
     /** Load all streaming LOD data before the first frame. */
     fullload?: boolean;
+    /**
+     * Offer VR at once: where VR can start, a prompt shows over the viewer while it loads, and a
+     * tap on it starts a VR session as soon as the scene is placed, the rest of the scene streaming
+     * in during the session; a tap elsewhere dismisses it. A session needs a tap: browsers start
+     * none without one. The camera animation starts paused, as with `noanim`. Needs the ui.
+     * Defaults to `false`.
+     */
+    vr?: boolean;
     /** Render with antialiasing. */
     aa?: boolean;
     /**
      * Opt in to the experimental stochastic splat renderer: unsorted, depth-tested splats whose
-     * depth buffer also serves picking. WebGPU only; ignored on WebGL and while an XR session is
-     * active, where the engine's sorted renderer draws. Fixed for the life of the viewer.
+     * depth buffer also serves picking. WebGPU only; ignored on WebGL, where the engine's sorted
+     * renderer draws. It draws WebGPU XR sessions too, one view per eye (Safari on Apple Vision
+     * Pro); where only WebGL could host a session, the viewer offers a reload into WebGL. Fixed
+     * for the life of the viewer. `true`
+     * gives per-pixel coverage, the high-quality mode; `'mobile'` the faster mode for phones and
+     * headsets (interleaved pixel sets).
      */
-    stochastic?: boolean;
+    stochastic?: boolean | 'mobile';
     /**
      * Developer knob for the stochastic renderer: the data path that feeds it. Default
-     * `workbuffer`, the engine's work buffer.
+     * `direct`, the resident files read in place; `workbuffer` reads the engine's work buffer.
      */
-    splatSource?: 'workbuffer' | 'direct' | 'light';
+    splatSource?: 'workbuffer' | 'direct';
     /**
      * Developer knob for the stochastic renderer: comma-separated `key:value` experiment
-     * switches, e.g. `spp:1,compose:none`.
+     * switches applied over the chosen mode's, e.g. `coverage:interleaved,jitter:2`.
      */
     variant?: string;
     /** Splat budget in millions, overriding the platform and performance-mode table. */
     budget?: number;
+    /**
+     * Developer knob: while the viewer renders on demand, the most rendered frames the gpu may
+     * have unfinished before the next continuous render (the camera moving, the stochastic
+     * renderer accumulating) waits for one to finish; `0` lets them queue. Defaults to `2`.
+     */
+    framesInFlight?: number;
     /** Render the collision heatmap debug overlay (WebGPU only). */
     heatmap?: boolean;
     /** Open the developer debug panel on load; Ctrl+Shift+D toggles it either way. */

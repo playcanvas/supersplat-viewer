@@ -75,6 +75,17 @@ type State = {
     /** Mouse-look and joystick movement rather than click-to-navigate. Persisted. */
     gamingControls: boolean;
     /**
+     * In VR on Apple Vision Pro, a pinch teleports where the eyes look as it starts rather than
+     * along the hand's arc. Persisted; off by default. The settings offer it on Apple Vision Pro only.
+     */
+    lookNavigation: boolean;
+    /**
+     * In XR with tracked hands, a left fist held upright for two seconds, the right hand open,
+     * puts the scene or object in miniature on top of the fist, like an ice cream in its cone,
+     * until the hand opens. Persisted; off by default. The XR menu offers it as Ice Cream.
+     */
+    iceCream: boolean;
+    /**
      * Gates the inputs the dom cannot route by hit-testing, because their listeners sit on
      * `window`: the keyboard (both the engine's source and the viewer's own shortcuts) and the
      * gamepad. Pointer input on the canvas is unaffected. Clear it while your own controls have
@@ -92,6 +103,8 @@ type WritableStateKey =
     | 'performanceMode'
     | 'showAnnotations'
     | 'gamingControls'
+    | 'lookNavigation'
+    | 'iceCream'
     | 'animationPaused'
     | 'collisionOverlayEnabled'
     | 'controlsHidden'

@@ -13,7 +13,10 @@ import { initControlsHint, readControlsOpen, writeControlsOpen } from './ui/cont
 import { initFullscreenControls } from './ui/fullscreen-controls';
 import { initJoystick } from './ui/joystick';
 import { initPlayback } from './ui/playback';
+import { initVrPrompt } from './ui/vr-prompt';
 import { initXrControls } from './ui/xr-controls';
+import { initXrHint } from './ui/xr-hint';
+import { visionPro } from './xr';
 
 // show the poster image over the hidden canvas, blurry at first and sharpening as loading
 // progresses, until the first frame renders
@@ -103,6 +106,8 @@ const initUI = (
         'gamingControlsRow',
         'gamingControlsCheck',
         'gamingControlsOption',
+        'lookNavigationRow',
+        'lookNavigationCheck',
         'controlsButton',
         'controlsHint',
         'controlsHintClose',
@@ -190,6 +195,23 @@ const initUI = (
     };
     on('performanceMode:changed', updatePerformanceMode);
     updatePerformanceMode();
+
+    // Look navigation toggle, offered on Apple Vision Pro only, where pinches aim by the eyes
+    dom.lookNavigationRow.addEventListener('click', () => {
+        state.lookNavigation = !state.lookNavigation;
+    });
+
+    const updateLookNavigation = () => {
+        dom.lookNavigationCheck.classList.toggle('sse-active', state.lookNavigation);
+    };
+    on('lookNavigation:changed', updateLookNavigation);
+    updateLookNavigation();
+
+    const updateLookNavigationVisibility = () => {
+        dom.lookNavigationRow.classList.toggle('sse-hidden', !(visionPro && state.hasVR));
+    };
+    on('hasVR:changed', updateLookNavigationVisibility);
+    updateLookNavigationVisibility();
 
     // Gaming mode toggle (settings row visible on mobile only)
     dom.gamingControlsRow.addEventListener('click', () => {
@@ -450,6 +472,12 @@ const initUI = (
     disposers.push(initControlsHint(viewer, root, localize));
     disposers.push(initFullscreenControls(viewer, root));
     disposers.push(initXrControls(viewer, root));
+    if (visionPro) {
+        disposers.push(initXrHint(viewer, root));
+    }
+    if (global.config.vr) {
+        disposers.push(initVrPrompt(viewer, root, localize));
+    }
 
     // Collision overlay: a settings row and the matching info-panel shortcut, shown only when
     // the scene ships an overlay

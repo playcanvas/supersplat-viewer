@@ -3,7 +3,8 @@
 // pixel's depth is the nearest surviving sample there, so a block's maximum bounds what could
 // still have shown behind it; a splat whose front lies beyond that bound over every block it
 // covers was invisible last frame. Depths are hardware z in [0, 1], stored as their f32 bits
-// (non-negative floats order the same as their bits, so atomicMax works on them).
+// (non-negative floats order the same as their bits, so atomicMax works on them). Both levels
+// share one buffer, level 2 after level 1, so a projector binds a view's grid once.
 const reduceL1WGSL = /* wgsl */ `
 struct ReduceUniforms {
     width: u32,
@@ -46,9 +47,9 @@ struct ReduceUniforms {
     blocksY2: u32
 }
 
-@group(0) @binding(0) var<storage, read> level1: array<u32>;
-@group(0) @binding(1) var<storage, read_write> level2: array<u32>;
-@group(0) @binding(2) var<uniform> uniforms: ReduceUniforms;
+// level 1, then level 2 from blocksX1 * blocksY1
+@group(0) @binding(0) var<storage, read_write> grid: array<u32>;
+@group(0) @binding(1) var<uniform> uniforms: ReduceUniforms;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -64,13 +65,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             let x = bx * 4u + dx;
             let y = by * 4u + dy;
             if (x < uniforms.blocksX1 && y < uniforms.blocksY1) {
-                farthest = max(farthest, level1[y * uniforms.blocksX1 + x]);
+                farthest = max(farthest, grid[y * uniforms.blocksX1 + x]);
             } else {
                 farthest = max(farthest, bitcast<u32>(1.0));
             }
         }
     }
-    level2[index] = farthest;
+    grid[uniforms.blocksX1 * uniforms.blocksY1 + index] = farthest;
 }
 `;
 

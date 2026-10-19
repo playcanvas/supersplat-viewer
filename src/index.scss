@@ -991,6 +991,88 @@
         }
     }
 
+    /* the vr flag's prompt: the whole viewer takes the tap, which enters VR on the pill and dismisses
+       the prompt elsewhere. The pill is a button, so visionOS's gaze highlight takes its shape */
+
+    .sse-vrPrompt {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        > .sse-vrPromptPill {
+            // twice the panels' scale, with the text at theirs
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin: 0;
+            padding: 24px 40px 24px 32px;
+            border-radius: 32px;
+            border: 1px solid rgba(white, 0.08);
+            cursor: pointer;
+
+            font-family: inherit;
+            font-size: 15px;
+            color: var(--sse-text-light);
+            background-color: color-mix(in srgb, var(--sse-bkg) 50%, transparent);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            transition:
+                color 250ms ease,
+                opacity 250ms ease;
+
+            > svg {
+                display: block;
+                width: 48px;
+                height: 48px;
+
+                > g {
+                    &.sse-stroke {
+                        fill: none;
+                        stroke: black;
+                        stroke-width: 2;
+                        stroke-linejoin: round;
+                        opacity: 0.4;
+                    }
+
+                    &.sse-fill {
+                        fill: currentColor;
+                        stroke: none;
+                    }
+                }
+            }
+        }
+
+        &.sse-vrPromptLoading > .sse-vrPromptPill {
+            color: var(--sse-text);
+            opacity: 0.8;
+        }
+    }
+
+    /* what to do about a stalled VR request: low in the viewer, taps passing through */
+
+    .sse-xrHint {
+        position: absolute;
+        left: 50%;
+        bottom: 96px;
+        transform: translateX(-50%);
+        padding: 12px 20px;
+        border-radius: 20px;
+        border: 1px solid rgba(white, 0.08);
+        pointer-events: none;
+        white-space: nowrap;
+
+        font-size: 15px;
+        color: var(--sse-text-light);
+        background-color: color-mix(in srgb, var(--sse-bkg) 50%, transparent);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+    }
+
     .sse-tooltip {
         display: none;
         position: absolute;

@@ -1,5 +1,6 @@
 {
     "settings.performance-mode": "Mode performance",
+    "settings.look-navigation": "Téléportation par le regard",
     "settings.gaming-controls": "Commandes de jeu",
     "settings.show-annotations": "Afficher les annotations",
     "settings.show-collision": "Afficher les collisions",
@@ -67,5 +68,11 @@
     "xr-modal.title": "WebGL requis",
     "xr-modal.message": "L'AR et la VR ne sont pas prises en charge par le moteur de rendu WebGPU. Cliquer sur OK rechargera le visualiseur avec WebGL.",
     "xr-modal.cancel": "Annuler",
-    "xr-modal.ok": "OK"
+    "xr-modal.ok": "OK",
+    "vr-prompt.loading": "Chargement…",
+    "vr-prompt.enter": "Touchez pour entrer en RV",
+    "xr-menu.exit-vr": "Quitter la VR",
+    "xr-menu.exit-ar": "Quitter l'AR",
+    "xr-menu.ice-cream": "Mode glace",
+    "xr-hint.stalled": "Rien ne se passe ? Changez d'onglet puis revenez."
 }

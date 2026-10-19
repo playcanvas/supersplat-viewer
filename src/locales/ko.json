@@ -1,5 +1,6 @@
 {
     "settings.performance-mode": "성능 모드",
+    "settings.look-navigation": "시선으로 텔레포트",
     "settings.gaming-controls": "게임 컨트롤",
     "settings.show-annotations": "주석 표시",
     "settings.show-collision": "충돌 표시",
@@ -67,5 +68,11 @@
     "xr-modal.title": "WebGL 필요",
     "xr-modal.message": "AR과 VR은 WebGPU 렌더러에서 지원되지 않습니다. 확인을 누르면 WebGL로 뷰어를 다시 불러옵니다.",
     "xr-modal.cancel": "취소",
-    "xr-modal.ok": "확인"
+    "xr-modal.ok": "확인",
+    "vr-prompt.loading": "로드 중…",
+    "vr-prompt.enter": "탭하여 VR 시작",
+    "xr-menu.exit-vr": "VR 종료",
+    "xr-menu.exit-ar": "AR 종료",
+    "xr-menu.ice-cream": "아이스크림 모드",
+    "xr-hint.stalled": "반응이 없나요? 다른 탭으로 전환했다가 돌아오세요."
 }

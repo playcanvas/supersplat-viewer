@@ -55,9 +55,15 @@ const settleFrom = (slope: number) => (x: number) =>
 // back to fly as the default first-person mode.
 const WALK_MIN_HORIZONTAL_RANGE = 5;
 
-const isWalkAllowed = (bbox: BoundingBox, collision: Collision | null): boolean => {
+// whether a scene is large enough to walk around in, taking its content as real-world scale; XR
+// grabbing also tells a scene from an object by it
+const isWalkableSize = (bbox: BoundingBox): boolean => {
     const { x, z } = bbox.halfExtents;
-    return !!collision && x * 2 >= WALK_MIN_HORIZONTAL_RANGE && z * 2 >= WALK_MIN_HORIZONTAL_RANGE;
+    return x * 2 >= WALK_MIN_HORIZONTAL_RANGE && z * 2 >= WALK_MIN_HORIZONTAL_RANGE;
+};
+
+const isWalkAllowed = (bbox: BoundingBox, collision: Collision | null): boolean => {
+    return !!collision && isWalkableSize(bbox);
 };
 
 const createCamera = (position: Vec3, target: Vec3, fov: number) => {
@@ -462,4 +468,4 @@ class CameraManager {
     }
 }
 
-export { CameraManager, isWalkAllowed };
+export { CameraManager, isWalkableSize, isWalkAllowed };

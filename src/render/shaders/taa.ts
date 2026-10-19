@@ -17,6 +17,8 @@
 // everywhere, so the same step only rounds away within half an 8-bit level of the mean. The
 // depth record is the mean view depth of the pixel's samples and their count in one 32-bit word.
 
+import { warpWGSL } from './warp';
+
 // the most samples the history's count field holds
 const TAA_MAX_COUNT = 511;
 
@@ -35,16 +37,31 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 const taaHistoryWGSL = /* wgsl */ `
 const TAA_COLOR_SCALE = 65535.0;
 
-fn decodeColor(v: vec4u) -> vec4f {
-    return vec4f(v) / TAA_COLOR_SCALE;
-}
+#ifdef SSE_TAA_HALF
+    // Variant taaHistory:half, an XR eye's by default: the colour in half floats, which filter,
+    // so the moving fetch takes five bilinear taps instead of sixteen loads (historyCubicAt), 4.3
+    // of the pass's 7.4 ms in a Vision Pro session. Half floats stall a long mean (above), but in a
+    // session the head never rests, so the history holds at most taaMoveMax samples
+    fn decodeColor(v: vec4f) -> vec4f {
+        return v;
+    }
 
-// premultiplied colour and coverage: coverage in [0, 1] and colour within it (the Catmull-Rom
-// fetch over- and undershoots both), rounded to the nearest step
-fn encodeColor(c: vec4f) -> vec4u {
-    let a = clamp(c.a, 0.0, 1.0);
-    return vec4u(round(vec4f(clamp(c.rgb, vec3f(0.0), vec3f(a)), a) * TAA_COLOR_SCALE));
-}
+    fn encodeColor(c: vec4f) -> vec4f {
+        let a = clamp(c.a, 0.0, 1.0);
+        return vec4f(clamp(c.rgb, vec3f(0.0), vec3f(a)), a);
+    }
+#else
+    fn decodeColor(v: vec4u) -> vec4f {
+        return vec4f(v) / TAA_COLOR_SCALE;
+    }
+
+    // premultiplied colour and coverage: coverage in [0, 1] and colour within it (the Catmull-Rom
+    // fetch over- and undershoots both), rounded to the nearest step
+    fn encodeColor(c: vec4f) -> vec4u {
+        let a = clamp(c.a, 0.0, 1.0);
+        return vec4u(round(vec4f(clamp(c.rgb, vec3f(0.0), vec3f(a)), a) * TAA_COLOR_SCALE));
+    }
+#endif
 
 struct HistoryInfo {
     depth: f32,
@@ -68,11 +85,35 @@ fn encodeInfo(depth: f32, count: f32) -> u32 {
 `;
 
 const taaFragmentWGSL = /* wgsl */ `
-var curColor: texture_2d<f32>;
-var curColorSampler: sampler;
-var curDepth: texture_depth_2d;
-// premultiplied colour and coverage, unorm16 (decodeColor)
-var histColor: texture_2d<u32>;
+#ifdef SSE_SETS
+    // variant coverage:interleaved: this frame's samples straight from the four pixel sets'
+    // targets, the full target's pixel (2i + x, 2j + y) being set (x, y)'s (i, j), and their
+    // depth written into the full depth target for the compose, the occlusion grid and the picker
+    // (in place of a pass that copies the sets back)
+    var setColor0: texture_2d<f32>;
+    var setColor0Sampler: sampler;
+    var setColor1: texture_2d<f32>;
+    var setColor1Sampler: sampler;
+    var setColor2: texture_2d<f32>;
+    var setColor2Sampler: sampler;
+    var setColor3: texture_2d<f32>;
+    var setColor3Sampler: sampler;
+    var setDepth0: texture_depth_2d;
+    var setDepth1: texture_depth_2d;
+    var setDepth2: texture_depth_2d;
+    var setDepth3: texture_depth_2d;
+#else
+    var curColor: texture_2d<f32>;
+    var curColorSampler: sampler;
+    var curDepth: texture_depth_2d;
+#endif
+// premultiplied colour and coverage, unorm16 or half floats (decodeColor)
+#ifdef SSE_TAA_HALF
+    var histColor: texture_2d<f32>;
+    var histColorSampler: sampler;
+#else
+    var histColor: texture_2d<u32>;
+#endif
 // the mean view depth of the pixel's samples and their count, in the previous frame's view
 // depths (decodeInfo)
 var histInfo: texture_2d<u32>;
@@ -93,18 +134,29 @@ uniform taaParams: vec4f;
 // width, height, 1 / width, 1 / height
 uniform taaViewport: vec4f;
 // x: -1 when the target's rows run bottom-up (an offscreen target), else 1; y: the colour
-// clamp width in neighbourhood standard deviations (0: no clamp); z: 1 when the raster's
-// thresholds are quad-stratified
+// clamp width in neighbourhood standard deviations while moving (0: no clamp); z: 1 to
+// reproject through the pixel's accumulated mean depth rather than this frame's sample depth;
+// w: image motion in pixels a frame that halves the moving sample cap (0: fixed cap)
 uniform taaControl: vec4f;
-// x: 1 for a Catmull-Rom history fetch while moving (0: bilinear); y: 1 to reproject through
-// the pixel's accumulated mean depth rather than this frame's sample depth; z: image motion in
-// pixels a frame that halves the moving sample cap (0: fixed cap)
-uniform taaFilter: vec4f;
+// x: 1 to shorten the moving cap by no more than the parallax motion, and a history an occluder
+// left behind by its misplacement (variant taaParallax);
+// y: the history length at which the moving sample is half the pixel's own, half the quad mean
+// (variant taaSharp, 0: the quad mean)
+uniform taaMoving: vec2f;
 // 1: write the accumulation state instead of colour (r: count / cap, g: history accepted,
 // b: the camera moved since the previous frame)
 uniform taaDebug: f32;
+#ifdef SSE_WARP
+    // variant warp: the view's table (shaders/warp.ts)
+    var<storage, read> warpTable: array<f32>;
+    ${warpWGSL}
+#endif
 
 ${taaHistoryWGSL}
+
+// variant taaParallax: the misplacement in pixels a frame that halves the cap of a history an
+// occluder left behind (measured against 1 px, which kept a visible trail)
+const TAA_GHOST_PX = 0.25;
 
 fn viewDepthOf(z: f32) -> f32 {
     let p = uniform.clipZParams;
@@ -116,7 +168,11 @@ fn viewDepthOf(z: f32) -> f32 {
 struct Reprojected {
     valid: bool,
     uv: vec2f,
-    prevDepth: f32
+    prevDepth: f32,
+    // where the camera's rotation alone carries the pixel (its ray's direction, a point at
+    // infinity), so uv - farUv is the parallax its translation adds; for an orthographic camera
+    // the pixel itself, the whole motion
+    farUv: vec2f
 }
 
 // The previous frame's view depth and texture coordinate of this pixel's point at a view
@@ -129,42 +185,96 @@ fn reproject(pix: vec2i, viewDepth: f32) -> Reprojected {
     var r: Reprojected;
     let flip = uniform.taaControl.x;
     let uv = (vec2f(pix) + vec2f(0.5)) * uniform.taaViewport.zw;
-    let ndc = vec2f(uv.x * 2.0 - 1.0, flip * (1.0 - 2.0 * uv.y));
+    // variant warp: the texel's place on screen, and the previous frame's points back into the
+    // target; the history's coordinates are the target's
+    #ifdef SSE_WARP
+        let rowFromTop = select(i32(uniform.taaViewport.y) - 1 - pix.y, pix.y, flip > 0.0);
+        let ndc = unwarpTexel(vec2i(pix.x, rowFromTop));
+    #else
+        let ndc = vec2f(uv.x * 2.0 - 1.0, flip * (1.0 - 2.0 * uv.y));
+    #endif
     let u = uniform.unproject;
     let viewXY = select((ndc + u.zw) * viewDepth, ndc - u.zw, uniform.clipZParams.z != 0.0) / u.xy;
     let world = (uniform.cameraWorld * vec4f(viewXY, -viewDepth, 1.0)).xyz;
     let prevClip = uniform.prevViewProj * vec4f(world, 1.0);
     r.prevDepth = -(uniform.prevView * vec4f(world, 1.0)).z;
     r.valid = prevClip.w > 0.0;
-    let prevNdc = prevClip.xy / max(prevClip.w, 1e-9);
+    var prevNdc = prevClip.xy / max(prevClip.w, 1e-9);
+    let dir = (uniform.cameraWorld * vec4f(viewXY, -viewDepth, 0.0)).xyz;
+    let farClip = uniform.prevViewProj * vec4f(dir, 0.0);
+    var farNdc = farClip.xy / max(farClip.w, 1e-9);
+    #ifdef SSE_WARP
+        prevNdc = warpNdc(prevNdc);
+        farNdc = warpNdc(farNdc);
+    #endif
     r.uv = vec2f(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * flip * 0.5);
     r.valid = r.valid && all(r.uv >= vec2f(0.0)) && all(r.uv <= vec2f(1.0));
+    r.farUv = select(vec2f(farNdc.x * 0.5 + 0.5, 0.5 - farNdc.y * flip * 0.5), uv, uniform.clipZParams.z != 0.0);
     return r;
+}
+
+struct Current {
+    color: vec4f,
+    depth: f32
+}
+
+// this frame's colour and depth at a texel
+fn current(p: vec2i) -> Current {
+    var c: Current;
+    #ifdef SSE_SETS
+        let t = p >> vec2u(1u);
+        let index = (p.x & 1) + (p.y & 1) * 2;
+        if (index == 0) {
+            c.color = textureLoad(setColor0, t, 0);
+            c.depth = textureLoad(setDepth0, t, 0);
+        } else if (index == 1) {
+            c.color = textureLoad(setColor1, t, 0);
+            c.depth = textureLoad(setDepth1, t, 0);
+        } else if (index == 2) {
+            c.color = textureLoad(setColor2, t, 0);
+            c.depth = textureLoad(setDepth2, t, 0);
+        } else {
+            c.color = textureLoad(setColor3, t, 0);
+            c.depth = textureLoad(setDepth3, t, 0);
+        }
+    #else
+        c.color = textureLoad(curColor, p, 0);
+        c.depth = textureLoad(curDepth, p, 0);
+    #endif
+    return c;
 }
 
 // the premultiplied sample at a texel: its colour where a fragment landed, nothing otherwise
 fn sampleAt(pix: vec2i, dims: vec2i) -> vec4f {
-    let p = clamp(pix, vec2i(0), dims - vec2i(1));
-    let c = textureLoad(curColor, p, 0);
-    let z = textureLoad(curDepth, p, 0);
-    return select(vec4f(0.0), vec4f(c.rgb, 1.0), c.a > 0.0 && z < 1.0);
+    let s = current(clamp(pix, vec2i(0), dims - vec2i(1)));
+    return select(vec4f(0.0), vec4f(s.color.rgb, 1.0), s.color.a > 0.0 && s.depth < 1.0);
 }
 
 // The mean of the 2x2 quad's samples, bilinear between quad centres (the compose's resolve of
 // the raster's quad-stratified thresholds): four samples a pixel, at a little sharpness, for
 // the frames where the history is too short to carry the noise on its own
 fn quadSample(pix: vec2i, dims: vec2i) -> vec4f {
-    let size = vec2f(dims);
     let u = (vec2f(pix) - vec2f(0.5)) * 0.5;
-    let q0 = floor(u);
-    let f = u - q0;
-    let uv = (q0 * 2.0 + vec2f(1.0)) / size;
-    let step = vec2f(2.0) / size;
-    let a = textureSampleLevel(curColor, curColorSampler, uv, 0.0);
-    let b = textureSampleLevel(curColor, curColorSampler, uv + vec2f(step.x, 0.0), 0.0);
-    let c = textureSampleLevel(curColor, curColorSampler, uv + vec2f(0.0, step.y), 0.0);
-    let d = textureSampleLevel(curColor, curColorSampler, uv + step, 0.0);
-    let m = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    #ifdef SSE_SETS
+        // a quad is one texel of each set, so the bilinear mean between quad centres is the
+        // mean of the sets' bilinear fetches there
+        let uvS = (u + vec2f(0.5)) / vec2f(textureDimensions(setColor0));
+        let m = 0.25 * (textureSampleLevel(setColor0, setColor0Sampler, uvS, 0.0) +
+            textureSampleLevel(setColor1, setColor1Sampler, uvS, 0.0) +
+            textureSampleLevel(setColor2, setColor2Sampler, uvS, 0.0) +
+            textureSampleLevel(setColor3, setColor3Sampler, uvS, 0.0));
+    #else
+        let size = vec2f(dims);
+        let q0 = floor(u);
+        let f = u - q0;
+        let uv = (q0 * 2.0 + vec2f(1.0)) / size;
+        let step = vec2f(2.0) / size;
+        let a = textureSampleLevel(curColor, curColorSampler, uv, 0.0);
+        let b = textureSampleLevel(curColor, curColorSampler, uv + vec2f(step.x, 0.0), 0.0);
+        let c = textureSampleLevel(curColor, curColorSampler, uv + vec2f(0.0, step.y), 0.0);
+        let d = textureSampleLevel(curColor, curColorSampler, uv + step, 0.0);
+        let m = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    #endif
     // the raster leaves empty texels transparent black, so the mean is premultiplied coverage
     return vec4f(m.rgb, m.a);
 }
@@ -177,8 +287,8 @@ fn historyTexel(p: vec2i, dims: vec2i) -> vec4f {
 // frames a moving history lives. Its lobes over- and undershoot; the encoding clamps both
 fn historyCubicAt(uv: vec2f, dims: vec2i) -> vec4f {
     let p = uv * vec2f(dims) - vec2f(0.5);
-    let i0 = vec2i(floor(p));
-    let f = p - floor(p);
+    let i0 = floor(p);
+    let f = p - i0;
     let f2 = f * f;
     let f3 = f2 * f;
     // Catmull-Rom weights for taps at -1, 0, 1, 2
@@ -186,36 +296,45 @@ fn historyCubicAt(uv: vec2f, dims: vec2i) -> vec4f {
     let w1 = 1.5 * f3 - 2.5 * f2 + vec2f(1.0);
     let w2 = -1.5 * f3 + 2.0 * f2 + 0.5 * f;
     let w3 = 0.5 * f3 - 0.5 * f2;
-    let wx = array<f32, 4>(w0.x, w1.x, w2.x, w3.x);
-    let wy = array<f32, 4>(w0.y, w1.y, w2.y, w3.y);
-    var sum = vec4f(0.0);
-    for (var y = 0; y < 4; y++) {
-        for (var x = 0; x < 4; x++) {
-            sum += historyTexel(i0 + vec2i(x - 1, y - 1), dims) * (wx[x] * wy[y]);
+    #ifdef SSE_TAA_HALF
+        // five bilinear taps (Jimenez, Filmic SMAA, 2016): along each axis the two middle texels
+        // in one tap placed between them by their weights, and the four corner taps, each the
+        // product of two small outer weights, left out and the rest renormalised
+        let size = vec2f(dims);
+        let w12 = w1 + w2;
+        let t0 = (i0 - vec2f(0.5)) / size;
+        let t3 = (i0 + vec2f(2.5)) / size;
+        let t12 = (i0 + vec2f(0.5) + w2 / w12) / size;
+        let sum = textureSampleLevel(histColor, histColorSampler, vec2f(t12.x, t0.y), 0.0) * (w12.x * w0.y) +
+            textureSampleLevel(histColor, histColorSampler, vec2f(t0.x, t12.y), 0.0) * (w0.x * w12.y) +
+            textureSampleLevel(histColor, histColorSampler, t12, 0.0) * (w12.x * w12.y) +
+            textureSampleLevel(histColor, histColorSampler, vec2f(t3.x, t12.y), 0.0) * (w3.x * w12.y) +
+            textureSampleLevel(histColor, histColorSampler, vec2f(t12.x, t3.y), 0.0) * (w12.x * w3.y);
+        return sum / (w12.x * (w0.y + w12.y + w3.y) + (w0.x + w3.x) * w12.y);
+    #else
+        let wx = array<f32, 4>(w0.x, w1.x, w2.x, w3.x);
+        let wy = array<f32, 4>(w0.y, w1.y, w2.y, w3.y);
+        var sum = vec4f(0.0);
+        for (var y = 0; y < 4; y++) {
+            for (var x = 0; x < 4; x++) {
+                sum += historyTexel(vec2i(i0) + vec2i(x - 1, y - 1), dims) * (wx[x] * wy[y]);
+            }
         }
-    }
-    return sum;
-}
-
-// bilinear fetch of the history
-fn historyAt(uv: vec2f, dims: vec2i) -> vec4f {
-    let p = uv * vec2f(dims) - vec2f(0.5);
-    let i0 = vec2i(floor(p));
-    let f = p - floor(p);
-    let a = historyTexel(i0, dims);
-    let b = historyTexel(i0 + vec2i(1, 0), dims);
-    let c = historyTexel(i0 + vec2i(0, 1), dims);
-    let d = historyTexel(i0 + vec2i(1, 1), dims);
-    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        return sum;
+    #endif
 }
 
 @fragment
 fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     var output: FragmentOutput;
     let pix = vec2i(pcPosition.xy);
-    let dims = vec2i(textureDimensions(curColor));
-    let cur = textureLoad(curColor, pix, 0);
-    let z = textureLoad(curDepth, pix, 0);
+    let dims = vec2i(uniform.taaViewport.xy);
+    let here = current(pix);
+    let cur = here.color;
+    let z = here.depth;
+    #ifdef SSE_SETS
+        output.fragDepth = z;
+    #endif
     let hit = cur.a > 0.0 && z < 1.0;
     let d = viewDepthOf(z);
 
@@ -224,9 +343,10 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
     let historyValid = uniform.taaParams.y > 0.5;
     let moving = uniform.taaParams.z > 0.5;
     // still: this pixel's own sample, so the history converges to full resolution; moving:
-    // the quad's four
-    var sample = select(vec4f(0.0), vec4f(cur.rgb, 1.0), hit);
-    if (moving && uniform.taaControl.z > 0.5) {
+    // the quad's four, which a long history takes back toward the pixel's own (below)
+    let single = select(vec4f(0.0), vec4f(cur.rgb, 1.0), hit);
+    var sample = single;
+    if (moving) {
         sample = quadSample(pix, dims);
     }
 
@@ -243,7 +363,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         r.uv = (vec2f(pix) + vec2f(0.5)) * uniform.taaViewport.zw;
         r.prevDepth = select(own.depth, d, hit);
         carryDepth = r.prevDepth;
-    } else if (uniform.taaFilter.y > 0.5 && own.count > 0.5) {
+    } else if (uniform.taaControl.z > 0.5 && own.count > 0.5) {
         // through the depth the pixel's history has settled on: one stochastic sample's depth
         // is one layer of the mixture the history holds, and reprojecting the mixture through
         // a different layer every frame smears it by their parallax
@@ -267,11 +387,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             hist = decodeColor(textureLoad(histColor, pix, 0));
             info = own;
         } else {
-            if (uniform.taaFilter.x > 0.5) {
-                hist = historyCubicAt(r.uv, dims);
-            } else {
-                hist = historyAt(r.uv, dims);
-            }
+            hist = historyCubicAt(r.uv, dims);
             info = decodeInfo(textureLoad(histInfo, clamp(vec2i(r.uv * vec2f(dims)), vec2i(0), dims - vec2i(1)), 0).x);
         }
         // a resting camera cannot disocclude anything, so every sample is accepted and the
@@ -313,13 +429,33 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         }
         // the faster the image moves, the shorter the history: a stochastic pixel's layers
         // reproject through one layer's depth, so their parallax smears the history by an
-        // amount that grows with the motion, and a raw frame is the better estimate past it
+        // amount that grows with the motion, and a raw frame is the better estimate past it.
+        // A rotation moves every layer alike, whatever its depth, so with variant taaParallax
+        // the motion counts for no more than the parallax the camera's translation adds
         var cap = maxCount;
-        if (moving && uniform.taaFilter.z > 0.0) {
-            let speed = length(r.uv * vec2f(dims) - vec2f(pix) - vec2f(0.5));
-            cap = max(2.0, maxCount / (1.0 + speed / uniform.taaFilter.z));
+        if (moving && uniform.taaControl.w > 0.0) {
+            var speed = length(r.uv * vec2f(dims) - vec2f(pix) - vec2f(0.5));
+            let parallax = length((r.uv - r.farUv) * vec2f(dims));
+            if (uniform.taaMoving.x > 0.5) {
+                speed = min(speed, parallax);
+            }
+            cap = max(2.0, maxCount / (1.0 + speed / uniform.taaControl.w));
+            // A history nearer than this frame's sample is what an occluder left behind as it
+            // moved off the pixel: its surface's parallax is the sample's scaled by their depth
+            // ratio, so it lands that much further each frame from where it is fetched, and a
+            // history the length of the background's own motion would streak. Its cap shrinks
+            // by that misplacement; a rotation has no parallax, so it keeps its history
+            if (uniform.taaMoving.x > 0.5 && hit) {
+                let ghost = parallax * max(r.prevDepth - info.depth, 0.0) / max(info.depth, 1e-6);
+                cap = min(cap, max(2.0, maxCount / (1.0 + ghost / TAA_GHOST_PX)));
+            }
         }
         count = min(info.count + 1.0, cap);
+        // variant taaSharp: the longer the history, the more of the noise it carries and the
+        // less the quad mean's blur buys, so the pixel's own sample takes count / (count + k)
+        if (moving && uniform.taaMoving.y > 0.0) {
+            sample = mix(sample, single, count / (count + uniform.taaMoving.y));
+        }
         let w = 1.0 / count;
         color = mix(hist, sample, w);
         // an empty sample takes at least a step off the coverage: rounded to the nearest, a
