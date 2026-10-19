@@ -39,6 +39,10 @@ const ROW_GROW = 0.96;
 const MORPH_TIME = 0.15;
 const KNOB_TIME = 0.15;
 const PRESS_SCALE = 0.95;
+// the pointing cursor: a dot where a ray meets the menu's plane, shown within CURSOR_REACH of the
+// column while the menu is open, or near the icon
+const CURSOR_SIZE = 0.01;
+const CURSOR_REACH = 0.45;
 
 // A press clicks, a short falling tone, and pulses a controller's haptic actuator
 const CLICK_PITCH = 1500;
@@ -114,13 +118,22 @@ const approach = (value: number, goal: number, step: number) =>
  * icon turns into a cross and the switches slide. The viewer hands the menu every select before
  * the navigation aims with it ({@link XrHeadMenu#select}), so the selects it takes do not
  * teleport. It follows the camera, so it also scales with a scaled rig, staying the same size in
- * view. Controllers' rays also highlight what they point at; Apple Vision Pro shows the eyes'
- * direction only as a pinch starts, so nothing highlights there before a press.
+ * view. Controllers' rays highlight what they point at and show a dot where they meet the menu,
+ * and so do hands' rays where they point (`pointingHands`, a standalone headset); Apple Vision Pro
+ * shows the eyes' direction only as a pinch starts, so nothing highlights there before a press.
  */
 class XrHeadMenu {
     private app: AppBase;
 
+    private camera: Entity;
+
     private items: XrHeadMenuItem[];
+
+    // whether hands' rays point where they select, so they hover and show a cursor
+    private pointingHands: boolean;
+
+    // a dot per pointing ray, where it meets the menu's plane
+    private cursors: Quad[];
 
     private icon: Quad;
 
@@ -152,16 +165,25 @@ class XrHeadMenu {
      * @param app - The application.
      * @param camera - The XR camera's entity, which the menu follows.
      * @param items - The menu's rows, top to bottom.
+     * @param options - `pointingHands`: hands' rays point where they select (a standalone headset),
+     * so they highlight what they point at and show a cursor, as controllers' do.
      */
-    constructor(app: AppBase, camera: Entity, items: XrHeadMenuItem[]) {
+    constructor(app: AppBase, camera: Entity, items: XrHeadMenuItem[], options: { pointingHands?: boolean } = {}) {
         this.app = app;
+        this.camera = camera;
         this.items = items;
+        this.pointingHands = options.pointingHands ?? false;
 
         this.icon = this.createQuad(camera, ICON_SIZE, ICON_SIZE);
         this.icon.entity.setLocalPosition(ICON_POSITION);
         this.rows = items.map(() => this.createQuad(camera, ROW_WIDTH, ROW_HEIGHT));
         this.knobs = items.map((item) => (item.checked?.() ? 1 : 0));
         this.shown = items.map(() => 0);
+        this.cursors = [0, 1].map(() => this.createQuad(camera, CURSOR_SIZE, CURSOR_SIZE));
+        for (const cursor of this.cursors) {
+            this.drawCursor(cursor);
+            cursor.entity.enabled = false;
+        }
 
         const { xr } = app;
         this.handles = [
@@ -195,7 +217,7 @@ class XrHeadMenu {
     destroy() {
         this.cancelPress();
         for (const handle of this.handles) handle.off();
-        for (const quad of [this.icon, ...this.rows]) {
+        for (const quad of [this.icon, ...this.rows, ...this.cursors]) {
             quad.entity.destroy();
             quad.material.destroy();
             quad.texture.destroy();
@@ -277,6 +299,7 @@ class XrHeadMenu {
         this.morph = 0;
         this.drawIcon();
         for (const row of this.rows) row.entity.enabled = false;
+        for (const cursor of this.cursors) cursor.entity.enabled = false;
     }
 
     private setOpen(open: boolean) {
@@ -353,16 +376,22 @@ class XrHeadMenu {
     private update(dt: number) {
         if (!this.icon.entity.enabled) return;
         this.updateHover();
+        this.updateCursors();
         this.updatePress();
         this.animate(dt);
     }
 
-    // Controllers' rays highlight what they point at; hands' rays do not, as a hand's ray points
-    // along the hand rather than where it selects (Apple Vision Pro's look and pinch)
+    // whether a source's ray points where it selects: a controller's, or a hand's on a headset
+    // whose hands point (on Apple Vision Pro a hand's ray runs along the hand while the eyes select)
+    private pointing(source: XrInputSource) {
+        return source.targetRayMode === 'tracked-pointer' && (!source.hand || this.pointingHands);
+    }
+
+    // pointing rays highlight what they point at
     private updateHover() {
         let hovered: Quad | null = null;
         for (const source of this.app.xr.input.inputSources) {
-            if (source.targetRayMode !== 'tracked-pointer' || source.hand) continue;
+            if (!this.pointing(source)) continue;
             hovered = this.pointedAt(source) ?? hovered;
         }
         if (hovered !== this.hovered) {
@@ -371,6 +400,31 @@ class XrHeadMenu {
             if (previous) this.drawQuad(previous);
             if (hovered) this.drawQuad(hovered);
         }
+    }
+
+    // a dot where each pointing ray meets the menu's plane, while the menu is open or the ray is
+    // near the icon: without it a hand's ray gives no sign of where it points
+    private updateCursors() {
+        let used = 0;
+        inverse.copy(this.camera.getWorldTransform()).invert();
+        for (const source of this.app.xr.input.inputSources) {
+            if (used >= this.cursors.length) break;
+            if (!this.pointing(source)) continue;
+            const origin = inverse.transformPoint(source.getOrigin(), localOrigin);
+            const direction = inverse.transformVector(source.getDirection(), localDirection);
+            if (direction.z >= 0) continue;
+            const t = (-MENU_DISTANCE - origin.z) / direction.z;
+            if (t <= 0) continue;
+            const x = origin.x + direction.x * t;
+            const y = origin.y + direction.y * t;
+            const nearIcon = Math.hypot(x - ICON_POSITION.x, y - ICON_POSITION.y) < ICON_SIZE * ICON_HIT;
+            if (!nearIcon && !(this.open && Math.hypot(x, y - MENU_TOP) < CURSOR_REACH)) continue;
+            const cursor = this.cursors[used++];
+            cursor.entity.enabled = true;
+            // a touch in front of the quads
+            cursor.entity.setLocalPosition(x, y, -MENU_DISTANCE + 0.002);
+        }
+        for (let i = used; i < this.cursors.length; i++) this.cursors[i].entity.enabled = false;
     }
 
     // whether the press is still on its quad; a source gone without ending its select cancels it
@@ -529,6 +583,23 @@ class XrHeadMenu {
             ctx.fill();
         }
         this.upload(row);
+    }
+
+    // a white dot with a dark rim
+    private drawCursor(quad: Quad) {
+        const { canvas } = quad;
+        const ctx = canvas.getContext('2d')!;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const r = canvas.width * 0.5;
+        ctx.beginPath();
+        ctx.arc(r, r, r * 0.9, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(20, 22, 28, 0.9)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(r, r, r * 0.6, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        this.upload(quad);
     }
 
     private upload(quad: Quad) {

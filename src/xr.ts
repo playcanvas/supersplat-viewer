@@ -399,34 +399,42 @@ const initXr = (global: Global) => {
 
     // The head-locked menu, which takes the selects that start on it (or anywhere while it is open)
     // before the navigation aims with them
-    const menu = new XrHeadMenu(app, camera, [
-        { label: () => localize('tooltip.reset-camera'), action: placeAtStart },
-        {
-            label: () => localize('settings.look-navigation'),
-            checked: () => state.lookNavigation,
-            visible: () => visionPro,
-            action: () => {
-                state.lookNavigation = !state.lookNavigation;
+    const menu = new XrHeadMenu(
+        app,
+        camera,
+        [
+            { label: () => localize('tooltip.reset-camera'), action: placeAtStart },
+            {
+                label: () => localize('settings.look-navigation'),
+                checked: () => state.lookNavigation,
+                visible: () => visionPro,
+                action: () => {
+                    state.lookNavigation = !state.lookNavigation;
+                }
+            },
+            {
+                label: () => localize('xr-menu.ice-cream'),
+                checked: () => state.iceCream,
+                // tracked hands only: a session without them has no fist
+                visible: () => !!iceCream && xr.input.inputSources.some((source) => !!source.hand),
+                action: () => {
+                    state.iceCream = !state.iceCream;
+                }
+            },
+            {
+                label: () => localize(xr.type === 'immersive-ar' ? 'xr-menu.exit-ar' : 'xr-menu.exit-vr'),
+                action: () => {
+                    void end().catch(() => {
+                        /* the browser may already be ending the session */
+                    });
+                }
             }
-        },
+        ],
         {
-            label: () => localize('xr-menu.ice-cream'),
-            checked: () => state.iceCream,
-            // tracked hands only: a session without them has no fist
-            visible: () => !!iceCream && xr.input.inputSources.some((source) => !!source.hand),
-            action: () => {
-                state.iceCream = !state.iceCream;
-            }
-        },
-        {
-            label: () => localize(xr.type === 'immersive-ar' ? 'xr-menu.exit-ar' : 'xr-menu.exit-vr'),
-            action: () => {
-                void end().catch(() => {
-                    /* the browser may already be ending the session */
-                });
-            }
+            // a standalone headset's hands point where they select; the Vision Pro's eyes do
+            pointingHands: !visionPro
         }
-    ]);
+    );
     // and, while the splat is held, takes the rest: the world to teleport in is in the hand
     const isSystemSelect = navigation._isSystemSelect.bind(navigation);
     navigation._isSystemSelect = (source: XrInputSource) =>
