@@ -318,6 +318,18 @@ type XrViewMatrices = {
     projMat: Mat4;
 };
 
+// Whether two eyes see the same view depth, so the first eye's cached depth serves both in the
+// shared stereo projection: their view axes within a degree of parallel (a headset's eyes differ
+// by a fraction of a degree, Apple Vision Pro's by 0.13; canted displays by several), so the eyes
+// are offset only across the view and a splat's depth is the same in both
+const EYES_PARALLEL_COS = Math.cos((1 * Math.PI) / 180);
+const eyesShareDepth = (eyes: XrViewMatrices[]) => {
+    const a = eyes[0].viewOffMat.data;
+    const b = eyes[1].viewOffMat.data;
+    // the view's z axis in world space: the third row of the view matrix's rotation
+    return a[2] * b[2] + a[6] * b[6] + a[10] * b[10] >= EYES_PARALLEL_COS;
+};
+
 type EngineForwardRenderer = {
     renderForwardLayer(
         camera: Camera,
@@ -1652,12 +1664,14 @@ class StochasticSplatRenderer {
 
         // every view's target first: a shared projection places the splats in both eyes' at once
         const targets = this.views.map((view, i) => this.prepareTarget(view, i, !!eyes, width, height));
-        // variant stereo:shared, while the two eyes render alike targets and the lead's cache has
-        // room for the second eye's words in one storage binding. Otherwise each eye projects into
-        // its own cache, which the viewer's startup check (cacheFits) sized
+        // variant stereo:shared, while the two eyes render alike targets, see the same depth and
+        // the lead's cache has room for the second eye's words in one storage binding. Otherwise
+        // each eye projects into its own cache, which the viewer's startup check (cacheFits) sized
         const shared =
             count === 2 &&
             this.variant.stereo === 'shared' &&
+            !!eyes &&
+            eyesShareDepth(eyes) &&
             targets[0].width === targets[1].width &&
             targets[0].height === targets[1].height &&
             targets[0].warped === targets[1].warped &&

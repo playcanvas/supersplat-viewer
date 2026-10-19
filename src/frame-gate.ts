@@ -118,9 +118,13 @@ class FrameGate {
         }
     }
 
+    // One-shot renders and frames rendered while the gate was open (loading) can leave more than
+    // limit frames unfinished, so a completion grants the owed render only once the gpu is under
+    // the limit, or the gate is open
     private finished() {
         this.pending = Math.max(this.pending - 1, 0);
-        if (this.owed && !this.destroyed) {
+        const open = this.limit <= 0 || this.app.autoRender || this.pending < this.limit;
+        if (this.owed && open && !this.destroyed) {
             this.owed = false;
             this.app.renderNextFrame = true;
         }

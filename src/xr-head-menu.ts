@@ -334,8 +334,10 @@ class XrHeadMenu {
         const index = this.rows.indexOf(press.quad);
         const item = this.items[index];
         item.action();
-        // a switch stays open, its knob sliding to its new state
+        // a switch stays open, its knob sliding to its new state; its label is redrawn at once, as
+        // the action can change it without moving the knob (the sharpen cycle)
         if (!item.checked) this.setOpen(false);
+        else this.drawRow(index);
     }
 
     private cancelPress() {
