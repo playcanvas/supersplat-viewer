@@ -7,11 +7,11 @@ import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 import { VoxelCollision } from './collision';
 import type { Collision } from './collision';
 import { standaloneHeadset, visionPro } from './quality';
-import type { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
 import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
 import { initXrDepthClear } from './xr-depth-clear';
 import { XrGrabMove } from './xr-grab-move';
+import { XrHandStyle } from './xr-hand-style';
 import { XrHeadMenu } from './xr-head-menu';
 import { XrIceCream } from './xr-ice-cream';
 import { replaceTeleportArc } from './xr-teleport-arc';
@@ -119,7 +119,14 @@ const initXr = (global: Global) => {
     // The hand and controller models sit in the world, posed joint by joint in it, so they scale
     // with the user too: otherwise a grown user's fingers spread out at real thickness
     const scaleModel = (entity: Entity) => entity.setLocalScale(userScale, userScale, userScale);
-    const modelAdded = app.on('xr:controller:add', (_source: XrInputSource, entity: Entity) => scaleModel(entity));
+    // Hands drawn faint over the splats: the input profiles' generic hand, lit like the scene, looked
+    // heavy, and its steps at the scene's frame rate stood out (xr-hand-style.ts). Controllers keep
+    // their own models' materials
+    const handStyle = new XrHandStyle();
+    const modelAdded = app.on('xr:controller:add', (source: XrInputSource, entity: Entity) => {
+        scaleModel(entity);
+        if (source.hand) handStyle.apply(entity);
+    });
     const setUserScale = (scale: number) => {
         userScale = scale;
         for (const key of Object.keys(unscaled) as (keyof typeof unscaled)[]) {
@@ -393,14 +400,6 @@ const initXr = (global: Global) => {
         }
     };
 
-    // the stochastic renderer while it draws, for the menu's sharpen switch
-    let splatRenderer: StochasticSplatRenderer | null = null;
-    const splatRendererChanged = (renderer: StochasticSplatRenderer | null) => {
-        splatRenderer = renderer;
-    };
-    events.on('splatRenderer:ready', splatRendererChanged);
-    events.on('splatRenderer:changed', splatRendererChanged);
-
     // the Quality slider's position one step down (-1) or up (1) among those the device can hold,
     // or null at either end
     const qualityStep = (direction: -1 | 1) => {
@@ -441,21 +440,6 @@ const initXr = (global: Global) => {
                 visible: () => !!iceCream && xr.input.inputSources.some((source) => !!source.hand),
                 action: () => {
                     state.iceCream = !state.iceCream;
-                }
-            },
-            {
-                // the display sharpen (variant taaSharpen), cycled off, 1, 2; a development switch, so
-                // its label is not localized
-                label: () => {
-                    const k = splatRenderer?.variant.taaSharpen ?? 0;
-                    return `Sharpen: ${k > 0 ? k : 'off'}`;
-                },
-                checked: () => (splatRenderer?.variant.taaSharpen ?? 0) > 0,
-                visible: () => !!splatRenderer,
-                action: () => {
-                    if (!splatRenderer) return;
-                    const k = splatRenderer.variant.taaSharpen;
-                    splatRenderer.setSharpen(k >= 2 ? 0 : k >= 1 ? 2 : 1);
                 }
             },
             {
@@ -527,6 +511,7 @@ const initXr = (global: Global) => {
             cancel.off();
             updating.off();
             modelAdded.off();
+            handStyle.destroy();
             forgetReferenceSpace();
             menu.destroy();
             iceCreamChanged.off();

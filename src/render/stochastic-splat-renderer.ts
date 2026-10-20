@@ -282,10 +282,11 @@ const MODE_VARIANTS = {
 // The switches a stereo session adds over the mode's. A head never rests, so every frame takes the
 // moving history, whose cap of 16 left the coverage noise pulsing in semi-transparent areas; the
 // eyes keep up to 64 samples and shorten them four times as fast with the motion
-// (docs/stochastic-renderer.md, XR stereo). The moving history's resampling blur is a texel or
-// two, which at a headset's few pixels per degree is well above what the eye resolves, so the
-// eyes also get the display sharpen (judged in the Quest 3, 2026-10-16: 2 helps, 1 hardly shows)
-const STEREO_VARIANT = 'taaMoveMax:64,taaMotion:1,taaSharpen:2';
+// (docs/stochastic-renderer.md, XR stereo). No display sharpen: it helped on the Quest 3
+// (2026-10-16), which no longer offers the stochastic renderer, and on Apple Vision Pro, the one
+// headset that does, its denser displays leave no visible blur for it to take back (2026-10-20),
+// while its 5x5 taps cost about 2.4 ms a frame for two eyes on the Quest
+const STEREO_VARIANT = 'taaMoveMax:64,taaMotion:1';
 
 type StochasticMode = keyof typeof MODE_VARIANTS;
 

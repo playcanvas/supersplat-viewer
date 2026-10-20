@@ -19,9 +19,10 @@ const ICON_POSITION = new Vec3(-0.28, -0.22, -1);
 const ICON_SIZE = 0.05;
 const ICON_HIT = 1.6;
 
-// The open menu's rows, stacked down from MENU_TOP in the middle of the view a metre away, each
-// ROW_HEIGHT tall (4 degrees, for the eyes too) and drawn at PIXELS per meter
-const MENU_TOP = -0.04;
+// The open menu's rows, a column centred on MENU_CENTER (just below the middle of the view) a metre
+// away, however many rows it shows, each ROW_HEIGHT tall (4 degrees, for the eyes too) and drawn at
+// PIXELS per meter
+const MENU_CENTER = -0.05;
 const MENU_DISTANCE = 1;
 const ROW_WIDTH = 0.34;
 const ROW_HEIGHT = 0.07;
@@ -543,7 +544,7 @@ class XrHeadMenu {
             const x = origin.x + direction.x * t;
             const y = origin.y + direction.y * t;
             const nearIcon = Math.hypot(x - ICON_POSITION.x, y - ICON_POSITION.y) < ICON_SIZE * ICON_HIT;
-            if (!nearIcon && !(this.open && Math.hypot(x, y - MENU_TOP) < CURSOR_REACH)) continue;
+            if (!nearIcon && !(this.open && Math.hypot(x, y - MENU_CENTER) < CURSOR_REACH)) continue;
             const cursor = this.cursors[used++];
             cursor.entity.enabled = true;
             // a touch in front of the quads
@@ -582,7 +583,7 @@ class XrHeadMenu {
         const total = ROW_TIME + STAGGER * Math.max(shown - 1, 0);
         this.openness = approach(this.openness, this.open ? 1 : 0, dt / total);
         let k = 0;
-        let y = MENU_TOP;
+        let y = MENU_CENTER + 0.5 * (shown * ROW_HEIGHT + Math.max(shown - 1, 0) * ROW_GAP);
         this.items.forEach((item, i) => {
             const row = this.rows[i];
             const visible = item.visible?.() ?? true;
