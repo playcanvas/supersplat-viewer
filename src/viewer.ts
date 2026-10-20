@@ -20,8 +20,7 @@ import {
     GSPLAT_DEBUG_NONE,
     GSPLAT_RENDERER_RASTER_CPU_SORT,
     GSPLAT_RENDERER_RASTER_GPU_SORT,
-    LAYERID_SKYBOX,
-    platform
+    LAYERID_SKYBOX
 } from 'playcanvas';
 import type { CameraComponent, Entity, GraphicsDevice, GSplatComponent, Layer } from 'playcanvas';
 
@@ -45,7 +44,7 @@ import { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
 import type { ExperienceSettings, PostEffectSettings } from './settings';
 import type { CaptureOptions, Config, Global, XrMode } from './types';
 import { VoxelDebugOverlay } from './voxel-debug-overlay';
-import { initXr, standaloneHeadset } from './xr';
+import { initXr } from './xr';
 
 // String.replace wrapper that warns when the source substring is missing, so
 // shader chunk patches against the engine fail loudly instead of silently
@@ -75,30 +74,6 @@ const rendererTable: Record<Config['renderer'], number> = {
     webgl: GSPLAT_RENDERER_RASTER_CPU_SORT,
     webgpu: GSPLAT_RENDERER_RASTER_GPU_SORT
 };
-
-// quality budget, millions of splats
-const budgets = {
-    mobile: {
-        low: 1,
-        high: 2
-    },
-    desktop: {
-        low: 2,
-        high: 4
-    }
-};
-
-// budget while an XR session runs on a standalone headset, millions of splats. On a Quest 3,
-// 1M splats render at about 30 fps (40 at 0.8x resolution), against 10 fps at the 4M desktop
-// budget it otherwise gets
-const standaloneXrBudget = 1;
-
-// how much further away parts of the scene behind the camera count when choosing their detail,
-// which saves a lot of splats while orbiting, and the turn after which detail is chosen again.
-// XR sessions choose detail by distance alone, with no penalty and no turn-triggered choices: a
-// head turning less than 90 degrees brought the coarse detail chosen for behind it into view
-const lodBehindPenalty = 5;
-const lodUpdateAngle = 90;
 
 type GSplatOctreeResourceLike = {
     octree?: {
@@ -330,32 +305,19 @@ class Viewer {
         // configure the camera
         this.configureCamera(settings);
 
-        // The stochastic renderer, when opted in. Created before the first frame so it can
-        // switch the engine's own splat renderer off as soon as the engine creates it. An
-        // instance without the flag never constructs it, and the sorted path is untouched.
-        if (config.stochastic && renderer === 'webgpu') {
-            const worldLayer = app.scene.layers.getLayerByName('World');
-            // the largest budget this instance can ask for must fit the device's storage binding
-            const budget =
-                (config.budget && config.budget > 0
-                    ? config.budget
-                    : (platform.mobile ? budgets.mobile : budgets.desktop).high) * 1000000;
-            if (!StochasticSplatRenderer.cacheFits(app.graphicsDevice, budget)) {
-                console.warn(
-                    `stochastic renderer: a ${budget / 1000000}M splat budget exceeds this device's storage binding limit; the sorted renderer draws`
-                );
-            } else if (worldLayer) {
-                this.splatRenderer = new StochasticSplatRenderer(app, camera.camera, worldLayer, {
-                    source: config.splatSource,
-                    mode: config.stochastic === 'mobile' ? 'mobile' : 'pixel',
-                    variant: config.variant,
-                    requestFrame: () => this.frameGate.request()
-                });
-                // announced on the first frame rather than here: createViewer resolves after this
-                // constructor, so a page can only subscribe once loading is under way
-                events.once('firstFrame', () => events.fire('splatRenderer:ready', this.splatRenderer));
-            }
-        }
+        // The stochastic renderer, when the quality module says so (the Stochastic setting, or the
+        // flag). Created before the first frame so it can switch the engine's own splat renderer
+        // off as soon as the engine creates it, and switched in and out in place when the setting
+        // changes. An instance that never wants it never constructs it, and the sorted path is
+        // untouched.
+        this.syncSplatRenderer();
+        // announced on the first frame rather than here: createViewer resolves after this
+        // constructor, so a page can only subscribe once loading is under way
+        events.once('firstFrame', () => events.fire('splatRenderer:ready', this.splatRenderer));
+        const stochasticChanged = events.on('stochastic:changed', () => {
+            if (!this.destroyed) this.syncSplatRenderer();
+        });
+        this.onDestroy(() => stochasticChanged.off());
 
         // reconfigure camera when entering/exiting XR. The stochastic renderer draws the session
         // too, one view per eye on WebGPU. Follows xrMode rather than app.xr.active, which still
@@ -487,8 +449,8 @@ class Viewer {
         // which nodes that first pass pulls in.
 
         // these two allow LOD behind camera to drop, saves lots of splats
-        gsplat.lodUpdateAngle = lodUpdateAngle;
-        gsplat.lodBehindPenalty = lodBehindPenalty;
+        gsplat.lodUpdateAngle = global.quality.lodUpdateAngle;
+        gsplat.lodBehindPenalty = global.quality.lodBehindPenalty;
         gsplat.minContribution = 1;
         gsplat.alphaClip = 1 / 255;
         gsplat.antiAlias = config.aa;
@@ -600,9 +562,28 @@ class Viewer {
             this.xr.setGrabTarget(results[0], isWalkableSize(sceneBound));
 
             // the stochastic renderer leaves its frame's depth behind, so no pick pass is needed
-            this.picker = this.splatRenderer
-                ? new FrameDepthPicker(app, camera, this.splatRenderer)
-                : new Picker(app, camera);
+            // while it draws; the pass picker serves the sorted renderer. Each is made on first
+            // use, and the one in use follows the Stochastic setting
+            let enginePicker: Picker | null = null;
+            let framePicker: FrameDepthPicker | null = null;
+            const activePicker = (): ScenePicker => {
+                if (this.splatRenderer && this.global.quality.stochastic) {
+                    framePicker ??= new FrameDepthPicker(app, camera, this.splatRenderer);
+                    return framePicker;
+                }
+                enginePicker ??= new Picker(app, camera);
+                return enginePicker;
+            };
+            this.picker = {
+                pick: (x, y) => activePicker().pick(x, y),
+                pickSurface: (x, y) => activePicker().pickSurface(x, y),
+                pickVisibility: (points, radius) => activePicker().pickVisibility(points, radius),
+                renderView: () => activePicker().renderView(),
+                release: () => {
+                    enginePicker?.release();
+                    framePicker?.release();
+                }
+            };
             // for development pages (the bench measures pick noise), as splatRenderer:ready
             events.fire('picker:ready', this.picker);
             this.inputController = new InputController(global, this.picker);
@@ -684,22 +665,14 @@ class Viewer {
                 show: (value) => this.setMiniStats(value)
             });
 
+            // the budget, colour refresh and level-of-detail parameters are the quality module's
+            // (quality.ts), from the Quality slider, the Stochastic setting and the session
             const applyPerfSettings = () => {
-                const budget = () => {
-                    if (config.budget !== undefined && Number.isFinite(config.budget) && config.budget > 0) {
-                        return config.budget;
-                    }
-                    if (standaloneHeadset && state.xrMode !== null) {
-                        return standaloneXrBudget;
-                    }
-                    const quality = platform.mobile ? budgets.mobile : budgets.desktop;
-                    return state.performanceMode ? quality.low : quality.high;
-                };
-
-                gsplat.splatBudget = budget() * 1000000;
-                gsplat.colorUpdateAngle = state.performanceMode ? 1 : 0.2;
-                gsplat.lodBehindPenalty = state.xrMode === null ? lodBehindPenalty : 1;
-                gsplat.lodUpdateAngle = state.xrMode === null ? lodUpdateAngle : 0;
+                const { quality } = this.global;
+                gsplat.splatBudget = quality.budget * 1000000;
+                gsplat.colorUpdateAngle = quality.colorUpdateAngle;
+                gsplat.lodBehindPenalty = quality.lodBehindPenalty;
+                gsplat.lodUpdateAngle = quality.lodUpdateAngle;
                 gsplatComponent.lodRangeMin = 0;
                 gsplatComponent.lodRangeMax = 1000;
 
@@ -761,8 +734,10 @@ class Viewer {
                     revealed = true;
                     if (!app.xr.active) app.autoRender = false;
 
-                    // handle quality mode changes
-                    events.on('performanceMode:changed', applyPerfSettings);
+                    // handle quality changes: the slider, the renderer (whose availability can
+                    // move the budget) and the session
+                    events.on('quality:changed', applyPerfSettings);
+                    events.on('stochastic:changed', applyPerfSettings);
                     events.on('xrMode:changed', applyPerfSettings);
                     applyPerfSettings();
 
@@ -785,6 +760,33 @@ class Viewer {
 
             eventHandler.on('frame:ready', readyHandler);
         }, ignoreLoadFailure);
+    }
+
+    // Makes the stochastic renderer the first time the quality module wants it, then switches it
+    // in and out in place: off, it hands the splats back to the engine's renderer. Announces the
+    // change for the parts that hold the renderer (the XR menu's sharpen switch, the dev pages)
+    private syncSplatRenderer() {
+        const { app, config, events, camera, quality } = this.global;
+        const wanted = quality.stochastic;
+        if (wanted && !this.splatRenderer) {
+            const worldLayer = app.scene.layers.getLayerByName('World');
+            // the budget this instance asks for must fit the device's storage binding
+            const budget = quality.budget * 1000000;
+            if (!StochasticSplatRenderer.cacheFits(app.graphicsDevice, budget)) {
+                console.warn(
+                    `stochastic renderer: a ${quality.budget}M splat budget exceeds this device's storage binding limit; the sorted renderer draws`
+                );
+            } else if (worldLayer) {
+                this.splatRenderer = new StochasticSplatRenderer(app, camera.camera, worldLayer, {
+                    source: config.splatSource,
+                    mode: quality.stochasticMode,
+                    variant: config.variant,
+                    requestFrame: () => this.frameGate.request()
+                });
+            }
+        }
+        this.splatRenderer?.setEnabled(wanted);
+        events.fire('splatRenderer:changed', wanted ? this.splatRenderer : null);
     }
 
     private requireAlive(method: string): void {

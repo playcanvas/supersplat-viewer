@@ -61,11 +61,21 @@ const GLASS_PRESS = 'rgba(88, 94, 108, 0.96)';
 const ON = '#4cc38a';
 const OFF = 'rgba(255, 255, 255, 0.28)';
 
-/** A row of the menu: a button, or a switch when it has `checked`. */
+/** A stepper's moves, down (-1) or up (1), and whether each can be made from where it is. */
+type XrHeadMenuStepper = {
+    step: (direction: -1 | 1) => void;
+    can: (direction: -1 | 1) => boolean;
+};
+
+/**
+ * A row of the menu: a button, a switch when it has `checked`, or a stepper when it has `stepper`:
+ * an arrow either side of its label, the row's left half stepping down and its right half up.
+ */
 type XrHeadMenuItem = {
     label: () => string;
-    action: () => void;
+    action?: () => void;
     checked?: () => boolean;
+    stepper?: XrHeadMenuStepper;
     visible?: () => boolean;
 };
 
@@ -76,13 +86,18 @@ type Quad = {
     material: StandardMaterial;
 };
 
-// a select held on a quad: whether its ray is still on it, as of the last frame
+// a select held on a quad, on a stepper's half (0 elsewhere): whether its ray is still there, as
+// of the last frame
 type Press = {
     source: XrInputSource;
     quad: Quad;
+    side: Side;
     over: boolean;
     release: () => void;
 };
+
+// the half of a stepper's row, left (-1) or right (1), and 0 for the other quads
+type Side = -1 | 0 | 1;
 
 // a controller's gamepad, with the WebXR haptic actuators the dom typings leave out
 type HapticGamepad = Gamepad & {
@@ -94,6 +109,43 @@ const rayDirection = new Vec3();
 const localOrigin = new Vec3();
 const localDirection = new Vec3();
 const inverse = new Mat4();
+const rate = new Vec3();
+
+// Hands' rays jitter by a fraction of a degree, which the menu's distance turns into a wandering
+// cursor and a flickering hover. A one-euro filter (Casiez, Roussel and Vogel, 2012) smooths each
+// hand's ray: a low-pass whose cutoff rises with the ray's speed, so a still hand holds and a quick
+// move to a row follows without lag. Controllers' poses are steady and stay unfiltered
+const EURO_MIN_CUTOFF = 1; // Hz, at rest
+const EURO_BETA = 0.8; // cutoff gain per unit of speed (metres, or direction, a second)
+const EURO_SPEED_CUTOFF = 1; // Hz, smoothing the speed estimate itself
+
+const euroAlpha = (cutoff: number, dt: number) => 1 / (1 + 1 / (2 * Math.PI * cutoff * dt));
+
+// a one-euro filter over a vector
+class EuroFilter {
+    private value = new Vec3();
+
+    private speed = new Vec3();
+
+    private primed = false;
+
+    filter(sample: Vec3, dt: number, out: Vec3) {
+        if (!this.primed || dt <= 0) {
+            this.value.copy(sample);
+            this.speed.set(0, 0, 0);
+            this.primed = true;
+            return out.copy(sample);
+        }
+        rate.sub2(sample, this.value).mulScalar(1 / dt);
+        this.speed.lerp(this.speed, rate, euroAlpha(EURO_SPEED_CUTOFF, dt));
+        const cutoff = EURO_MIN_CUTOFF + EURO_BETA * this.speed.length();
+        this.value.lerp(this.value, sample, euroAlpha(cutoff, dt));
+        return out.copy(this.value);
+    }
+}
+
+// a hand's filtered ray, as of the last update
+type FilteredRay = { origin: EuroFilter; direction: EuroFilter; o: Vec3; d: Vec3 };
 
 const roundRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
     ctx.beginPath();
@@ -115,11 +167,13 @@ const approach = (value: number, goal: number, step: number) =>
  * which runs when the select ends still on it, as a button does: sliding off before letting go
  * cancels it. A select anywhere else while the menu is open closes it. A press clicks, pulses a
  * controller, and shows on the quad while the select stays on it; the rows fade in and out, the
- * icon turns into a cross and the switches slide. The viewer hands the menu every select before
+ * icon turns into a cross and the switches slide. A stepper's halves are buttons of their own, and
+ * one that cannot step is greyed out and takes no press. The viewer hands the menu every select before
  * the navigation aims with it ({@link XrHeadMenu#select}), so the selects it takes do not
  * teleport. It follows the camera, so it also scales with a scaled rig, staying the same size in
  * view. Controllers' rays highlight what they point at and show a dot where they meet the menu,
- * and so do hands' rays where they point (`pointingHands`, a standalone headset); Apple Vision Pro
+ * and so do hands' rays where they point (`pointingHands`, a standalone headset), smoothed by a
+ * one-euro filter against hand tracking's jitter; Apple Vision Pro
  * shows the eyes' direction only as a pinch starts, so nothing highlights there before a press.
  */
 class XrHeadMenu {
@@ -151,8 +205,16 @@ class XrHeadMenu {
 
     private shown: number[];
 
-    // the hovered quad, highlighted, and the press, if any
+    // the hovered quad, highlighted, its half where it is a stepper's, and the press, if any
     private hovered: Quad | null = null;
+
+    private hoveredSide: Side = 0;
+
+    // across the quad, -0.5 to 0.5 left to right, where the last ray to hit one met it
+    private hitX = 0;
+
+    // the filtered ray of each pointing hand
+    private filteredRays = new Map<XrInputSource, FilteredRay>();
 
     private press: Press | null = null;
 
@@ -209,8 +271,11 @@ class XrHeadMenu {
             this.setOpen(false);
             return true;
         }
-        // a second select while one is held is taken, and does nothing
-        if (!this.press) this.startPress(source, quad);
+        // a second select while one is held is taken, and does nothing, as is one on a stepper's
+        // greyed half
+        const side = this.sideOf(quad);
+        const stepper = this.itemOf(quad)?.stepper;
+        if (!this.press && !(stepper && !stepper.can(side as -1 | 1))) this.startPress(source, quad, side);
         return true;
     }
 
@@ -279,13 +344,27 @@ class XrHeadMenu {
         if (origin.y <= 0 || direction.y >= 0) return false;
         const t = -origin.y / direction.y;
         const half = 0.5 * margin;
-        return Math.abs(origin.x + direction.x * t) <= half && Math.abs(origin.z + direction.z * t) <= half;
+        const x = origin.x + direction.x * t;
+        if (Math.abs(x) > half || Math.abs(origin.z + direction.z * t) > half) return false;
+        this.hitX = x;
+        return true;
+    }
+
+    // the row's item, or null for the icon
+    private itemOf(quad: Quad) {
+        const index = this.rows.indexOf(quad);
+        return index >= 0 ? this.items[index] : null;
+    }
+
+    // the half of a stepper's row the last hit was on, just after pointedAt found the quad
+    private sideOf(quad: Quad): Side {
+        if (!this.itemOf(quad)?.stepper) return 0;
+        return this.hitX < 0 ? -1 : 1;
     }
 
     // the icon, or a row of the open menu, the input source's ray points at
     private pointedAt(source: XrInputSource) {
-        rayOrigin.copy(source.getOrigin());
-        rayDirection.copy(source.getDirection());
+        this.ray(source);
         if (this.hits(this.icon, ICON_HIT)) return this.icon;
         if (!this.open) return null;
         return this.rows.find((row) => row.entity.enabled && this.hits(row, 1)) ?? null;
@@ -306,14 +385,15 @@ class XrHeadMenu {
         this.cancelPress();
         this.open = open;
         this.hovered = null;
+        this.hoveredSide = 0;
         this.drawIcon();
         if (open) this.items.forEach((item, i) => this.drawRow(i));
     }
 
-    private startPress(source: XrInputSource, quad: Quad) {
+    private startPress(source: XrInputSource, quad: Quad, side: Side) {
         const release = () => this.endPress();
         source.once('selectend', release);
-        this.press = { source, quad, over: true, release };
+        this.press = { source, quad, side, over: true, release };
         this.feedback(source);
         this.drawQuad(quad);
     }
@@ -333,11 +413,16 @@ class XrHeadMenu {
         }
         const index = this.rows.indexOf(press.quad);
         const item = this.items[index];
-        item.action();
-        // a switch stays open, its knob sliding to its new state; its label is redrawn at once, as
-        // the action can change it without moving the knob (the sharpen cycle)
-        if (!item.checked) this.setOpen(false);
-        else this.drawRow(index);
+        if (item.stepper) {
+            item.stepper.step(press.side as -1 | 1);
+        } else {
+            item.action?.();
+        }
+        // a switch stays open, its knob sliding to its new state, and a stepper for the next step;
+        // the label is redrawn at once, as the action can change it without moving the knob (the
+        // sharpen cycle)
+        if (item.checked || item.stepper) this.drawRow(index);
+        else this.setOpen(false);
     }
 
     private cancelPress() {
@@ -377,6 +462,7 @@ class XrHeadMenu {
 
     private update(dt: number) {
         if (!this.icon.entity.enabled) return;
+        this.filterRays(dt);
         this.updateHover();
         this.updateCursors();
         this.updatePress();
@@ -389,17 +475,53 @@ class XrHeadMenu {
         return source.targetRayMode === 'tracked-pointer' && (!source.hand || this.pointingHands);
     }
 
-    // pointing rays highlight what they point at
+    // smooths every pointing hand's ray for this frame, and forgets hands that have gone
+    private filterRays(dt: number) {
+        const { inputSources } = this.app.xr.input;
+        for (const source of this.filteredRays.keys()) {
+            if (!inputSources.includes(source)) this.filteredRays.delete(source);
+        }
+        for (const source of inputSources) {
+            if (!source.hand || !this.pointing(source)) continue;
+            let ray = this.filteredRays.get(source);
+            if (!ray) {
+                ray = { origin: new EuroFilter(), direction: new EuroFilter(), o: new Vec3(), d: new Vec3() };
+                this.filteredRays.set(source, ray);
+            }
+            ray.origin.filter(source.getOrigin(), dt, ray.o);
+            ray.direction.filter(source.getDirection(), dt, ray.d).normalize();
+        }
+    }
+
+    // the source's ray into rayOrigin and rayDirection: a hand's as filtered, a controller's as is
+    private ray(source: XrInputSource) {
+        const filtered = this.filteredRays.get(source);
+        if (filtered) {
+            rayOrigin.copy(filtered.o);
+            rayDirection.copy(filtered.d);
+        } else {
+            rayOrigin.copy(source.getOrigin());
+            rayDirection.copy(source.getDirection());
+        }
+    }
+
+    // pointing rays highlight what they point at, a stepper's half
     private updateHover() {
         let hovered: Quad | null = null;
+        let side: Side = 0;
         for (const source of this.app.xr.input.inputSources) {
             if (!this.pointing(source)) continue;
-            hovered = this.pointedAt(source) ?? hovered;
+            const quad = this.pointedAt(source);
+            if (quad) {
+                hovered = quad;
+                side = this.sideOf(quad);
+            }
         }
-        if (hovered !== this.hovered) {
+        if (hovered !== this.hovered || side !== this.hoveredSide) {
             const previous = this.hovered;
             this.hovered = hovered;
-            if (previous) this.drawQuad(previous);
+            this.hoveredSide = side;
+            if (previous && previous !== hovered) this.drawQuad(previous);
             if (hovered) this.drawQuad(hovered);
         }
     }
@@ -412,8 +534,9 @@ class XrHeadMenu {
         for (const source of this.app.xr.input.inputSources) {
             if (used >= this.cursors.length) break;
             if (!this.pointing(source)) continue;
-            const origin = inverse.transformPoint(source.getOrigin(), localOrigin);
-            const direction = inverse.transformVector(source.getDirection(), localDirection);
+            this.ray(source);
+            const origin = inverse.transformPoint(rayOrigin, localOrigin);
+            const direction = inverse.transformVector(rayDirection, localDirection);
             if (direction.z >= 0) continue;
             const t = (-MENU_DISTANCE - origin.z) / direction.z;
             if (t <= 0) continue;
@@ -437,7 +560,7 @@ class XrHeadMenu {
             this.cancelPress();
             return;
         }
-        const over = this.pointedAt(press.source) === press.quad;
+        const over = this.pointedAt(press.source) === press.quad && this.sideOf(press.quad) === press.side;
         if (over !== press.over) {
             press.over = over;
             this.drawQuad(press.quad);
@@ -547,6 +670,10 @@ class XrHeadMenu {
     private drawRow(index: number) {
         const row = this.rows[index];
         const item = this.items[index];
+        if (item.stepper) {
+            this.drawStepper(row, item, item.stepper);
+            return;
+        }
         const { canvas } = row;
         const ctx = canvas.getContext('2d');
         const { width, height } = canvas;
@@ -584,6 +711,60 @@ class XrHeadMenu {
             ctx.arc(lerp(x + h / 2, x + w - h / 2, k), height / 2, h * 0.4, 0, Math.PI * 2);
             ctx.fill();
         }
+        this.upload(row);
+    }
+
+    // the label centred between two arrows, the hovered or pressed half lit, an arrow that cannot
+    // step greyed out
+    private drawStepper(row: Quad, item: XrHeadMenuItem, stepper: XrHeadMenuStepper) {
+        const { canvas } = row;
+        const ctx = canvas.getContext('2d');
+        const { width, height } = canvas;
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = GLASS;
+        roundRect(ctx, 1, 1, width - 2, height - 2, height * 0.3);
+        const pressed = this.press?.quad === row && this.press.over ? this.press.side : 0;
+        const lit = pressed || (this.hovered === row ? this.hoveredSide : 0);
+        if (lit && stepper.can(lit as -1 | 1)) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.roundRect(1, 1, width - 2, height - 2, height * 0.3);
+            ctx.clip();
+            ctx.fillStyle = pressed ? GLASS_PRESS : GLASS_HOVER;
+            ctx.fillRect(lit < 0 ? 0 : width / 2, 0, width / 2, height);
+            ctx.restore();
+        }
+
+        // the arrows, chevrons pointing out from the label
+        const inset = height * 0.45;
+        const reach = height * 0.09;
+        const rise = height * 0.15;
+        ctx.lineWidth = height * 0.06;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        for (const direction of [-1, 1] as const) {
+            const tip = direction < 0 ? inset : width - inset;
+            ctx.strokeStyle = stepper.can(direction) ? '#ffffff' : OFF;
+            ctx.beginPath();
+            ctx.moveTo(tip - direction * reach, height / 2 - rise);
+            ctx.lineTo(tip, height / 2);
+            ctx.lineTo(tip - direction * reach, height / 2 + rise);
+            ctx.stroke();
+        }
+
+        // the label, made smaller where it would run into the arrows
+        const room = width - 2 * (inset + height * 0.35);
+        const label = item.label();
+        const font = (size: number) => `500 ${size}px -apple-system, system-ui, sans-serif`;
+        const size = Math.round(height * 0.36);
+        ctx.font = font(size);
+        const measured = ctx.measureText(label).width;
+        if (measured > room) ctx.font = font(Math.floor((size * room) / measured));
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, width / 2, height / 2);
+        ctx.textAlign = 'start';
         this.upload(row);
     }
 

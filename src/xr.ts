@@ -6,6 +6,7 @@ import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 
 import { VoxelCollision } from './collision';
 import type { Collision } from './collision';
+import { standaloneHeadset, visionPro } from './quality';
 import type { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
 import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
@@ -30,19 +31,12 @@ const CAPSULE_HEIGHT = 1.5;
 const CAPSULE_RADIUS = 0.2;
 const CAPSULE_HOVER = 0.2;
 
-// Standalone headsets run XR on a mobile gpu, which draws every splat once per eye, but their
-// browsers report a desktop platform. Their sessions render with fixed foveation and a 72 Hz
-// target, at 0.8x resolution in performance mode, and the viewer lowers the splat budget.
-const standaloneHeadset = /OculusBrowser|PicoBrowser/.test(globalThis.navigator?.userAgent ?? '');
-
-// Apple Vision Pro's Safari reports a Mac, but one with touch points. Its pinches aim by the eyes,
-// which the lookNavigation setting can teleport by (iPad's Safari reports the same, but offers no VR)
-const visionPro =
-    /Macintosh/.test(globalThis.navigator?.userAgent ?? '') && (globalThis.navigator?.maxTouchPoints ?? 0) > 0;
+// the device tests live with the quality decisions they drive (quality.ts); re-exported below
+// for the ui
 
 // The viewer reconfigures the camera (clear color, post effects) when state.xrMode changes
 const initXr = (global: Global) => {
-    const { app, events, state, camera, renderer, root, localize } = global;
+    const { app, events, state, camera, renderer, root, localize, quality } = global;
     const { xr } = app;
     let destroyed = false;
     let restoreFrame: number | null = null;
@@ -289,10 +283,11 @@ const initXr = (global: Global) => {
         referenceSpace = (xr as unknown as { _referenceSpace: EventTarget | null })._referenceSpace;
         referenceSpace?.addEventListener('reset', recentered);
 
-        if (standaloneHeadset) {
-            xr.fixedFoveation = 1;
-            if (xr.supportedFrameRates?.includes(72)) xr.updateTargetFrameRate(72);
-        }
+        // the session's render parameters are the quality module's: fixed foveation and a frame
+        // rate target on standalone headsets
+        if (quality.xrFixedFoveation) xr.fixedFoveation = 1;
+        const frameRate = quality.xrTargetFrameRate;
+        if (frameRate !== null && xr.supportedFrameRates?.includes(frameRate)) xr.updateTargetFrameRate(frameRate);
 
         state.xrMode = xr.type === 'immersive-ar' ? 'ar' : 'vr';
     });
@@ -346,7 +341,7 @@ const initXr = (global: Global) => {
             await new Promise<void>((resolve, reject) => {
                 rejectStart = reject;
                 xr.start(camera.camera, type, 'local-floor', {
-                    framebufferScaleFactor: standaloneHeadset && state.performanceMode ? 0.8 : 1,
+                    framebufferScaleFactor: quality.xrFramebufferScale,
                     callback: (error) => {
                         if (destroyed) {
                             // Browser session requests cannot be cancelled. Close a late result.
@@ -398,11 +393,21 @@ const initXr = (global: Global) => {
         }
     };
 
-    // the stochastic renderer, once the viewer has made one, for the menu's sharpen switch
+    // the stochastic renderer while it draws, for the menu's sharpen switch
     let splatRenderer: StochasticSplatRenderer | null = null;
-    events.on('splatRenderer:ready', (renderer: StochasticSplatRenderer | null) => {
+    const splatRendererChanged = (renderer: StochasticSplatRenderer | null) => {
         splatRenderer = renderer;
-    });
+    };
+    events.on('splatRenderer:ready', splatRendererChanged);
+    events.on('splatRenderer:changed', splatRendererChanged);
+
+    // the Quality slider's position one step down (-1) or up (1) among those the device can hold,
+    // or null at either end
+    const qualityStep = (direction: -1 | 1) => {
+        const available = state.qualityAvailable;
+        const index = available.indexOf(state.quality);
+        return index < 0 ? null : (available[index + direction] ?? null);
+    };
 
     // The head-locked menu, which takes the selects that start on it (or anywhere while it is open)
     // before the navigation aims with them
@@ -411,6 +416,24 @@ const initXr = (global: Global) => {
         camera,
         [
             { label: () => localize('tooltip.reset-camera'), action: placeAtStart },
+            {
+                label: () => `${localize('settings.quality')}: ${localize(`settings.quality-${state.quality}`)}`,
+                stepper: {
+                    can: (direction) => qualityStep(direction) !== null,
+                    step: (direction) => {
+                        const next = qualityStep(direction);
+                        if (next) state.quality = next;
+                    }
+                }
+            },
+            {
+                label: () => localize('settings.stochastic'),
+                checked: () => state.stochastic,
+                visible: () => quality.stochasticAllowed,
+                action: () => {
+                    state.stochastic = !state.stochastic;
+                }
+            },
             {
                 label: () => localize('settings.look-navigation'),
                 checked: () => state.lookNavigation,

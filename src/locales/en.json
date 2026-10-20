@@ -1,5 +1,11 @@
 {
     "settings.performance-mode": "Performance Mode",
+    "settings.quality": "Quality",
+    "settings.quality-performance": "Performance",
+    "settings.quality-default": "Default",
+    "settings.quality-high": "High",
+    "settings.quality-max": "Max",
+    "settings.stochastic": "Stochastic Rendering",
     "settings.look-navigation": "Look to Teleport",
     "settings.gaming-controls": "Gaming Controls",
     "settings.show-annotations": "Show Annotations",

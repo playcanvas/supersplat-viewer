@@ -14,7 +14,8 @@
 // before the patch). Once a file's repack and palette decode have been submitted, the engine's
 // six textures and its palette are destroyed too, leaving the packed copy as the only one on
 // the gpu; the 4 KB codebook stays, the packed read uses it, and the engine's own unload of the
-// file finds the textures destroyed and does nothing more.
+// file finds the textures destroyed and does nothing more. Handing the files back to the engine's
+// renderer (the Stochastic setting switched off) rebuilds its textures from the packed copies.
 import {
     ADDRESS_CLAMP_TO_EDGE,
     BindGroupFormat,
@@ -24,7 +25,9 @@ import {
     BUFFERUSAGE_COPY_DST,
     Compute,
     FILTER_NEAREST,
+    PIXELFORMAT_R8U,
     PIXELFORMAT_R32U,
+    PIXELFORMAT_RGBA8,
     PIXELFORMAT_RGBA32F,
     PIXELFORMAT_RGBA32U,
     Quat,
@@ -53,7 +56,7 @@ import type {
     ResidentNode,
     ResidentSet
 } from './resident-set';
-import { decodeSHWGSL, packedReadWGSL, repackWGSL } from './shaders/packed-source';
+import { decodeSHWGSL, encodeSHWGSL, packedReadWGSL, repackWGSL, unpackWGSL } from './shaders/packed-source';
 import type { DispatchGroup, SplatSource } from './splat-source';
 
 const tmpScale = new Vec3();
@@ -61,6 +64,33 @@ const tmpRotation = new Quat();
 
 // per-file constants the projector's uniforms take
 type FileConstants = { rotation: number[]; scale: number[] };
+
+// The engine's textures of a file the unpack writes, the sh labels besides where the file has sh,
+// four a dispatch: WebGPU guarantees no more storage textures a shader stage
+const UNPACK_GROUPS = [['means_l', 'means_u', 'quats', 'scales'], ['sh0']];
+
+// the file's sh codebook
+const shCodebook = (resource: EngineResource) => resource.gsplatData?.meta?.shN?.codebook ?? [0, 1];
+
+// The codebook entry nearest each level of the decoded palette, over the file's codebook range as
+// the decode measures it: row 0 for its 11-bit channels, row 1 for its 10-bit one
+const levelIndices = (codebook: number[], range: number[]) => {
+    const data = new Uint8Array(2048 * 2);
+    [2047, 1023].forEach((levels, row) => {
+        const entries = codebook
+            .map((value, index) => ({ level: ((value - range[0]) / range[1]) * levels, index }))
+            .sort((a, b) => a.level - b.level);
+        // the nearest entry only moves up the sorted entries as the level rises
+        let k = 0;
+        for (let q = 0; q <= levels; q++) {
+            while (k + 1 < entries.length && Math.abs(entries[k + 1].level - q) <= Math.abs(entries[k].level - q)) {
+                k++;
+            }
+            data[row * 2048 + q] = entries[k].index;
+        }
+    });
+    return data;
+};
 
 class DirectSplatSource implements SplatSource {
     readonly kind = 'direct' as const;
@@ -90,6 +120,12 @@ class DirectSplatSource implements SplatSource {
 
     // the files' codebook ranges (min, extent), the palette's dequantisation constants
     private ranges = new Map<EngineResource, number[]>();
+
+    // the inverses that hand the files back to the engine's renderer: the unpacks, by the
+    // textures they write, and the palette's re-encode
+    private unpackComputes = new Map<string, Compute>();
+
+    private encodeSH: Compute | null = null;
 
     private patched: {
         workBuffer: EngineWorkBuffer;
@@ -184,7 +220,7 @@ class DirectSplatSource implements SplatSource {
     private codebookRange(resource: EngineResource) {
         let range = this.ranges.get(resource);
         if (!range) {
-            const codebook = resource.gsplatData?.meta?.shN?.codebook ?? [0, 1];
+            const codebook = shCodebook(resource);
             let min = Infinity;
             let max = -Infinity;
             for (const value of codebook) {
@@ -310,6 +346,146 @@ class DirectSplatSource implements SplatSource {
 
     suspend() {
         this.restoreWorkBuffer();
+        this.restoreFiles();
+    }
+
+    // The engine's renderer draws the files from their own textures, which were released once a
+    // file was repacked (those repacked this frame still have theirs): rebuild them from the
+    // packed copies. The copies then go, as the engine's renderer reads none of them; the next
+    // update() repacks and releases again. The engine destroys a texture's gpu side after the
+    // frame's submit, so the copies can go before the unpack has run
+    private restoreFiles() {
+        this.evict();
+        for (const resource of this.packed.keys()) {
+            if (!this.pendingRelease.includes(resource)) this.restoreTextures(resource);
+        }
+        this.pendingRelease.length = 0;
+        for (const { geom, color } of this.packed.values()) {
+            geom.destroy();
+            color.destroy();
+        }
+        this.packed.clear();
+        for (const { texture, compute } of this.decodedSH.values()) {
+            texture.destroy();
+            compute.destroy();
+        }
+        this.decodedSH.clear();
+    }
+
+    // One file's engine textures from its packed copy, and its palette from the decoded one, put
+    // where the engine reads them: the resource's streams, its data (which destroys them with the
+    // file) and the materials of the work buffer's copies, which bound the released ones
+    private restoreTextures(resource: EngineResource) {
+        const { device } = this;
+        const textures = resource.streams.textures;
+        const rebuilt = new Map<string, Texture>();
+        // a texture like the released one, written by the inverse
+        const rebuild = (name: string) => {
+            const released = textures.get(name)!;
+            const texture = new Texture(device, {
+                name: released.name,
+                width: released.width,
+                height: released.height,
+                format: PIXELFORMAT_RGBA8,
+                mipmaps: false,
+                storage: true,
+                minFilter: released.minFilter,
+                magFilter: released.magFilter,
+                addressU: released.addressU,
+                addressV: released.addressV
+            });
+            rebuilt.set(name, texture);
+            return texture;
+        };
+
+        const sh = textures.has('sh_labels');
+        const { geom, color } = this.packed.get(resource)!;
+        for (const group of UNPACK_GROUPS) {
+            const outputs = sh && group.includes('sh0') ? [...group, 'sh_labels'] : group;
+            const unpack = this.unpackCompute(outputs);
+            unpack.setParameter('packedGeom', geom);
+            unpack.setParameter('packedColor', color);
+            for (const name of outputs) unpack.setParameter(name, rebuild(name));
+            unpack.setupDispatch(Math.ceil(geom.width / 16), Math.ceil(geom.height / 16), 1);
+            device.computeDispatch([unpack], 'sse-splat-unpack');
+        }
+
+        const decoded = this.decodedSH.get(resource)?.texture;
+        if (decoded) {
+            const levels = new Texture(device, {
+                name: 'sse-splat-sh-levels',
+                width: 2048,
+                height: 2,
+                format: PIXELFORMAT_R8U,
+                mipmaps: false,
+                minFilter: FILTER_NEAREST,
+                magFilter: FILTER_NEAREST,
+                addressU: ADDRESS_CLAMP_TO_EDGE,
+                addressV: ADDRESS_CLAMP_TO_EDGE,
+                levels: [levelIndices(shCodebook(resource), this.codebookRange(resource))]
+            });
+            const encode = this.encodeSHCompute();
+            encode.setParameter('decodedSH', decoded);
+            encode.setParameter('levelIndices', levels);
+            encode.setParameter('sh_centroids', rebuild('sh_centroids'));
+            encode.setupDispatch(Math.ceil(decoded.width / 16), Math.ceil(decoded.height / 16), 1);
+            device.computeDispatch([encode], 'sse-splat-encode-sh');
+            levels.destroy();
+        }
+
+        for (const [name, texture] of rebuilt) {
+            textures.set(name, texture);
+            Reflect.set(resource.gsplatData!, name, texture);
+            for (const { material } of resource.workBufferRenderInfos.values()) material.setParameter(name, texture);
+        }
+    }
+
+    private unpackCompute(outputs: string[]) {
+        const key = outputs.join(',');
+        let compute = this.unpackComputes.get(key);
+        if (!compute) {
+            const { device } = this;
+            const name = `sse-splat-unpack-${key}`;
+            compute = new Compute(
+                device,
+                new Shader(device, {
+                    name,
+                    shaderLanguage: SHADERLANGUAGE_WGSL,
+                    cshader: unpackWGSL(outputs),
+                    computeBindGroupFormat: new BindGroupFormat(device, [
+                        new BindTextureFormat('packedGeom', SHADERSTAGE_COMPUTE, undefined, SAMPLETYPE_UINT, false),
+                        new BindTextureFormat('packedColor', SHADERSTAGE_COMPUTE, undefined, SAMPLETYPE_UINT, false),
+                        ...outputs.map(
+                            (output) => new BindStorageTextureFormat(output, PIXELFORMAT_RGBA8, TEXTUREDIMENSION_2D)
+                        )
+                    ])
+                }),
+                name
+            );
+            this.unpackComputes.set(key, compute);
+        }
+        return compute;
+    }
+
+    private encodeSHCompute() {
+        if (!this.encodeSH) {
+            const { device } = this;
+            this.encodeSH = new Compute(
+                device,
+                new Shader(device, {
+                    name: 'sse-splat-encode-sh',
+                    shaderLanguage: SHADERLANGUAGE_WGSL,
+                    cshader: encodeSHWGSL,
+                    computeBindGroupFormat: new BindGroupFormat(device, [
+                        new BindTextureFormat('decodedSH', SHADERSTAGE_COMPUTE, undefined, SAMPLETYPE_UINT, false),
+                        new BindTextureFormat('levelIndices', SHADERSTAGE_COMPUTE, undefined, SAMPLETYPE_UINT, false),
+                        new BindStorageTextureFormat('sh_centroids', PIXELFORMAT_RGBA8, TEXTUREDIMENSION_2D)
+                    ])
+                }),
+                'sse-splat-encode-sh'
+            );
+        }
+        return this.encodeSH;
     }
 
     // The engine's copies into the work buffer are wasted work for this path and its textures
@@ -550,6 +726,12 @@ fn srcColor() -> vec3f {
         this.repack?.shader.destroy();
         this.repack?.destroy();
         this.repack = null;
+        for (const compute of [...this.unpackComputes.values(), this.encodeSH]) {
+            compute?.shader.destroy();
+            compute?.destroy();
+        }
+        this.unpackComputes.clear();
+        this.encodeSH = null;
         for (const { texture, compute } of this.decodedSH.values()) {
             texture.destroy();
             compute.destroy();

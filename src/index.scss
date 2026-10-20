@@ -676,6 +676,68 @@
                         }
                     }
 
+                    &.sse-qualityValue {
+                        // room for the longest position and budget, so the panel's width holds
+                        min-width: 124px;
+                        justify-content: flex-end;
+                        font-size: 12px;
+                        cursor: default;
+                    }
+
+                    &.sse-qualityTrack {
+                        flex-grow: 1;
+                        position: relative;
+                        height: 28px;
+                        padding: 0;
+                        cursor: pointer;
+                        touch-action: none;
+
+                        .sse-qualityRail {
+                            position: absolute;
+                            left: 16px;
+                            right: 16px;
+                            top: 0;
+                            bottom: 0;
+
+                            &::before {
+                                content: '';
+                                position: absolute;
+                                left: 0;
+                                right: 0;
+                                top: 12px;
+                                height: 4px;
+                                border-radius: 2px;
+                                background-color: rgba(white, 0.15);
+                            }
+                        }
+
+                        .sse-qualityStop {
+                            position: absolute;
+                            top: 10px;
+                            width: 8px;
+                            height: 8px;
+                            margin-left: -4px;
+                            border-radius: 50%;
+                            background-color: #777;
+
+                            &.sse-disabled {
+                                opacity: 0.25;
+                            }
+                        }
+
+                        .sse-qualityThumb {
+                            position: absolute;
+                            top: 6px;
+                            width: 16px;
+                            height: 16px;
+                            margin-left: -8px;
+                            border-radius: 50%;
+                            background-color: var(--sse-accent);
+                            pointer-events: none;
+                            transition: left 120ms ease;
+                        }
+                    }
+
                     &:hover {
                         color: var(--sse-text);
                     }

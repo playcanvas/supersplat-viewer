@@ -4,6 +4,7 @@ import type { EventHandler } from 'playcanvas';
 import { version as appVersion } from '../package.json';
 
 import type { Picker } from './picker';
+import { QUALITY_LEVELS } from './quality';
 import { Tooltip } from './tooltip';
 import type { Global, ViewerHandle } from './types';
 import { initAnnotationControls } from './ui/annotation-controls';
@@ -100,9 +101,12 @@ const initUI = (
         'orbitCamera',
         'flyCamera',
         'fpsCamera',
-        'performanceModeRow',
-        'performanceModeCheck',
-        'performanceModeOption',
+        'qualityValue',
+        'qualityTrack',
+        'qualityRail',
+        'qualityThumb',
+        'stochasticRow',
+        'stochasticCheck',
         'gamingControlsRow',
         'gamingControlsCheck',
         'gamingControlsOption',
@@ -185,16 +189,56 @@ const initUI = (
         dom.loadingWrap.classList.add('sse-hidden');
     });
 
-    // Performance mode toggle
-    dom.performanceModeRow.addEventListener('click', () => {
-        state.performanceMode = !state.performanceMode;
+    // The Quality slider: a stop per position, the ones the device cannot hold disabled. A press
+    // or drag on the track moves the thumb to the nearest available stop
+    const qualityStops = Array.from(dom.qualityRail.querySelectorAll<HTMLElement>('.sse-qualityStop'));
+    const stopLeft = (index: number) => `${(index / (QUALITY_LEVELS.length - 1)) * 100}%`;
+    qualityStops.forEach((stop, i) => {
+        stop.style.left = stopLeft(i);
     });
 
-    const updatePerformanceMode = () => {
-        dom.performanceModeCheck.classList.toggle('sse-active', state.performanceMode);
+    const pickQuality = (event: PointerEvent) => {
+        const rail = dom.qualityRail.getBoundingClientRect();
+        const t = rail.width > 0 ? Math.min(1, Math.max(0, (event.clientX - rail.left) / rail.width)) : 0;
+        const at = t * (QUALITY_LEVELS.length - 1);
+        // the nearest available stop to the pointer
+        const nearest = state.qualityAvailable
+            .map((level) => ({ level, distance: Math.abs(QUALITY_LEVELS.indexOf(level) - at) }))
+            .sort((a, b) => a.distance - b.distance)[0];
+        if (nearest && nearest.level !== state.quality) state.quality = nearest.level;
     };
-    on('performanceMode:changed', updatePerformanceMode);
-    updatePerformanceMode();
+    dom.qualityTrack.addEventListener('pointerdown', (event: PointerEvent) => {
+        if (event.button !== 0) return;
+        dom.qualityTrack.setPointerCapture(event.pointerId);
+        pickQuality(event);
+    });
+    dom.qualityTrack.addEventListener('pointermove', (event: PointerEvent) => {
+        if (dom.qualityTrack.hasPointerCapture(event.pointerId)) pickQuality(event);
+    });
+
+    const updateQuality = () => {
+        dom.qualityThumb.style.left = stopLeft(QUALITY_LEVELS.indexOf(state.quality));
+        const budget = global.quality.levels().find((entry) => entry.level === state.quality)?.budget;
+        dom.qualityValue.textContent = `${localize(`settings.quality-${state.quality}`)}${budget == null ? '' : ` · ${budget}M`}`;
+        qualityStops.forEach((stop, i) => {
+            stop.classList.toggle('sse-disabled', !state.qualityAvailable.includes(QUALITY_LEVELS[i]));
+        });
+    };
+    on('quality:changed', updateQuality);
+    on('qualityAvailable:changed', updateQuality);
+    updateQuality();
+
+    // The stochastic renderer's toggle, where the device offers it
+    dom.stochasticRow.classList.toggle('sse-hidden', !global.quality.stochasticAllowed);
+    dom.stochasticRow.addEventListener('click', () => {
+        state.stochastic = !state.stochastic;
+    });
+
+    const updateStochastic = () => {
+        dom.stochasticCheck.classList.toggle('sse-active', state.stochastic);
+    };
+    on('stochastic:changed', updateStochastic);
+    updateStochastic();
 
     // Look navigation toggle, offered on Apple Vision Pro only, where pinches aim by the eyes
     dom.lookNavigationRow.addEventListener('click', () => {

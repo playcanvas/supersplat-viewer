@@ -1518,9 +1518,17 @@ class StochasticSplatRenderer {
         }
         this.resetHistory();
         this.depthFrame = null;
+        // the views' memory too: their caches, history and targets (125 MB at the 1M budget on an
+        // iPhone), which the first frame after attach() sizes again into one empty view, as it
+        // does for a session's eyes. The passes and materials take them from each frame's bindings
+        for (const view of this.views) view.destroy();
+        this.views = [new SplatView(this.device, this.viewShaders, '')];
         this.worldLayer.removeMeshInstances([this.composeInstance]);
         // the source first: the engine's renderer draws from the work buffer it may have patched
         this.source.suspend();
+        // and the set it was given: the first frame after attach() updates the source again,
+        // which patches the work buffer and repacks, even when the resident set has not changed
+        this.set = null;
         this.provider.setActive(false);
     }
 
