@@ -102,7 +102,7 @@ const initXr = (global: Global) => {
         _rotateRigAroundCamera(degrees: number): void;
         _isSystemSelect(inputSource: XrInputSource): boolean;
     };
-    replaceTeleportArc(navigation, () => state.lookNavigation);
+    replaceTeleportArc(navigation);
 
     // The user's scale, which grabbing a scene changes, and the navigation's distances and sizes
     // with it: its arc's speed by the square root, so the arc's reach and height scale
@@ -427,11 +427,11 @@ const initXr = (global: Global) => {
                 }
             },
             {
-                label: () => localize('settings.look-navigation'),
-                checked: () => state.lookNavigation,
-                visible: () => visionPro,
+                label: () => localize('settings.stochastic'),
+                checked: () => state.stochastic,
+                visible: () => quality.stochasticAllowed,
                 action: () => {
-                    state.lookNavigation = !state.lookNavigation;
+                    state.stochastic = !state.stochastic;
                 }
             },
             {

@@ -4,7 +4,7 @@ import type { QualityLevel, State } from './types';
 
 type Preferences = Pick<
     State,
-    'quality' | 'stochastic' | 'performanceMode' | 'gamingControls' | 'showAnnotations' | 'lookNavigation' | 'iceCream'
+    'quality' | 'stochastic' | 'performanceMode' | 'gamingControls' | 'showAnnotations' | 'iceCream'
 >;
 
 const QUALITY_VALUES: readonly QualityLevel[] = ['performance', 'default', 'high', 'max'];
@@ -16,7 +16,6 @@ const readPreferences = (mobile: boolean): Preferences => {
         performanceMode: mobile,
         gamingControls: false,
         showAnnotations: true,
-        lookNavigation: false,
         iceCream: false
     };
     try {
@@ -48,7 +47,6 @@ const readPreferences = (mobile: boolean): Preferences => {
             performanceMode: quality === 'performance',
             gamingControls: localStorage.getItem('gamingControls') === 'true',
             showAnnotations: localStorage.getItem('showAnnotations') !== 'false',
-            lookNavigation: localStorage.getItem('lookNavigation') === 'true',
             iceCream: localStorage.getItem('iceCream') === 'true'
         };
     } catch {
@@ -60,15 +58,7 @@ const readPreferences = (mobile: boolean): Preferences => {
 const persistPreferences = (events: EventHandler) => {
     // Write changes only, so creating a viewer does not persist platform defaults.
     const subscriptions = (
-        [
-            'quality',
-            'stochastic',
-            'performanceMode',
-            'gamingControls',
-            'showAnnotations',
-            'lookNavigation',
-            'iceCream'
-        ] as const
+        ['quality', 'stochastic', 'performanceMode', 'gamingControls', 'showAnnotations', 'iceCream'] as const
     ).map((key) =>
         events.on(`${key}:changed`, (value: boolean | string) => {
             try {

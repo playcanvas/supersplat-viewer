@@ -32,17 +32,16 @@ const ARC_LIFT = 0.15;
 
 /**
  * Replaces the teleport's arc. Its ballistic arc ends at what it hits, where the released engine's
- * collapses its samples past the hit onto it, which twists the ribbon's end. And with the
- * look aim on, a pinch whose ray follows the eyes (a transient pointer: Apple Vision Pro's look
- * and pinch) teleports where that ray first meets the ground, the arc drawn from the hand to it.
+ * collapses its samples past the hit onto it, which twists the ribbon's end. And a pinch whose
+ * ray follows the eyes (a transient pointer: Apple Vision Pro's look and pinch) teleports where
+ * that ray first meets the ground, the arc drawn from the hand to it.
  * visionOS reveals the eyes' direction only as the pinch starts; the hand then moves the ray.
  * Controllers keep the ballistic arc. The arc and its ring draw after the splats. The ballistic
  * arc is TEMPORARY (see `ballistic` below); the look aim and the draw order stay.
  *
  * @param navigation - The XrNavigation script.
- * @param lookAim - Whether the look aim is on.
  */
-const replaceTeleportArc = (navigation: TeleportArcNavigation, lookAim: () => boolean) => {
+const replaceTeleportArc = (navigation: TeleportArcNavigation) => {
     const points = navigation._arcPoints;
     const segments = points.length - 1;
 
@@ -164,7 +163,7 @@ const replaceTeleportArc = (navigation: TeleportArcNavigation, lookAim: () => bo
     };
 
     navigation._computeArcHit = (origin: Vec3, direction: Vec3, rec: { point: Vec3; valid: boolean }) => {
-        if (source?.targetRayMode === 'transient-pointer' && lookAim()) {
+        if (source?.targetRayMode === 'transient-pointer') {
             if (look(source, rec)) return;
             // nothing where the eyes are: the hand's arc, landing nowhere
             ballistic(origin, direction, rec, false);

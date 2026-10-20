@@ -20,7 +20,7 @@ const QUALITY_LEVELS: readonly QualityLevel[] = ['performance', 'default', 'high
 const standaloneHeadset = /OculusBrowser|PicoBrowser/.test(globalThis.navigator?.userAgent ?? '');
 
 // Apple Vision Pro's Safari reports a Mac, but one with touch points. Its pinches aim by the eyes,
-// which the lookNavigation setting can teleport by (iPad's Safari in desktop mode reports the
+// which its teleports follow (iPad's Safari in desktop mode reports the
 // same, but offers no VR; both are mobile-class devices for the budget)
 const visionPro =
     /Macintosh/.test(globalThis.navigator?.userAgent ?? '') && (globalThis.navigator?.maxTouchPoints ?? 0) > 0;

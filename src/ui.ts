@@ -110,8 +110,6 @@ const initUI = (
         'gamingControlsRow',
         'gamingControlsCheck',
         'gamingControlsOption',
-        'lookNavigationRow',
-        'lookNavigationCheck',
         'controlsButton',
         'controlsHint',
         'controlsHintClose',
@@ -239,23 +237,6 @@ const initUI = (
     };
     on('stochastic:changed', updateStochastic);
     updateStochastic();
-
-    // Look navigation toggle, offered on Apple Vision Pro only, where pinches aim by the eyes
-    dom.lookNavigationRow.addEventListener('click', () => {
-        state.lookNavigation = !state.lookNavigation;
-    });
-
-    const updateLookNavigation = () => {
-        dom.lookNavigationCheck.classList.toggle('sse-active', state.lookNavigation);
-    };
-    on('lookNavigation:changed', updateLookNavigation);
-    updateLookNavigation();
-
-    const updateLookNavigationVisibility = () => {
-        dom.lookNavigationRow.classList.toggle('sse-hidden', !(visionPro && state.hasVR));
-    };
-    on('hasVR:changed', updateLookNavigationVisibility);
-    updateLookNavigationVisibility();
 
     // Gaming mode toggle (settings row visible on mobile only)
     dom.gamingControlsRow.addEventListener('click', () => {
