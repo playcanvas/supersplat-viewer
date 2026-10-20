@@ -427,14 +427,6 @@ const initXr = (global: Global) => {
                 }
             },
             {
-                label: () => localize('settings.stochastic'),
-                checked: () => state.stochastic,
-                visible: () => quality.stochasticAllowed,
-                action: () => {
-                    state.stochastic = !state.stochastic;
-                }
-            },
-            {
                 label: () => localize('settings.look-navigation'),
                 checked: () => state.lookNavigation,
                 visible: () => visionPro,
