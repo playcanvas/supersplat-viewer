@@ -20,7 +20,7 @@ import { observe } from './core/observe';
 import { initLocalization } from './localization';
 import type { CreateViewerOptions } from './options';
 import { persistPreferences, readPreferences } from './preferences';
-import { Quality, resolutionScaleFor } from './quality';
+import { canvasPixelRatio, Quality, resolutionScaleFor } from './quality';
 import { importSettings } from './settings';
 import type { Config, Global, State, ViewerHandle } from './types';
 import { initPoster, initUI } from './ui';
@@ -212,11 +212,7 @@ const resizeCanvas = (
 ) => {
     if (!cssSize.width || !cssSize.height) return;
 
-    // maximum pixel dimension we will allow along the shortest screen dimension based on platform
-    const maxPixelDim = platform.mobile ? 1080 : 2160;
-    const pixelRatio = Math.min(maxPixelDim / Math.min(screen.width, screen.height), window.devicePixelRatio);
-
-    const scale = pixelRatio * resolutionScale;
+    const scale = canvasPixelRatio() * resolutionScale;
     const width = Math.ceil(cssSize.width * scale);
     const height = Math.ceil(cssSize.height * scale);
     if (width !== canvas.width || height !== canvas.height) {
@@ -525,5 +521,5 @@ console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engi
 
 export type { CaptureResult } from './capture';
 export type { CreateViewerOptions, ViewerAssets, ViewerFlags } from './options';
-export type { CaptureOptions, ViewerHandle, ViewerState, XrMode } from './types';
+export type { CaptureOptions, QualityLevel, ViewerHandle, ViewerState, XrMode } from './types';
 export { createViewer };

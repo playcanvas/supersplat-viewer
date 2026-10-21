@@ -20,9 +20,10 @@ type XrMode = 'ar' | 'vr';
 
 /**
  * A position of the Quality slider, left to right. Each picks the splat budget from the device
- * class's ladder (desktop 2 / 4 / 8 / 16 million, phones and tablets 1 / 2 / 4 / 8), and
- * `performance` also renders at half resolution. Positions the device cannot hold are listed out
- * of {@link ViewerState.qualityAvailable}.
+ * class's ladder (desktop 2 / 4 / 8 / 16 million, phones and tablets 1 / 2 / 4 / 8), and on the
+ * sorted renderer `performance` also renders at half resolution (the stochastic renderer keeps
+ * full resolution). Positions the device cannot hold are listed out of
+ * {@link ViewerState.qualityAvailable}.
  */
 type QualityLevel = 'performance' | 'default' | 'high' | 'max';
 
@@ -40,14 +41,16 @@ type State = {
     /** True once the first complete frame has rendered. */
     loaded: boolean;
     /**
-     * The Quality slider's position: the splat budget, and at `performance` half resolution.
+     * The Quality slider's position: the splat budget, and at `performance` half resolution on the
+     * sorted renderer.
      * Persisted in local storage; defaults to `performance` on phones and tablets, `default`
      * elsewhere. A position the device cannot hold falls back to the nearest available below it.
      */
     quality: QualityLevel;
     /**
-     * The positions the device can hold with the current renderer, in slider order. Read-only:
-     * decided from the gpu's storage-binding limit and a memory estimate per position.
+     * The positions the device can hold, in slider order. Read-only: decided from the gpu's
+     * storage-binding limit and a memory estimate per position, for both renderers where the
+     * stochastic setting can switch between them, so switching never changes the budget.
      */
     qualityAvailable: QualityLevel[];
     /**

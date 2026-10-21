@@ -73,6 +73,15 @@ const LOD_UPDATE_ANGLE = 90;
 const COLOR_UPDATE_ANGLE = 0.2;
 const COLOR_UPDATE_ANGLE_PERFORMANCE = 1;
 
+/**
+ * The canvas backbuffer's pixels per css pixel at full resolution: the display's ratio, capped so
+ * the screen's shorter side is at most 2160 pixels (1080 on a mobile device).
+ */
+const canvasPixelRatio = () => {
+    const maxPixelDim = platform.mobile ? 1080 : 2160;
+    return Math.min(maxPixelDim / Math.min(screen.width, screen.height), window.devicePixelRatio);
+};
+
 /** The resolution scale a slider position gives on a screen (the canvas backbuffer), for the sorted or the stochastic renderer. */
 const resolutionScaleFor = (level: QualityLevel, stochastic: boolean) =>
     level === 'performance' && !stochastic ? PERFORMANCE_SCALE : 1;
@@ -273,9 +282,12 @@ class Quality {
 
     private estimateMB(budget: number, stochastic: boolean) {
         if (!stochastic) return budget * SORTED_MB_PER_MILLION;
-        const { canvas } = this.app.graphicsDevice;
-        // a session draws two eyes; their size is not known before it starts, so the canvas stands in
-        const pixels = canvas.width * canvas.height * (this.state.xrMode !== null ? 2 : 1);
+        // the largest canvas the screen allows (fullscreen) at full resolution, rather than the
+        // canvas now, so the budget holds as the window resizes, goes fullscreen or changes renderer
+        // (sorted halves the canvas at Performance); a session draws two eyes, whose size is not known
+        // before it starts, so the screen stands in
+        const ratio = canvasPixelRatio();
+        const pixels = screen.width * screen.height * ratio * ratio * (this.state.xrMode !== null ? 2 : 1);
         return budget * STOCHASTIC_MB_PER_MILLION + (pixels * STOCHASTIC_BYTES_PER_PIXEL) / 1048576;
     }
 
@@ -297,5 +309,5 @@ class Quality {
     }
 }
 
-export { Quality, QUALITY_LEVELS, resolutionScaleFor, standaloneHeadset, visionPro };
+export { canvasPixelRatio, Quality, QUALITY_LEVELS, resolutionScaleFor, standaloneHeadset, visionPro };
 export type { DeviceClass };

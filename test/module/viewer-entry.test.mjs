@@ -58,6 +58,8 @@ describe('the /viewer entry', () => {
     it('publishes the option and handle types, with their documentation', () => {
         const types = read('../../dist/viewer.d.ts');
 
+        // exported by name, not only declared for a field that uses it
+        const exported = (types.match(/export type \{([^}]*)\}/)?.[1] ?? '').split(',').map((name) => name.trim());
         for (const name of [
             'CreateViewerOptions',
             'ViewerAssets',
@@ -65,10 +67,11 @@ describe('the /viewer entry', () => {
             'ViewerHandle',
             'ViewerState',
             'XrMode',
+            'QualityLevel',
             'CaptureOptions',
             'CaptureResult'
         ]) {
-            assert.match(types, new RegExp(`\\b${name}\\b`), `${name} missing from the published types`);
+            assert.ok(exported.includes(name), `${name} missing from the published types' exports`);
         }
 
         // the engine's types are part of this surface rather than inlined
