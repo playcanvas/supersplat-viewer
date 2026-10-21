@@ -239,25 +239,40 @@ class Quality {
         return levels.find((entry) => entry.budget !== null)?.budget ?? levels[0].budget ?? 1;
     }
 
-    // the largest budget up to `budget`, in steps of 0.1M, whose renderer cache fits one storage
-    // binding and whose estimated total stays under the ceiling; null when none does
+    // whether the toggle can switch renderers here: allowed, and not forced on by the flag
+    private get switchable() {
+        const { stochastic } = this.config;
+        return this.stochasticAllowed && stochastic !== true && stochastic !== 'mobile';
+    }
+
+    // The largest budget up to `budget`, in steps of 0.1M, that every renderer which may draw it
+    // can hold: its cache in one storage binding and its estimated total under the ceiling; null
+    // when none does. Where the toggle can switch renderers, both are fitted, so a switch never
+    // changes the budget: the splats resident for one renderer's budget could overflow the other's
+    // binding (sorted fails every frame past it) until coarser detail streamed in and the finer
+    // files cooled down. It costs the stochastic renderer its headroom where it holds more (a
+    // 128 MiB binding at the 4M rung, 4.0M against sorted's 3.8M; Max on Chrome reporting 4 GB or
+    // less of memory)
     private fitBudget(budget: number) {
+        const renderers = this.switchable ? [false, true] : [this.stochastic];
         for (let b = budget; b >= 0.1; b = Math.round((b - 0.1) * 10) / 10) {
-            if (this.cacheFits(b) && this.estimateMB(b) <= this.ceilingMB) return b;
+            const fits = (stochastic: boolean) =>
+                this.cacheFits(b, stochastic) && this.estimateMB(b, stochastic) <= this.ceilingMB;
+            if (renderers.every(fits)) return b;
         }
         return null;
     }
 
-    private cacheFits(budget: number) {
+    private cacheFits(budget: number, stochastic: boolean) {
         const device = this.app.graphicsDevice as EngineDevice;
         const resident = budget * 1e6 * RESIDENT_OVER_BUDGET;
-        if (this.stochastic) return StochasticSplatRenderer.cacheFits(device, resident);
+        if (stochastic) return StochasticSplatRenderer.cacheFits(device, resident);
         const limit = device.wgpu?.limits?.maxStorageBufferBindingSize;
         return limit === undefined || resident * SORTED_CACHE_BYTES_PER_SPLAT <= limit;
     }
 
-    private estimateMB(budget: number) {
-        if (!this.stochastic) return budget * SORTED_MB_PER_MILLION;
+    private estimateMB(budget: number, stochastic: boolean) {
+        if (!stochastic) return budget * SORTED_MB_PER_MILLION;
         const { canvas } = this.app.graphicsDevice;
         // a session draws two eyes; their size is not known before it starts, so the canvas stands in
         const pixels = canvas.width * canvas.height * (this.state.xrMode !== null ? 2 : 1);
