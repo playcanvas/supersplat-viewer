@@ -1,5 +1,5 @@
 import { DEVICETYPE_WEBGL2, math, Quat, Vec3, XrManager } from 'playcanvas';
-import type { Color, Entity, XrInputSource } from 'playcanvas';
+import type { Color, Entity, EventHandle, XrInputSource } from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr/xr-controllers.mjs';
 import { XrManipulation } from 'playcanvas/scripts/esm/xr/xr-manipulation.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
@@ -259,9 +259,23 @@ const initXr = (global: Global) => {
         referenceSpace = null;
     };
 
+    // TEMPORARY, until the viewer requires an engine with playcanvas/engine#9748: a session's first
+    // frame renders before its views arrive, and the engine's draw then fails, discarding that
+    // frame's work-buffer writes (the budget change on entering a session lands there on a
+    // standalone headset, which left chunks of a streamed scene missing until the next rebuild).
+    // Once the views arrive, mark the splat params dirty, which rebuilds the work buffer. Then
+    // delete this, its offs in 'end' and destroy
+    let viewsArrived: EventHandle | null = null;
+
     const started = xr.on('start', () => {
         if (destroyed) return;
         app.autoRender = true;
+        viewsArrived = app.on('frameend', () => {
+            if (!camera.camera.camera.xrViews?.length) return;
+            viewsArrived?.off();
+            viewsArrived = null;
+            app.scene.gsplat.dirty = true;
+        });
 
         // cache original camera rig positions and rotations
         parentPosition.copy(parent.getPosition());
@@ -302,6 +316,8 @@ const initXr = (global: Global) => {
     const ended = xr.on('end', () => {
         if (destroyed) return;
         app.autoRender = false;
+        viewsArrived?.off();
+        viewsArrived = null;
         forgetReferenceSpace();
 
         // put a held splat back, and restore camera to pre-XR state, the rig to real size first, as
@@ -509,6 +525,7 @@ const initXr = (global: Global) => {
             depthClear?.off();
             started.off();
             ended.off();
+            viewsArrived?.off();
             cancel.off();
             updating.off();
             modelAdded.off();
