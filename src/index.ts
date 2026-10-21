@@ -341,7 +341,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     // of being recreated on the first frame's resize. a hidden embed keeps the default
     // canvas size here; the resize observer sizes it on reveal. Whether the stochastic renderer
     // draws is only known once the device exists, so this guesses from the flag and the setting
-    const stochastic = config.stochastic === 'off' ? false : config.stochastic !== false || preferences.stochastic;
+    const stochastic = config.stochastic === 'off' ? false : config.stochastic !== false || preferences.performanceMode;
     resizeCanvas(canvas, measureCanvas(canvas), resolutionScaleFor(preferences.quality, stochastic));
 
     const { app, camera, renderer } = await createApp(canvas, config);
@@ -375,19 +375,9 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         inputEnabled: true
     });
 
-    // the budget, renderer and resolution decisions, from the Quality slider and the Stochastic
-    // setting and the device class
+    // the budget, renderer and resolution decisions, from the Quality slider and the Performance
+    // Mode setting and the device class
     const quality = new Quality(app, config, state, events, renderer);
-
-    // state.performanceMode is a deprecated alias of the slider's first position: a host that
-    // sets either sees the other follow
-    events.on('performanceMode:changed', (value: boolean) => {
-        if (value) state.quality = 'performance';
-        else if (state.quality === 'performance') state.quality = 'default';
-    });
-    events.on('quality:changed', (value: State['quality']) => {
-        state.performanceMode = value === 'performance';
-    });
 
     const global: Global = {
         app,

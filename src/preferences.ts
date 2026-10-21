@@ -2,18 +2,14 @@ import type { EventHandler } from 'playcanvas';
 
 import type { QualityLevel, State } from './types';
 
-type Preferences = Pick<
-    State,
-    'quality' | 'stochastic' | 'performanceMode' | 'gamingControls' | 'showAnnotations' | 'iceCream'
->;
+type Preferences = Pick<State, 'quality' | 'performanceMode' | 'gamingControls' | 'showAnnotations' | 'iceCream'>;
 
 const QUALITY_VALUES: readonly QualityLevel[] = ['performance', 'default', 'high', 'max'];
 
 const readPreferences = (mobile: boolean): Preferences => {
     const defaults = {
         quality: (mobile ? 'performance' : 'default') as QualityLevel,
-        stochastic: false,
-        performanceMode: mobile,
+        performanceMode: false,
         gamingControls: false,
         showAnnotations: true,
         iceCream: false
@@ -31,20 +27,12 @@ const readPreferences = (mobile: boolean): Preferences => {
                 // Keep the migrated runtime value even if storage cannot be updated.
             }
         }
-        // the Quality slider replaced the Performance Mode switch (2026-10-19): a stored switch
-        // migrates to its position, and the deprecated alias follows the slider
         const storedQuality = localStorage.getItem('quality');
-        const quality = QUALITY_VALUES.includes(storedQuality as QualityLevel)
-            ? (storedQuality as QualityLevel)
-            : performanceMode === null
-              ? defaults.quality
-              : performanceMode === 'true'
-                ? 'performance'
-                : 'default';
         return {
-            quality,
-            stochastic: localStorage.getItem('stochastic') === 'true',
-            performanceMode: quality === 'performance',
+            quality: QUALITY_VALUES.includes(storedQuality as QualityLevel)
+                ? (storedQuality as QualityLevel)
+                : defaults.quality,
+            performanceMode: performanceMode === 'true',
             gamingControls: localStorage.getItem('gamingControls') === 'true',
             showAnnotations: localStorage.getItem('showAnnotations') !== 'false',
             iceCream: localStorage.getItem('iceCream') === 'true'
@@ -58,7 +46,7 @@ const readPreferences = (mobile: boolean): Preferences => {
 const persistPreferences = (events: EventHandler) => {
     // Write changes only, so creating a viewer does not persist platform defaults.
     const subscriptions = (
-        ['quality', 'stochastic', 'performanceMode', 'gamingControls', 'showAnnotations', 'iceCream'] as const
+        ['quality', 'performanceMode', 'gamingControls', 'showAnnotations', 'iceCream'] as const
     ).map((key) =>
         events.on(`${key}:changed`, (value: boolean | string) => {
             try {

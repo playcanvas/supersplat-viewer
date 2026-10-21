@@ -105,8 +105,8 @@ const initUI = (
         'qualityTrack',
         'qualityRail',
         'qualityThumb',
-        'stochasticRow',
-        'stochasticCheck',
+        'performanceModeRow',
+        'performanceModeCheck',
         'gamingControlsRow',
         'gamingControlsCheck',
         'gamingControlsOption',
@@ -226,17 +226,17 @@ const initUI = (
     on('qualityAvailable:changed', updateQuality);
     updateQuality();
 
-    // The stochastic renderer's toggle, where the device offers it
-    dom.stochasticRow.classList.toggle('sse-hidden', !global.quality.stochasticAllowed);
-    dom.stochasticRow.addEventListener('click', () => {
-        state.stochastic = !state.stochastic;
+    // Performance Mode, the stochastic renderer's toggle, where the device offers it
+    dom.performanceModeRow.classList.toggle('sse-hidden', !global.quality.stochasticAllowed);
+    dom.performanceModeRow.addEventListener('click', () => {
+        state.performanceMode = !state.performanceMode;
     });
 
-    const updateStochastic = () => {
-        dom.stochasticCheck.classList.toggle('sse-active', state.stochastic);
+    const updatePerformanceMode = () => {
+        dom.performanceModeCheck.classList.toggle('sse-active', state.performanceMode);
     };
-    on('stochastic:changed', updateStochastic);
-    updateStochastic();
+    on('performanceMode:changed', updatePerformanceMode);
+    updatePerformanceMode();
 
     // Gaming mode toggle (settings row visible on mobile only)
     dom.gamingControlsRow.addEventListener('click', () => {
