@@ -45,6 +45,7 @@ type State = {
      * sorted renderer.
      * Persisted in local storage; defaults to `performance` on phones and tablets, `default`
      * elsewhere. A position the device cannot hold falls back to the nearest available below it.
+     * An XR session that cannot hold it draws at the nearest it can below, and leaves it unchanged.
      */
     quality: QualityLevel;
     /**

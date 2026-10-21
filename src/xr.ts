@@ -400,11 +400,12 @@ const initXr = (global: Global) => {
         }
     };
 
-    // the Quality slider's position one step down (-1) or up (1) among those the device can hold,
-    // or null at either end
+    // the Quality slider's position one step down (-1) or up (1) from the one in use among those
+    // the session can hold, or null at either end; a stored position the session cannot hold
+    // (Max in a standalone headset) is not in use, nor reachable, here
     const qualityStep = (direction: -1 | 1) => {
         const available = state.qualityAvailable;
-        const index = available.indexOf(state.quality);
+        const index = available.indexOf(quality.level);
         return index < 0 ? null : (available[index + direction] ?? null);
     };
 
@@ -416,7 +417,7 @@ const initXr = (global: Global) => {
         [
             { label: () => localize('tooltip.reset-camera'), action: placeAtStart },
             {
-                label: () => `${localize('settings.quality')}: ${localize(`settings.quality-${state.quality}`)}`,
+                label: () => `${localize('settings.quality')}: ${localize(`settings.quality-${quality.level}`)}`,
                 stepper: {
                     can: (direction) => qualityStep(direction) !== null,
                     step: (direction) => {

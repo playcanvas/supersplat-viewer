@@ -177,9 +177,23 @@ class Quality {
         return this.deviceClass.ladder === 'mobile' ? 'mobile' : 'pixel';
     }
 
-    /** The budget for the current position, millions of splats. */
+    /**
+     * The slider position in use: the stored one where it can be held, else the nearest available
+     * below it, else the lowest available. It differs from the stored position only in an XR
+     * session, which can hold fewer positions than the screen: the stored one stays the user's
+     * choice, and is back in use when the session ends.
+     */
+    get level(): QualityLevel {
+        const available = this.state.qualityAvailable;
+        if (available.includes(this.state.quality)) return this.state.quality;
+        const index = QUALITY_LEVELS.indexOf(this.state.quality);
+        const below = [...available].reverse().find((level) => QUALITY_LEVELS.indexOf(level) < index);
+        return below ?? available[0] ?? this.state.quality;
+    }
+
+    /** The budget for the position in use, millions of splats. */
     get budget() {
-        return this.budgetFor(this.state.quality) ?? this.fallbackBudget();
+        return this.budgetFor(this.level) ?? this.fallbackBudget();
     }
 
     /** The canvas backbuffer scale for the current position. */
@@ -299,12 +313,13 @@ class Quality {
         if (current.length !== available.length || current.some((level, i) => level !== available[i])) {
             this.state.qualityAvailable = available;
         }
-        // a position the device cannot hold (stored from another device, or set by a host) falls
-        // back to the nearest available below it, so the slider shows what is drawn
-        if (available.length && !available.includes(this.state.quality)) {
-            const index = QUALITY_LEVELS.indexOf(this.state.quality);
-            const below = [...available].reverse().find((level) => QUALITY_LEVELS.indexOf(level) < index);
-            this.state.quality = below ?? available[0];
+        // a position the screen cannot hold (stored from another device, or set by a host) falls
+        // back to the nearest available below it, so the slider shows what is drawn. Not in a
+        // session, which can hold fewer (a standalone headset's offers no Max, and the stochastic
+        // estimate counts two eyes): there the session draws at the level in use, and the stored
+        // position, which a change here would persist, stays as the user chose it
+        if (this.state.xrMode === null && available.length && !available.includes(this.state.quality)) {
+            this.state.quality = this.level;
         }
     }
 }
