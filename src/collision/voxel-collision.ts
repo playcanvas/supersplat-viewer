@@ -499,15 +499,24 @@ class VoxelCollision implements Collision {
                 tMaxZ += tDeltaZ;
             }
 
-            if (
+            const outside =
                 ix < 0 ||
                 iy < 0 ||
                 iz < 0 ||
                 ix >= this._numVoxelsX ||
                 iy >= this._numVoxelsY ||
-                iz >= this._numVoxelsZ ||
-                currentT > maxDist
-            ) {
+                iz >= this._numVoxelsZ;
+
+            // past the grid is free, so a ray inside solid that reaches its edge leaves there
+            if (outside && inside && currentT <= maxDist) {
+                return {
+                    x: ox + dx * currentT,
+                    y: oy + dy * currentT,
+                    z: oz + dz * currentT,
+                    exit: true
+                };
+            }
+            if (outside || currentT > maxDist) {
                 return null;
             }
         }
