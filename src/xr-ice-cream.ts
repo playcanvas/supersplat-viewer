@@ -9,15 +9,16 @@ import {
     ShaderMaterial,
     Vec3
 } from 'playcanvas';
-import type { AppBase, BoundingBox, Color, XrHand, XrInputSource } from 'playcanvas';
+import type { AppBase, BoundingBox, XrHand, XrInputSource } from 'playcanvas';
 
 import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 
 // Holding the splat on top of the left fist, where a cone's scoop would be: the world in miniature
-// (Stoakley, Conway and Pausch, CHI 1995). Closing the left hand, held upright, while the right is
-// open fills a ring on top of the fist over ARM_TIME seconds; then the splat jumps there, standing
-// along the axis through the fist: a scene at SCENE_SCALE pinned where the user stands, an object
-// fitted to OBJECT_SIZE. Twisting the wrist turns it like a turntable and bending it tips it.
+// (Stoakley, Conway and Pausch, CHI 1995). Closing the left hand, held upright and looked at, while
+// the right is open fills a ring on top of the fist over ARM_TIME seconds; then the splat pops
+// there, standing along the axis through the fist: a scene at SCENE_SCALE pinned where the user
+// stands, an object fitted to OBJECT_SIZE. Twisting the wrist turns it like a turntable and bending
+// it tips it.
 // Opening the hand, or losing it for LOST_TIME, puts it back where it was at once. The sizes are for
 // a user at real size and scale with them as the hold starts; a scene held keeps its size while the
 // two-hand grab scales the user, so the grab grows or shrinks it in the hand.
@@ -32,9 +33,12 @@ import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 //
 // The ring fills while the fist is upright, where its top is in view: the axis through it within
 // UPRIGHT_START of straight up as it starts (the cosine, about 50 degrees) and UPRIGHT_KEEP once
-// filling (about 65)
+// filling (about 65); and while the user looks at it: its top within LOOK_START of the middle of
+// the view as it starts (about 25 degrees) and LOOK_KEEP once filling (about 40)
 const UPRIGHT_START = 0.65;
 const UPRIGHT_KEEP = 0.42;
+const LOOK_START = 0.9;
+const LOOK_KEEP = 0.77;
 const ARM_TIME = 2;
 const FLICKER_TIME = 0.2;
 const HELD_FINGERS = 3;
@@ -45,11 +49,28 @@ const OBJECT_SIZE = 0.15;
 // above the top of the fist along its axis: the splat's floor or bottom, and the ring
 const LIFT = 0.02;
 const RING_LIFT = 0.02;
-const RING_SIZE = 0.05;
+const RING_SIZE = 0.0625;
+// The ring's juice: its fill speeds up as it goes (FILL_LINEAR of it linear, the rest cubic), and
+// it grows from RING_GROW of its size and throbs faster as it fills, PULSE_START to PULSE_END times
+// a second. Full, it bursts out to BURST_SCALE times its size over BURST_TIME, fading, as the splat
+// pops onto the fist over POP_TIME, overshooting a little
+const FILL_LINEAR = 0.35;
+const RING_GROW = 0.8;
+const PULSE_START = 1.5;
+const PULSE_END = 6;
+const BURST_TIME = 0.35;
+const BURST_SCALE = 1.8;
+const POP_TIME = 0.4;
+// the fill's colours: PlayCanvas orange (#f60, the SuperSplat editor's highlight), which stands out
+// against the hands' cyan, a little deeper where the fill starts, and a warm white for its head
+const FILL_START = [0.85, 0.3, 0.0];
+const FILL_HEAD = [1.0, 0.4, 0.0];
+const FILL_CAP = [1.0, 0.85, 0.7];
 // the right hand's joint the cover test measures from
 const COVER_JOINT = 'middle-finger-metacarpal';
 
-// The ring fills clockwise from the top, a faint track ahead of it
+// The ring fills clockwise from the top, a faint track ahead of it, its colour running from start to
+// head, brightest at the head, which is a round cap a little wider than the band
 const vertexGLSL = /* glsl */ `
     attribute vec3 vertex_position;
     attribute vec2 aUv0;
@@ -84,32 +105,53 @@ const vertexWGSL = /* wgsl */ `
 `;
 
 const fragmentGLSL = /* glsl */ `
-    uniform vec4 uColor;
     uniform float uProgress;
+    uniform float uPulse;
+    uniform float uBurst;
 
     varying vec2 uv0;
 
-    // the ring's inner radius, a share of its outer
-    const float INNER = 0.72;
+    // the ring's outer radius, a share of the quad's half width (the head's cap reaches past it),
+    // and its inner, a share of that
+    const float OUTER = 0.8;
+    const float INNER = OUTER * 0.72;
+    const vec3 START = vec3(${FILL_START.join(', ')});
+    const vec3 HEAD = vec3(${FILL_HEAD.join(', ')});
+    const vec3 CAP = vec3(${FILL_CAP.join(', ')});
 
     void main(void) {
         vec2 p = uv0 * 2.0 - 1.0;
         float r = length(p);
         float aa = fwidth(r);
-        float band = smoothstep(INNER - aa, INNER, r) * (1.0 - smoothstep(1.0 - aa, 1.0, r));
+        float band = smoothstep(INNER - aa, INNER, r) * (1.0 - smoothstep(OUTER - aa, OUTER, r));
         float angle = fract(atan(p.x, p.y) / 6.2831853 + 1.0);
         float filled = step(angle, uProgress);
-        gl_FragColor = vec4(uColor.rgb, uColor.a * band * mix(0.25, 1.0, filled));
+        float tail = exp(-(uProgress - angle) * 10.0);
+        vec3 fill = mix(START, HEAD, angle / max(uProgress, 0.001)) * (1.0 + 0.5 * tail + 0.3 * uPulse);
+        vec3 rgb = mix(vec3(1.0), fill, filled);
+        float a = band * mix(0.2, 0.75 + 0.25 * tail, filled);
+        float headAngle = uProgress * 6.2831853;
+        vec2 head = vec2(sin(headAngle), cos(headAngle)) * 0.5 * (INNER + OUTER);
+        float capRadius = 0.5 * (OUTER - INNER) * (1.25 + 0.35 * uPulse);
+        float cap = (1.0 - smoothstep(capRadius - aa, capRadius + aa, length(p - head))) * step(0.001, uProgress);
+        rgb = mix(rgb, CAP, 0.7 * cap);
+        a = max(a, cap);
+        gl_FragColor = vec4(rgb, a * (1.0 - uBurst) * (1.0 - uBurst));
     }
 `;
 
 const fragmentWGSL = /* wgsl */ `
-    uniform uColor: vec4f;
     uniform uProgress: f32;
+    uniform uPulse: f32;
+    uniform uBurst: f32;
 
     varying uv0: vec2f;
 
-    const INNER: f32 = 0.72;
+    const OUTER: f32 = 0.8;
+    const INNER: f32 = OUTER * 0.72;
+    const START = vec3f(${FILL_START.join(', ')});
+    const HEAD = vec3f(${FILL_HEAD.join(', ')});
+    const CAP = vec3f(${FILL_CAP.join(', ')});
 
     @fragment
     fn fragmentMain(input: FragmentInput) -> FragmentOutput {
@@ -117,10 +159,22 @@ const fragmentWGSL = /* wgsl */ `
         let p = input.uv0 * 2.0 - vec2f(1.0);
         let r = length(p);
         let aa = fwidth(r);
-        let band = smoothstep(INNER - aa, INNER, r) * (1.0 - smoothstep(1.0 - aa, 1.0, r));
+        let band = smoothstep(INNER - aa, INNER, r) * (1.0 - smoothstep(OUTER - aa, OUTER, r));
         let angle = fract(atan2(p.x, p.y) / 6.2831853 + 1.0);
-        let filled = step(angle, uniform.uProgress);
-        output.color = vec4f(uniform.uColor.rgb, uniform.uColor.a * band * mix(0.25, 1.0, filled));
+        let progress = uniform.uProgress;
+        let filled = step(angle, progress);
+        let tail = exp(-(progress - angle) * 10.0);
+        let fill = mix(START, HEAD, angle / max(progress, 0.001)) * (1.0 + 0.5 * tail + 0.3 * uniform.uPulse);
+        var rgb = mix(vec3f(1.0), fill, filled);
+        var a = band * mix(0.2, 0.75 + 0.25 * tail, filled);
+        let headAngle = progress * 6.2831853;
+        let head = vec2f(sin(headAngle), cos(headAngle)) * 0.5 * (INNER + OUTER);
+        let capRadius = 0.5 * (OUTER - INNER) * (1.25 + 0.35 * uniform.uPulse);
+        let cap = (1.0 - smoothstep(capRadius - aa, capRadius + aa, length(p - head))) * step(0.001, progress);
+        rgb = mix(rgb, CAP, 0.7 * cap);
+        a = max(a, cap);
+        let fade = 1.0 - uniform.uBurst;
+        output.color = vec4f(rgb, a * fade * fade);
         return output;
     }
 `;
@@ -132,6 +186,14 @@ const position = new Vec3();
 const rotation = new Quat();
 const inverse = new Mat4();
 const turn = new Mat4();
+const toFist = new Vec3();
+
+// 0 to 1 over 0 to 1, past 1 by a tenth at about three quarters, then back
+const overshoot = (x: number) => {
+    const c = 1.70158;
+    const y = x - 1;
+    return 1 + (c + 1) * y * y * y + c * y * y;
+};
 
 const handOf = (sources: XrInputSource[], handedness: string) =>
     sources.find((source) => source.hand && source.handedness === handedness) ?? null;
@@ -204,6 +266,8 @@ class XrIceCream {
 
     private rig: Entity;
 
+    private camera: Entity;
+
     private userScale: () => number;
 
     private onHolding: (holding: boolean) => void;
@@ -211,8 +275,6 @@ class XrIceCream {
     private ring: Entity;
 
     private material: ShaderMaterial;
-
-    private color = new Float32Array(4);
 
     private on = false;
 
@@ -225,6 +287,14 @@ class XrIceCream {
     private lostFor = 0;
 
     private rightFor = 0;
+
+    // the ring's throb, its phase in turns, and the seconds since the ring burst and the splat
+    // popped onto the fist (past BURST_TIME and POP_TIME when neither is under way)
+    private pulse = 0;
+
+    private burstFor = BURST_TIME;
+
+    private popFor = POP_TIME;
 
     // whether the splat is on the fist
     private hold = false;
@@ -255,8 +325,8 @@ class XrIceCream {
      * @param entity - The splat's entity, a child of the root.
      * @param scene - Whether it is a scene, held pinned where the user stands, or an object.
      * @param rig - The camera's parent, where the user stands.
+     * @param camera - The camera, the user's eyes.
      * @param userScale - The user's scale.
-     * @param color - The ring's color.
      * @param onHolding - Called as the hold takes the splat and gives it back.
      */
     constructor(
@@ -264,14 +334,15 @@ class XrIceCream {
         entity: Entity,
         scene: boolean,
         rig: Entity,
+        camera: Entity,
         userScale: () => number,
-        color: Color,
         onHolding: (holding: boolean) => void
     ) {
         this.app = app;
         this.entity = entity;
         this.scene = scene;
         this.rig = rig;
+        this.camera = camera;
         this.userScale = userScale;
         this.onHolding = onHolding;
 
@@ -292,8 +363,6 @@ class XrIceCream {
         this.material.depthTest = false;
         this.material.depthWrite = false;
         this.material.update();
-        this.color.set([color.r, color.g, color.b, color.a]);
-        this.material.setParameter('uColor', this.color);
 
         this.ring = new Entity('XrIceCreamRing', app);
         this.ring.addComponent('render', { type: 'plane', castShadows: false, receiveShadows: false });
@@ -330,6 +399,8 @@ class XrIceCream {
         this.armed = 0;
         this.openFor = FLICKER_TIME;
         this.rightFor = 0;
+        this.burstFor = BURST_TIME;
+        this.popFor = POP_TIME;
         this.ring.enabled = false;
         this.release();
     }
@@ -371,21 +442,27 @@ class XrIceCream {
 
         if (this.hold) {
             if (!fist || this.lostFor > LOST_TIME || !this.on) this.release();
-        } else if (this.on && fist && !rightFist && this.lostFor < FLICKER_TIME && this.upright()) {
+        } else if (this.on && fist && !rightFist && this.lostFor < FLICKER_TIME && this.upright() && this.looking()) {
             // a moment without the hand pauses the ring
             if (tracked) this.armed += dt;
             if (this.armed >= ARM_TIME) {
                 this.armed = 0;
+                this.burstFor = 0;
+                this.popFor = 0;
                 this.take();
             }
         } else {
             this.armed = 0;
         }
+        if (this.armed === 0) this.pulse = 0;
 
-        this.ring.enabled = this.armed > 0;
-        if (this.ring.enabled) this.placeRing();
+        this.ring.enabled = this.armed > 0 || this.burstFor < BURST_TIME;
+        if (this.ring.enabled) this.placeRing(dt);
 
-        if (this.hold) this.place();
+        if (this.hold) {
+            this.popFor += dt;
+            this.place();
+        }
     }
 
     // whether the fist is upright, with its top in view
@@ -394,17 +471,41 @@ class XrIceCream {
         return up.y > (this.armed > 0 ? UPRIGHT_KEEP : UPRIGHT_START);
     }
 
-    private placeRing() {
-        const s = this.userScale();
+    // whether the user looks at the top of the fist
+    private looking() {
+        toFist.sub2(this.handPosition, this.camera.getPosition()).normalize();
+        return toFist.dot(this.camera.forward) > (this.armed > 0 ? LOOK_KEEP : LOOK_START);
+    }
+
+    // the ring on top of the fist: filling and throbbing, or full and bursting out
+    private placeRing(dt: number) {
+        let progress = 1;
+        let pulse = 0;
+        let burst = 0;
+        let size: number;
+        if (this.burstFor < BURST_TIME) {
+            this.burstFor += dt;
+            burst = Math.min(this.burstFor / BURST_TIME, 1);
+            size = 1 + (BURST_SCALE - 1) * (1 - (1 - burst) * (1 - burst));
+        } else {
+            const t = this.armed / ARM_TIME;
+            progress = t * (FILL_LINEAR + (1 - FILL_LINEAR) * t * t);
+            this.pulse += dt * (PULSE_START + (PULSE_END - PULSE_START) * t);
+            pulse = 0.5 + 0.5 * Math.sin(this.pulse * 2 * Math.PI);
+            size = RING_GROW + (1 - RING_GROW) * progress + 0.04 * pulse;
+        }
+        const s = this.userScale() * size;
         this.handRotation.transformVector(Vec3.UP, up);
         target
             .copy(up)
-            .mulScalar(RING_LIFT * s)
+            .mulScalar(RING_LIFT * this.userScale())
             .add(this.handPosition);
         this.ring.setPosition(target);
         this.ring.setRotation(this.handRotation);
         this.ring.setLocalScale(RING_SIZE * s, 1, RING_SIZE * s);
-        this.material.setParameter('uProgress', this.armed / ARM_TIME);
+        this.material.setParameter('uProgress', progress);
+        this.material.setParameter('uPulse', pulse);
+        this.material.setParameter('uBurst', burst);
     }
 
     // records where the splat is and how it sits on the fist, and takes it
@@ -436,21 +537,24 @@ class XrIceCream {
         this.onHolding(true);
     }
 
-    // the splat on the fist: its pinned point above the top, turned with the fist
+    // the splat on the fist: its pinned point above the top, turned with the fist, popping up to its
+    // size from its pinned point as it arrives
     private place() {
         const { entity } = this;
+        const pop = this.popFor < POP_TIME ? Math.max(overshoot(this.popFor / POP_TIME), 0.01) : 1;
+        const scale = this.holdScale * pop;
         this.handRotation.transformVector(Vec3.UP, up);
         target
             .copy(up)
-            .mulScalar(LIFT * this.userScale() + this.bottom)
+            .mulScalar(LIFT * this.userScale() + this.bottom * pop)
             .add(this.handPosition);
         rotation.mul2(this.handRotation, this.homeRotation);
-        offset.copy(this.pinLocal).mulScalar(this.holdScale);
+        offset.copy(this.pinLocal).mulScalar(scale);
         rotation.transformVector(offset, offset);
         position.sub2(target, offset);
         entity.setPosition(position);
         entity.setRotation(rotation);
-        entity.setLocalScale(this.holdScale, this.holdScale, this.holdScale);
+        entity.setLocalScale(scale, scale, scale);
     }
 
     // puts a held splat back where it was

@@ -494,8 +494,8 @@ const initXr = (global: Global) => {
                 entity,
                 scene,
                 parent,
+                camera,
                 () => userScale,
-                navigation.validTeleportColor,
                 (holding) => {
                     if (manipulation) app.fire('xr:menu:active', holding);
                 }
