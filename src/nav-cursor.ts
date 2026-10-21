@@ -454,6 +454,7 @@ class NavCursor {
         camera.camera.screenToWorld(offsetX, offsetY, 1.0, tmpV);
         tmpV.sub(cameraPos).normalize();
 
+        // a camera inside solid geometry picks where the ray leaves it, not its own position
         const hit = collision.queryRay(
             cameraPos.x,
             cameraPos.y,
@@ -461,13 +462,16 @@ class NavCursor {
             tmpV.x,
             tmpV.y,
             tmpV.z,
-            camera.camera.farClip
+            camera.camera.farClip,
+            true
         );
 
         if (!hit) {
             return null;
         }
 
+        // an exit's surface faces along the ray, so its normal is found looking back along it
+        if (hit.exit) tmpV.mulScalar(-1);
         const sn = collision.querySurfaceNormal(hit.x, hit.y, hit.z, tmpV.x, tmpV.y, tmpV.z);
         this.collisionTarget.position.set(hit.x, hit.y, hit.z);
         this.collisionTarget.normal.set(sn.nx, sn.ny, sn.nz);

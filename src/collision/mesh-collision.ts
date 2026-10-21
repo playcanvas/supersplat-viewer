@@ -625,13 +625,6 @@ class MeshCollision implements Collision {
         );
     }
 
-    isFreeAt(x: number, y: number, z: number): boolean {
-        // Approximation: a point is in free space iff no triangle is within
-        // half a voxel of it. Matches the voxel-grid notion for data derived
-        // from the same carve.
-        return !this._deepestSpherePenetration(x, y, z, this.voxelResolution * 0.5, this._push);
-    }
-
     querySurfaceNormal(
         x: number,
         y: number,
