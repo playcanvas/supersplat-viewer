@@ -213,16 +213,27 @@
                     <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
                 </div>
             </div>
-            <div class="sse-performanceModeRow sse-settingsRow">
-                <div class="sse-performanceModeOption" data-i18n="settings.performance-mode">Performance Mode</div>
-                <div class="sse-performanceModeCheck sse-toggleSwitch">
-                    <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
+            <!-- the Quality slider: the position and its budget, then a track with four stops, those the
+                 device cannot hold disabled; the thumb drags and snaps to the nearest available stop -->
+            <div class="sse-qualityRow sse-settingsRow">
+                <div class="sse-qualityOption" data-i18n="settings.quality">Quality</div>
+                <div class="sse-qualityValue"></div>
+            </div>
+            <div class="sse-qualitySliderRow sse-settingsRow">
+                <div class="sse-qualityTrack">
+                    <div class="sse-qualityRail">
+                        <div class="sse-qualityStop"></div>
+                        <div class="sse-qualityStop"></div>
+                        <div class="sse-qualityStop"></div>
+                        <div class="sse-qualityStop"></div>
+                        <div class="sse-qualityThumb"></div>
+                    </div>
                 </div>
             </div>
-            <!-- Apple Vision Pro only: teleport where the eyes look when pinching -->
-            <div class="sse-lookNavigationRow sse-settingsRow sse-hidden">
-                <div class="sse-lookNavigationOption" data-i18n="settings.look-navigation">Look to Teleport</div>
-                <div class="sse-lookNavigationCheck sse-toggleSwitch">
+            <!-- the stochastic renderer, on WebGPU except standalone headsets -->
+            <div class="sse-stochasticRow sse-settingsRow sse-hidden">
+                <div class="sse-stochasticOption" data-i18n="settings.stochastic">Stochastic Rendering</div>
+                <div class="sse-stochasticCheck sse-toggleSwitch">
                     <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
                 </div>
             </div>

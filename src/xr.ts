@@ -6,11 +6,12 @@ import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 
 import { VoxelCollision } from './collision';
 import type { Collision } from './collision';
-import type { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
+import { standaloneHeadset, visionPro } from './quality';
 import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
 import { initXrDepthClear } from './xr-depth-clear';
 import { XrGrabMove } from './xr-grab-move';
+import { XrHandStyle } from './xr-hand-style';
 import { XrHeadMenu } from './xr-head-menu';
 import { XrIceCream } from './xr-ice-cream';
 import { replaceTeleportArc } from './xr-teleport-arc';
@@ -30,19 +31,12 @@ const CAPSULE_HEIGHT = 1.5;
 const CAPSULE_RADIUS = 0.2;
 const CAPSULE_HOVER = 0.2;
 
-// Standalone headsets run XR on a mobile gpu, which draws every splat once per eye, but their
-// browsers report a desktop platform. Their sessions render with fixed foveation and a 72 Hz
-// target, at 0.8x resolution in performance mode, and the viewer lowers the splat budget.
-const standaloneHeadset = /OculusBrowser|PicoBrowser/.test(globalThis.navigator?.userAgent ?? '');
-
-// Apple Vision Pro's Safari reports a Mac, but one with touch points. Its pinches aim by the eyes,
-// which the lookNavigation setting can teleport by (iPad's Safari reports the same, but offers no VR)
-const visionPro =
-    /Macintosh/.test(globalThis.navigator?.userAgent ?? '') && (globalThis.navigator?.maxTouchPoints ?? 0) > 0;
+// the device tests live with the quality decisions they drive (quality.ts); re-exported below
+// for the ui
 
 // The viewer reconfigures the camera (clear color, post effects) when state.xrMode changes
 const initXr = (global: Global) => {
-    const { app, events, state, camera, renderer, root, localize } = global;
+    const { app, events, state, camera, renderer, root, localize, quality } = global;
     const { xr } = app;
     let destroyed = false;
     let restoreFrame: number | null = null;
@@ -108,7 +102,7 @@ const initXr = (global: Global) => {
         _rotateRigAroundCamera(degrees: number): void;
         _isSystemSelect(inputSource: XrInputSource): boolean;
     };
-    replaceTeleportArc(navigation, () => state.lookNavigation);
+    replaceTeleportArc(navigation);
 
     // The user's scale, which grabbing a scene changes, and the navigation's distances and sizes
     // with it: its arc's speed by the square root, so the arc's reach and height scale
@@ -125,7 +119,14 @@ const initXr = (global: Global) => {
     // The hand and controller models sit in the world, posed joint by joint in it, so they scale
     // with the user too: otherwise a grown user's fingers spread out at real thickness
     const scaleModel = (entity: Entity) => entity.setLocalScale(userScale, userScale, userScale);
-    const modelAdded = app.on('xr:controller:add', (_source: XrInputSource, entity: Entity) => scaleModel(entity));
+    // Hands drawn faint over the splats: the input profiles' generic hand, lit like the scene, looked
+    // heavy, and its steps at the scene's frame rate stood out (xr-hand-style.ts). Controllers keep
+    // their own models' materials
+    const handStyle = new XrHandStyle();
+    const modelAdded = app.on('xr:controller:add', (source: XrInputSource, entity: Entity) => {
+        scaleModel(entity);
+        if (source.hand) handStyle.apply(entity);
+    });
     const setUserScale = (scale: number) => {
         userScale = scale;
         for (const key of Object.keys(unscaled) as (keyof typeof unscaled)[]) {
@@ -289,10 +290,11 @@ const initXr = (global: Global) => {
         referenceSpace = (xr as unknown as { _referenceSpace: EventTarget | null })._referenceSpace;
         referenceSpace?.addEventListener('reset', recentered);
 
-        if (standaloneHeadset) {
-            xr.fixedFoveation = 1;
-            if (xr.supportedFrameRates?.includes(72)) xr.updateTargetFrameRate(72);
-        }
+        // the session's render parameters are the quality module's: fixed foveation and a frame
+        // rate target on standalone headsets
+        if (quality.xrFixedFoveation) xr.fixedFoveation = 1;
+        const frameRate = quality.xrTargetFrameRate;
+        if (frameRate !== null && xr.supportedFrameRates?.includes(frameRate)) xr.updateTargetFrameRate(frameRate);
 
         state.xrMode = xr.type === 'immersive-ar' ? 'ar' : 'vr';
     });
@@ -346,7 +348,7 @@ const initXr = (global: Global) => {
             await new Promise<void>((resolve, reject) => {
                 rejectStart = reject;
                 xr.start(camera.camera, type, 'local-floor', {
-                    framebufferScaleFactor: standaloneHeadset && state.performanceMode ? 0.8 : 1,
+                    framebufferScaleFactor: quality.xrFramebufferScale,
                     callback: (error) => {
                         if (destroyed) {
                             // Browser session requests cannot be cancelled. Close a late result.
@@ -398,11 +400,14 @@ const initXr = (global: Global) => {
         }
     };
 
-    // the stochastic renderer, once the viewer has made one, for the menu's sharpen switch
-    let splatRenderer: StochasticSplatRenderer | null = null;
-    events.on('splatRenderer:ready', (renderer: StochasticSplatRenderer | null) => {
-        splatRenderer = renderer;
-    });
+    // the Quality slider's position one step down (-1) or up (1) from the one in use among those
+    // the session can hold, or null at either end; a stored position the session cannot hold
+    // (Max in a standalone headset) is not in use, nor reachable, here
+    const qualityStep = (direction: -1 | 1) => {
+        const available = state.qualityAvailable;
+        const index = available.indexOf(quality.level);
+        return index < 0 ? null : (available[index + direction] ?? null);
+    };
 
     // The head-locked menu, which takes the selects that start on it (or anywhere while it is open)
     // before the navigation aims with them
@@ -412,11 +417,21 @@ const initXr = (global: Global) => {
         [
             { label: () => localize('tooltip.reset-camera'), action: placeAtStart },
             {
-                label: () => localize('settings.look-navigation'),
-                checked: () => state.lookNavigation,
-                visible: () => visionPro,
+                label: () => `${localize('settings.quality')}: ${localize(`settings.quality-${quality.level}`)}`,
+                stepper: {
+                    can: (direction) => qualityStep(direction) !== null,
+                    step: (direction) => {
+                        const next = qualityStep(direction);
+                        if (next) state.quality = next;
+                    }
+                }
+            },
+            {
+                label: () => localize('settings.stochastic'),
+                checked: () => state.stochastic,
+                visible: () => quality.stochasticAllowed,
                 action: () => {
-                    state.lookNavigation = !state.lookNavigation;
+                    state.stochastic = !state.stochastic;
                 }
             },
             {
@@ -426,21 +441,6 @@ const initXr = (global: Global) => {
                 visible: () => !!iceCream && xr.input.inputSources.some((source) => !!source.hand),
                 action: () => {
                     state.iceCream = !state.iceCream;
-                }
-            },
-            {
-                // the display sharpen (variant taaSharpen), cycled off, 1, 2; a development switch, so
-                // its label is not localized
-                label: () => {
-                    const k = splatRenderer?.variant.taaSharpen ?? 0;
-                    return `Sharpen: ${k > 0 ? k : 'off'}`;
-                },
-                checked: () => (splatRenderer?.variant.taaSharpen ?? 0) > 0,
-                visible: () => !!splatRenderer,
-                action: () => {
-                    if (!splatRenderer) return;
-                    const k = splatRenderer.variant.taaSharpen;
-                    splatRenderer.setSharpen(k >= 2 ? 0 : k >= 1 ? 2 : 1);
                 }
             },
             {
@@ -495,8 +495,8 @@ const initXr = (global: Global) => {
                 entity,
                 scene,
                 parent,
+                camera,
                 () => userScale,
-                navigation.validTeleportColor,
                 (holding) => {
                     if (manipulation) app.fire('xr:menu:active', holding);
                 }
@@ -512,6 +512,7 @@ const initXr = (global: Global) => {
             cancel.off();
             updating.off();
             modelAdded.off();
+            handStyle.destroy();
             forgetReferenceSpace();
             menu.destroy();
             iceCreamChanged.off();

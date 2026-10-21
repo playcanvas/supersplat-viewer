@@ -78,6 +78,71 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 }
 `;
 
+// The inverse of the repack, for handing a file back to the engine's renderer: the engine's
+// textures again, byte for byte where its read code reads them (the means' and scales' fourth
+// bytes and the labels' last two are not kept, and come back 0). Each texture's bytes from the
+// geometry word g and the colour word c
+const UNPACK_BYTES: Record<string, string> = {
+    means_l: 'byteOf(g.x, 0u), byteOf(g.x, 2u), byteOf(g.y, 0u), 0u',
+    means_u: 'byteOf(g.x, 1u), byteOf(g.x, 3u), byteOf(g.y, 1u), 0u',
+    quats: 'byteOf(g.y, 2u), byteOf(g.y, 3u), byteOf(g.z, 0u), byteOf(g.z, 1u)',
+    scales: 'byteOf(g.z, 2u), byteOf(g.z, 3u), byteOf(g.w, 0u), 0u',
+    sh0: 'byteOf(c, 0u), byteOf(c, 1u), byteOf(c, 2u), byteOf(g.w, 1u)',
+    sh_labels: 'byteOf(g.w, 2u), byteOf(g.w, 3u), 0u, 0u'
+};
+
+// the unpack writing `outputs`, names of UNPACK_BYTES
+const unpackWGSL = (outputs: string[]) => /* wgsl */ `
+@group(0) @binding(0) var packedGeom: texture_2d<u32>;
+@group(0) @binding(1) var packedColor: texture_2d<u32>;
+${outputs.map((name, i) => `@group(0) @binding(${i + 2}) var ${name}: texture_storage_2d<rgba8unorm, write>;`).join('\n')}
+
+// byte i of a word
+fn byteOf(v: u32, i: u32) -> u32 {
+    return (v >> (i * 8u)) & 255u;
+}
+
+fn toUnorm(b: vec4u) -> vec4f {
+    return vec4f(b) / 255.0;
+}
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+    let dims = textureDimensions(packedGeom);
+    if (id.x >= dims.x || id.y >= dims.y) {
+        return;
+    }
+    let p = vec2i(id.xy);
+    let g = textureLoad(packedGeom, p, 0);
+    let c = textureLoad(packedColor, p, 0).r;
+${outputs.map((name) => `    textureStore(${name}, p, toUnorm(vec4u(${UNPACK_BYTES[name]})));`).join('\n')}
+}
+`;
+
+// The inverse of the palette decode: each 11/11/10-bit coefficient back to a codebook index,
+// through a table of the entry nearest each level (row 0 the 11-bit levels, row 1 the 10-bit).
+// Exact unless two entries round to one level, where the entry found is within a level of the
+// file's
+const encodeSHWGSL = /* wgsl */ `
+@group(0) @binding(0) var decodedSH: texture_2d<u32>;
+@group(0) @binding(1) var levelIndices: texture_2d<u32>;
+@group(0) @binding(2) var sh_centroids: texture_storage_2d<rgba8unorm, write>;
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+    let dims = textureDimensions(decodedSH);
+    if (id.x >= dims.x || id.y >= dims.y) {
+        return;
+    }
+    let p = vec2i(id.xy);
+    let v = textureLoad(decodedSH, p, 0).r;
+    let x = textureLoad(levelIndices, vec2i(i32(v >> 21u), 0), 0).r;
+    let y = textureLoad(levelIndices, vec2i(i32((v >> 11u) & 1023u), 1), 0).r;
+    let z = textureLoad(levelIndices, vec2i(i32(v & 2047u), 0), 0).r;
+    textureStore(sh_centroids, p, vec4f(vec3f(f32(x), f32(y), f32(z)) / 255.0, 0.0));
+}
+`;
+
 // the projector's read chunk over the packed textures and the decoded palette; `bands` is the
 // file's sh band count, the palette stride
 const packedReadWGSL = (bindingBase: number, bands: number) => /* wgsl */ `
@@ -199,4 +264,4 @@ fn srcColor() -> vec3f {
 }
 `;
 
-export { decodeSHWGSL, packedReadWGSL, repackWGSL };
+export { decodeSHWGSL, encodeSHWGSL, packedReadWGSL, repackWGSL, unpackWGSL };

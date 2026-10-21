@@ -20,6 +20,7 @@ import { observe } from './core/observe';
 import { initLocalization } from './localization';
 import type { CreateViewerOptions } from './options';
 import { persistPreferences, readPreferences } from './preferences';
+import { canvasPixelRatio, Quality, resolutionScaleFor } from './quality';
 import { importSettings } from './settings';
 import type { Config, Global, State, ViewerHandle } from './types';
 import { initPoster, initUI } from './ui';
@@ -161,8 +162,9 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
 
     // The stochastic renderer never sorts on the cpu, so the per-splat centres the engine
     // reads back for its cpu sort (12 bytes each, plus a gpu readback per file) are dead
-    // weight. Read once per file at load, so it has to be set before any asset loads.
-    if (config.stochastic && renderer === 'webgpu') {
+    // weight. Read once per file at load, so it has to be set before any asset loads; only when
+    // the flag forces that renderer, since the Stochastic setting can hand the splats back
+    if ((config.stochastic === true || config.stochastic === 'mobile') && renderer === 'webgpu') {
         app.scene.gsplatCentersEnabled = false;
     }
 
@@ -200,21 +202,17 @@ const measureCanvas = (canvas: HTMLCanvasElement) => ({
 });
 
 // size the canvas backbuffer from a css size: scaled by the pixel ratio (capped to
-// limit resolution on high-DPI devices), halved in performance mode. a zero css size
-// (hidden canvas) is skipped — the canvas keeps its previous size, as a zero-sized
-// swap chain is invalid in webgpu.
+// limit resolution on high-DPI devices) and the quality module's resolution scale (half at
+// the Performance position on the sorted renderer). a zero css size (hidden canvas) is skipped — the canvas keeps
+// its previous size, as a zero-sized swap chain is invalid in webgpu.
 const resizeCanvas = (
     canvas: HTMLCanvasElement,
     cssSize: { width: number; height: number },
-    performanceMode: boolean
+    resolutionScale: number
 ) => {
     if (!cssSize.width || !cssSize.height) return;
 
-    // maximum pixel dimension we will allow along the shortest screen dimension based on platform
-    const maxPixelDim = platform.mobile ? 1080 : 2160;
-    const pixelRatio = Math.min(maxPixelDim / Math.min(screen.width, screen.height), window.devicePixelRatio);
-
-    const scale = pixelRatio * (performanceMode ? 0.5 : 1.0);
+    const scale = canvasPixelRatio() * resolutionScale;
     const width = Math.ceil(cssSize.width * scale);
     const height = Math.ceil(cssSize.height * scale);
     if (width !== canvas.width || height !== canvas.height) {
@@ -225,7 +223,7 @@ const resizeCanvas = (
 
 // initialize canvas size and resizing
 const initCanvas = (global: Global) => {
-    const { app, events, state } = global;
+    const { app, events, quality } = global;
     const { canvas } = app.graphicsDevice;
 
     // the canvas css size, kept current by the resize observer. measured directly at
@@ -237,7 +235,7 @@ const initCanvas = (global: Global) => {
         // and resetting canvas dimensions can invalidate the XRWebGLLayer
         if (app.xr?.active) return;
 
-        resizeCanvas(canvas, cssSize, state.performanceMode);
+        resizeCanvas(canvas, cssSize, quality.resolutionScale);
     };
 
     const resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
@@ -251,7 +249,7 @@ const initCanvas = (global: Global) => {
     });
     resizeObserver.observe(canvas);
 
-    events.on('performanceMode:changed', () => {
+    events.on('quality:changed', () => {
         app.renderNextFrame = true;
     });
 
@@ -341,8 +339,10 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     // size the canvas backbuffer before the graphics device is created, so the swap
     // chain and any backbuffer-sized resources start at the correct resolution instead
     // of being recreated on the first frame's resize. a hidden embed keeps the default
-    // canvas size here; the resize observer sizes it on reveal
-    resizeCanvas(canvas, measureCanvas(canvas), preferences.performanceMode);
+    // canvas size here; the resize observer sizes it on reveal. Whether the stochastic renderer
+    // draws is only known once the device exists, so this guesses from the flag and the setting
+    const stochastic = config.stochastic === 'off' ? false : config.stochastic !== false || preferences.stochastic;
+    resizeCanvas(canvas, measureCanvas(canvas), resolutionScaleFor(preferences.quality, stochastic));
 
     const { app, camera, renderer } = await createApp(canvas, config);
 
@@ -352,6 +352,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     const state = observe<State>(events, {
         loaded: false,
         ...preferences,
+        qualityAvailable: [],
         progress: 0,
         inputMode: platform.mobile ? 'touch' : 'desktop',
         cameraMode: 'orbit',
@@ -374,6 +375,20 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         inputEnabled: true
     });
 
+    // the budget, renderer and resolution decisions, from the Quality slider and the Stochastic
+    // setting and the device class
+    const quality = new Quality(app, config, state, events, renderer);
+
+    // state.performanceMode is a deprecated alias of the slider's first position: a host that
+    // sets either sees the other follow
+    events.on('performanceMode:changed', (value: boolean) => {
+        if (value) state.quality = 'performance';
+        else if (state.quality === 'performance') state.quality = 'default';
+    });
+    events.on('quality:changed', (value: State['quality']) => {
+        state.performanceMode = value === 'performance';
+    });
+
     const global: Global = {
         app,
         settings: importSettings(settingsJson),
@@ -383,7 +398,8 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         camera,
         renderer,
         root,
-        localize
+        localize,
+        quality
     };
 
     const disposeCanvas = initCanvas(global);
@@ -458,6 +474,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     // Create the viewer
     const viewer = new Viewer(global, gsplatLoad, skyboxLoad, collisionLoad);
     viewer.onDestroy(persistPreferences(events));
+    viewer.onDestroy(() => quality.destroy());
     const handle: ViewerHandle = {
         app,
         state,
@@ -504,5 +521,5 @@ console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engi
 
 export type { CaptureResult } from './capture';
 export type { CreateViewerOptions, ViewerAssets, ViewerFlags } from './options';
-export type { CaptureOptions, ViewerHandle, ViewerState, XrMode } from './types';
+export type { CaptureOptions, QualityLevel, ViewerHandle, ViewerState, XrMode } from './types';
 export { createViewer };

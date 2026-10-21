@@ -71,15 +71,15 @@ type ViewerFlags = {
     /** Render with antialiasing. */
     aa?: boolean;
     /**
-     * Opt in to the experimental stochastic splat renderer: unsorted, depth-tested splats whose
-     * depth buffer also serves picking. WebGPU only; ignored on WebGL, where the engine's sorted
-     * renderer draws. It draws WebGPU XR sessions too, one view per eye (Safari on Apple Vision
-     * Pro); where only WebGL could host a session, the viewer offers a reload into WebGL. Fixed
-     * for the life of the viewer. `true`
-     * gives per-pixel coverage, the high-quality mode; `'mobile'` the faster mode for phones and
-     * headsets (interleaved pixel sets).
+     * Developer override of the Stochastic setting: `true` forces the stochastic splat renderer
+     * (unsorted, depth-tested splats whose depth buffer also serves picking) in its per-pixel
+     * mode, `'mobile'` in its interleaved-pixel-sets mode, and `'off'` hides the setting and keeps
+     * the engine's sorted renderer. Without it the user's Stochastic toggle decides, and the
+     * device class picks the mode. WebGPU only; ignored on WebGL. The renderer draws WebGPU XR
+     * sessions too, one view per eye (Safari on Apple Vision Pro); where only WebGL could host a
+     * session, the viewer offers a reload into WebGL.
      */
-    stochastic?: boolean | 'mobile';
+    stochastic?: boolean | 'mobile' | 'off';
     /**
      * Developer knob for the stochastic renderer: the data path that feeds it. Default
      * `direct`, the resident files read in place; `workbuffer` reads the engine's work buffer.
@@ -90,7 +90,7 @@ type ViewerFlags = {
      * switches applied over the chosen mode's, e.g. `coverage:interleaved,jitter:2`.
      */
     variant?: string;
-    /** Splat budget in millions, overriding the platform and performance-mode table. */
+    /** Splat budget in millions, overriding the Quality slider's ladder (every position then gives it). */
     budget?: number;
     /**
      * Developer knob: while the viewer renders on demand, the most rendered frames the gpu may

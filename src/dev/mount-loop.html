@@ -245,6 +245,30 @@
                 return h;
             };
             const timeout = (ms, value) => new Promise((resolve) => setTimeout(() => resolve(value), ms));
+            // whether the engine's work-buffer copies are switched off, as the stochastic renderer's
+            // direct source does while it draws: its no-op replaces the class's method
+            const copiesSwitchedOff = (viewer) => {
+                const director = viewer.app.renderer.gsplatDirector;
+                const layers = [...([...director.camerasMap.values()][0]?.layersMap.values() ?? [])];
+                const workBuffer = layers.find((layer) => layer.gsplatManager)?.gsplatManager.world.workBuffer;
+                return !!workBuffer && workBuffer.renderColor !== Object.getPrototypeOf(workBuffer).renderColor;
+            };
+            // the bytes of the stochastic renderer's own textures, named sse-splat-*
+            const splatTextureBytes = (device) =>
+                [...device.textures]
+                    .filter((texture) => texture.name.startsWith('sse-splat-'))
+                    .reduce((bytes, texture) => bytes + texture.gpuSize, 0);
+            // resolves after `count` ticks of the app
+            const frames = (app, count) =>
+                new Promise((resolve) => {
+                    let left = count;
+                    const onFrameEnd = () => {
+                        if (--left > 0) return;
+                        app.off('frameend', onFrameEnd);
+                        resolve();
+                    };
+                    app.on('frameend', onFrameEnd);
+                });
             const until = async (test, ms) => {
                 const deadline = performance.now() + ms;
                 while (!test()) {
@@ -347,7 +371,14 @@
                         return true;
                     }
                 };
-                const keys = ['performanceMode', 'gamingControls', 'showAnnotations', 'retinaDisplay'];
+                const keys = [
+                    'quality',
+                    'stochastic',
+                    'performanceMode',
+                    'gamingControls',
+                    'showAnnotations',
+                    'retinaDisplay'
+                ];
                 const saved = keys.map((key) => localStorage.getItem(key));
                 const viewers = [];
                 try {
@@ -376,7 +407,9 @@
                     viewer.state.showAnnotations = false;
                     check(
                         'all preference writes persist',
-                        keys.slice(0, 3).every((key) => localStorage.getItem(key) === String(viewer.state[key]))
+                        ['performanceMode', 'gamingControls', 'showAnnotations'].every(
+                            (key) => localStorage.getItem(key) === String(viewer.state[key])
+                        )
                     );
                     const otherHost = addHost();
                     const other = await createViewer({ container: otherHost, settings, ...createOptions(), ui: false });
@@ -1231,6 +1264,34 @@
                             }
                         }
 
+                        // &toggle: the Stochastic setting on and back off twice, so the engine's
+                        // renderer draws again from the textures rebuilt for it (a sog scene's,
+                        // which the stochastic renderer releases); a dead one throws from the
+                        // frame or fails a submit, which the error handlers count. Each switch on
+                        // must switch the engine's work-buffer copies off again, even when the
+                        // resident set has not changed since the last, or they read the textures
+                        // released once more, and each switch off must release the stochastic
+                        // renderer's own textures (an empty view's placeholders remain). The stored
+                        // setting is put back
+                        let toggled = null;
+                        if (mode === 'loaded' && url.searchParams.has('toggle')) {
+                            const stored = localStorage.getItem('stochastic');
+                            handles.device.wgpu?.addEventListener('uncapturederror', (event) =>
+                                unhandled.push(`gpu: ${event.error.message.split('\n')[0]}`)
+                            );
+                            toggled = true;
+                            for (let round = 0; round < 2; round++) {
+                                viewer.state.stochastic = true;
+                                await frames(viewer.app, 30);
+                                toggled &&= copiesSwitchedOff(viewer);
+                                viewer.state.stochastic = false;
+                                await frames(viewer.app, 30);
+                                toggled &&= splatTextureBytes(handles.device) < 1048576;
+                            }
+                            if (stored === null) localStorage.removeItem('stochastic');
+                            else localStorage.setItem('stochastic', stored);
+                        }
+
                         // `loaded` flips in the viewer's own first-frame handler, so it proves the hook
                         // came from this instance rendering and not from anything stale
                         const { loaded, progress } = viewer.state;
@@ -1258,11 +1319,12 @@
                             removed &&
                             overlayFreed &&
                             splatFreed &&
+                            toggled !== false &&
                             captured !== 'hung' &&
                             (mode !== 'loaded' || loaded);
                         if (!ok) failures++;
                         log(
-                            `#${i} ${handles.device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed} removed=${removed} capture=${captured} overlay=${overlayReleased ? overlayFreed : 'n/a'} splat=${splatTextures ? `${splatFreed} (${splatTextures.length})` : 'n/a'}`,
+                            `#${i} ${handles.device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed} removed=${removed} capture=${captured} overlay=${overlayReleased ? overlayFreed : 'n/a'} splat=${splatTextures ? `${splatFreed} (${splatTextures.length})` : 'n/a'} toggle=${toggled ?? 'n/a'}`,
                             !ok
                         );
                     } catch (err) {

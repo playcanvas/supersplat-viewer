@@ -282,10 +282,11 @@ const MODE_VARIANTS = {
 // The switches a stereo session adds over the mode's. A head never rests, so every frame takes the
 // moving history, whose cap of 16 left the coverage noise pulsing in semi-transparent areas; the
 // eyes keep up to 64 samples and shorten them four times as fast with the motion
-// (docs/stochastic-renderer.md, XR stereo). The moving history's resampling blur is a texel or
-// two, which at a headset's few pixels per degree is well above what the eye resolves, so the
-// eyes also get the display sharpen (judged in the Quest 3, 2026-10-16: 2 helps, 1 hardly shows)
-const STEREO_VARIANT = 'taaMoveMax:64,taaMotion:1,taaSharpen:2';
+// (docs/stochastic-renderer.md, XR stereo). No display sharpen: it helped on the Quest 3
+// (2026-10-16), which no longer offers the stochastic renderer, and on Apple Vision Pro, the one
+// headset that does, its denser displays leave no visible blur for it to take back (2026-10-20),
+// while its 5x5 taps cost about 2.4 ms a frame for two eyes on the Quest
+const STEREO_VARIANT = 'taaMoveMax:64,taaMotion:1';
 
 type StochasticMode = keyof typeof MODE_VARIANTS;
 
@@ -1518,9 +1519,17 @@ class StochasticSplatRenderer {
         }
         this.resetHistory();
         this.depthFrame = null;
+        // the views' memory too: their caches, history and targets (125 MB at the 1M budget on an
+        // iPhone), which the first frame after attach() sizes again into one empty view, as it
+        // does for a session's eyes. The passes and materials take them from each frame's bindings
+        for (const view of this.views) view.destroy();
+        this.views = [new SplatView(this.device, this.viewShaders, '')];
         this.worldLayer.removeMeshInstances([this.composeInstance]);
         // the source first: the engine's renderer draws from the work buffer it may have patched
         this.source.suspend();
+        // and the set it was given: the first frame after attach() updates the source again,
+        // which patches the work buffer and repacks, even when the resident set has not changed
+        this.set = null;
         this.provider.setActive(false);
     }
 
