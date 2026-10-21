@@ -14,6 +14,8 @@ type RayHit = {
     x: number;
     y: number;
     z: number;
+    /** Set where the hit is the ray leaving solid geometry it started inside (see `exitSolid`). */
+    exit?: boolean;
 };
 
 /**
@@ -21,7 +23,22 @@ type RayHit = {
  * Implementations convert to/from their internal coordinate systems internally.
  */
 type Collision = {
-    queryRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): RayHit | null;
+    /**
+     * First hit along a ray. A ray that starts inside solid geometry hits at its origin, unless
+     * `exitSolid` is set: then it hits where it leaves that geometry, marked `exit`, or nothing
+     * if it never does. Only voxel data has an inside; a mesh is surfaces, so a ray from inside
+     * a closed mesh already hits its inner face.
+     */
+    queryRay(
+        ox: number,
+        oy: number,
+        oz: number,
+        dx: number,
+        dy: number,
+        dz: number,
+        maxDist: number,
+        exitSolid?: boolean
+    ): RayHit | null;
 
     querySphere(cx: number, cy: number, cz: number, radius: number, out: PushOut): boolean;
 
@@ -37,17 +54,8 @@ type Collision = {
     ): { nx: number; ny: number; nz: number };
 
     /**
-     * Test whether the voxel cell containing (x, y, z) is part of the free
-     * (carved-out) region — i.e. some valid capsule placement covered this
-     * voxel during carve, so it's reachable space rather than solid geometry.
-     * For voxel data this is a direct cell lookup; mesh implementations
-     * approximate it as "no surface within half a voxel of the point."
-     */
-    isFreeAt(x: number, y: number, z: number): boolean;
-
-    /**
      * World-space size of one voxel cell, as encoded in the underlying carve
-     * data. Spawn search and `isFreeAt` use this as their step size; assuming
+     * data. Spawn search uses this as its step size; assuming
      * a fixed value would silently misbehave on data carved at a different
      * resolution.
      */

@@ -10,11 +10,41 @@ import {
     setYawBasis
 } from './camera-utils';
 import { SpawnState } from './spawn-state';
-import { findCylinderSpawn } from '../collision/find-spawn';
 import { damp } from '../core/math';
 
 const FIXED_DT = 1 / 60;
 const MAX_SUBSTEPS = 10;
+
+/**
+ * How far below the capsule a floor must be for collision to engage. With none in reach the
+ * capsule is over a hole in the collision, or far above anything it could land on, and engaged
+ * collision would drop it out of the scene, so collision is held instead.
+ */
+const FLOOR_SEARCH_DIST = 10;
+
+/**
+ * How far below the camera entry looks for a floor to stand on. Unbounded in practice, unlike
+ * `FLOOR_SEARCH_DIST`: entering from high up, from an orbit view, should land on the floor below.
+ */
+const ENTRY_FLOOR_DIST = 1000;
+
+/**
+ * How far above the camera entry looks for a floor, when there is none to stand on below it: a
+ * camera sunk into the ground or just under it stands on the surface above instead.
+ */
+const ENTRY_RISE_REACH = 2;
+
+/**
+ * Spacing of the rays that look for a floor above the camera. Each is cast down from its own
+ * height, so a surface between two floors cannot hide the lower one from all of them.
+ */
+const ENTRY_RISE_STEP = 0.25;
+
+/**
+ * Reach of the entry un-clip, in capsule radii, as `FlyController`'s: enough to free a capsule
+ * that clips a surface, not to relocate one deep inside geometry, which holds collision instead.
+ */
+const UNCLIP_REACH_RADII = 3;
 
 /** Pre-allocated push-out vector for capsule collision */
 const out: PushOut = { x: 0, y: 0, z: 0 };
@@ -27,7 +57,6 @@ const right = new Vec3();
 const moveStep = [0, 0, 0];
 
 const offset = new Vec3();
-const spawnProbe = new Vec3();
 
 /**
  * First-person camera controller with spring-damper suspension over collision terrain.
@@ -127,8 +156,6 @@ class WalkController implements CameraController {
 
     private _spawn = new SpawnState();
 
-    private _spawnGrounded = false;
-
     private _velocity = new Vec3();
 
     private _pendingMove = [0, 0, 0];
@@ -144,10 +171,12 @@ class WalkController implements CameraController {
     private _collision: Collision | null = null;
 
     /**
-     * Collision held because the capsule is inside geometry, mirroring `FlyController`. While
-     * held, `_heldFloorY` stands in for the ground probe so the camera walks on the level it
-     * entered at instead of falling, and the capsule check is skipped. `_step` engages it for
-     * real as soon as the capsule fits.
+     * Collision held because the capsule is inside geometry, mirroring `FlyController`, or
+     * because there is no floor within `FLOOR_SEARCH_DIST` below it, where engaged collision
+     * would fall out of the scene.
+     * While held, `_heldFloorY` stands in for the ground probe so the camera walks on the level
+     * it was held at instead of falling, and the capsule check is skipped. `_step` engages it for
+     * real as soon as the capsule fits over a floor.
      */
     private _pendingCollision: Collision | null = null;
 
@@ -165,15 +194,14 @@ class WalkController implements CameraController {
 
     /**
      * Optional collision for capsule collision with sliding. Assigning while the capsule is
-     * inside geometry holds the attachment instead: engaged collision cannot escape a solid
-     * region, so the capsule keeps the synthetic floor and `_step` engages it once it fits.
-     * Collision normally lands this way, after walk mode may already be active.
+     * inside geometry, or over no floor in reach, holds the attachment instead: engaged collision
+     * cannot escape a solid region and has nothing to land on over a void, so the capsule keeps
+     * the synthetic floor and `_step` engages it once it fits over a floor. Collision normally
+     * lands this way, after walk mode may already be active.
      */
     set collision(value: Collision | null) {
-        if (value && this._hasPosition && !this._capsuleClear(value, this._position)) {
-            this._pendingCollision = value;
-            this._collision = null;
-            this._heldFloorY = this._position.y - this.eyeHeight - this.hoverHeight;
+        if (value && this._hasPosition && !this._canEngage(value, this._position)) {
+            this._hold(value);
             return;
         }
 
@@ -189,60 +217,28 @@ class WalkController implements CameraController {
     onEnter(camera: Camera): void {
         this.goto(camera);
 
-        // Spawn is scoped to this walk-mode entry; reset so a stale spawn from a previous entry
-        // can't be restored if this entry fails or has no collision to place against.
-        this._spawn.clear();
-
         // Entry may follow a previous one that ended with collision held, so start from the
         // collision we have either way. Whether to hold again is decided fresh, from this
         // entry's position.
         const collision = this._collision ?? this._pendingCollision;
 
-        // Stand on the entry level until collision can place the capsule. This covers collision
-        // that has not arrived yet as well as a spawn search that finds nowhere to go: engaged
-        // collision would strand the camera either way, with no floor under the ground probe and
-        // nothing for push-out to push against. Held, the user can walk out the way they came,
-        // and the setter or `_step` engages collision once the capsule fits.
+        // Stand on the entry level until collision can engage. This covers collision that has not
+        // arrived yet as well as an entry inside geometry or over no floor, where engaged
+        // collision would strand the camera or drop it. Held, the user can walk out the way they
+        // came, and the setter or `_step` engages collision once the capsule fits over a floor.
         this._pendingCollision = null;
         this._collision = null;
         this._heldFloorY = this._position.y - this.eyeHeight - this.hoverHeight;
         this._grounded = true;
 
         if (collision) {
-            // Treat the walk capsule as a tight-superset cylinder for spawn.
-            // The carve was produced with a separable XYZ dilation (flat ends,
-            // no hemispheres), so cylinder math matches the data exactly.
-            // Include `hoverHeight` in the height so the ceiling-clearance
-            // check accounts for the placed capsule's full vertical envelope:
-            // foot sits at `floor + hoverHeight`, head at `floor + hoverHeight
-            // + capsuleHeight`.
-            if (
-                findCylinderSpawn(
-                    collision,
-                    camera.position.x,
-                    camera.position.y,
-                    camera.position.z,
-                    (this.capsuleHeight + this.hoverHeight) * 0.5,
-                    this.capsuleRadius,
-                    spawnProbe
-                )
-            ) {
-                // spawnProbe is the floor world position the cylinder rests
-                // on. Eye sits hoverHeight + eyeHeight above the floor.
-                this._position.set(spawnProbe.x, spawnProbe.y + this.hoverHeight + this.eyeHeight, spawnProbe.z);
-                this._storeSpawn();
-
-                // The placement is known to fit, so engage directly rather than re-testing it
-                // through the setter's capsule query, which is a different test from the
-                // cylinder search and could hold on a hairline disagreement.
-                this._heldFloorY = null;
-                this._collision = collision;
-            } else {
-                // No placement within reach. The setter holds if the capsule is inside geometry
-                // and engages otherwise, which is what `_step` would do on its first step anyway.
-                this.collision = collision;
-            }
+            this._standOnFloor(collision);
+            this._unclip(collision);
+            this.collision = collision;
         }
+
+        // reset returns to where walk was entered
+        this._spawn.store(this._position, this._angles, this._distance);
 
         this._prevPosition.copy(this._position);
     }
@@ -288,15 +284,22 @@ class WalkController implements CameraController {
     }
 
     private _step(dt: number, move: number[]) {
-        // engage a held attachment as soon as the capsule reaches space it fits in
-        if (this._pendingCollision && this._capsuleClear(this._pendingCollision, this._position)) {
+        // engage a held attachment as soon as the capsule reaches space it fits in, over a floor
+        if (this._pendingCollision && this._canEngage(this._pendingCollision, this._position)) {
             this._collision = this._pendingCollision;
             this._pendingCollision = null;
             this._heldFloorY = null;
         }
 
         // ground probe: cast a ray downward to find the terrain surface
-        const groundY = this._probeGround(this._position);
+        let groundY = this._probeGround(this._position);
+
+        // airborne with no floor in reach, over a hole in the collision, would fall out of the
+        // scene: hold collision and walk on at this level until there is floor below again
+        if (groundY === null && this._collision && !this._floorBelow(this._collision, this._position)) {
+            this._hold(this._collision);
+            groundY = this._heldFloorY;
+        }
         const hasGround = groundY !== null;
 
         // jump (require release before re-triggering)
@@ -390,7 +393,13 @@ class WalkController implements CameraController {
         this._prevPosition.copy(this._position);
         this._targetAngles.copy(this._angles);
         this._resetMotion();
-        this._grounded = this._spawnGrounded;
+
+        // decide afresh at the spawn whether to engage or hold, since a held floor belongs to
+        // wherever it was held, mirroring `FlyController`
+        const collision = this._collision ?? this._pendingCollision;
+        if (collision) {
+            this.collision = collision;
+        }
 
         camera.position.copy(this._position);
         camera.angles.copy(this._angles);
@@ -398,11 +407,6 @@ class WalkController implements CameraController {
         camera.fov = this.fov;
 
         return true;
-    }
-
-    private _storeSpawn() {
-        this._spawn.store(this._position, this._angles, this._distance);
-        this._spawnGrounded = this._grounded;
     }
 
     private _resetMotion() {
@@ -427,6 +431,95 @@ class WalkController implements CameraController {
         const center = pos.y - this.eyeHeight + this.capsuleHeight * 0.5;
         const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
         return !collision.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out);
+    }
+
+    /**
+     * Whether there is a floor within `FLOOR_SEARCH_DIST` below the capsule.
+     *
+     * @param collision - Collision to test against.
+     * @param pos - Eye position in PlayCanvas world space.
+     * @returns True if a downward ray from the capsule's foot hits geometry in reach.
+     */
+    private _floorBelow(collision: Collision, pos: Vec3): boolean {
+        return !!collision.queryRay(pos.x, pos.y - this.eyeHeight, pos.z, 0, -1, 0, FLOOR_SEARCH_DIST);
+    }
+
+    private _canEngage(collision: Collision, pos: Vec3): boolean {
+        return this._capsuleClear(collision, pos) && this._floorBelow(collision, pos);
+    }
+
+    /**
+     * Put the eye at standing height on a floor, so the capsule neither sinks into the ground nor
+     * hangs over it: the floor below the camera however far down, for a camera flown onto the
+     * ground or entering from above, and failing that the nearest floor up to `ENTRY_RISE_REACH`
+     * above it, for a camera sunk into the ground or just under it. Below comes first, or an
+     * entry from high up could stand on a roof. A floor counts only if the capsule fits standing
+     * on it; with none, the camera stays where it is.
+     *
+     * @param collision - Collision to test against.
+     */
+    private _standOnFloor(collision: Collision) {
+        const pos = this._position;
+        if (this._tryStandFrom(collision, pos.y, ENTRY_FLOOR_DIST)) return;
+
+        for (let rise = ENTRY_RISE_STEP; rise <= ENTRY_RISE_REACH + 1e-6; rise += ENTRY_RISE_STEP) {
+            if (this._tryStandFrom(collision, pos.y + rise, rise)) return;
+        }
+    }
+
+    /**
+     * Stand on the floor a downward ray from `fromY` finds within `maxDist`, if the capsule fits
+     * there. A ray that hits at its origin started inside geometry and finds no floor.
+     *
+     * @param collision - Collision to test against.
+     * @param fromY - Height to cast from, above the camera's column.
+     * @param maxDist - Reach of the ray.
+     * @returns True if the camera was moved onto a floor.
+     */
+    private _tryStandFrom(collision: Collision, fromY: number, maxDist: number): boolean {
+        const pos = this._position;
+        const hit = collision.queryRay(pos.x, fromY, pos.z, 0, -1, 0, maxDist);
+        if (!hit || hit.y >= fromY) return false;
+
+        v.set(pos.x, hit.y + this.hoverHeight + this.eyeHeight, pos.z);
+        if (!this._capsuleClear(collision, v)) return false;
+
+        pos.copy(v);
+        return true;
+    }
+
+    /**
+     * Free a capsule that clips a surface: move it by the push-out of one capsule query, if that
+     * is within `UNCLIP_REACH_RADII` and leaves it clear. Otherwise it stays where it is.
+     *
+     * @param collision - Collision to test against.
+     */
+    private _unclip(collision: Collision) {
+        const pos = this._position;
+        const center = pos.y - this.eyeHeight + this.capsuleHeight * 0.5;
+        const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
+        if (!collision.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out)) return;
+
+        const reach = this.capsuleRadius * UNCLIP_REACH_RADII;
+        if (out.x * out.x + out.y * out.y + out.z * out.z > reach * reach) return;
+
+        v.set(pos.x + out.x, pos.y + out.y, pos.z + out.z);
+        if (this._capsuleClear(collision, v)) {
+            pos.copy(v);
+        }
+    }
+
+    /**
+     * Hold `collision` rather than engage it, standing on the current level.
+     *
+     * @param collision - Collision to engage once the capsule can.
+     */
+    private _hold(collision: Collision) {
+        this._pendingCollision = collision;
+        this._collision = null;
+        this._heldFloorY = this._position.y - this.eyeHeight - this.hoverHeight;
+        this._velocity.y = 0;
+        this._jumping = false;
     }
 
     /**
