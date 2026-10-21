@@ -51,6 +51,7 @@ const out: PushOut = { x: 0, y: 0, z: 0 };
 
 const v = new Vec3();
 const d = new Vec3();
+const nudged = new Vec3();
 
 const forward = new Vec3();
 const right = new Vec3();
@@ -232,8 +233,9 @@ class WalkController implements CameraController {
         this._grounded = true;
 
         if (collision) {
-            this._standOnFloor(collision);
-            this._unclip(collision);
+            if (!this._standOnFloor(collision)) {
+                this._fit(collision, this._position);
+            }
             this.collision = collision;
         }
 
@@ -454,22 +456,25 @@ class WalkController implements CameraController {
      * ground or entering from above, and failing that the nearest floor up to `ENTRY_RISE_REACH`
      * above it, for a camera sunk into the ground or just under it. Below comes first, or an
      * entry from high up could stand on a roof. A floor counts only if the capsule fits standing
-     * on it; with none, the camera stays where it is.
+     * on it, after `_fit`; with none, the camera stays where it is.
      *
      * @param collision - Collision to test against.
+     * @returns True if the camera was moved onto a floor.
      */
-    private _standOnFloor(collision: Collision) {
+    private _standOnFloor(collision: Collision): boolean {
         const pos = this._position;
-        if (this._tryStandFrom(collision, pos.y, ENTRY_FLOOR_DIST)) return;
+        if (this._tryStandFrom(collision, pos.y, ENTRY_FLOOR_DIST)) return true;
 
         for (let rise = ENTRY_RISE_STEP; rise <= ENTRY_RISE_REACH + 1e-6; rise += ENTRY_RISE_STEP) {
-            if (this._tryStandFrom(collision, pos.y + rise, rise)) return;
+            if (this._tryStandFrom(collision, pos.y + rise, rise)) return true;
         }
+        return false;
     }
 
     /**
      * Stand on the floor a downward ray from `fromY` finds within `maxDist`, if the capsule fits
-     * there. A ray that hits at its origin started inside geometry and finds no floor.
+     * there once `_fit` has freed it from a wall it clips. A ray that hits at its origin started
+     * inside geometry and finds no floor.
      *
      * @param collision - Collision to test against.
      * @param fromY - Height to cast from, above the camera's column.
@@ -482,31 +487,34 @@ class WalkController implements CameraController {
         if (!hit || hit.y >= fromY) return false;
 
         v.set(pos.x, hit.y + this.hoverHeight + this.eyeHeight, pos.z);
-        if (!this._capsuleClear(collision, v)) return false;
+        if (!this._fit(collision, v)) return false;
 
         pos.copy(v);
         return true;
     }
 
     /**
-     * Free a capsule that clips a surface: move it by the push-out of one capsule query, if that
-     * is within `UNCLIP_REACH_RADII` and leaves it clear. Otherwise it stays where it is.
+     * Fit the capsule at `p`, freeing it from a surface it clips: move it by the push-out of one
+     * capsule query, if that is within `UNCLIP_REACH_RADII` and leaves it clear. Otherwise `p` is
+     * left as it was.
      *
      * @param collision - Collision to test against.
+     * @param p - Eye position, moved if the capsule had to be freed.
+     * @returns True if the capsule fits at `p`.
      */
-    private _unclip(collision: Collision) {
-        const pos = this._position;
-        const center = pos.y - this.eyeHeight + this.capsuleHeight * 0.5;
+    private _fit(collision: Collision, p: Vec3): boolean {
+        const center = p.y - this.eyeHeight + this.capsuleHeight * 0.5;
         const half = this.capsuleHeight * 0.5 - this.capsuleRadius;
-        if (!collision.queryCapsule(pos.x, center, pos.z, half, this.capsuleRadius, out)) return;
+        if (!collision.queryCapsule(p.x, center, p.z, half, this.capsuleRadius, out)) return true;
 
         const reach = this.capsuleRadius * UNCLIP_REACH_RADII;
-        if (out.x * out.x + out.y * out.y + out.z * out.z > reach * reach) return;
+        if (out.x * out.x + out.y * out.y + out.z * out.z > reach * reach) return false;
 
-        v.set(pos.x + out.x, pos.y + out.y, pos.z + out.z);
-        if (this._capsuleClear(collision, v)) {
-            pos.copy(v);
-        }
+        nudged.set(p.x + out.x, p.y + out.y, p.z + out.z);
+        if (!this._capsuleClear(collision, nudged)) return false;
+
+        p.copy(nudged);
+        return true;
     }
 
     /**
