@@ -12,8 +12,8 @@ import type { Global, XrMode } from './types';
 import { initXrDepthClear } from './xr-depth-clear';
 import { XrGrabMove } from './xr-grab-move';
 import { XrHandStyle } from './xr-hand-style';
-import { XrHeadMenu } from './xr-head-menu';
 import { XrIceCream } from './xr-ice-cream';
+import { XrPalmMenu } from './xr-palm-menu';
 import { replaceTeleportArc } from './xr-teleport-arc';
 import type { TeleportArcNavigation } from './xr-teleport-arc';
 
@@ -425,54 +425,46 @@ const initXr = (global: Global) => {
         return index < 0 ? null : (available[index + direction] ?? null);
     };
 
-    // The head-locked menu, which takes the selects that start on it (or anywhere while it is open)
-    // before the navigation aims with them
-    const menu = new XrHeadMenu(
-        app,
-        camera,
-        [
-            { label: () => localize('tooltip.reset-camera'), action: placeAtStart },
-            {
-                label: () => `${localize('settings.quality')}: ${localize(`settings.quality-${quality.level}`)}`,
-                stepper: {
-                    can: (direction) => qualityStep(direction) !== null,
-                    step: (direction) => {
-                        const next = qualityStep(direction);
-                        if (next) state.quality = next;
-                    }
-                }
-            },
-            {
-                label: () => localize('settings.performance-mode'),
-                checked: () => state.performanceMode,
-                visible: () => quality.stochasticAllowed,
-                action: () => {
-                    state.performanceMode = !state.performanceMode;
-                }
-            },
-            {
-                label: () => localize('xr-menu.ice-cream'),
-                checked: () => state.iceCream,
-                // tracked hands only: a session without them has no fist
-                visible: () => !!iceCream && xr.input.inputSources.some((source) => !!source.hand),
-                action: () => {
-                    state.iceCream = !state.iceCream;
-                }
-            },
-            {
-                label: () => localize(xr.type === 'immersive-ar' ? 'xr-menu.exit-ar' : 'xr-menu.exit-vr'),
-                action: () => {
-                    void end().catch(() => {
-                        /* the browser may already be ending the session */
-                    });
+    // The menu held in the hand, which takes the selects that start on it before the navigation aims
+    // with them
+    const menu = new XrPalmMenu(app, camera, [
+        { label: () => localize('tooltip.reset-camera'), action: placeAtStart },
+        {
+            label: () => `${localize('settings.quality')}: ${localize(`settings.quality-${quality.level}`)}`,
+            stepper: {
+                can: (direction) => qualityStep(direction) !== null,
+                step: (direction) => {
+                    const next = qualityStep(direction);
+                    if (next) state.quality = next;
                 }
             }
-        ],
+        },
         {
-            // a standalone headset's hands point where they select; the Vision Pro's eyes do
-            pointingHands: !visionPro
+            label: () => localize('settings.performance-mode'),
+            checked: () => state.performanceMode,
+            visible: () => quality.stochasticAllowed,
+            action: () => {
+                state.performanceMode = !state.performanceMode;
+            }
+        },
+        {
+            label: () => localize('xr-menu.ice-cream'),
+            checked: () => state.iceCream,
+            // tracked hands only: a session without them has no fist
+            visible: () => !!iceCream && xr.input.inputSources.some((source) => !!source.hand),
+            action: () => {
+                state.iceCream = !state.iceCream;
+            }
+        },
+        {
+            label: () => localize(xr.type === 'immersive-ar' ? 'xr-menu.exit-ar' : 'xr-menu.exit-vr'),
+            action: () => {
+                void end().catch(() => {
+                    /* the browser may already be ending the session */
+                });
+            }
         }
-    );
+    ]);
     // and, while the splat is held, takes the rest: the world to teleport in is in the hand
     const isSystemSelect = navigation._isSystemSelect.bind(navigation);
     navigation._isSystemSelect = (source: XrInputSource) =>
