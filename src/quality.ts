@@ -1,9 +1,10 @@
 // The quality module: the one place that decides the splat budget, the renderer and the
 // resolution for every device and session (docs/quality-plan.md, step 1). The user has two
 // controls, the Quality slider (state.quality: performance, default, high, max) and the
-// Stochastic toggle (state.stochastic); this module turns them into a budget from the device
-// class's ladder, a resolution scale, the XR session's start parameters and the renderer, and
-// disables the slider positions the device cannot hold (state.qualityAvailable).
+// Performance Mode toggle (state.performanceMode, the stochastic renderer); this module turns
+// them into a budget from the device class's ladder, a resolution scale, the XR session's start
+// parameters and the renderer, and disables the slider positions the device cannot hold
+// (state.qualityAvailable).
 
 import { platform } from 'playcanvas';
 import type { AppBase, EventHandler, GraphicsDevice } from 'playcanvas';
@@ -106,7 +107,7 @@ type EngineDevice = GraphicsDevice & {
 class Quality {
     readonly deviceClass: DeviceClass;
 
-    /** Whether the Stochastic toggle is offered: WebGPU, and not a standalone headset. */
+    /** Whether the Performance Mode toggle is offered: WebGPU, and not a standalone headset. */
     readonly stochasticAllowed: boolean;
 
     private app: AppBase;
@@ -152,7 +153,7 @@ class Quality {
 
         // the available positions follow the renderer choice and the session
         this.handles = [
-            events.on('stochastic:changed', () => this.updateAvailable()),
+            events.on('performanceMode:changed', () => this.updateAvailable()),
             events.on('xrMode:changed', () => this.updateAvailable()),
             events.on('quality:changed', () => this.updateAvailable())
         ];
@@ -167,7 +168,7 @@ class Quality {
     get stochastic() {
         const { stochastic } = this.config;
         if (stochastic === true || stochastic === 'mobile') return this.renderer === 'webgpu';
-        return this.stochasticAllowed && this.state.stochastic;
+        return this.stochasticAllowed && this.state.performanceMode;
     }
 
     /** Which stochastic mode the device gets: per-pixel coverage on a desktop, interleaved pixel sets on a mobile-class device. */

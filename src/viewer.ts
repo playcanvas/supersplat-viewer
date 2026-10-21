@@ -314,7 +314,7 @@ class Viewer {
         // announced on the first frame rather than here: createViewer resolves after this
         // constructor, so a page can only subscribe once loading is under way
         events.once('firstFrame', () => events.fire('splatRenderer:ready', this.splatRenderer));
-        const stochasticChanged = events.on('stochastic:changed', () => {
+        const stochasticChanged = events.on('performanceMode:changed', () => {
             if (!this.destroyed) this.syncSplatRenderer();
         });
         this.onDestroy(() => stochasticChanged.off());
@@ -736,9 +736,12 @@ class Viewer {
 
                     // handle quality changes: the slider, the renderer (whose availability can
                     // move the budget) and the session
-                    events.on('quality:changed', applyPerfSettings);
-                    events.on('stochastic:changed', applyPerfSettings);
-                    events.on('xrMode:changed', applyPerfSettings);
+                    const perfHandles = [
+                        events.on('quality:changed', applyPerfSettings),
+                        events.on('performanceMode:changed', applyPerfSettings),
+                        events.on('xrMode:changed', applyPerfSettings)
+                    ];
+                    this.onDestroy(() => perfHandles.forEach((handle) => handle.off()));
                     applyPerfSettings();
 
                     // the stochastic renderer consumes the engine's world under whatever

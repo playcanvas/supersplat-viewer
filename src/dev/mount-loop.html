@@ -371,14 +371,7 @@
                         return true;
                     }
                 };
-                const keys = [
-                    'quality',
-                    'stochastic',
-                    'performanceMode',
-                    'gamingControls',
-                    'showAnnotations',
-                    'retinaDisplay'
-                ];
+                const keys = ['quality', 'performanceMode', 'gamingControls', 'showAnnotations', 'retinaDisplay'];
                 const saved = keys.map((key) => localStorage.getItem(key));
                 const viewers = [];
                 try {
@@ -1264,9 +1257,9 @@
                             }
                         }
 
-                        // &toggle: the Stochastic setting on and back off twice, so the engine's
-                        // renderer draws again from the textures rebuilt for it (a sog scene's,
-                        // which the stochastic renderer releases); a dead one throws from the
+                        // &toggle: Performance Mode (the stochastic renderer) on and back off twice, so the
+                        // engine's renderer draws again from the textures rebuilt for it (a sog
+                        // scene's, which the stochastic renderer releases); a dead one throws from the
                         // frame or fails a submit, which the error handlers count. Each switch on
                         // must switch the engine's work-buffer copies off again, even when the
                         // resident set has not changed since the last, or they read the textures
@@ -1275,21 +1268,21 @@
                         // setting is put back
                         let toggled = null;
                         if (mode === 'loaded' && url.searchParams.has('toggle')) {
-                            const stored = localStorage.getItem('stochastic');
+                            const stored = localStorage.getItem('performanceMode');
                             handles.device.wgpu?.addEventListener('uncapturederror', (event) =>
                                 unhandled.push(`gpu: ${event.error.message.split('\n')[0]}`)
                             );
                             toggled = true;
                             for (let round = 0; round < 2; round++) {
-                                viewer.state.stochastic = true;
+                                viewer.state.performanceMode = true;
                                 await frames(viewer.app, 30);
                                 toggled &&= copiesSwitchedOff(viewer);
-                                viewer.state.stochastic = false;
+                                viewer.state.performanceMode = false;
                                 await frames(viewer.app, 30);
                                 toggled &&= splatTextureBytes(handles.device) < 1048576;
                             }
-                            if (stored === null) localStorage.removeItem('stochastic');
-                            else localStorage.setItem('stochastic', stored);
+                            if (stored === null) localStorage.removeItem('performanceMode');
+                            else localStorage.setItem('performanceMode', stored);
                         }
 
                         // `loaded` flips in the viewer's own first-frame handler, so it proves the hook

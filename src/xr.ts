@@ -443,11 +443,11 @@ const initXr = (global: Global) => {
                 }
             },
             {
-                label: () => localize('settings.stochastic'),
-                checked: () => state.stochastic,
+                label: () => localize('settings.performance-mode'),
+                checked: () => state.performanceMode,
                 visible: () => quality.stochasticAllowed,
                 action: () => {
-                    state.stochastic = !state.stochastic;
+                    state.performanceMode = !state.performanceMode;
                 }
             },
             {
