@@ -35,8 +35,8 @@ const FOLLOW_SPEED = 25;
 
 // The other hand's index fingertip pokes a row: within POKE_HOVER in front of it, it highlights
 // it, and closer than POKE_PRESS (or through it, up to POKE_BEHIND) it presses it, once: the next
-// press waits for the fingertip to draw back beyond POKE_RELEASE, and POKE_COOLDOWN seconds. A
-// poked row shows pressed for POKE_FLASH seconds
+// press waits for the fingertip to be back more than POKE_RELEASE in front of the menu's plane,
+// and POKE_COOLDOWN seconds. A poked row shows pressed for POKE_FLASH seconds
 const POKE_HOVER = 0.03;
 const POKE_PRESS = 0.006;
 const POKE_BEHIND = 0.03;
@@ -469,14 +469,13 @@ class XrPalmMenu {
         return (this.camera.parent as Entity | null)?.getScale().x ?? 1;
     }
 
-    // the left hand or controller when there is one, else the other
+    // the left hand or controller when it is in use, else the other: a hand that has lost tracking
+    // stays an input source, and would keep the menu closed on the other
     private preferred() {
-        const { inputSources } = this.app.xr.input;
-        return (
-            inputSources.find((source) => source.handedness === 'left') ??
-            inputSources.find((source) => source.handedness !== 'none') ??
-            null
+        const usable = this.app.xr.input.inputSources.filter(
+            (source) => source.handedness !== 'none' && (!source.hand || source.hand.tracking)
         );
+        return usable.find((source) => source.handedness === 'left') ?? usable[0] ?? null;
     }
 
     // opens the menu on an open palm facing the eyes, or on a controller's toggle button
@@ -613,6 +612,10 @@ class XrPalmMenu {
             this.pokeReady = true;
             return null;
         }
+        // the next press waits for the fingertip to be back in front of the menu's plane: one pushed
+        // through a row and drawn back out would otherwise press it again on the way
+        inverse.copy(this.container.getWorldTransform()).invert();
+        if (inverse.transformPoint(tip.getPosition(), localDirection).z > POKE_RELEASE) this.pokeReady = true;
         let quad: Quad | null = null;
         let depth = Infinity;
         for (const row of this.rows) {
@@ -624,10 +627,7 @@ class XrPalmMenu {
             depth = local.y;
             this.hitX = local.x;
         }
-        if (!quad || depth > POKE_RELEASE) {
-            this.pokeReady = true;
-            return quad;
-        }
+        if (!quad) return null;
         if (depth < POKE_PRESS && this.pokeReady && this.time - this.pokeTime >= POKE_COOLDOWN) {
             this.pokeReady = false;
             this.pokeTime = this.time;
