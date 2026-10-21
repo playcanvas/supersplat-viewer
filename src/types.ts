@@ -55,14 +55,10 @@ type State = {
      */
     qualityAvailable: QualityLevel[];
     /**
-     * Draw with the stochastic splat renderer (unsorted, depth-tested splats, temporally
-     * accumulated) instead of the engine's sorted one. WebGPU only, and not offered in Quest or
-     * Pico browsers, where the toggle has no effect. Persisted; off by default. Switches at runtime.
-     */
-    stochastic: boolean;
-    /**
-     * @deprecated An alias of `quality`: true is `performance`, false is `default`. Kept for one
-     * release for hosts that set it; use `quality`.
+     * Performance Mode: draw with the stochastic splat renderer (unsorted, depth-tested splats,
+     * temporally accumulated) instead of the engine's sorted one. WebGPU only, and not offered in
+     * Quest or Pico browsers, where the toggle has no effect. Persisted; off by default. Switches
+     * at runtime.
      */
     performanceMode: boolean;
     /** Content loading progress, 0 to 100. */
@@ -129,7 +125,6 @@ type State = {
 type WritableStateKey =
     | 'cameraMode'
     | 'quality'
-    | 'stochastic'
     | 'performanceMode'
     | 'showAnnotations'
     | 'gamingControls'
