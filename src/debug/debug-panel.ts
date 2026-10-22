@@ -146,8 +146,13 @@ class DebugPanel {
 
     private readonly _picker: ScenePicker;
 
-    // the stochastic renderer when this viewer opted in, for its depth cull toggle and counts
-    private readonly _splatRenderer: StochasticSplatRenderer | null;
+    // the stochastic renderer while it draws, for its depth cull toggle and counts: Performance
+    // Mode switches it in and out, and its controls show only while it is in
+    private _splatRenderer: StochasticSplatRenderer | null;
+
+    private _stochasticSection: HTMLDivElement | null = null;
+
+    private readonly _splatRendererChanged: { off(): void };
 
     private _cullButton: HTMLButtonElement | null = null;
 
@@ -224,6 +229,13 @@ class DebugPanel {
         this._picker = picker;
         this._splatRenderer = splatRenderer;
         this._miniStats = miniStats;
+        this._splatRendererChanged = global.events.on(
+            'splatRenderer:changed',
+            (renderer: StochasticSplatRenderer | null) => {
+                this._splatRenderer = renderer;
+                this._renderStochastic();
+            }
+        );
         window.addEventListener('keydown', this._onKeyDown);
         if (global.config.debug) {
             this.show();
@@ -271,6 +283,7 @@ class DebugPanel {
         this.hide();
         this._pickDepthOverlay?.destroy();
         this._pickDepthOverlay = null;
+        this._splatRendererChanged.off();
         window.removeEventListener('keydown', this._onKeyDown);
         if (this._root) {
             this._root.remove();
@@ -306,18 +319,15 @@ class DebugPanel {
                 <button data-id="pick-depth" title="Show the depth a navigation pick finds at every pixel">Show depth</button>
                 <button data-id="ministats" title="Show the engine's MiniStats graphs (the viewer then renders every frame)">MiniStats</button>
             </div>
-            ${
-                this._splatRenderer
-                    ? `
-            <div class="sse-debug-buttons sse-debug-grid">
-                <button data-id="depth-cull" title="Stochastic renderer: cull splats hidden in the previous frame's depth (auto suspends the test when it removes too little)">Depth cull</button>
-                <button data-id="taa" title="Stochastic renderer: accumulate the samples over frames (reprojected while the camera moves)">TAA</button>
-                <button data-id="coverage" title="Stochastic renderer: pick the coverage threshold per pixel (dither), per splat (a solid ellipse of random size, drawn without discard) or per splat and interleaved pixel set (four sizes per 2x2 pixel quad)">Coverage</button>
-                <button data-id="sharpen" title="Stochastic renderer: an unsharp mask on the accumulated history at display, fading out as it converges (off, 1, 2)">Sharpen</button>
+            <div data-id="stochastic">
+                <div class="sse-debug-buttons sse-debug-grid">
+                    <button data-id="depth-cull" title="Stochastic renderer: cull splats hidden in the previous frame's depth (auto suspends the test when it removes too little)">Depth cull</button>
+                    <button data-id="taa" title="Stochastic renderer: accumulate the samples over frames (reprojected while the camera moves)">TAA</button>
+                    <button data-id="coverage" title="Stochastic renderer: pick the coverage threshold per pixel (dither), per splat (a solid ellipse of random size, drawn without discard) or per splat and interleaved pixel set (four sizes per 2x2 pixel quad)">Coverage</button>
+                    <button data-id="sharpen" title="Stochastic renderer: an unsharp mask on the accumulated history at display, fading out as it converges (off, 1, 2)">Sharpen</button>
+                </div>
+                <div class="sse-debug-row"><span class="sse-debug-label">culled</span><span class="sse-debug-value" data-id="culled">—</span></div>
             </div>
-            <div class="sse-debug-row"><span class="sse-debug-label">culled</span><span class="sse-debug-value" data-id="culled">—</span></div>`
-                    : ''
-            }
             <input class="sse-debug-paste" data-id="paste-field" placeholder="Clipboard blocked here: paste with Ctrl/Cmd+V" spellcheck="false" style="display: none">
         `;
         host.appendChild(root);
@@ -348,42 +358,41 @@ class DebugPanel {
         this._pickDepthButton.addEventListener('click', () => {
             this._setPickDepth(!this._pickDepthOverlay?.enabled);
         });
-        if (this._splatRenderer) {
-            this._cullButton = root.querySelector('[data-id="depth-cull"]')!;
-            this._taaButton = root.querySelector('[data-id="taa"]')!;
-            this._coverageButton = root.querySelector('[data-id="coverage"]')!;
-            this._coverageButton.addEventListener('click', () => {
-                const renderer = this._splatRenderer!;
-                const next = { pixel: 'splat', splat: 'interleaved', interleaved: 'pixel' } as const;
-                renderer.variant.coverage = next[renderer.variant.coverage];
-                renderer.applyVariant();
+        this._stochasticSection = root.querySelector('[data-id="stochastic"]')!;
+        // each acts on the renderer in use when clicked; the section is hidden while there is none
+        const onRenderer = (button: HTMLButtonElement, change: (renderer: StochasticSplatRenderer) => void) => {
+            button.addEventListener('click', () => {
+                if (!this._splatRenderer) return;
+                change(this._splatRenderer);
                 this._renderCull();
             });
-            this._sharpenButton = root.querySelector('[data-id="sharpen"]')!;
-            // cycles the display sharpen: off -> 1 -> 2 -> off, without resetting the history
-            this._sharpenButton.addEventListener('click', () => {
-                const renderer = this._splatRenderer!;
-                const k = renderer.variant.taaSharpen;
-                renderer.setSharpen(k >= 2 ? 0 : k >= 1 ? 2 : 1);
-                this._renderCull();
-            });
-            this._culledValue = root.querySelector('[data-id="culled"]')!;
-            this._taaButton.addEventListener('click', () => {
-                const renderer = this._splatRenderer!;
-                renderer.variant.taa = renderer.variant.taa === 'on' ? 'off' : 'on';
-                renderer.applyVariant();
-                this._renderCull();
-            });
-            // cycles the cull mode: auto (the default) -> on (both grid levels) -> off
-            this._cullButton.addEventListener('click', () => {
-                const renderer = this._splatRenderer!;
-                const next = { auto: 'l2', l2: 'off', l1: 'off', off: 'auto' } as const;
-                renderer.variant.cull = next[renderer.variant.cull];
-                renderer.applyVariant();
-                this._renderCull();
-            });
-            this._renderCull();
-        }
+        };
+        this._cullButton = root.querySelector('[data-id="depth-cull"]')!;
+        this._taaButton = root.querySelector('[data-id="taa"]')!;
+        this._coverageButton = root.querySelector('[data-id="coverage"]')!;
+        this._sharpenButton = root.querySelector('[data-id="sharpen"]')!;
+        this._culledValue = root.querySelector('[data-id="culled"]')!;
+        onRenderer(this._coverageButton, (renderer) => {
+            const next = { pixel: 'splat', splat: 'interleaved', interleaved: 'pixel' } as const;
+            renderer.variant.coverage = next[renderer.variant.coverage];
+            renderer.applyVariant();
+        });
+        // cycles the display sharpen: off -> 1 -> 2 -> off, without resetting the history
+        onRenderer(this._sharpenButton, (renderer) => {
+            const k = renderer.variant.taaSharpen;
+            renderer.setSharpen(k >= 2 ? 0 : k >= 1 ? 2 : 1);
+        });
+        onRenderer(this._taaButton, (renderer) => {
+            renderer.variant.taa = renderer.variant.taa === 'on' ? 'off' : 'on';
+            renderer.applyVariant();
+        });
+        // cycles the cull mode: auto (the default) -> on (both grid levels) -> off
+        onRenderer(this._cullButton, (renderer) => {
+            const next = { auto: 'l2', l2: 'off', l1: 'off', off: 'auto' } as const;
+            renderer.variant.cull = next[renderer.variant.cull];
+            renderer.applyVariant();
+        });
+        this._renderStochastic();
         this._wireEditable(this._positionValue, 'position');
         this._wireEditable(this._focusValue, 'focus');
     }
@@ -480,6 +489,13 @@ class DebugPanel {
         if (this._editing !== this._focusValue) {
             this._focusValue.textContent = fmt(this._focusTmp);
         }
+    }
+
+    // the stochastic renderer's controls, shown while it draws
+    private _renderStochastic() {
+        if (!this._stochasticSection) return;
+        this._stochasticSection.style.display = this._splatRenderer ? '' : 'none';
+        this._renderCull();
     }
 
     // the cull button shows the mode; the counts come back from the gpu every few frames

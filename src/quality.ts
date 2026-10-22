@@ -107,7 +107,7 @@ type EngineDevice = GraphicsDevice & {
 class Quality {
     readonly deviceClass: DeviceClass;
 
-    /** Whether the Performance Mode toggle is offered: WebGPU, and not a standalone headset. */
+    /** Whether the stochastic renderer may be chosen here: WebGPU, not a standalone headset, and not turned off by the flag. */
     readonly stochasticAllowed: boolean;
 
     private app: AppBase;
@@ -263,8 +263,11 @@ class Quality {
         return levels.find((entry) => entry.budget !== null)?.budget ?? levels[0].budget ?? 1;
     }
 
-    // whether the toggle can switch renderers here: allowed, and not forced on by the flag
-    private get switchable() {
+    /**
+     * Whether the Performance Mode toggle can switch renderers here, so the menus offer it:
+     * allowed, and not forced on by the flag.
+     */
+    get switchable() {
         const { stochastic } = this.config;
         return this.stochasticAllowed && stochastic !== true && stochastic !== 'mobile';
     }

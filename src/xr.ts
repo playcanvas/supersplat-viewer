@@ -442,7 +442,7 @@ const initXr = (global: Global) => {
         {
             label: () => localize('settings.performance-mode'),
             checked: () => state.performanceMode,
-            visible: () => quality.stochasticAllowed,
+            visible: () => quality.switchable,
             action: () => {
                 state.performanceMode = !state.performanceMode;
             }

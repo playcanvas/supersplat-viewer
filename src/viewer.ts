@@ -660,7 +660,9 @@ class Viewer {
             // collision may already have landed while the splats were still streaming
             if (collisionReady) attachCollision(collisionReady);
 
-            this.debugPanel = new DebugPanel(global, this.cameraManager, this.picker, this.splatRenderer, {
+            // the stochastic renderer if it draws now: switched off, it stays made but out
+            const drawing = global.quality.stochastic ? this.splatRenderer : null;
+            this.debugPanel = new DebugPanel(global, this.cameraManager, this.picker, drawing, {
                 shown: () => !!this.miniStats?.enabled,
                 show: (value) => this.setMiniStats(value)
             });
@@ -767,7 +769,7 @@ class Viewer {
 
     // Makes the stochastic renderer the first time the quality module wants it, then switches it
     // in and out in place: off, it hands the splats back to the engine's renderer. Announces the
-    // change for the parts that hold the renderer (the XR menu's sharpen switch, the dev pages)
+    // change for the parts that hold the renderer (the debug panel, the dev pages)
     private syncSplatRenderer() {
         const { app, config, events, camera, quality } = this.global;
         const wanted = quality.stochastic;
