@@ -284,7 +284,7 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
         (isPrefetchable(options.contentUrl, options.contentFilename) ? fetch(options.contentUrl) : undefined),
     renderer: options.renderer ?? 'webgpu',
     ui: options.ui ?? true,
-    touchInsetBottom: resolveTouchInsetBottom(options.touchInsetBottom),
+    experimentalTouchInsetBottom: resolveTouchInsetBottom(options.experimentalTouchInsetBottom),
     reticle: options.reticle ?? false,
     noanim: options.noanim ?? false,
     nofx: options.nofx ?? false,
@@ -321,7 +321,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     }
 
     // the stylesheet lifts what sits on the bottom edge by this, on touch devices alone
-    root.style.setProperty('--sse-touch-inset-bottom', `${config.touchInsetBottom}px`);
+    root.style.setProperty('--sse-experimental-touch-inset-bottom', `${config.experimentalTouchInsetBottom}px`);
 
     container.appendChild(root);
     const canvas = root.querySelector('canvas');

@@ -20,14 +20,15 @@
 
     --canvas-opacity: 1;
 
-    // How far everything anchored to the bottom edge is lifted: the embedder's touchInsetBottom,
-    // which createViewer sets as --sse-touch-inset-bottom, on touch devices alone. A host app's
-    // chrome covering the bottom of an embedded viewer is a phone's; with a fine pointer the
-    // toolbar stays at the edge whatever the value
+    // How far everything anchored to the bottom edge is lifted: the embedder's
+    // experimentalTouchInsetBottom, which createViewer sets as
+    // --sse-experimental-touch-inset-bottom, on touch devices alone. A host app's chrome covering
+    // the bottom of an embedded viewer is a phone's; with a fine pointer the toolbar stays at the
+    // edge whatever the value
     --sse-lift: 0px;
 
     @media (pointer: coarse) {
-        --sse-lift: var(--sse-touch-inset-bottom, 0px);
+        --sse-lift: var(--sse-experimental-touch-inset-bottom, 0px);
     }
 
     position: relative;

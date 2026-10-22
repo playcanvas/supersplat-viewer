@@ -85,7 +85,7 @@ function htmlPlugin() {
             });
 
             // Development page that frames the viewer as a social card player does, with host
-            // chrome over its bottom, for the `touchInsetBottom` option.
+            // chrome over its bottom, for the `experimentalTouchInsetBottom` option.
             this.emitFile({
                 type: 'asset',
                 fileName: 'card.html',

@@ -58,17 +58,17 @@
     </head>
     <body>
         <!--
-            Development page for `touchInsetBottom`, the lift an embedding host sets for touch
-            devices. It frames the standalone viewer in a square iframe, as a social card player
-            does, and draws a strip of host chrome over the iframe's bottom, `chrome` px tall (56 by
-            default), so you can see whether the toolbar clears it.
+            Development page for `experimentalTouchInsetBottom`, the lift an embedding host sets
+            for touch devices. It frames the standalone viewer in a square iframe, as a social
+            card player does, and draws a strip of host chrome over the iframe's bottom, `chrome`
+            px tall (56 by default), so you can see whether the toolbar clears it.
 
             Every param is passed to the viewer, so the usual ones work: ?content= ?settings=
-            ?webgl. Defaults to ?touch-inset-bottom=56. The inset lifts the toolbar on touch
-            devices alone, so check it with DevTools' device emulation (a coarse pointer); with a
-            mouse the toolbar stays at the bottom edge, under the strip.
+            ?webgl. Defaults to ?experimental-touch-inset-bottom=56. The inset lifts the toolbar
+            on touch devices alone, so check it with DevTools' device emulation (a coarse
+            pointer); with a mouse the toolbar stays at the bottom edge, under the strip.
 
-            Params: ?touch-inset-bottom=56  ?chrome=56 (strip height, 0 for none)
+            Params: ?experimental-touch-inset-bottom=56  ?chrome=56 (strip height, 0 for none)
         -->
         <div id="card">
             <iframe allow="fullscreen; xr-spatial-tracking" allowfullscreen></iframe>
@@ -78,7 +78,7 @@
         <script type="module">
             const url = new URL(location.href);
             const params = new URLSearchParams(url.search);
-            if (!params.has('touch-inset-bottom')) params.set('touch-inset-bottom', '56');
+            if (!params.has('experimental-touch-inset-bottom')) params.set('experimental-touch-inset-bottom', '56');
 
             const chrome = Number(params.get('chrome') ?? 56);
             params.delete('chrome');
@@ -93,8 +93,8 @@
             // links to each inset, keeping every other param
             const presets = document.getElementById('presets');
             for (const [label, set] of [
-                ['inset 56', { 'touch-inset-bottom': '56' }],
-                ['no inset', { 'touch-inset-bottom': '0' }]
+                ['inset 56', { 'experimental-touch-inset-bottom': '56' }],
+                ['no inset', { 'experimental-touch-inset-bottom': '0' }]
             ]) {
                 const next = new URLSearchParams(url.search);
                 for (const [key, value] of Object.entries(set)) next.set(key, value);

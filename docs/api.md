@@ -222,14 +222,14 @@ The full set is `--sse-text`, `--sse-text-light`, `--sse-text-dark`, `--sse-text
 ### Host chrome over the viewer
 
 A host app may draw its own chrome over the bottom of an embedded viewer, as a social feed's
-card player does on phones. `touchInsetBottom` lifts the built-in UI clear of it:
+card player does on phones. `experimentalTouchInsetBottom` lifts the built-in UI clear of it:
 
 ```ts
 const viewer = await createViewer({
     container,
     settings,
     contentUrl,
-    touchInsetBottom: 56     // touch devices: lift the toolbar 56px clear of the host's chrome
+    experimentalTouchInsetBottom: 56    // touch devices: lift the toolbar 56px clear of the host's chrome
 });
 ```
 
@@ -237,7 +237,8 @@ It is a number of CSS pixels, clamped to 0–200, by which the toolbar and every
 anchored to the viewer's bottom edge (the loading bar, the panels above the toolbar, the touch
 joystick) is lifted. It applies only on touch devices, those with a coarse primary pointer;
 with a mouse the toolbar stays at the edge whatever the value. The standalone document reads it
-from `?touch-inset-bottom=56`. `ViewerFlags` types it, from either entry.
+from `?experimental-touch-inset-bottom=56`. `ViewerFlags` types it, from either entry. The
+option is experimental: it may be renamed or removed in a minor release.
 
 ### Replacing the UI
 

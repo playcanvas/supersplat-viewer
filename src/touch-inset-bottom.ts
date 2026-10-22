@@ -6,8 +6,8 @@
 const TOUCH_INSET_BOTTOM_MAX = 200;
 
 // css pixels, clamped to 0..TOUCH_INSET_BOTTOM_MAX; a value that is not a finite number is 0
-const resolveTouchInsetBottom = (touchInsetBottom: number | undefined) => {
-    const value = Number(touchInsetBottom);
+const resolveTouchInsetBottom = (insetBottom: number | undefined) => {
+    const value = Number(insetBottom);
     return Number.isFinite(value) ? Math.min(TOUCH_INSET_BOTTOM_MAX, Math.max(0, value)) : 0;
 };
 

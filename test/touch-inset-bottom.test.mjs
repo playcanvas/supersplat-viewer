@@ -62,15 +62,21 @@ describe('resolveTouchInsetBottom', () => {
 
 describe('the url params', () => {
     it('leave the inset unset by default', () => {
-        assert.equal(optionsFor('').touchInsetBottom, undefined);
+        assert.equal(optionsFor('').experimentalTouchInsetBottom, undefined);
     });
 
-    it('read ?touch-inset-bottom= as a number, left to createViewer to clamp', () => {
-        assert.equal(optionsFor('?touch-inset-bottom=56').touchInsetBottom, 56);
-        assert.equal(optionsFor('?touch-inset-bottom=500').touchInsetBottom, 500);
-        assert.ok(Number.isNaN(optionsFor('?touch-inset-bottom=abc').touchInsetBottom));
-        assert.equal(resolveTouchInsetBottom(optionsFor('?touch-inset-bottom=abc').touchInsetBottom), 0);
-        assert.equal(resolveTouchInsetBottom(optionsFor('?touch-inset-bottom=500').touchInsetBottom), 200);
+    it('read ?experimental-touch-inset-bottom= as a number, left to createViewer to clamp', () => {
+        assert.equal(optionsFor('?experimental-touch-inset-bottom=56').experimentalTouchInsetBottom, 56);
+        assert.equal(optionsFor('?experimental-touch-inset-bottom=500').experimentalTouchInsetBottom, 500);
+        assert.ok(Number.isNaN(optionsFor('?experimental-touch-inset-bottom=abc').experimentalTouchInsetBottom));
+        assert.equal(
+            resolveTouchInsetBottom(optionsFor('?experimental-touch-inset-bottom=abc').experimentalTouchInsetBottom),
+            0
+        );
+        assert.equal(
+            resolveTouchInsetBottom(optionsFor('?experimental-touch-inset-bottom=500').experimentalTouchInsetBottom),
+            200
+        );
     });
 });
 
@@ -79,7 +85,7 @@ describe('the stylesheet', () => {
 
     it('consumes the inset inside a coarse-pointer query alone', () => {
         // every use of the embedder's value, with the declaration that sets it excluded
-        const uses = [...css.matchAll(/var\(--sse-touch-inset-bottom/g)].map((m) => m.index);
+        const uses = [...css.matchAll(/var\(--sse-experimental-touch-inset-bottom/g)].map((m) => m.index);
         assert.equal(uses.length, 1, 'the inset should be read in one place');
 
         const query = css.lastIndexOf('@media (pointer: coarse)', uses[0]);
@@ -106,7 +112,7 @@ describe('the published types', () => {
         it(`declare the inset in ${file}`, () => {
             const types = read(`../dist/${file}`);
             assert.ok(exported(types).includes('ViewerFlags'), `ViewerFlags missing from ${file}'s exports`);
-            assert.match(types, /touchInsetBottom\?: number;/);
+            assert.match(types, /experimentalTouchInsetBottom\?: number;/);
         });
     }
 });
