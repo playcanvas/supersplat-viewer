@@ -3,15 +3,24 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import vm from 'node:vm';
 
+import ts from 'typescript';
+
 // The touch-only bottom inset: how createViewer clamps the option, how the shipped document reads
 // it from its url, and the stylesheet rules that apply it.
 //
-// The resolver is loaded from the source, which has no imports, so node strips its types and runs
-// it as it is (node 22.18 and later). Everything else reads the build, so run `npm run build`
-// first (`npm test` does both).
-import { TOUCH_INSET_BOTTOM_MAX, resolveTouchInsetBottom } from '../src/touch-inset-bottom.ts';
+// The resolver is not exported from any entry, so it is compiled from its source here; it has no
+// imports, so the one file is the whole module. Everything else reads the build, so run
+// `npm run build` first (`npm test` does both).
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf-8');
+
+const { TOUCH_INSET_BOTTOM_MAX, resolveTouchInsetBottom } = await import(
+    `data:text/javascript,${encodeURIComponent(
+        ts.transpileModule(read('../src/touch-inset-bottom.ts'), {
+            compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
+        }).outputText
+    )}`
+);
 
 // Run the shipped document's options script against a url, the way the browser does before the
 // bundle arrives, and return the createViewer options it builds.
@@ -96,6 +105,15 @@ describe('the stylesheet', () => {
 
         // and the lift it feeds defaults to nothing
         assert.match(css, /--sse-lift:\s*0px/);
+    });
+
+    it('caps the panels above the toolbar to the height left, scrolling by touch', () => {
+        for (const panel of ['controlsHint', 'settingsPanel']) {
+            const rule = css.match(new RegExp(`\\.sse-viewer \\.sse-${panel} \\{([^}]*)\\}`))?.[1] ?? '';
+            assert.match(rule, /max-height:\s*calc\(100% - 16px - calc\([^;]*var\(--sse-lift\)\)\)/, panel);
+            assert.match(rule, /overflow-y:\s*auto/, panel);
+            assert.match(css, new RegExp(`\\.sse-viewer \\.sse-${panel} \\*\\s*\\{\\s*touch-action:\\s*pan-y`), panel);
+        }
     });
 
     it('lifts the toolbar and the loading bar by it', () => {

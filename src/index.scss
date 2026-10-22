@@ -1,3 +1,23 @@
+// The controls and settings panels open above the toolbar. They are capped to the height left
+// above it, so a short viewer, or one the touch inset lifts, scrolls them rather than clipping
+// their top at the viewer's edge. The root turns touch panning off for every element; inside a
+// panel it is back on vertically, so an overflowing panel scrolls by touch, and controls that
+// drag sideways (the Quality slider) turn it off for themselves
+@mixin panel-above-toolbar {
+    $bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px + var(--sse-lift));
+
+    bottom: $bottom;
+    max-height: calc(100% - 16px - #{$bottom});
+    box-sizing: border-box;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+
+    &,
+    * {
+        touch-action: pan-y;
+    }
+}
+
 // Every rule is nested under the instance root, so a host page that links this stylesheet
 // has nothing outside the viewer restyled. The host sizes the container; the root fills it,
 // and everything inside is positioned against the root rather than the viewport.
@@ -174,10 +194,9 @@
         // turns, so they never show together
         position: absolute;
         right: max(16px, env(safe-area-inset-right));
-        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px + var(--sse-lift));
+        @include panel-above-toolbar;
         min-width: 200px;
         max-width: calc(100% - 32px);
-        box-sizing: border-box;
         padding: 8px 8px 8px 12px;
         border-radius: 16px;
         border: 1px solid rgba(white, 0.08);
@@ -580,7 +599,7 @@
     .sse-settingsPanel {
         position: absolute;
         right: max(16px, env(safe-area-inset-right));
-        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px + var(--sse-lift));
+        @include panel-above-toolbar;
         padding: 12px;
         border-radius: 16px;
         border: 1px solid rgba(white, 0.08);
