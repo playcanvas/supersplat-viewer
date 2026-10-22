@@ -206,9 +206,14 @@ class Quality {
         return this.deviceClass.ladder === 'mobile' ? 'mobile' : 'pixel';
     }
 
-    /** Whether the debug controls offer the renderer and mode: WebGPU, whatever the flag or the device. */
+    /**
+     * Whether the debug controls offer the renderer and mode: on WebGPU where the Performance Mode
+     * toggle can switch renderers, or anywhere on WebGPU with the debug flag (a standalone headset,
+     * a stochastic flag). The budget is then fitted to both renderers from the start, so a switch
+     * never meets splats resident for a budget the other renderer cannot hold.
+     */
     get debugModes() {
-        return this.renderer === 'webgpu';
+        return this.renderer === 'webgpu' && (this.switchable || this.config.debug);
     }
 
     /** The renderer and mode drawing: sorted, or the stochastic renderer's mode. */
@@ -218,8 +223,8 @@ class Quality {
 
     /**
      * The debug controls' choice of renderer and mode, where {@link debugModes}: not saved, so a
-     * reload is back to the usual choice, and the Performance Mode toggle clears it. The budget is
-     * fitted to the renderer in use, as with the flag.
+     * reload is back to the usual choice, and the Performance Mode toggle clears it. The budget,
+     * fitted to both renderers wherever this is offered, stays as it is.
      *
      * @param mode - Sorted, or the stochastic renderer's mode.
      */
@@ -325,14 +330,14 @@ class Quality {
 
     // The largest budget up to `budget`, in steps of 0.1M, that every renderer which may draw it
     // can hold: its cache in one storage binding and its estimated total under the ceiling; null
-    // when none does. Where the toggle can switch renderers, both are fitted, so a switch never
-    // changes the budget: the splats resident for one renderer's budget could overflow the other's
-    // binding (sorted fails every frame past it) until coarser detail streamed in and the finer
-    // files cooled down. It costs the stochastic renderer its headroom where it holds more (a
+    // when none does. Where the toggle or the debug controls can switch renderers, both are
+    // fitted, so a switch never changes the budget: the splats resident for one renderer's budget
+    // could overflow the other's binding (sorted fails every frame past it) until coarser detail
+    // streamed in and the finer files cooled down. It costs the stochastic renderer its headroom where it holds more (a
     // 128 MiB binding at the 4M rung, 4.0M against sorted's 3.8M; Max on Chrome reporting 4 GB or
     // less of memory)
     private fitBudget(budget: number) {
-        const renderers = this.switchable ? [false, true] : [this.stochastic];
+        const renderers = this.debugModes ? [false, true] : [this.stochastic];
         for (let b = budget; b >= 0.1; b = Math.round((b - 0.1) * 10) / 10) {
             const fits = (stochastic: boolean) =>
                 this.cacheFits(b, stochastic) && this.estimateMB(b, stochastic) <= this.ceilingMB;

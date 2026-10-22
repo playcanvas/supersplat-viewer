@@ -515,19 +515,30 @@ class DebugPanel {
         // the renderer and mode where WebGPU offers them: sorted, pixel, mobile or sol
         const { quality } = this._global;
         if (quality.debugModes) {
-            this._modeButtons = segments(
-                root.querySelector('[data-id="mode"]')!,
-                DEBUG_MODES.map((mode) => ({
-                    value: mode,
-                    label: mode[0].toUpperCase() + mode.slice(1),
-                    title: MODE_TITLES[mode]
-                })),
-                (mode) => quality.setDebugMode(mode)
-            );
+            this._buildRendererControls(root);
         } else {
+            // no choice of renderer here (WebGL), so none of its rows
             root.querySelector('[data-id="renderer"]')!.remove();
+            this._stochasticSection = null;
         }
-        // each acts on the renderer in use; the rows are hidden while there is none
+        this._renderStochastic();
+        this._wireEditable(this._positionValue, 'position');
+        this._wireEditable(this._focusValue, 'focus');
+    }
+
+    // the renderer and mode, and the stochastic renderer's choices
+    private _buildRendererControls(root: HTMLElement) {
+        const { quality } = this._global;
+        this._modeButtons = segments(
+            root.querySelector('[data-id="mode"]')!,
+            DEBUG_MODES.map((mode) => ({
+                value: mode,
+                label: mode[0].toUpperCase() + mode.slice(1),
+                title: MODE_TITLES[mode]
+            })),
+            (mode) => quality.setDebugMode(mode)
+        );
+        // each acts on the renderer in use; the rows are disabled while there is none
         const onRenderer =
             <T>(change: (renderer: StochasticSplatRenderer, value: T) => void) =>
             (value: T) => {
@@ -558,9 +569,6 @@ class DebugPanel {
                 renderer.variant.cull = value === 'on' ? 'l2' : value;
             })
         );
-        this._renderStochastic();
-        this._wireEditable(this._positionValue, 'position');
-        this._wireEditable(this._focusValue, 'focus');
     }
 
     private _wireEditable(span: HTMLSpanElement, kind: 'position' | 'focus') {

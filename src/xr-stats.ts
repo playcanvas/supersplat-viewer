@@ -18,8 +18,8 @@ const INTERVAL = 0.25;
 /**
  * Frame numbers in an XR session, which hides the page's MiniStats: the frame's time (and frames a
  * second), the GPU's time, and the splats the level of detail selected (the page's MiniStats'
- * Splats), a line each, head-locked low in the view while `enabled`. The GPU's time needs the
- * device's GPU profiler, which the panel turns on while it shows and puts back as it was.
+ * Splats), a line each, head-locked low in the view while `enabled` in a session. The GPU's time
+ * needs the device's GPU profiler, which the panel turns on while it shows and puts back as it was.
  */
 class XrStats {
     private app: AppBase;
@@ -27,6 +27,9 @@ class XrStats {
     private quad: Quad;
 
     private value = false;
+
+    // whether the panel has the profiler on, and what it was before
+    private profiling = false;
 
     private profilerWas = false;
 
@@ -53,30 +56,37 @@ class XrStats {
     set enabled(value: boolean) {
         if (value === this.value) return;
         this.value = value;
-        const profiler = this.app.graphicsDevice.gpuProfiler;
-        if (profiler) {
-            if (value) {
-                this.profilerWas = profiler.enabled;
-                profiler.enabled = true;
-            } else {
-                profiler.enabled = this.profilerWas;
-            }
-        }
         this.wait = 0;
-        this.quad.entity.enabled = value && this.app.xr.active;
+        this.show(value && this.app.xr.active);
     }
 
     destroy() {
-        this.enabled = false;
+        this.show(false);
         this.handle.off();
         this.quad.entity.destroy();
         this.quad.material.destroy();
         this.quad.texture.destroy();
     }
 
+    // shows or hides the panel, the gpu profiler on only while it shows (it costs every frame's
+    // passes their timestamps), and put back as it was after: a session's end hides it too
+    private show(shown: boolean) {
+        this.quad.entity.enabled = shown;
+        if (shown === this.profiling) return;
+        this.profiling = shown;
+        const profiler = this.app.graphicsDevice.gpuProfiler;
+        if (!profiler) return;
+        if (shown) {
+            this.profilerWas = profiler.enabled;
+            profiler.enabled = true;
+        } else {
+            profiler.enabled = this.profilerWas;
+        }
+    }
+
     private update(dt: number) {
         const shown = this.value && this.app.xr.active;
-        this.quad.entity.enabled = shown;
+        this.show(shown);
         if (!shown) return;
         this.wait -= dt;
         if (this.wait > 0) return;
