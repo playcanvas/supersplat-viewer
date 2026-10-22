@@ -98,7 +98,11 @@ type EngineRenderer = {
     // the hybrid renderer's gpu pipeline, created lazily by its render prep and its pick prep
     gpuSorter?: { destroy(): void } | null;
     projector?: { destroy(): void } | null;
-    intervalCompaction?: { destroy(): void } | null;
+    intervalCompaction?: {
+        destroy(): void;
+        /** The splats its frustum cull kept last time it ran, which its draw is sized by. */
+        numSplatsBuffer?: StorageBuffer;
+    } | null;
 };
 
 type EngineManager = {
@@ -380,5 +384,33 @@ const buildResidentSet = (state: EngineWorldState): ResidentSet => {
     };
 };
 
-export { EngineResidentSetProvider };
+// TEMPORARY, until the engine reports these (an upstream PR, noted in docs/follow-up-plan.md):
+// counts for the debug panel, read through the same internals. The splats in the files the
+// engine has loaded for a resource (in use or cooling down), or a single file's own
+const loadedSplats = (resource: unknown) => {
+    const loaded = resource as {
+        numSplats?: number;
+        octree?: { fileResources: Map<number, { numSplats: number }> } | null;
+    } | null;
+    if (!loaded) return null;
+    if (!loaded.octree) return loaded.numSplats ?? null;
+    let count = 0;
+    for (const file of loaded.octree.fileResources.values()) count += file.numSplats;
+    return count;
+};
+
+// the splats the engine's own gpu-sorted renderer kept after its frustum cull the last time it
+// drew for this camera and layer, or null where it has not (WebGL's cpu sort, or the stochastic
+// renderer drawing instead)
+const readEngineVisibleSplats = async (app: AppBase, camera: CameraComponent, layer: Layer) => {
+    const director = (app.renderer as unknown as { gsplatDirector?: EngineDirector | null }).gsplatDirector;
+    const manager = director?.camerasMap.get(camera.camera)?.layersMap.get(layer)?.gsplatManager;
+    const buffer = manager?.renderer.intervalCompaction?.numSplatsBuffer;
+    if (!buffer) return null;
+    const data = new Uint32Array(1);
+    await buffer.read(0, 4, data, true);
+    return data[0];
+};
+
+export { EngineResidentSetProvider, loadedSplats, readEngineVisibleSplats };
 export type { EngineManager, EngineResource, EngineWorkBuffer, ResidentFile, ResidentNode, ResidentSet };

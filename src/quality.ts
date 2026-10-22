@@ -9,8 +9,15 @@
 import { platform } from 'playcanvas';
 import type { AppBase, EventHandler, GraphicsDevice } from 'playcanvas';
 
-import { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
+import { STOCHASTIC_MODES, StochasticSplatRenderer } from './render/stochastic-splat-renderer';
+import type { StochasticMode } from './render/stochastic-splat-renderer';
 import type { Config, QualityLevel, State } from './types';
+
+/** What the debug controls choose between: the engine's sorted renderer, or a stochastic mode. */
+type DebugMode = 'sorted' | StochasticMode;
+
+/** The debug controls' choices, in the order they step through them. */
+const DEBUG_MODES: readonly DebugMode[] = ['sorted', ...STOCHASTIC_MODES];
 
 /** The slider's positions, left to right. */
 const QUALITY_LEVELS: readonly QualityLevel[] = ['performance', 'default', 'high', 'max'];
@@ -107,7 +114,7 @@ type EngineDevice = GraphicsDevice & {
 class Quality {
     readonly deviceClass: DeviceClass;
 
-    /** Whether the Performance Mode toggle is offered: WebGPU, and not a standalone headset. */
+    /** Whether the stochastic renderer may be chosen here: WebGPU, not a standalone headset, and not turned off by the flag. */
     readonly stochasticAllowed: boolean;
 
     private app: AppBase;
@@ -118,7 +125,13 @@ class Quality {
 
     private renderer: Config['renderer'];
 
+    private events: EventHandler;
+
     private ceilingMB: number;
+
+    // the debug controls' choice of renderer and mode, over Performance Mode and the flag; not
+    // saved, null until it is used, and cleared by the Performance Mode toggle
+    private debugOverride: DebugMode | null = null;
 
     private handles: { off(): void }[];
 
@@ -127,6 +140,7 @@ class Quality {
         this.config = config;
         this.state = state;
         this.renderer = renderer;
+        this.events = events;
 
         const device = app.graphicsDevice as EngineDevice;
         const info = device.gpuAdapter?.info;
@@ -153,7 +167,13 @@ class Quality {
 
         // the available positions follow the renderer choice and the session
         this.handles = [
-            events.on('performanceMode:changed', () => this.updateAvailable()),
+            // made before the viewer's listeners, so a toggle clears the debug choice before they
+            // read the renderer
+            events.on('performanceMode:changed', () => {
+                this.debugOverride = null;
+                this.updateAvailable();
+            }),
+            events.on('debugMode:changed', () => this.updateAvailable()),
             events.on('xrMode:changed', () => this.updateAvailable()),
             events.on('quality:changed', () => this.updateAvailable())
         ];
@@ -164,18 +184,54 @@ class Quality {
         for (const handle of this.handles) handle.off();
     }
 
-    /** Whether the stochastic renderer should draw: forced by the flag, or chosen by the toggle where allowed. */
+    /**
+     * Whether the stochastic renderer should draw: chosen on the debug controls, forced by the
+     * flag, or by the toggle where allowed.
+     */
     get stochastic() {
+        if (this.debugOverride !== null) return this.renderer === 'webgpu' && this.debugOverride !== 'sorted';
         const { stochastic } = this.config;
         if (stochastic === true || stochastic === 'mobile') return this.renderer === 'webgpu';
         return this.stochasticAllowed && this.state.performanceMode;
     }
 
-    /** Which stochastic mode the device gets: per-pixel coverage on a desktop, interleaved pixel sets on a mobile-class device. */
-    get stochasticMode(): 'pixel' | 'mobile' {
+    /**
+     * Which stochastic mode draws: the debug controls' choice, the flag's, or the device's: per-pixel
+     * coverage on a desktop, interleaved pixel sets on a mobile-class device.
+     */
+    get stochasticMode(): StochasticMode {
+        if (this.debugOverride !== null && this.debugOverride !== 'sorted') return this.debugOverride;
         if (this.config.stochastic === 'mobile') return 'mobile';
         if (this.config.stochastic === true) return 'pixel';
         return this.deviceClass.ladder === 'mobile' ? 'mobile' : 'pixel';
+    }
+
+    /**
+     * Whether the debug controls offer the renderer and mode: on WebGPU where the Performance Mode
+     * toggle can switch renderers, or anywhere on WebGPU with the debug flag (a standalone headset,
+     * a stochastic flag). The budget is then fitted to both renderers from the start, so a switch
+     * never meets splats resident for a budget the other renderer cannot hold.
+     */
+    get debugModes() {
+        return this.renderer === 'webgpu' && (this.switchable || this.config.debug);
+    }
+
+    /** The renderer and mode drawing: sorted, or the stochastic renderer's mode. */
+    get debugMode(): DebugMode {
+        return this.stochastic ? this.stochasticMode : 'sorted';
+    }
+
+    /**
+     * The debug controls' choice of renderer and mode, where {@link debugModes}: not saved, so a
+     * reload is back to the usual choice, and the Performance Mode toggle clears it. The budget,
+     * fitted to both renderers wherever this is offered, stays as it is.
+     *
+     * @param mode - Sorted, or the stochastic renderer's mode.
+     */
+    setDebugMode(mode: DebugMode) {
+        if (!this.debugModes || mode === this.debugOverride) return;
+        this.debugOverride = mode;
+        this.events.fire('debugMode:changed', mode);
     }
 
     /**
@@ -263,22 +319,25 @@ class Quality {
         return levels.find((entry) => entry.budget !== null)?.budget ?? levels[0].budget ?? 1;
     }
 
-    // whether the toggle can switch renderers here: allowed, and not forced on by the flag
-    private get switchable() {
+    /**
+     * Whether the Performance Mode toggle can switch renderers here, so the menus offer it:
+     * allowed, and not forced on by the flag.
+     */
+    get switchable() {
         const { stochastic } = this.config;
         return this.stochasticAllowed && stochastic !== true && stochastic !== 'mobile';
     }
 
     // The largest budget up to `budget`, in steps of 0.1M, that every renderer which may draw it
     // can hold: its cache in one storage binding and its estimated total under the ceiling; null
-    // when none does. Where the toggle can switch renderers, both are fitted, so a switch never
-    // changes the budget: the splats resident for one renderer's budget could overflow the other's
-    // binding (sorted fails every frame past it) until coarser detail streamed in and the finer
-    // files cooled down. It costs the stochastic renderer its headroom where it holds more (a
+    // when none does. Where the toggle or the debug controls can switch renderers, both are
+    // fitted, so a switch never changes the budget: the splats resident for one renderer's budget
+    // could overflow the other's binding (sorted fails every frame past it) until coarser detail
+    // streamed in and the finer files cooled down. It costs the stochastic renderer its headroom where it holds more (a
     // 128 MiB binding at the 4M rung, 4.0M against sorted's 3.8M; Max on Chrome reporting 4 GB or
     // less of memory)
     private fitBudget(budget: number) {
-        const renderers = this.switchable ? [false, true] : [this.stochastic];
+        const renderers = this.debugModes ? [false, true] : [this.stochastic];
         for (let b = budget; b >= 0.1; b = Math.round((b - 0.1) * 10) / 10) {
             const fits = (stochastic: boolean) =>
                 this.cacheFits(b, stochastic) && this.estimateMB(b, stochastic) <= this.ceilingMB;
@@ -325,5 +384,5 @@ class Quality {
     }
 }
 
-export { canvasPixelRatio, Quality, QUALITY_LEVELS, resolutionScaleFor, standaloneHeadset, visionPro };
-export type { DeviceClass };
+export { canvasPixelRatio, DEBUG_MODES, Quality, QUALITY_LEVELS, resolutionScaleFor, standaloneHeadset, visionPro };
+export type { DebugMode, DeviceClass };

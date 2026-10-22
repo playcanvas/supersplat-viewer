@@ -74,6 +74,9 @@ const OFF = 'rgba(255, 255, 255, 0.28)';
 
 const FINGERS = ['index', 'middle', 'ring', 'pinky'];
 
+// a submenu's first row, back to the main page
+const BACK = '‹  Back';
+
 /** A stepper's moves, down (-1) or up (1), and whether each can be made from where it is. */
 type XrPalmMenuStepper = {
     step: (direction: -1 | 1) => void;
@@ -82,13 +85,15 @@ type XrPalmMenuStepper = {
 
 /**
  * A row of the menu: a button, a switch when it has `checked`, or a stepper when it has `stepper`:
- * an arrow either side of its label, the row's left half stepping down and its right half up.
+ * an arrow either side of its label, the row's left half stepping down and its right half up. A
+ * row with a `submenu` opens it in the menu's place, its first row going back.
  */
 type XrPalmMenuItem = {
     label: () => string;
     action?: () => void;
     checked?: () => boolean;
     stepper?: XrPalmMenuStepper;
+    submenu?: XrPalmMenuItem[];
     visible?: () => boolean;
 };
 
@@ -144,6 +149,57 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const approach = (value: number, goal: number, step: number) =>
     value < goal ? Math.min(goal, value + step) : Math.max(goal, value - step);
 
+// A quad of a canvas, drawn as painted over the scene, a child of `parent` facing its +z, hidden;
+// width and height in meters, drawn at `pixels` per meter
+const createQuad = (app: AppBase, parent: Entity, width: number, height: number, pixels: number): Quad => {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(width * pixels);
+    canvas.height = Math.round(height * pixels);
+    // the canvas holds srgb colours, which a linear texture would brighten on the way out
+    const texture = new Texture(app.graphicsDevice, {
+        name: 'sse-xr-quad',
+        width: canvas.width,
+        height: canvas.height,
+        format: PIXELFORMAT_SRGBA8,
+        mipmaps: false,
+        addressU: ADDRESS_CLAMP_TO_EDGE,
+        addressV: ADDRESS_CLAMP_TO_EDGE
+    });
+    const material = new StandardMaterial();
+    // drawn as painted: no light, sky, fog or the scene's tonemapping
+    material.useLighting = false;
+    material.useSkybox = false;
+    material.useFog = false;
+    material.useTonemap = false;
+    material.diffuse.set(0, 0, 0);
+    material.emissive.set(1, 1, 1);
+    material.emissiveMap = texture;
+    material.opacityMap = texture;
+    material.opacityMapChannel = 'a';
+    material.blendType = BLEND_NORMAL;
+    // its depth goes to the compositor where it is drawn, so the background is not
+    // reprojected through it, and it draws over the scene
+    material.alphaTest = 0.1;
+    material.depthTest = false;
+    material.update();
+
+    const entity = new Entity('XrQuad', app);
+    entity.addComponent('render', { type: 'plane', castShadows: false, receiveShadows: false });
+    entity.render.material = material;
+    for (const meshInstance of entity.render.meshInstances) meshInstance.drawBucket = XR_OVERLAY_DRAW_BUCKET;
+    // the plane lies flat facing up; stood up, it faces the parent's +z
+    entity.setLocalEulerAngles(90, 0, 0);
+    entity.setLocalScale(width, 1, height);
+    entity.enabled = false;
+    parent.addChild(entity);
+    return { entity, canvas, texture, material };
+};
+
+const uploadQuad = (quad: Quad) => {
+    quad.texture.setSource(quad.canvas);
+    quad.texture.upload();
+};
+
 /**
  * A menu for XR sessions held in the hand, shown and placed as the engine's XrMenu script does:
  * an open palm facing the eyes shows it just out from the palm, facing the eyes, the left hand's
@@ -156,14 +212,23 @@ const approach = (value: number, goal: number, step: number) =>
  * navigation aims with it ({@link XrPalmMenu#select}), so the selects it takes do not teleport.
  * A press clicks, pulses a controller, and shows on the row; the rows fade in and out and the
  * switches slide. A stepper's halves are buttons of their own, and one that cannot step is greyed
- * out and takes no press. The menu scales with a scaled rig, staying the size of the hand.
+ * out and takes no press. A submenu's row shows its page in the menu's place, a Back row at its
+ * top. The menu scales with a scaled rig, staying the size of the hand.
  */
 class XrPalmMenu {
     private app: AppBase;
 
     private camera: Entity;
 
-    private items: XrPalmMenuItem[];
+    // the rows of every page, the main page's first, the page each is on, and the page a submenu's
+    // row opens; the page shown, 0 the main one
+    private items: XrPalmMenuItem[] = [];
+
+    private pageOf: number[] = [];
+
+    private submenuPage = new Map<XrPalmMenuItem, number>();
+
+    private page = 0;
 
     // the column's parent, placed at the anchor and facing the eyes
     private container: Entity;
@@ -225,13 +290,24 @@ class XrPalmMenu {
     constructor(app: AppBase, camera: Entity, items: XrPalmMenuItem[]) {
         this.app = app;
         this.camera = camera;
-        this.items = items;
+        const add = (item: XrPalmMenuItem, page: number) => {
+            this.items.push(item);
+            this.pageOf.push(page);
+        };
+        for (const item of items) add(item, 0);
+        for (const item of items) {
+            if (!item.submenu) continue;
+            const page = this.submenuPage.size + 1;
+            this.submenuPage.set(item, page);
+            add({ label: () => BACK, action: () => this.setPage(0) }, page);
+            for (const row of item.submenu) add(row, page);
+        }
 
         this.container = new Entity('XrPalmMenu', app);
         app.root.addChild(this.container);
-        this.rows = items.map(() => this.createQuad(ROW_WIDTH, ROW_HEIGHT));
-        this.knobs = items.map((item) => (item.checked?.() ? 1 : 0));
-        this.shown = items.map(() => 0);
+        this.rows = this.items.map(() => this.createQuad(ROW_WIDTH, ROW_HEIGHT));
+        this.knobs = this.items.map((item) => (item.checked?.() ? 1 : 0));
+        this.shown = this.items.map(() => 0);
         this.cursors = [0, 1].map(() => this.createQuad(CURSOR_SIZE, CURSOR_SIZE));
         for (const cursor of this.cursors) this.drawCursor(cursor);
 
@@ -278,47 +354,7 @@ class XrPalmMenu {
     }
 
     private createQuad(width: number, height: number): Quad {
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(width * PIXELS);
-        canvas.height = Math.round(height * PIXELS);
-        // the canvas holds srgb colours, which a linear texture would brighten on the way out
-        const texture = new Texture(this.app.graphicsDevice, {
-            name: 'sse-xr-palm-menu',
-            width: canvas.width,
-            height: canvas.height,
-            format: PIXELFORMAT_SRGBA8,
-            mipmaps: false,
-            addressU: ADDRESS_CLAMP_TO_EDGE,
-            addressV: ADDRESS_CLAMP_TO_EDGE
-        });
-        const material = new StandardMaterial();
-        // drawn as painted: no light, sky, fog or the scene's tonemapping
-        material.useLighting = false;
-        material.useSkybox = false;
-        material.useFog = false;
-        material.useTonemap = false;
-        material.diffuse.set(0, 0, 0);
-        material.emissive.set(1, 1, 1);
-        material.emissiveMap = texture;
-        material.opacityMap = texture;
-        material.opacityMapChannel = 'a';
-        material.blendType = BLEND_NORMAL;
-        // its depth goes to the compositor where it is drawn, so the background is not
-        // reprojected through it, and it draws over the scene
-        material.alphaTest = 0.1;
-        material.depthTest = false;
-        material.update();
-
-        const entity = new Entity('XrPalmMenu', this.app);
-        entity.addComponent('render', { type: 'plane', castShadows: false, receiveShadows: false });
-        entity.render.material = material;
-        for (const meshInstance of entity.render.meshInstances) meshInstance.drawBucket = XR_OVERLAY_DRAW_BUCKET;
-        // the plane lies flat facing up; stood up, it faces the container's +z, the eyes
-        entity.setLocalEulerAngles(90, 0, 0);
-        entity.setLocalScale(width, 1, height);
-        entity.enabled = false;
-        this.container.addChild(entity);
-        return { entity, canvas, texture, material };
+        return createQuad(this.app, this.container, width, height, PIXELS);
     }
 
     // the point in the quad's space, its plane at y = 0, its front at y > 0 and its size 1 across
@@ -360,10 +396,12 @@ class XrPalmMenu {
         return this.rows.find((row) => row.entity.enabled && this.hits(row)) ?? null;
     }
 
-    // closed at once, as a session starts and ends
+    // closed at once, on the main page, as a session starts and ends. Closing the hand keeps the
+    // page, so a submenu is where it was when the hand opens again
     private hide() {
         this.setOpen(false);
         this.openness = 0;
+        this.page = 0;
         this.anchor = null;
         this.toggleWasDown = false;
         for (const row of this.rows) row.entity.enabled = false;
@@ -385,6 +423,23 @@ class XrPalmMenu {
                 this.container.setRotation(rotation);
             }
         }
+    }
+
+    // shows another page in the menu's place, its rows dropping in as on opening
+    private setPage(page: number) {
+        this.page = page;
+        this.openness = 0;
+        this.hovered = null;
+        this.hoveredSide = 0;
+        this.flash = null;
+        this.items.forEach((item, i) => {
+            if (this.pageOf[i] === page) this.drawRow(i);
+        });
+    }
+
+    // whether a row is shown: on the page shown, and visible
+    private showing(index: number) {
+        return this.pageOf[index] === this.page && (this.items[index].visible?.() ?? true);
     }
 
     private startPress(source: XrInputSource, quad: Quad, side: Side) {
@@ -415,6 +470,11 @@ class XrPalmMenu {
     // switch's knob (the sharpen cycle)
     private run(index: number, side: Side) {
         const item = this.items[index];
+        const page = this.submenuPage.get(item);
+        if (page !== undefined) {
+            this.setPage(page);
+            return;
+        }
         if (item.stepper) {
             item.stepper.step(side as -1 | 1);
         } else {
@@ -685,14 +745,14 @@ class XrPalmMenu {
 
     private animate(dt: number) {
         // the column: each shown row ROW_TIME after the one above it starts, closing from the bottom
-        const shown = this.items.filter((item) => item.visible?.() ?? true).length;
+        const shown = this.items.filter((_, i) => this.showing(i)).length;
         const total = ROW_TIME + STAGGER * Math.max(shown - 1, 0);
         this.openness = approach(this.openness, this.open ? 1 : 0, dt / total);
         let k = 0;
         let y = 0.5 * (shown * ROW_HEIGHT + Math.max(shown - 1, 0) * ROW_GAP);
         this.items.forEach((item, i) => {
             const row = this.rows[i];
-            const visible = item.visible?.() ?? true;
+            const visible = this.showing(i);
             const t = visible ? Math.min(Math.max((this.openness * total - k * STAGGER) / ROW_TIME, 0), 1) : 0;
             const e = ease(t);
             row.entity.enabled = t > 0;
@@ -857,10 +917,9 @@ class XrPalmMenu {
     }
 
     private upload(quad: Quad) {
-        quad.texture.setSource(quad.canvas);
-        quad.texture.upload();
+        uploadQuad(quad);
     }
 }
 
-export { XrPalmMenu };
-export type { XrPalmMenuItem };
+export { createQuad, uploadQuad, XrPalmMenu };
+export type { Quad, XrPalmMenuItem };

@@ -71,13 +71,13 @@ type ViewerFlags = {
     /** Render with antialiasing. */
     aa?: boolean;
     /**
-     * Developer override of the Stochastic setting: `true` forces the stochastic splat renderer
-     * (unsorted, depth-tested splats whose depth buffer also serves picking) in its per-pixel
-     * mode, `'mobile'` in its interleaved-pixel-sets mode, and `'off'` hides the setting and keeps
-     * the engine's sorted renderer. Without it the user's Stochastic toggle decides, and the
-     * device class picks the mode. WebGPU only; ignored on WebGL. The renderer draws WebGPU XR
-     * sessions too, one view per eye (Safari on Apple Vision Pro); where only WebGL could host a
-     * session, the viewer offers a reload into WebGL.
+     * Developer override of the Performance Mode setting: `true` forces the stochastic splat
+     * renderer (unsorted, depth-tested splats whose depth buffer also serves picking) in its
+     * per-pixel mode, `'mobile'` in its interleaved-pixel-sets mode, and `'off'` keeps the
+     * engine's sorted renderer; each hides the setting. Without it the user's Performance Mode
+     * toggle decides, and the device class picks the mode. WebGPU only; ignored on WebGL. The
+     * renderer draws WebGPU XR sessions too, one view per eye (Safari on Apple Vision Pro); where
+     * only WebGL could host a session, the viewer offers a reload into WebGL.
      */
     stochastic?: boolean | 'mobile' | 'off';
     /**

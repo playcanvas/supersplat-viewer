@@ -160,11 +160,12 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
         keyboard: new Keyboard(window)
     });
 
-    // The stochastic renderer never sorts on the cpu, so the per-splat centres the engine
-    // reads back for its cpu sort (12 bytes each, plus a gpu readback per file) are dead
-    // weight. Read once per file at load, so it has to be set before any asset loads; only when
-    // the flag forces that renderer, since the Stochastic setting can hand the splats back
-    if ((config.stochastic === true || config.stochastic === 'mobile') && renderer === 'webgpu') {
+    // The per-splat centres the engine reads back for its cpu sort (12 bytes each, plus a gpu
+    // readback per file) serve only that sort and non-unified rendering. On WebGPU the viewer
+    // renders unified, and neither renderer sorts on the cpu (the engine's sorts on the gpu, the
+    // stochastic renderer does not sort), so they are dead weight there. Read once per file at
+    // load, so it has to be set before any asset loads; WebGL's cpu sort keeps them
+    if (renderer === 'webgpu') {
         app.scene.gsplatCentersEnabled = false;
     }
 

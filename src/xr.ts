@@ -6,7 +6,8 @@ import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 
 import { VoxelCollision } from './collision';
 import type { Collision } from './collision';
-import { standaloneHeadset, visionPro } from './quality';
+import { DEBUG_MODES, standaloneHeadset, visionPro } from './quality';
+import type { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
 import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
 import { initXrDepthClear } from './xr-depth-clear';
@@ -14,6 +15,8 @@ import { XrGrabMove } from './xr-grab-move';
 import { XrHandStyle } from './xr-hand-style';
 import { XrIceCream } from './xr-ice-cream';
 import { XrPalmMenu } from './xr-palm-menu';
+import type { XrPalmMenuItem } from './xr-palm-menu';
+import { XrStats } from './xr-stats';
 import { replaceTeleportArc } from './xr-teleport-arc';
 import type { TeleportArcNavigation } from './xr-teleport-arc';
 
@@ -36,7 +39,7 @@ const CAPSULE_HOVER = 0.2;
 
 // The viewer reconfigures the camera (clear color, post effects) when state.xrMode changes
 const initXr = (global: Global) => {
-    const { app, events, state, camera, renderer, root, localize, quality } = global;
+    const { app, config, events, state, camera, renderer, root, localize, quality } = global;
     const { xr } = app;
     let destroyed = false;
     let restoreFrame: number | null = null;
@@ -425,6 +428,51 @@ const initXr = (global: Global) => {
         return index < 0 ? null : (available[index + direction] ?? null);
     };
 
+    // With the debug flag, the menu has a Debug page: the renderer and mode (sorted, or a stochastic
+    // mode) on WebGPU, the stochastic renderer's TAA while it draws, and frame numbers. Its labels
+    // are the developer's, in English
+    let splatRenderer: StochasticSplatRenderer | null = null;
+    const rendererHandles = [
+        events.on('splatRenderer:ready', (renderer: StochasticSplatRenderer | null) => {
+            splatRenderer = quality.stochastic ? renderer : null;
+        }),
+        events.on('splatRenderer:changed', (renderer: StochasticSplatRenderer | null) => {
+            splatRenderer = renderer;
+        })
+    ];
+    const stats = config.debug ? new XrStats(app, camera) : null;
+    const modeStep = (direction: -1 | 1) => DEBUG_MODES[DEBUG_MODES.indexOf(quality.debugMode) + direction] ?? null;
+    const debugItems: XrPalmMenuItem[] = [
+        {
+            label: () => `Mode: ${quality.debugMode}`,
+            visible: () => quality.debugModes,
+            stepper: {
+                can: (direction) => modeStep(direction) !== null,
+                step: (direction) => {
+                    const next = modeStep(direction);
+                    if (next) quality.setDebugMode(next);
+                }
+            }
+        },
+        {
+            label: () => 'TAA',
+            checked: () => splatRenderer?.variant.taa === 'on',
+            visible: () => !!splatRenderer,
+            action: () => {
+                if (!splatRenderer) return;
+                splatRenderer.variant.taa = splatRenderer.variant.taa === 'on' ? 'off' : 'on';
+                splatRenderer.applyVariant();
+            }
+        },
+        {
+            label: () => 'MiniStats',
+            checked: () => !!stats?.enabled,
+            action: () => {
+                if (stats) stats.enabled = !stats.enabled;
+            }
+        }
+    ];
+
     // The menu held in the hand, which takes the selects that start on it before the navigation aims
     // with them
     const menu = new XrPalmMenu(app, camera, [
@@ -442,7 +490,7 @@ const initXr = (global: Global) => {
         {
             label: () => localize('settings.performance-mode'),
             checked: () => state.performanceMode,
-            visible: () => quality.stochasticAllowed,
+            visible: () => quality.switchable,
             action: () => {
                 state.performanceMode = !state.performanceMode;
             }
@@ -456,6 +504,7 @@ const initXr = (global: Global) => {
                 state.iceCream = !state.iceCream;
             }
         },
+        ...(config.debug ? [{ label: () => 'Debug  ›', submenu: debugItems }] : []),
         {
             label: () => localize(xr.type === 'immersive-ar' ? 'xr-menu.exit-ar' : 'xr-menu.exit-vr'),
             action: () => {
@@ -524,6 +573,8 @@ const initXr = (global: Global) => {
             handStyle.destroy();
             forgetReferenceSpace();
             menu.destroy();
+            stats?.destroy();
+            for (const handle of rendererHandles) handle.off();
             iceCreamChanged.off();
             iceCream?.destroy();
             iceCream = null;

@@ -226,8 +226,9 @@ const initUI = (
     on('qualityAvailable:changed', updateQuality);
     updateQuality();
 
-    // Performance Mode, the stochastic renderer's toggle, where the device offers it
-    dom.performanceModeRow.classList.toggle('sse-hidden', !global.quality.stochasticAllowed);
+    // Performance Mode, the stochastic renderer's toggle, where it can switch the renderer: the
+    // device offers it and the stochastic flag does not force the renderer
+    dom.performanceModeRow.classList.toggle('sse-hidden', !global.quality.switchable);
     dom.performanceModeRow.addEventListener('click', () => {
         state.performanceMode = !state.performanceMode;
     });
