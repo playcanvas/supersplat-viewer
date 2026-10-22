@@ -141,6 +141,9 @@ describe('renderViewerHtml', () => {
         assert.ok(html.includes('settings: bootstrap.settings ?? fetch(settingsUrl)'));
         // contentFilename names the bootstrap's contentUrl, so a ?content= override drops it
         assert.match(html, /searchParams\.has\('content'\) \? null : \(?bootstrap\.contentFilename/);
+        // the gsaf decoder is code, so only the bootstrap names it, never a url param
+        assert.ok(html.includes('const gsafDecoderUrl = bootstrap.gsafDecoderUrl ?? null;'));
+        assert.doesNotMatch(html, /searchParams\.get\([^)]*\)[^;]*bootstrap\.gsafDecoderUrl/);
     });
 
     it('keeps both external references when inlining neither', () => {

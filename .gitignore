@@ -3,7 +3,8 @@ dist
 public
 .DS_Store
 .npmrc
-.cursor
+.claude
 docs/bench
 docs/pick-depth.md
 docs/stochastic-renderer.md
+/build

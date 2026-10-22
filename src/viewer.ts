@@ -34,6 +34,7 @@ import { nearlyEquals } from './core/math';
 import { DebugPanel } from './debug';
 import { FrameGate } from './frame-gate';
 import { initFullscreen } from './fullscreen';
+import type { GsafPlayer } from './gsaf/gsaf-player';
 import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
 import { NavCursor } from './nav-cursor';
@@ -206,6 +207,9 @@ class Viewer {
     /** Set once {@link destroy} has run. Load continuations check it and bail. */
     destroyed = false;
 
+    /** An animated splat sequence the timeline plays, once loaded; null for other content. */
+    private sequence: GsafPlayer | null = null;
+
     private disposers: (() => void)[] = [];
 
     private fullscreen: ReturnType<typeof initFullscreen>;
@@ -247,7 +251,8 @@ class Viewer {
         global: Global,
         gsplatLoad: Promise<Entity>,
         skyboxLoad: Promise<void> | undefined,
-        collisionLoad: Promise<Collision> | undefined
+        collisionLoad: Promise<Collision> | undefined,
+        sequenceLoad: Promise<GsafPlayer> | null = null
     ) {
         this.global = global;
 
@@ -422,8 +427,9 @@ class Viewer {
             if (!config.exposeGlobals) return;
 
             window.scrubTo = async (time: number) => {
-                this.seek(time);
+                const landed = this.seekTo(time);
                 state.animationPaused = true;
+                await this.untilDestroyed(landed);
                 let onFrame!: () => void;
                 const rendered = new Promise<void>((resolve) => {
                     onFrame = resolve;
@@ -550,9 +556,26 @@ class Viewer {
         }, ignoreLoadFailure);
 
         // wait for the model to load
-        Promise.all([gsplatLoad, skyboxLoad]).then((results) => {
+        Promise.all([gsplatLoad, skyboxLoad, sequenceLoad]).then((results) => {
             // destroyed while loading: the app is gone, so there is nothing to wire up
             if (this.destroyed) return;
+
+            // A sequence's frames are the timeline, in every camera mode, and the camera has no
+            // animation of its own. The firstFrame handler starts it, as it would the camera's
+            const sequence = results[2];
+            if (sequence?.animated) {
+                this.sequence = sequence;
+                state.hasSequence = true;
+                state.hasAnimation = true;
+                state.animationDuration = sequence.duration;
+                sequence.paused = state.animationPaused;
+                events.on('animationPaused:changed', (paused: boolean) => {
+                    sequence.paused = paused;
+                });
+                app.on('update', () => {
+                    state.animationTime = sequence.time;
+                });
+            }
 
             const gsplatComponent = results[0].gsplat as GSplatComponent;
 
@@ -591,7 +614,7 @@ class Viewer {
             events.fire('picker:ready', this.picker);
             this.inputController = new InputController(global, this.picker);
 
-            this.cameraManager = new CameraManager(global, sceneBound);
+            this.cameraManager = new CameraManager(global, sceneBound, null, !sequence);
             applyCamera(this.cameraManager.camera);
 
             // the vr flag's prompt (ui/vr-prompt.ts) can start a session from here on, where
@@ -870,6 +893,14 @@ class Viewer {
     }
 
     seek(time: number): void {
+        this.seekTo(time).catch(() => {
+            // a sequence's failed decode, which the player has already reported
+        });
+    }
+
+    // seek(), resolving once the frame at `time` is ready to render: at once for the camera's
+    // animation, once decoded for a sequence's
+    private seekTo(time: number): Promise<void> {
         this.requireLoaded('seek');
         const { state, app } = this.global;
         if (!state.hasAnimation) {
@@ -878,8 +909,14 @@ class Viewer {
         if (!Number.isFinite(time)) {
             throw new Error('seek: time must be finite');
         }
-        this.cameraManager.seek(time);
         app.renderNextFrame = true;
+        if (this.sequence) {
+            const landed = this.sequence.seek(time);
+            state.animationTime = this.sequence.time;
+            return landed;
+        }
+        this.cameraManager.seek(time);
+        return Promise.resolve();
     }
 
     /**
@@ -903,10 +940,10 @@ class Viewer {
                 width,
                 height,
                 supersample,
-                scrub: (t) => {
+                scrub: async (t) => {
                     if (state.hasAnimation) {
                         state.animationPaused = true;
-                        this.seek(t);
+                        await this.seekTo(t);
                     }
                 }
             });

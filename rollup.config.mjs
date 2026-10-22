@@ -153,6 +153,32 @@ const buildCss = {
 
 const debugEngine = process.env.ENGINE === 'debug';
 
+// The committed gsaf decoder (scripts/build-gsaf.sh). Its glue is bundled as a string, the source
+// of the decoder worker started from a blob when a gsaf file loads; its wasm ships beside the bundle
+// and is fetched only then (src/gsaf/gsaf-worker.ts resolves it against the bundle's url).
+const GSAF_WASM = 'lib/gsaf/gsaf-decoder.wasm';
+const gsafDecoder = () => [
+    string({ include: ['lib/gsaf/*.js'] }),
+    {
+        name: 'gsaf-decoder-wasm',
+        generateBundle() {
+            this.emitFile({ type: 'asset', fileName: 'gsaf-decoder.wasm', source: readFileSync(GSAF_WASM) });
+        }
+    }
+];
+
+// Imports a .wasm as a `data:` url, for the entry that hands it to single-file documents.
+function wasmDataUrlPlugin() {
+    return {
+        name: 'wasm-data-url',
+        load(id) {
+            if (!id.endsWith('.wasm')) return null;
+            const base64 = readFileSync(id).toString('base64');
+            return `export default ${JSON.stringify(`data:application/wasm;base64,${base64}`)};`;
+        }
+    };
+}
+
 const buildPublic = {
     input: 'src/index.ts',
     output: {
@@ -162,6 +188,7 @@ const buildPublic = {
     },
     plugins: [
         resolve(debugEngine ? { exportConditions: ['development'] } : {}),
+        ...gsafDecoder(),
         typescriptPlugin(),
         json(),
         htmlTemplatePlugin(),
@@ -202,6 +229,7 @@ const buildViewer = {
     external: engineExternal,
     plugins: [
         resolve(),
+        ...gsafDecoder(),
         typescriptPlugin(),
         json(),
         htmlTemplatePlugin(),
@@ -214,6 +242,17 @@ const buildViewer = {
             }
         }
     ]
+};
+
+// The gsaf decoder's wasm as a data: url (src/module/gsaf-decoder.ts), its own entry so nothing
+// else bundles it.
+const buildGsafDecoder = {
+    input: 'src/module/gsaf-decoder.ts',
+    output: {
+        file: 'dist/gsaf-decoder.js',
+        format: 'esm'
+    },
+    plugins: [wasmDataUrlPlugin(), typescriptPlugin({ noEmit: true })]
 };
 
 const buildSettings = {
@@ -244,7 +283,15 @@ const buildDistTypes = {
 const buildViewerTypes = {
     input: 'src/index.ts',
     output: { file: 'dist/viewer.d.ts', format: 'es' },
-    external: [...engineExternal, /\.html$/, /package\.json$/],
+    external: [...engineExternal, /\.html$/, /package\.json$/, /lib\/gsaf\//],
+    plugins: [dts()]
+};
+
+// the entry's value is typed `string`, so the declaration needs nothing from the wasm import
+const buildGsafDecoderTypes = {
+    input: 'src/module/gsaf-decoder.ts',
+    output: { file: 'dist/gsaf-decoder.d.ts', format: 'es' },
+    external: [/\.wasm$/],
     plugins: [dts()]
 };
 
@@ -259,8 +306,10 @@ export default [
     buildPublic,
     buildDist,
     buildViewer,
+    buildGsafDecoder,
     buildSettings,
     buildDistTypes,
     buildViewerTypes,
+    buildGsafDecoderTypes,
     buildSettingsTypes
 ];

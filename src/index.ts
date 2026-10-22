@@ -17,6 +17,7 @@ import { App } from './app';
 import { MeshCollision, loadVoxelCollision } from './collision';
 import type { Collision } from './collision';
 import { observe } from './core/observe';
+import { loadGsaf } from './gsaf/gsaf-player';
 import { initLocalization } from './localization';
 import type { CreateViewerOptions } from './options';
 import { persistPreferences, readPreferences } from './preferences';
@@ -44,6 +45,11 @@ const contentName = (contentUrl: string, contentFilename?: string | null) =>
 // let the octree path reuse the response instead of opting out of it.
 const isPrefetchable = (contentUrl: string, contentFilename?: string | null) =>
     contentName(contentUrl, contentFilename)?.toLowerCase() !== 'lod-meta.json';
+
+// gsaf is an animated splat sequence, which the viewer decodes and plays itself rather than
+// through an engine parser
+const isGsaf = (contentUrl: string, contentFilename?: string | null) =>
+    contentName(contentUrl, contentFilename)?.toLowerCase().endsWith('.gsaf');
 
 const loadGsplat = async (
     app: AppBase,
@@ -278,6 +284,7 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     posterUrl: options.posterUrl,
     skyboxUrl: options.skyboxUrl,
     collisionUrl: options.collisionUrl,
+    gsafDecoderUrl: options.gsafDecoderUrl,
     poster: options.poster ?? (options.posterUrl ? createImage(options.posterUrl) : undefined),
     contents:
         options.contents ??
@@ -295,8 +302,16 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     vr: options.vr ?? false,
     aa: options.aa ?? false,
     stochastic: options.stochastic ?? false,
-    splatSource: options.splatSource ?? 'direct',
-    variant: options.variant ?? '',
+    // the direct source reads the engine's own splat files, not the container a gsaf sequence
+    // plays through; the work buffer source reads whatever the engine copied
+    splatSource: isGsaf(options.contentUrl, options.contentFilename) ? 'workbuffer' : (options.splatSource ?? 'direct'),
+    // The stochastic renderer's temporal passes assume splats move only with the camera: an
+    // animated sequence would ghost in the accumulation, and the occlusion cull, which forgets the
+    // previous frame's depth only when a node goes away, would test a frame against the one before
+    // it, which keeps its allocation. An explicit variant still overrides both
+    variant: isGsaf(options.contentUrl, options.contentFilename)
+        ? `taa:off,cull:off,${options.variant ?? ''}`
+        : (options.variant ?? ''),
     budget: options.budget,
     framesInFlight: options.framesInFlight ?? 2,
     heatmap: options.heatmap ?? false,
@@ -363,6 +378,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         inputMode: platform.mobile ? 'touch' : 'desktop',
         cameraMode: 'orbit',
         hasAnimation: false,
+        hasSequence: false,
         animationDuration: 0,
         animationTime: 0,
         animationPaused: true,
@@ -409,15 +425,27 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     // this before touching the app
     let destroyed = false;
 
-    // Load model
-    const gsplatLoad = loadGsplat(
-        app,
-        config,
-        (progress: number) => {
-            state.progress = progress;
-        },
-        () => destroyed
-    );
+    // Load model: a gsaf sequence plays through its own player, which the viewer's timeline drives
+    const onProgress = (progress: number) => {
+        state.progress = progress;
+    };
+    // aborted by the viewer's destroy, which lets a gsaf load release its worker mid-wait
+    const loading = new AbortController();
+    const sequenceLoad = isGsaf(config.contentUrl, config.contentFilename)
+        ? loadGsaf(
+              app,
+              config.contents ?? fetch(config.contentUrl),
+              config.gsafDecoderUrl,
+              onProgress,
+              loading.signal
+          ).catch((err: Error) => {
+              if (!destroyed) console.log(err);
+              throw err;
+          })
+        : null;
+    const gsplatLoad = sequenceLoad
+        ? sequenceLoad.then((player) => player.entity)
+        : loadGsplat(app, config, onProgress, () => destroyed);
 
     // Load skybox (continue without if it fails — e.g. CORS, 404)
     const skyboxLoad =
@@ -468,7 +496,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     }
 
     // Create the viewer
-    const viewer = new Viewer(global, gsplatLoad, skyboxLoad, collisionLoad);
+    const viewer = new Viewer(global, gsplatLoad, skyboxLoad, collisionLoad, sequenceLoad);
     viewer.onDestroy(persistPreferences(events));
     viewer.onDestroy(() => quality.destroy());
     const handle: ViewerHandle = {
@@ -501,6 +529,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         : null;
     viewer.onDestroy(() => {
         destroyed = true;
+        loading.abort();
     });
     viewer.onDestroy(disposeCanvas);
     if (disposeUI) {

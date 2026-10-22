@@ -105,7 +105,14 @@ class CameraManager {
     // holds the camera state
     camera = new Camera();
 
-    constructor(global: Global, bbox: BoundingBox, collision: Collision | null = null) {
+    /**
+     * @param global - The viewer's globals.
+     * @param bbox - The scene bounds.
+     * @param collision - Collision data, if it has already loaded.
+     * @param cameraAnimation - Whether the camera has an animation. Off for an animated splat
+     * sequence, whose frames the timeline plays instead; the timeline state is then the viewer's.
+     */
+    constructor(global: Global, bbox: BoundingBox, collision: Collision | null = null, cameraAnimation = true) {
         const { events, settings, state } = global;
 
         let walkAllowed = isWalkAllowed(bbox, collision);
@@ -136,7 +143,7 @@ class CameraManager {
 
         // object experience starts outside the bounding box
         const isObjectExperience = !bbox.containsPoint(resetCamera.position);
-        const animTrack = getAnimTrack(resetCamera, isObjectExperience);
+        const animTrack = cameraAnimation ? getAnimTrack(resetCamera, isObjectExperience) : null;
 
         const controllers = {
             orbit: new OrbitController(),
@@ -165,11 +172,13 @@ class CameraManager {
         };
 
         // set the global animation flag
-        state.hasAnimation = !!controllers.anim;
-        state.animationDuration = controllers.anim ? controllers.anim.animState.cursor.duration : 0;
+        if (cameraAnimation) {
+            state.hasAnimation = !!controllers.anim;
+            state.animationDuration = controllers.anim ? controllers.anim.animState.cursor.duration : 0;
+        }
 
         // initialize camera mode and initial camera position
-        state.cameraMode = state.hasAnimation ? 'anim' : isObjectExperience ? 'orbit' : walkAllowed ? 'walk' : 'fly';
+        state.cameraMode = controllers.anim ? 'anim' : isObjectExperience ? 'orbit' : walkAllowed ? 'walk' : 'fly';
         this.camera.copy(resetCamera);
 
         const target = new Camera(this.camera); // the active controller updates this
@@ -299,7 +308,10 @@ class CameraManager {
                     }
                     break;
                 case 'playPause':
-                    if (state.hasAnimation) {
+                    if (!controllers.anim) {
+                        // a sequence plays in every camera mode
+                        if (state.hasAnimation) state.animationPaused = !state.animationPaused;
+                    } else if (state.hasAnimation) {
                         if (state.cameraMode === 'anim') {
                             state.animationPaused = !state.animationPaused;
                         } else {
@@ -342,6 +354,13 @@ class CameraManager {
 
         // handle camera mode switching
         events.on('cameraMode:changed', (value: CameraMode, prev: CameraMode) => {
+            // no animation to enter: a host's write is undone, and the undo has nothing to exit
+            if (!getController(value)) {
+                state.cameraMode = prev;
+                return;
+            }
+            if (!getController(prev)) return;
+
             // Host state writes and the walk toggle must remember the same return mode.
             if (value === 'walk') {
                 preWalkMode = prev;
@@ -376,6 +395,8 @@ class CameraManager {
         });
 
         this.seek = (time) => {
+            if (!controllers.anim) return;
+
             // switch to animation camera if we're not already there
             state.cameraMode = 'anim';
 

@@ -27,6 +27,10 @@
       "import": "./dist/viewer.js"
     },
     "./viewer.css": "./dist/viewer.css",
+    "./gsaf-decoder": {
+      "types": "./dist/gsaf-decoder.d.ts",
+      "import": "./dist/gsaf-decoder.js"
+    },
     "./settings": {
       "types": "./dist/settings.d.ts",
       "import": "./dist/settings.js"
@@ -45,6 +49,7 @@
     "public/index.css",
     "public/index.js",
     "public/index.js.map",
+    "public/gsaf-decoder.wasm",
     "docs/api.md",
     "LICENSE",
     "package.json",

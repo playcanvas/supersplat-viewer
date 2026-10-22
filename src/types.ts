@@ -67,11 +67,19 @@ type State = {
     inputMode: InputMode;
     /** The active camera controller. `anim` is the authored camera animation. */
     cameraMode: CameraMode;
-    /** Whether the experience has an authored camera animation. */
+    /**
+     * Whether there is an animation for the timeline to play: the authored camera animation, or
+     * the frames of an animated splat sequence ({@link ViewerState.hasSequence}).
+     */
     hasAnimation: boolean;
+    /**
+     * Whether the content is an animated splat sequence (a gsaf file). The timeline plays its
+     * frames in every camera mode, and the camera has no animation of its own.
+     */
+    hasSequence: boolean;
     /** Length of that animation in seconds, or 0. */
     animationDuration: number;
-    /** Playhead position in seconds. Read-only: the animation cursor owns it. */
+    /** Playhead position in seconds. Read-only: the animation cursor or the sequence owns it. */
     animationTime: number;
     /** Whether the animation is paused. */
     animationPaused: boolean;

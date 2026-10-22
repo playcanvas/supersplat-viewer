@@ -39,13 +39,27 @@ describe('the /viewer entry', () => {
     });
 
     it('ships every file its package exports name', () => {
-        for (const target of ['./viewer', './viewer.css']) {
+        for (const target of ['./viewer', './viewer.css', './gsaf-decoder']) {
             const entry = pkg.exports[target];
             const files = typeof entry === 'string' ? [entry] : Object.values(entry);
             for (const file of files) {
                 assert.ok(existsSync(url(`../../${file}`)), `${target} points at ${file}, which is missing`);
             }
         }
+    });
+
+    it('ships the gsaf decoder beside each bundle that fetches it', () => {
+        // the bundles fetch it from beside themselves, by a literal a host's bundler can follow
+        for (const bundle of ['dist/viewer.js', 'public/index.js']) {
+            assert.ok(
+                read(`../../${bundle}`).includes("new URL('./gsaf-decoder.wasm', import.meta.url)"),
+                `${bundle} should resolve the decoder against its own url`
+            );
+            const wasm = bundle.replace(/[^/]+$/, 'gsaf-decoder.wasm');
+            assert.ok(existsSync(url(`../../${wasm}`)), `${wasm} is missing`);
+        }
+        // dist ships whole; public/ file by file
+        assert.ok(pkg.files.includes('public/gsaf-decoder.wasm'));
     });
 
     it('declares the engine as an optional peer dependency', () => {

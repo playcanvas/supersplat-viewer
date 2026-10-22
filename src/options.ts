@@ -28,6 +28,13 @@ type ViewerAssets = {
     skyboxUrl?: string;
     /** Collision data url, for walk mode. A `.glb` is treated as a mesh, otherwise voxels. */
     collisionUrl?: string;
+    /**
+     * The gsaf decoder's wasm, fetched only when the content is a `.gsaf` file. Defaults to the
+     * `gsaf-decoder.wasm` shipped beside the viewer's bundle. A document with no sibling files
+     * (an inlined bundle) sets it to the `data:` url the `@playcanvas/supersplat-viewer/gsaf-decoder`
+     * export provides.
+     */
+    gsafDecoderUrl?: string;
 };
 
 /** Per-instance switches. Every one is optional and off unless stated. */

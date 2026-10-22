@@ -14,11 +14,13 @@ const initPlayback = (
     const time = root.querySelector<HTMLElement>('.sse-time');
 
     const available = () => state.loaded && state.hasAnimation;
+    // a sequence plays in every camera mode; the camera's animation only in its own
+    const animating = () => state.hasSequence || state.cameraMode === 'anim';
     const updateControls = () => {
-        const playing = state.cameraMode === 'anim' && !state.animationPaused;
+        const playing = animating() && !state.animationPaused;
         play.classList.toggle('sse-hidden', !available() || playing);
         pause.classList.toggle('sse-hidden', !available() || !playing);
-        timeline.classList.toggle('sse-hidden', !available() || state.cameraMode !== 'anim');
+        timeline.classList.toggle('sse-hidden', !available() || !animating());
     };
     const updateSlider = () => {
         const position = state.animationDuration > 0 ? (state.animationTime / state.animationDuration) * 100 : 0;
@@ -29,12 +31,12 @@ const initPlayback = (
 
     const onPlay = () => {
         if (!available()) return;
-        state.cameraMode = 'anim';
+        if (!state.hasSequence) state.cameraMode = 'anim';
         state.animationPaused = false;
     };
     const onPause = () => {
         if (!available()) return;
-        state.cameraMode = 'anim';
+        if (!state.hasSequence) state.cameraMode = 'anim';
         state.animationPaused = true;
     };
     const scrub = (event: PointerEvent) => {
@@ -77,6 +79,7 @@ const initPlayback = (
     const subscriptions = [
         events.on('loaded:changed', updateControls),
         events.on('hasAnimation:changed', updateControls),
+        events.on('hasSequence:changed', updateControls),
         events.on('cameraMode:changed', updateControls),
         events.on('animationPaused:changed', updateControls),
         events.on('animationTime:changed', updateSlider),

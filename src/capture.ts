@@ -20,7 +20,7 @@ type GrabOptions = {
     width: number;
     height: number;
     supersample?: number;
-    scrub?: (time: number) => void;
+    scrub?: (time: number) => void | Promise<void>;
 };
 
 type CaptureResult = { width: number; height: number; data: string };
@@ -225,7 +225,7 @@ class Capture {
             this.setCameraTarget(srcRT);
 
             if (time !== undefined && scrub) {
-                scrub(time);
+                await scrub(time);
             }
             this.app.renderNextFrame = true;
             await new Promise<void>((resolve) => {

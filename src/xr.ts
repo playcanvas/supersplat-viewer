@@ -476,6 +476,14 @@ const initXr = (global: Global) => {
     // The menu held in the hand, which takes the selects that start on it before the navigation aims
     // with them
     const menu = new XrPalmMenu(app, camera, [
+        {
+            // an animated splat sequence's transport; the page's timeline is out of sight here
+            label: () => localize(state.animationPaused ? 'tooltip.play' : 'tooltip.pause'),
+            visible: () => state.hasSequence,
+            action: () => {
+                state.animationPaused = !state.animationPaused;
+            }
+        },
         { label: () => localize('tooltip.reset-camera'), action: placeAtStart },
         {
             label: () => `${localize('settings.quality')}: ${localize(`settings.quality-${quality.level}`)}`,
