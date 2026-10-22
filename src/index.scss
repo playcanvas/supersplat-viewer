@@ -1,3 +1,23 @@
+// The controls and settings panels open above the toolbar. They are capped to the height left
+// above it, so a short viewer, or one the touch inset lifts, scrolls them rather than clipping
+// their top at the viewer's edge. The root turns touch panning off for every element; inside a
+// panel it is back on vertically, so an overflowing panel scrolls by touch, and controls that
+// drag sideways (the Quality slider) turn it off for themselves
+@mixin panel-above-toolbar {
+    $bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px + var(--sse-lift));
+
+    bottom: $bottom;
+    max-height: calc(100% - 16px - #{$bottom});
+    box-sizing: border-box;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+
+    &,
+    * {
+        touch-action: pan-y;
+    }
+}
+
 // Every rule is nested under the instance root, so a host page that links this stylesheet
 // has nothing outside the viewer restyled. The host sizes the container; the root fills it,
 // and everything inside is positioned against the root rather than the viewport.
@@ -19,6 +39,17 @@
     --sse-bkg-light: #444;
 
     --canvas-opacity: 1;
+
+    // How far everything anchored to the bottom edge is lifted: the embedder's
+    // experimentalTouchInsetBottom, which createViewer sets as
+    // --sse-experimental-touch-inset-bottom, on touch devices alone. A host app's chrome covering
+    // the bottom of an embedded viewer is a phone's; with a fine pointer the toolbar stays at the
+    // edge whatever the value
+    --sse-lift: 0px;
+
+    @media (pointer: coarse) {
+        --sse-lift: var(--sse-experimental-touch-inset-bottom, 0px);
+    }
 
     position: relative;
     width: 100%;
@@ -163,10 +194,9 @@
         // turns, so they never show together
         position: absolute;
         right: max(16px, env(safe-area-inset-right));
-        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
+        @include panel-above-toolbar;
         min-width: 200px;
         max-width: calc(100% - 32px);
-        box-sizing: border-box;
         padding: 8px 8px 8px 12px;
         border-radius: 16px;
         border: 1px solid rgba(white, 0.08);
@@ -374,7 +404,7 @@
 
     .sse-loadingWrap {
         position: absolute;
-        bottom: 120px;
+        bottom: calc(120px + var(--sse-lift));
         left: 50%;
         transform: translate(-50%, 0);
         width: min(380px, calc(100% - 32px));
@@ -406,7 +436,7 @@
         position: absolute;
         left: max(16px, env(safe-area-inset-left));
         right: max(16px, env(safe-area-inset-right));
-        bottom: max(16px, env(safe-area-inset-bottom));
+        bottom: calc(max(16px, env(safe-area-inset-bottom)) + var(--sse-lift));
 
         display: flex;
         flex-direction: column;
@@ -569,7 +599,7 @@
     .sse-settingsPanel {
         position: absolute;
         right: max(16px, env(safe-area-inset-right));
-        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
+        @include panel-above-toolbar;
         padding: 12px;
         border-radius: 16px;
         border: 1px solid rgba(white, 0.08);
@@ -934,7 +964,7 @@
         // centred 70px from the left and 140px from the bottom of the instance
         position: absolute;
         left: 70px;
-        bottom: 140px;
+        bottom: calc(140px + var(--sse-lift));
         width: 56px;
         height: 100px;
         transform: translate(-50%, 50%);
@@ -1120,7 +1150,7 @@
     .sse-xrHint {
         position: absolute;
         left: 50%;
-        bottom: 96px;
+        bottom: calc(96px + var(--sse-lift));
         transform: translateX(-50%);
         padding: 12px 20px;
         border-radius: 20px;

@@ -22,6 +22,7 @@ import type { CreateViewerOptions } from './options';
 import { persistPreferences, readPreferences } from './preferences';
 import { canvasPixelRatio, Quality, resolutionScaleFor } from './quality';
 import { importSettings } from './settings';
+import { resolveTouchInsetBottom } from './touch-inset-bottom';
 import type { Config, Global, State, ViewerHandle } from './types';
 import { initPoster, initUI } from './ui';
 import uiHtml from './ui.html';
@@ -283,6 +284,7 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
         (isPrefetchable(options.contentUrl, options.contentFilename) ? fetch(options.contentUrl) : undefined),
     renderer: options.renderer ?? 'webgpu',
     ui: options.ui ?? true,
+    experimentalTouchInsetBottom: resolveTouchInsetBottom(options.experimentalTouchInsetBottom),
     reticle: options.reticle ?? false,
     noanim: options.noanim ?? false,
     nofx: options.nofx ?? false,
@@ -317,6 +319,9 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
     } else {
         root.appendChild(document.createElement('canvas'));
     }
+
+    // the stylesheet lifts what sits on the bottom edge by this, on touch devices alone
+    root.style.setProperty('--sse-experimental-touch-inset-bottom', `${config.experimentalTouchInsetBottom}px`);
 
     container.appendChild(root);
     const canvas = root.querySelector('canvas');
