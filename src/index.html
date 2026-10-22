@@ -63,6 +63,12 @@
 
             const renderer = url.searchParams.has('webgl') ? 'webgl' : 'webgpu';
 
+            // css pixels to lift the toolbar by on touch devices; createViewer clamps it, and treats
+            // a value that is not a number as 0
+            const touchInsetBottom = url.searchParams.has('touch-inset-bottom')
+                ? Number(url.searchParams.get('touch-inset-bottom'))
+                : undefined;
+
             const budgetParam = url.searchParams.get('budget');
             const budget = budgetParam !== null ? Number(budgetParam) : undefined;
 
@@ -84,6 +90,7 @@
                 poster: posterUrl && createImage(posterUrl),
                 contents: prefetchContent ? fetch(contentUrl) : undefined,
                 ui: !url.searchParams.has('noui'),
+                touchInsetBottom,
                 reticle: url.searchParams.has('reticle'),
                 noanim: url.searchParams.has('noanim'),
                 nofx: url.searchParams.has('nofx'),
