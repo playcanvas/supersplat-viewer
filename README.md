@@ -31,14 +31,13 @@ The app supports a number of URL parameters (these are subject to change):
 
 ### UI
 
-| Parameter                         | Description                                                                                                                                                                                 |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `noui`                            | Hide the UI overlay (the programmatic form is `ui: false`, which skips building it)                                                                                                         |
-| `experimental-touch-inset-bottom` | On touch devices, lift the toolbar this many CSS pixels (0–200) off the bottom edge, clear of chrome the host app draws over the viewer (programmatic form: `experimentalTouchInsetBottom`) |
-| `reticle`                         | Show the centre reticle in captured desktop fly/walk mode (off by default; programmatic form: `reticle: true`)                                                                              |
-| `noanim`                          | Start with animation paused                                                                                                                                                                 |
-| `ministats`                       | Show runtime CPU/GPU performance graphs                                                                                                                                                     |
-| `lang`                            | Override the UI language (`de`, `en`, `es`, `fr`, `ja`, `ko`, `pt-BR`, `ru`, `zh-CN`; default: detect from browser)                                                                         |
+| Parameter   | Description                                                                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------------------------- |
+| `noui`      | Hide the UI overlay (the programmatic form is `ui: false`, which skips building it)                                 |
+| `reticle`   | Show the centre reticle in captured desktop fly/walk mode (off by default; programmatic form: `reticle: true`)      |
+| `noanim`    | Start with animation paused                                                                                         |
+| `ministats` | Show runtime CPU/GPU performance graphs                                                                             |
+| `lang`      | Override the UI language (`de`, `en`, `es`, `fr`, `ja`, `ko`, `pt-BR`, `ru`, `zh-CN`; default: detect from browser) |
 
 ### Renderer
 

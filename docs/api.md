@@ -219,29 +219,6 @@ The full set is `--sse-text`, `--sse-text-light`, `--sse-text-dark`, `--sse-text
 `--sse-accent`, `--sse-grip`, `--sse-bkg`, `--sse-bkg-dark`, `--sse-bkg-darkest` and
 `--sse-bkg-light`.
 
-### Host chrome over the viewer
-
-A host app may draw its own chrome over the bottom of an embedded viewer, as a social feed's
-card player does on phones. `experimentalTouchInsetBottom` lifts the built-in UI clear of it:
-
-```ts
-const viewer = await createViewer({
-    container,
-    settings,
-    contentUrl,
-    experimentalTouchInsetBottom: 56    // touch devices: lift the toolbar 56px clear of the host's chrome
-});
-```
-
-It is a number of CSS pixels, clamped to 0–200, by which the toolbar and everything else
-anchored to the viewer's bottom edge (the loading bar, the panels above the toolbar, the touch
-joystick) is lifted. It applies only on touch devices, those with a coarse primary pointer;
-with a mouse the toolbar stays at the edge whatever the value. The standalone document reads it
-from `?experimental-touch-inset-bottom=56`. `ViewerFlags` types it, from either entry. The
-option is experimental: it may be renamed or removed in a minor release.
-
-### Replacing the UI
-
 For more than a retheme, pass `ui: false`. The viewer creates the canvas and retains core input handling, including keyboard/gamepad input gated by `state.inputEnabled`. It omits the overlay, annotation presentation and built-in controls; render your own controls through the viewer handle. Note that the touch joystick, the fullscreen button and
 the AR/VR fallback prompt are part of the UI you are replacing, so those affordances become
 yours too. Everything between the two, replacing some of the UI but keeping the rest, is not
