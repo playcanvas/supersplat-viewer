@@ -53,6 +53,14 @@ type ViewerFlags = {
      * fallback prompt live in that ui, so a headless host owns those affordances too.
      */
     ui?: boolean;
+    /**
+     * Css pixels by which the toolbar, and everything else anchored to the viewer's bottom edge,
+     * is lifted, so chrome a host app draws over the bottom of the viewer does not cover it. On
+     * touch devices (a coarse primary pointer) only; elsewhere the toolbar stays at the edge.
+     * Clamped to 0–200. Defaults to `0`. Experimental: it may be renamed or removed in a minor
+     * release.
+     */
+    experimentalTouchInsetBottom?: number;
     /** Show the centre reticle in desktop fly/walk mode with gaming controls. Defaults to `false`. */
     reticle?: boolean;
     /** Start with the camera animation paused. */

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>SuperSplat — embedded card</title>
+        <style>
+            body {
+                margin: 0;
+                min-height: 100dvh;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 12px;
+                background: #17191d;
+                color: #eee;
+                font: 13px system-ui;
+            }
+            #card {
+                position: relative;
+                width: min(100vw - 16px, 100dvh - 80px);
+                aspect-ratio: 1;
+                border-radius: 12px;
+                overflow: hidden;
+            }
+            iframe {
+                display: block;
+                width: 100%;
+                height: 100%;
+                border: 0;
+            }
+            /* the host app's own chrome, drawn over the bottom of the iframe: taps pass through */
+            #chrome {
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0 12px;
+                box-sizing: border-box;
+                background: rgba(29, 155, 240, 0.35);
+                outline: 1px dashed rgba(255, 255, 255, 0.6);
+                pointer-events: none;
+            }
+            #chrome span {
+                padding: 4px 10px;
+                border-radius: 999px;
+                background: rgba(0, 0, 0, 0.6);
+            }
+            nav a {
+                color: #9cf;
+                margin: 0 4px;
+            }
+        </style>
+    </head>
+    <body>
+        <!--
+            Development page for `experimentalTouchInsetBottom`, the lift an embedding host sets
+            for touch devices. It frames the standalone viewer in a square iframe, as a social
+            card player does, and draws a strip of host chrome over the iframe's bottom, `chrome`
+            px tall (56 by default), so you can see whether the toolbar clears it.
+
+            Every param is passed to the viewer, so the usual ones work: ?content= ?settings=
+            ?webgl. Defaults to ?experimental-touch-inset-bottom=56. The inset lifts the toolbar
+            on touch devices alone, so check it with DevTools' device emulation (a coarse
+            pointer); with a mouse the toolbar stays at the bottom edge, under the strip.
+
+            Params: ?experimental-touch-inset-bottom=56  ?chrome=56 (strip height, 0 for none)
+        -->
+        <div id="card">
+            <iframe allow="fullscreen; xr-spatial-tracking" allowfullscreen></iframe>
+            <div id="chrome"><span>example.com</span><span>Open in browser</span></div>
+        </div>
+        <nav id="presets"></nav>
+        <script type="module">
+            const url = new URL(location.href);
+            const params = new URLSearchParams(url.search);
+            if (!params.has('experimental-touch-inset-bottom')) params.set('experimental-touch-inset-bottom', '56');
+
+            const chrome = Number(params.get('chrome') ?? 56);
+            params.delete('chrome');
+            const strip = document.getElementById('chrome');
+            strip.style.height = `${chrome}px`;
+            strip.hidden = !(chrome > 0);
+
+            // the directory, not ./index.html: `npm run serve` redirects that to the directory and drops
+            // the query
+            document.querySelector('iframe').src = `./?${params}`;
+
+            // links to each inset, keeping every other param
+            const presets = document.getElementById('presets');
+            for (const [label, set] of [
+                ['inset 56', { 'experimental-touch-inset-bottom': '56' }],
+                ['no inset', { 'experimental-touch-inset-bottom': '0' }]
+            ]) {
+                const next = new URLSearchParams(url.search);
+                for (const [key, value] of Object.entries(set)) next.set(key, value);
+                const a = document.createElement('a');
+                a.href = `?${next}`;
+                a.textContent = label;
+                presets.appendChild(a);
+            }
+        </script>
+    </body>
+</html>
