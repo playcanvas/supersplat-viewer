@@ -5,17 +5,20 @@ import { createQuad, uploadQuad } from './xr-palm-menu';
 import type { Quad } from './xr-palm-menu';
 
 // The panel, in the camera's space (meters): low and to the left of the view, a metre away, out of
-// the scene's middle but a glance from it, drawn at PIXELS per meter and redrawn every INTERVAL
-// seconds, often enough to read and seldom enough not to cost a frame
-const POSITION = new Vec3(-0.28, -0.22, -1);
-const WIDTH = 0.3;
-const HEIGHT = 0.045;
+// the scene's middle but a glance from it, LINES lines of LINE_HEIGHT drawn at PIXELS per meter
+// and redrawn every INTERVAL seconds, often enough to read and seldom enough not to cost a frame
+const POSITION = new Vec3(-0.24, -0.28, -1);
+const WIDTH = 0.36;
+const LINES = 3;
+const LINE_HEIGHT = 0.034;
+const HEIGHT = LINES * LINE_HEIGHT + 0.012;
 const PIXELS = 1600;
 const INTERVAL = 0.25;
 
 /**
- * Frame numbers in an XR session, which hides the page's MiniStats: frames a second, the frame's
- * time and the GPU's, head-locked low in the view while `enabled`. The GPU's time needs the
+ * Frame numbers in an XR session, which hides the page's MiniStats: the frame's time (and frames a
+ * second), the GPU's time, and the splats the level of detail selected (the page's MiniStats'
+ * Splats), a line each, head-locked low in the view while `enabled`. The GPU's time needs the
  * device's GPU profiler, which the panel turns on while it shows and puts back as it was.
  */
 class XrStats {
@@ -82,21 +85,34 @@ class XrStats {
     }
 
     private draw() {
-        const { fps, frameTime, gpuFrameTime } = this.app.stats;
+        const { fps, frameTime, gpuFrameTime, frame } = this.app.stats;
         const gpu = gpuFrameTime === undefined ? '–' : gpuFrameTime.toFixed(1);
-        const text = `${fps} fps   ${frameTime.toFixed(1)} ms   GPU ${gpu} ms`;
+        const lines = [
+            `Frame:  ${frameTime.toFixed(1)} ms (${fps} fps)`,
+            `GPU:    ${gpu} ms`,
+            `Splats: ${(frame.gsplats / 1e6).toFixed(2)}M`
+        ];
         const { canvas } = this.quad;
         const ctx = canvas.getContext('2d');
         const { width, height } = canvas;
+        const line = LINE_HEIGHT * PIXELS;
+        const left = line * 0.4;
         ctx.clearRect(0, 0, width, height);
         ctx.fillStyle = 'rgba(20, 22, 28, 0.78)';
         ctx.beginPath();
-        ctx.roundRect(1, 1, width - 2, height - 2, height * 0.3);
+        ctx.roundRect(1, 1, width - 2, height - 2, line * 0.4);
         ctx.fill();
-        ctx.font = `500 ${Math.round(height * 0.46)}px ui-monospace, Menlo, monospace`;
+        // the type smaller where the longest line would run off the panel
+        const font = (size: number) => `500 ${size}px ui-monospace, Menlo, monospace`;
+        const size = Math.round(line * 0.6);
+        ctx.font = font(size);
+        const widest = Math.max(...lines.map((text) => ctx.measureText(text).width));
+        const room = width - 2 * left;
+        if (widest > room) ctx.font = font(Math.floor((size * room) / widest));
         ctx.fillStyle = '#ffffff';
         ctx.textBaseline = 'middle';
-        ctx.fillText(text, height * 0.36, height / 2);
+        const top = (height - lines.length * line) / 2;
+        lines.forEach((text, i) => ctx.fillText(text, left, top + (i + 0.5) * line));
         uploadQuad(this.quad);
     }
 }

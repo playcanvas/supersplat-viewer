@@ -314,10 +314,13 @@ class Viewer {
         // announced on the first frame rather than here: createViewer resolves after this
         // constructor, so a page can only subscribe once loading is under way
         events.once('firstFrame', () => events.fire('splatRenderer:ready', this.splatRenderer));
-        const stochasticChanged = events.on('performanceMode:changed', () => {
-            if (!this.destroyed) this.syncSplatRenderer();
-        });
-        this.onDestroy(() => stochasticChanged.off());
+        // Performance Mode, or the debug controls' renderer and mode
+        const stochasticChanged = ['performanceMode:changed', 'debugMode:changed'].map((name) =>
+            events.on(name, () => {
+                if (!this.destroyed) this.syncSplatRenderer();
+            })
+        );
+        this.onDestroy(() => stochasticChanged.forEach((handle) => handle.off()));
 
         // reconfigure camera when entering/exiting XR. The stochastic renderer draws the session
         // too, one view per eye on WebGPU. Follows xrMode rather than app.xr.active, which still
@@ -741,6 +744,7 @@ class Viewer {
                     const perfHandles = [
                         events.on('quality:changed', applyPerfSettings),
                         events.on('performanceMode:changed', applyPerfSettings),
+                        events.on('debugMode:changed', applyPerfSettings),
                         events.on('xrMode:changed', applyPerfSettings)
                     ];
                     this.onDestroy(() => perfHandles.forEach((handle) => handle.off()));
@@ -790,6 +794,8 @@ class Viewer {
                 });
             }
         }
+        // in the mode wanted, which the debug controls change on a renderer already made
+        if (wanted) this.splatRenderer?.setMode(quality.stochasticMode);
         this.splatRenderer?.setEnabled(wanted);
         events.fire('splatRenderer:changed', wanted ? this.splatRenderer : null);
     }

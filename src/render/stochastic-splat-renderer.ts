@@ -274,10 +274,16 @@ const parseVariant = (text: string | undefined): Variant => {
 // defaults) for quality, and for phones and headsets the interleaved pixel sets with jittered
 // strata, small splats drawn per splat and no colour clamp, the fastest at that quality on a Mali
 // phone (docs/mobile-gpu-splat-rendering.md)
+// sol, the "speed of light" mode, is the fastest coverage there is (a solid ellipse per splat, no
+// discard): no device gets it, but it is the bound the others are measured against
 const MODE_VARIANTS = {
     pixel: '',
-    mobile: 'coverage:interleaved,jitter:2,interleaveArea:256,taaClip:0'
+    mobile: 'coverage:interleaved,jitter:2,interleaveArea:256,taaClip:0',
+    sol: 'coverage:splat'
 };
+
+/** The modes, in the order the debug controls step through them. */
+const STOCHASTIC_MODES = Object.keys(MODE_VARIANTS) as readonly (keyof typeof MODE_VARIANTS)[];
 
 // The switches a stereo session adds over the mode's. A head never rests, so every frame takes the
 // moving history, whose cap of 16 left the coverage noise pulsing in semi-transparent areas; the
@@ -793,8 +799,10 @@ class SplatView {
 class StochasticSplatRenderer {
     readonly variant: Variant;
 
-    /** The mode's switches, which setVariant's string applies over. */
-    private readonly modeVariant: string;
+    /** The mode, and its switches, which setVariant's string applies over. */
+    private modeName: StochasticMode;
+
+    private modeVariant: string;
 
     /** setVariant's last string, applied again when a stereo session starts or ends. */
     private variantText: string;
@@ -1138,7 +1146,8 @@ class StochasticSplatRenderer {
             (() => {
                 this.app.renderNextFrame = true;
             });
-        this.modeVariant = MODE_VARIANTS[options.mode ?? 'pixel'];
+        this.modeName = options.mode ?? 'pixel';
+        this.modeVariant = MODE_VARIANTS[this.modeName];
         this.variantText = options.variant ?? '';
         this.variant = parseVariant(`${this.modeVariant},${this.variantText}`);
 
@@ -1433,6 +1442,24 @@ class StochasticSplatRenderer {
         this.app.renderNextFrame = true;
     }
 
+    /** The mode whose switches the variant starts from. */
+    get mode(): StochasticMode {
+        return this.modeName;
+    }
+
+    /**
+     * Switch to another mode (the debug controls): its switches, then the session's and the last
+     * setVariant string, as constructing in that mode would. Any switch changed since resets.
+     *
+     * @param mode - The mode.
+     */
+    setMode(mode: StochasticMode) {
+        if (mode === this.modeName) return;
+        this.modeName = mode;
+        this.modeVariant = MODE_VARIANTS[mode];
+        this.setVariant(this.variantText);
+    }
+
     /** Replace the experiment switches from a `key:value,key:value` string (unset keys reset to the mode's, and the session's). */
     setVariant(text: string) {
         this.variantText = text;
@@ -1455,12 +1482,6 @@ class StochasticSplatRenderer {
             view.restFrames = 0;
         }
         this.frameIndex = 0;
-    }
-
-    /** Set the display sharpen (variant taaSharpen): a display-only switch, so the history stays. */
-    setSharpen(strength: number) {
-        this.variant.taaSharpen = Math.max(0, strength);
-        this.app.renderNextFrame = true;
     }
 
     /** Re-read {@link variant} after a field changed. */
@@ -2586,5 +2607,5 @@ class StochasticSplatRenderer {
     }
 }
 
-export { StochasticSplatRenderer };
-export type { DepthFrame, StochasticRendererOptions, Variant };
+export { STOCHASTIC_MODES, StochasticSplatRenderer };
+export type { DepthFrame, StochasticMode, StochasticRendererOptions, Variant };

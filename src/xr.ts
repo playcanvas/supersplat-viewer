@@ -6,7 +6,7 @@ import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 
 import { VoxelCollision } from './collision';
 import type { Collision } from './collision';
-import { standaloneHeadset, visionPro } from './quality';
+import { DEBUG_MODES, standaloneHeadset, visionPro } from './quality';
 import type { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
 import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
@@ -19,9 +19,6 @@ import type { XrPalmMenuItem } from './xr-palm-menu';
 import { XrStats } from './xr-stats';
 import { replaceTeleportArc } from './xr-teleport-arc';
 import type { TeleportArcNavigation } from './xr-teleport-arc';
-
-// the stochastic renderer's coverage modes, in the order the debug page steps through them
-const COVERAGE_MODES: readonly StochasticSplatRenderer['variant']['coverage'][] = ['pixel', 'splat', 'interleaved'];
 
 // Teleporting onto the scene's collision, when it has some: the navigation tests its arc against
 // it segment by segment, so walls and furniture stop the arc, and a hit is a target only where
@@ -431,9 +428,9 @@ const initXr = (global: Global) => {
         return index < 0 ? null : (available[index + direction] ?? null);
     };
 
-    // With the debug flag, the menu has a Debug page: the stochastic renderer's TAA and coverage
-    // while it draws (Performance Mode or the flag switches it in and out), and frame numbers. Its
-    // labels are the developer's, in English
+    // With the debug flag, the menu has a Debug page: the renderer and mode (sorted, or a stochastic
+    // mode) on WebGPU, the stochastic renderer's TAA while it draws, and frame numbers. Its labels
+    // are the developer's, in English
     let splatRenderer: StochasticSplatRenderer | null = null;
     const rendererHandles = [
         events.on('splatRenderer:ready', (renderer: StochasticSplatRenderer | null) => {
@@ -444,12 +441,19 @@ const initXr = (global: Global) => {
         })
     ];
     const stats = config.debug ? new XrStats(app, camera) : null;
-    const coverageStep = (direction: -1 | 1) => {
-        if (!splatRenderer) return null;
-        const index = COVERAGE_MODES.indexOf(splatRenderer.variant.coverage);
-        return COVERAGE_MODES[index + direction] ?? null;
-    };
+    const modeStep = (direction: -1 | 1) => DEBUG_MODES[DEBUG_MODES.indexOf(quality.debugMode) + direction] ?? null;
     const debugItems: XrPalmMenuItem[] = [
+        {
+            label: () => `Mode: ${quality.debugMode}`,
+            visible: () => quality.debugModes,
+            stepper: {
+                can: (direction) => modeStep(direction) !== null,
+                step: (direction) => {
+                    const next = modeStep(direction);
+                    if (next) quality.setDebugMode(next);
+                }
+            }
+        },
         {
             label: () => 'TAA',
             checked: () => splatRenderer?.variant.taa === 'on',
@@ -458,19 +462,6 @@ const initXr = (global: Global) => {
                 if (!splatRenderer) return;
                 splatRenderer.variant.taa = splatRenderer.variant.taa === 'on' ? 'off' : 'on';
                 splatRenderer.applyVariant();
-            }
-        },
-        {
-            label: () => `Coverage: ${splatRenderer?.variant.coverage ?? ''}`,
-            visible: () => !!splatRenderer,
-            stepper: {
-                can: (direction) => coverageStep(direction) !== null,
-                step: (direction) => {
-                    const next = coverageStep(direction);
-                    if (!splatRenderer || !next) return;
-                    splatRenderer.variant.coverage = next;
-                    splatRenderer.applyVariant();
-                }
             }
         },
         {
