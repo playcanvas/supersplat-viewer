@@ -176,6 +176,25 @@
             window.addEventListener('error', (event) => {
                 unhandled.push(event.message);
             });
+            // Every worker the viewer starts (the engine's sorter, the gsaf decoder) must be
+            // terminated by its destroy, so the harness counts the ones still running.
+            let liveWorkers = 0;
+            const NativeWorker = window.Worker;
+            window.Worker = class extends NativeWorker {
+                constructor(...args) {
+                    super(...args);
+                    liveWorkers++;
+                }
+
+                terminate() {
+                    if (!this.terminated) {
+                        this.terminated = true;
+                        liveWorkers--;
+                    }
+                    super.terminate();
+                }
+            };
+
             const reportUnhandled = () => {
                 // a rejection is reported a task after it happens, so let the queue drain first
                 return timeout(50).then(() => {
@@ -1302,6 +1321,7 @@
                         const removed = host.childElementCount === 0;
 
                         const freed = await released(handles);
+                        const workers = liveWorkers;
                         const captured = capture ? await Promise.race([capture, timeout(2000, 'hung')]) : 'n/a';
                         const overlayFreed = overlayReleased ? overlayReleased() : true;
                         const splatFreed = splatTextures
@@ -1310,6 +1330,7 @@
                         const ok =
                             freed &&
                             removed &&
+                            workers === 0 &&
                             overlayFreed &&
                             splatFreed &&
                             toggled !== false &&
@@ -1317,7 +1338,7 @@
                             (mode !== 'loaded' || loaded);
                         if (!ok) failures++;
                         log(
-                            `#${i} ${handles.device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed} removed=${removed} capture=${captured} overlay=${overlayReleased ? overlayFreed : 'n/a'} splat=${splatTextures ? `${splatFreed} (${splatTextures.length})` : 'n/a'} toggle=${toggled ?? 'n/a'}`,
+                            `#${i} ${handles.device.deviceType} ${Math.round(performance.now() - started)}ms loaded=${loaded} progress=${progress} released=${freed} removed=${removed} workers=${workers} capture=${captured} overlay=${overlayReleased ? overlayFreed : 'n/a'} splat=${splatTextures ? `${splatFreed} (${splatTextures.length})` : 'n/a'} toggle=${toggled ?? 'n/a'}`,
                             !ok
                         );
                     } catch (err) {

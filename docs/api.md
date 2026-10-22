@@ -35,6 +35,20 @@ name's extension, so name its content with the bootstrap's `contentFilename` (e.
 `scene.sog`). The flags are independent, so a server that serves the bundle from its own
 route can inline only the stylesheet.
 
+A `.gsaf` sequence is decoded by a wasm module, `gsaf-decoder.wasm`, which ships beside `index.js` (and beside `dist/viewer.js`) and is fetched only when gsaf content loads, so serve it with the bundle as `application/wasm`. A document with no sibling files has nowhere to fetch it from: set the bootstrap's `gsafDecoderUrl` to the `data:` url the `@playcanvas/supersplat-viewer/gsaf-decoder` export provides, a separate entry so that nothing else bundles it.
+
+```js
+import { gsafDecoderDataUrl } from '@playcanvas/supersplat-viewer/gsaf-decoder';
+
+renderViewerHtml({
+    bootstrap: { settings, contentUrl: gsafDataUri, contentFilename: 'scene.gsaf', gsafDecoderUrl: gsafDecoderDataUrl },
+    inlineCss: true,
+    inlineJs: true
+});
+```
+
+`gsafDecoderUrl` is also a `createViewer` option, for a host serving the wasm from elsewhere. It has no URL parameter, since a link could then run any wasm in the page's origin.
+
 `html` is still exported as a raw string, but is **deprecated**: its formatting is not part of
 this package's API and changes between releases, so pattern-matching it is unsupported. `css`
 and `js` remain exported for serving (or writing) the stylesheet and bundle alongside a
@@ -72,7 +86,7 @@ scene is visible. It returns:
 | `events` | Fires `<key>:changed` with `(value, previous)` for every key of `state` |
 | `annotations` | Annotation data in settings order, available as soon as creation resolves. Editing entries is unsupported |
 | `captureFrame(options?)` | Renders offscreen, supersampled, and resolves to `{ width, height, data }` with `data` base64. Waits for the first frame |
-| `seek(time)` | Selects the animation camera and seeks in seconds, preserving pause state. Requires a loaded viewer with an animation; throws for non-finite time or after destruction. Requests rendering without waiting for a frame |
+| `seek(time)` | Selects the animation camera and seeks in seconds, preserving pause state; for an animated splat sequence, seeks the sequence and leaves the camera alone. Requires a loaded viewer with an animation; throws for non-finite time or after destruction. Requests rendering without waiting for a frame |
 | `frameScene()` | Frames the whole scene, in orbit mode; requires `state.loaded` |
 | `resetCamera()` | Restores the fly/walk entry spawn, or the authored initial view in orbit mode; requires `state.loaded` |
 | `toggleWalk()` | Enters walk mode or restores the previous mode. Does nothing if `walkAllowed` is false; requires `state.loaded` |
@@ -123,7 +137,9 @@ const play = () => {
 };
 ```
 
-`animationTime`, `animationDuration` and `hasAnimation` are read-only observations. Seeking wraps repeat tracks and clamps once and ping-pong tracks to their duration. It preserves pause state; pause first to stop at the requested time. Hosts can pause from `animationTime:changed` to respond to a playback threshold, at the viewer's update cadence.
+An animated splat sequence (a `.gsaf` content url) is the timeline instead: `hasSequence` is true, `hasAnimation`, `animationDuration`, `animationTime`, `animationPaused` and `seek()` describe the sequence's frames, which play in every camera mode, and the camera has no animation of its own, so setting `cameraMode` to `'anim'` is undone. A sequence loops. On WebGL it shows its first frame only and has no timeline.
+
+`animationTime`, `animationDuration`, `hasAnimation` and `hasSequence` are read-only observations. Seeking wraps repeat tracks and clamps once and ping-pong tracks to their duration. It preserves pause state; pause first to stop at the requested time. Hosts can pause from `animationTime:changed` to respond to a playback threshold, at the viewer's update cadence.
 
 Dragging the built-in timeline pauses playback. Releasing or cancelling the drag does not restore an earlier pause flag, so it cannot undo a host command issued during scrubbing. Use Play to resume. The standalone `window.scrubTo` hook retains its pause-and-wait-for-frame behavior; `seek()` itself is synchronous.
 
