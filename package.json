@@ -52,6 +52,7 @@
     "public/gsaf-decoder.wasm",
     "docs/api.md",
     "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     "package.json",
     "README.md"
   ],
