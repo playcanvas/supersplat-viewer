@@ -1,24 +1,7 @@
 import typescriptConfig from '@playcanvas/eslint-config/typescript';
-import globals from 'globals';
 
 export default [
     ...typescriptConfig,
-    {
-        files: ['**/*.ts'],
-        languageOptions: {
-            globals: {
-                ...globals.browser
-            }
-        }
-    },
-    {
-        files: ['**/*.mjs'],
-        languageOptions: {
-            globals: {
-                ...globals.node
-            }
-        }
-    },
     {
         // preserve existing module initialization order
         files: [
