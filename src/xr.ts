@@ -1,7 +1,6 @@
 import { DEVICETYPE_WEBGL2, math, Quat, Vec3, XrManager } from 'playcanvas';
 import type { Color, Entity, EventHandle, XrInputSource } from 'playcanvas';
 import { XrControllers } from 'playcanvas/scripts/esm/xr/xr-controllers.mjs';
-import { XrManipulation } from 'playcanvas/scripts/esm/xr/xr-manipulation.mjs';
 import { XrNavigation } from 'playcanvas/scripts/esm/xr/xr-navigation.mjs';
 
 import { VoxelCollision } from './collision';
@@ -14,6 +13,7 @@ import { initXrDepthClear } from './xr-depth-clear';
 import { XrGrabMove } from './xr-grab-move';
 import { XrHandStyle } from './xr-hand-style';
 import { XrIceCream } from './xr-ice-cream';
+import { XrObjectGrab } from './xr-object-grab';
 import { XrPalmMenu } from './xr-palm-menu';
 import type { XrPalmMenuItem } from './xr-palm-menu';
 import { XrStats } from './xr-stats';
@@ -97,6 +97,7 @@ const initXr = (global: Global) => {
     // the members of the navigation the viewer uses (the script's own typing is Script)
     const navigation = parent.script.create(XrNavigation) as unknown as TeleportArcNavigation & {
         validTeleportColor: Color;
+        enableTeleport: boolean;
         movementSpeed: number;
         arcWidth: number;
         teleportIndicatorRadius: number;
@@ -226,11 +227,12 @@ const initXr = (global: Global) => {
     };
 
     // Grabbing with both hands drags, turns and scales what was loaded, chosen once the splat
-    // entity has loaded, which is before XR can start: an object moves, scaling about the hands
-    // (the engine's XrManipulation, put back when the session ends, as the viewer's camera,
-    // collision and annotations assume the authored placement); in a scene the user moves instead
-    // (XrGrabMove), so the scene stays on its collision, and the user's feet on its floor.
-    let manipulation: XrManipulation | null = null;
+    // entity has loaded, which is before XR can start. An object is the user's to handle: placed in
+    // front of them at table height as the session starts, it moves about its base (XrObjectGrab,
+    // put back when the session ends, as the viewer's camera, collision and annotations assume the
+    // authored placement), and there is no teleport. In a scene the user moves instead (XrGrabMove),
+    // so the scene stays on its collision, and the user's feet on its floor.
+    let objectGrab: XrObjectGrab | null = null;
     let grabMove: XrGrabMove | null = null;
     // and holding it on top of the left fist like an ice cream (state.iceCream, a switch in the menu)
     let iceCream: XrIceCream | null = null;
@@ -250,13 +252,13 @@ const initXr = (global: Global) => {
     const placeAtStart = () => {
         iceCream?.cancel();
         grabMove?.reset();
-        manipulation?.reset();
         parent.setPosition(startPosition);
         parent.setEulerAngles(0, startYaw, 0);
         // the navigation keeps the rig's height above the floor it stands on when it teleports,
         // and has no setter for that floor. TEMPORARY: playcanvas/engine#9750 adds one; once the
         // viewer requires an engine with it, set navigation.currentGroundHeight instead
         (navigation as unknown as { _currentGroundY: number })._currentGroundY = startFloorY;
+        objectGrab?.place();
     };
     const recentered = () => {
         if (!destroyed && xr.active) placeAtStart();
@@ -335,7 +337,7 @@ const initXr = (global: Global) => {
         parent.setRotation(parentRotation);
         camera.setPosition(cameraPosition);
         camera.setRotation(cameraRotation);
-        manipulation?.reset();
+        objectGrab?.restore();
 
         state.xrMode = null;
 
@@ -552,13 +554,12 @@ const initXr = (global: Global) => {
             if (scene) {
                 grabMove = new XrGrabMove(app, parent, setUserScale);
             } else {
-                manipulation = parent.script.create(XrManipulation, {
-                    properties: { target: entity, scalePivot: 'hands', minScale: 0.25, maxScale: 4 }
-                }) as unknown as XrManipulation;
+                objectGrab = new XrObjectGrab(app, entity, parent);
+                navigation.enableTeleport = false;
             }
             // The grab waits while the splat is held, as it would move what the hold places, and
-            // the hold resizes it instead (the event the engine's XrMenu pauses XrManipulation with,
-            // which XrGrabMove waits on too)
+            // the hold resizes it instead (the event XrObjectGrab and XrGrabMove wait on, as the
+            // engine's XrManipulation does for its XrMenu)
             iceCream = new XrIceCream(
                 app,
                 entity,
@@ -590,6 +591,8 @@ const initXr = (global: Global) => {
             iceCream = null;
             grabMove?.destroy();
             grabMove = null;
+            objectGrab?.destroy();
+            objectGrab = null;
             target?.destroy();
             target = null;
             if (restoreFrame !== null) cancelAnimationFrame(restoreFrame);
