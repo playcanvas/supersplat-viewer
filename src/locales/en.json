@@ -79,6 +79,6 @@
     "xr-menu.exit-ar": "Exit AR",
     "xr-menu.ice-cream": "Ice-cream mode",
     "xr-hint.place": "Pinch and point at a floor or table, then let go to place",
-    "xr-hint.place-screen": "Aim at a floor or table, then tap to place",
+    "xr-hint.place-screen": "Touch a floor or table to place, pinch to resize and twist to turn",
     "xr-hint.stalled": "Nothing happening? Switch tabs and back."
 }

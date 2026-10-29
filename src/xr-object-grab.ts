@@ -27,6 +27,7 @@ const mid = new Vec3();
 const delta = new Vec3();
 const base = new Vec3();
 const offset = new Vec3();
+const point = new Vec3();
 const turn = new Quat();
 const bound = new BoundingBox();
 const inverse = new Mat4();
@@ -284,31 +285,64 @@ class XrObjectGrab {
         }
 
         // spreading the hands grows it past the dead zone, within its bounds about the placed size
-        let ratio = 1;
-        if (separation > EPS_SEPARATION && this.grabDistance > EPS_SEPARATION) {
-            const spread = separation / this.grabDistance;
-            ratio =
-                spread > 1 + SPREAD_DEAD_ZONE
-                    ? spread / (1 + SPREAD_DEAD_ZONE)
-                    : spread < 1 - SPREAD_DEAD_ZONE
-                      ? spread / (1 - SPREAD_DEAD_ZONE)
-                      : 1;
-            const homeScale = this.homeScale.x || 1;
-            const total = math.clamp(
-                (this.grabScale.x * ratio) / homeScale,
-                this.placedScale * MIN_SCALE,
-                this.placedScale * MAX_SCALE
-            );
-            ratio = (total * homeScale) / this.grabScale.x;
-        }
+        const spread =
+            separation > EPS_SEPARATION && this.grabDistance > EPS_SEPARATION ? separation / this.grabDistance : 1;
 
         // the base follows the hands' midpoint; the object turns and scales about it
-        turn.setFromAxisAngle(Vec3.UP, this.yaw * math.RAD_TO_DEG);
         base.sub2(mid, this.grabMid).add(this.grabBase);
+        this.apply(this.ratioOf(spread), this.yaw, base);
+    }
+
+    /**
+     * Starts scaling and turning the splat about its base by other means than the hands (a
+     * phone's two fingers), from where it stands now; ends a grab.
+     */
+    startAdjust() {
+        this.end();
+        this.basePoint(this.grabBase);
+        this.grabPosition.copy(this.entity.getPosition());
+        this.grabRotation.copy(this.entity.getRotation());
+        this.grabScale.copy(this.entity.getLocalScale());
+    }
+
+    /**
+     * Scales and turns the splat about its base, against where it stood at
+     * {@link XrObjectGrab#startAdjust}, as the hands' grab does.
+     *
+     * @param spread - How far apart the fingers are against their start, which scales it past the
+     * grab's dead zone and within its bounds.
+     * @param yaw - The turn about the vertical, in radians.
+     */
+    adjust(spread: number, yaw: number) {
+        this.apply(this.ratioOf(spread), yaw, this.grabBase);
+    }
+
+    // the scale against the grab's start for a spread of the hands, past the dead zone and within
+    // its bounds about the placed size
+    private ratioOf(spread: number) {
+        const ratio =
+            spread > 1 + SPREAD_DEAD_ZONE
+                ? spread / (1 + SPREAD_DEAD_ZONE)
+                : spread < 1 - SPREAD_DEAD_ZONE
+                  ? spread / (1 - SPREAD_DEAD_ZONE)
+                  : 1;
+        const homeScale = this.homeScale.x || 1;
+        const total = math.clamp(
+            (this.grabScale.x * ratio) / homeScale,
+            this.placedScale * MIN_SCALE,
+            this.placedScale * MAX_SCALE
+        );
+        return (total * homeScale) / this.grabScale.x;
+    }
+
+    // the splat as it stood at the grab's start, scaled by ratio and turned by yaw about its base,
+    // which stands at baseAt
+    private apply(ratio: number, yaw: number, baseAt: Vec3) {
+        turn.setFromAxisAngle(Vec3.UP, yaw * math.RAD_TO_DEG);
         offset.sub2(this.grabPosition, this.grabBase);
         turn.transformVector(offset, offset).mulScalar(ratio);
         const { entity } = this;
-        entity.setPosition(base.add(offset));
+        entity.setPosition(point.add2(baseAt, offset));
         entity.setRotation(turn.mul(this.grabRotation));
         entity.setLocalScale(this.grabScale.x * ratio, this.grabScale.y * ratio, this.grabScale.z * ratio);
     }

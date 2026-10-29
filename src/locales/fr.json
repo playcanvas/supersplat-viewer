@@ -74,6 +74,6 @@
     "xr-menu.exit-ar": "Quitter l'AR",
     "xr-menu.ice-cream": "Mode glace",
     "xr-hint.place": "Pincez, pointez le sol ou une table, puis relâchez pour placer",
-    "xr-hint.place-screen": "Visez le sol ou une table, puis touchez pour placer",
+    "xr-hint.place-screen": "Touchez le sol ou une table pour placer, pincez pour redimensionner, tournez pour pivoter",
     "xr-hint.stalled": "Rien ne se passe ? Changez d'onglet puis revenez."
 }

@@ -74,6 +74,6 @@
     "xr-menu.exit-ar": "Salir de AR",
     "xr-menu.ice-cream": "Modo helado",
     "xr-hint.place": "Pellizca, apunta al suelo o a una mesa y suelta para colocar",
-    "xr-hint.place-screen": "Apunta al suelo o a una mesa y toca para colocar",
+    "xr-hint.place-screen": "Toca el suelo o una mesa para colocar, pellizca para escalar y gira para rotar",
     "xr-hint.stalled": "¿No pasa nada? Cambia de pestaña y vuelve."
 }

@@ -12,7 +12,6 @@ import {
     ShaderMaterial,
     StandardMaterial,
     Vec3,
-    XRSPACE_VIEWER,
     XRTRACKABLE_MESH,
     XRTRACKABLE_PLANE
 } from 'playcanvas';
@@ -26,8 +25,8 @@ import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 // Placing the splat in AR, as the teleport moves the user in VR: a select held (a pinch, a trigger)
 // draws a thin ray from that hand or controller, and a ring where it meets a surface of the room,
 // which the browser's hit test finds among the planes and mesh it has of it along the pointer's own
-// ray; letting go moves the splat there. On a phone, which has no ray to hold, the ring stays at the
-// middle of the view and a tap moves it. Only a surface within LEVEL of horizontal (the cosine)
+// ray; letting go moves the splat there. On a phone a touch does the same where the finger touches the
+// room, and two fingers pinch to scale and twist to turn the splat about its base. Only a surface within LEVEL of horizontal (the cosine)
 // takes it, a floor or a table top; letting go with no ring leaves it where it is. As the session
 // starts the splat stands on the table in front of the user (XrObjectGrab.place), drawn at
 // PREVIEW_ALPHA until its first placing, with a hint, above the ring or in front of the eyes, saying
@@ -238,15 +237,23 @@ class XrArPlacement {
 
     private placed = false;
 
-    // the middle of the view's hit test (null while it is requested), for a phone; its last level
-    // hit, in the session's space, with its age; and whether one has arrived since the last update
+    // A phone's touches: the hit test of the screen's transient inputs (null while it is requested),
+    // and each touch's last level hit, in the session's space, with its age; the touches held, the
+    // one placing, and the two pinching and twisting, with their spread and heading on the screen
+    // as the second came down
     private source: XrHitTestSource | null = null;
 
-    private hit = new Vec3();
+    private touches = new Map<XrInputSource, { hit: Vec3; age: number }>();
 
-    private hitAge = Infinity;
+    private held = new Set<XrInputSource>();
 
-    private fresh = false;
+    private placingTouch: XrInputSource | null = null;
+
+    private pinch: [XrInputSource, XrInputSource] | null = null;
+
+    private pinchSpread = 0;
+
+    private pinchHeading = 0;
 
     // the headset's pointers, and the one whose select is held, aiming
     private pointers = new Map<XrInputSource, Pointer>();
@@ -373,14 +380,27 @@ class XrArPlacement {
         app.root.addChild(this.hintHolder);
         this.hint = createQuad(app, this.hintHolder, HINT_WIDTH, HINT_HEIGHT, HINT_PIXELS);
 
-        // a held select aims with its pointer, and letting go places where the ring is; a phone's
-        // tap places at the middle of the view's ring
+        // A held select aims with its pointer, and letting go places where the ring is. On a phone,
+        // a touch does the same where the finger touches, and a second finger pinches and twists
+        // instead, scaling and turning the splat about its base until one of them lifts
         const onSelectStart = (source: XrInputSource) => {
             if (!this.active || this.claimed(source)) return;
             const pointer = this.pointers.get(source);
-            if (!pointer) return;
-            this.aiming = pointer;
-            this.ringFound = false;
+            if (pointer) {
+                this.aiming = pointer;
+                this.ringFound = false;
+                return;
+            }
+            if (source.targetRayMode !== 'screen') return;
+            this.held.add(source);
+            if (this.held.size === 1) {
+                this.placingTouch = source;
+                this.ringFound = false;
+            } else if (this.held.size === 2 && !this.pinch) {
+                this.placingTouch = null;
+                const [a, b] = this.held;
+                this.startPinch(a, b);
+            }
         };
         const onSelectEnd = (source: XrInputSource) => {
             if (!this.active) return;
@@ -391,14 +411,17 @@ class XrArPlacement {
                 if (this.ring.enabled) this.placeAt(this.ringAt);
                 this.ring.enabled = false;
                 this.ray.enabled = false;
-            } else if (!this.claimed(source) && this.pointers.size === 0 && this.ring.enabled) {
-                this.placeAt(this.ringAt);
+                return;
             }
+            this.releaseTouch(source, true);
         };
         const onAdd = (source: XrInputSource) => {
             if (this.active) this.addPointer(source);
         };
-        const onRemove = (source: XrInputSource) => this.removePointer(source);
+        const onRemove = (source: XrInputSource) => {
+            this.removePointer(source);
+            this.releaseTouch(source, false);
+        };
         const { input } = app.xr;
         input.on('selectstart', onSelectStart);
         input.on('selectend', onSelectEnd);
@@ -432,10 +455,8 @@ class XrArPlacement {
         this.setFade(PREVIEW_ALPHA);
         if (this.active) return;
         this.active = true;
-        this.hitAge = Infinity;
-        this.fresh = false;
         for (const source of this.app.xr.input.inputSources) this.addPointer(source);
-        this.request([XRTRACKABLE_PLANE, XRTRACKABLE_MESH]);
+        this.requestTouches([XRTRACKABLE_PLANE, XRTRACKABLE_MESH]);
     }
 
     /** Ends placing as the session ends, leaving the splat where it stands, solid. */
@@ -449,6 +470,10 @@ class XrArPlacement {
         this.fade.enabled = false;
         this.source?.remove();
         this.source = null;
+        this.touches.clear();
+        this.held.clear();
+        this.placingTouch = null;
+        this.pinch = null;
         for (const source of [...this.pointers.keys()]) this.removePointer(source);
     }
 
@@ -548,15 +573,15 @@ class XrArPlacement {
         }
     }
 
-    // asks for a hit test from the middle of the view, against planes alone where the room's mesh
-    // is not offered
-    private request(entityTypes: string[]) {
+    // asks for a hit test from where the screen is touched, against planes alone where the room's
+    // mesh is not offered
+    private requestTouches(entityTypes: string[]) {
         this.app.xr.hitTest.start({
-            spaceType: XRSPACE_VIEWER,
+            profile: 'generic-touchscreen',
             entityTypes,
             callback: (error: Error | null, source: XrHitTestSource | null) => {
                 if (error || !source) {
-                    if (entityTypes.length > 1 && this.active) this.request([XRTRACKABLE_PLANE]);
+                    if (entityTypes.length > 1 && this.active) this.requestTouches([XRTRACKABLE_PLANE]);
                     return;
                 }
                 if (!this.active || this.released) {
@@ -564,34 +589,90 @@ class XrArPlacement {
                     return;
                 }
                 this.source = source;
-                source.on('result', (position: Vec3, rotation: Quat) => {
+                source.on('result', (position: Vec3, rotation: Quat, touch: XrInputSource) => {
                     rotation.transformVector(Vec3.UP, up);
-                    if (up.y < LEVEL) return;
-                    this.hit.copy(position);
-                    this.fresh = true;
+                    if (up.y < LEVEL || !touch) return;
+                    let hit = this.touches.get(touch);
+                    if (!hit) {
+                        hit = { hit: new Vec3(), age: Infinity };
+                        this.touches.set(touch, hit);
+                    }
+                    hit.hit.copy(position);
+                    hit.age = 0;
                 });
             }
         });
     }
 
+    // a touch lifting: the one placing places where the ring is (when it lifts, not when its input
+    // goes), and one of a pinch ends it
+    private releaseTouch(source: XrInputSource, lifted: boolean) {
+        if (!this.held.delete(source)) {
+            this.touches.delete(source);
+            return;
+        }
+        this.touches.delete(source);
+        if (this.pinch) {
+            if (this.pinch.includes(source)) this.pinch = null;
+            return;
+        }
+        if (source === this.placingTouch) {
+            this.placingTouch = null;
+            if (lifted && this.ring.enabled) this.placeAt(this.ringAt);
+            this.ring.enabled = false;
+        }
+    }
+
+    // where a touch is on the screen, as its ray's direction from the eyes, in tangents
+    private screenOf(source: XrInputSource, out: Vec3) {
+        turn.copy(this.camera.getRotation()).invert().transformVector(source.getDirection(), out);
+        const depth = -out.z || 1e-6;
+        return out.set(out.x / depth, out.y / depth, 0);
+    }
+
+    private startPinch(a: XrInputSource, b: XrInputSource) {
+        this.pinch = [a, b];
+        this.screenOf(a, rayStart);
+        this.screenOf(b, rayEnd);
+        aimed.sub2(rayEnd, rayStart);
+        this.pinchSpread = Math.max(aimed.length(), 1e-6);
+        this.pinchHeading = Math.atan2(aimed.y, aimed.x);
+        this.gliding = false;
+        this.ring.enabled = false;
+        this.grab.startAdjust();
+    }
+
+    // the pinch's spread scales the splat, and its twist turns it, as seen from above
+    private updatePinch() {
+        if (!this.pinch) return;
+        const [a, b] = this.pinch;
+        this.screenOf(a, rayStart);
+        this.screenOf(b, rayEnd);
+        aimed.sub2(rayEnd, rayStart);
+        const spread = aimed.length() / this.pinchSpread;
+        const heading = Math.atan2(aimed.y, aimed.x);
+        let yaw = (heading - this.pinchHeading) % (Math.PI * 2);
+        if (yaw > Math.PI) yaw -= Math.PI * 2;
+        else if (yaw <= -Math.PI) yaw += Math.PI * 2;
+        this.grab.adjust(spread, yaw);
+    }
+
     private update(dt: number) {
         if (!this.active) return;
-        this.hitAge += dt;
-        if (this.fresh) {
-            this.fresh = false;
-            this.hitAge = 0;
-        }
         for (const pointer of this.pointers.values()) pointer.age += dt;
+        for (const touch of this.touches.values()) touch.age += dt;
 
-        // the ring: where the aiming pointer meets a surface, or on a phone, the middle of the
-        // view's, held a moment between hits
+        // the ring: where the aiming pointer, or on a phone the placing touch, meets a surface,
+        // held a moment between hits
         let target: Vec3 | null = null;
         const aiming = this.aiming;
         if (aiming) {
             if (aiming.posed && aiming.age < HOLD) target = aiming.hit;
-        } else if (this.pointers.size === 0 && this.hitAge < HOLD) {
-            target = this.hit;
+        } else if (this.placingTouch) {
+            const touch = this.touches.get(this.placingTouch);
+            if (touch && touch.age < HOLD) target = touch.hit;
         }
+        this.updatePinch();
         if (target) {
             this.rig.getWorldTransform().transformPoint(target, point);
             if (this.ringFound) {

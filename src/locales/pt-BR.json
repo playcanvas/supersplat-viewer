@@ -74,6 +74,6 @@
     "xr-menu.exit-ar": "Sair da AR",
     "xr-menu.ice-cream": "Modo sorvete",
     "xr-hint.place": "Faça pinça, aponte para o chão ou uma mesa e solte para posicionar",
-    "xr-hint.place-screen": "Mire no chão ou numa mesa e toque para posicionar",
+    "xr-hint.place-screen": "Toque no chão ou numa mesa para posicionar, faça pinça para redimensionar e gire para rodar",
     "xr-hint.stalled": "Nada acontecendo? Troque de aba e volte."
 }

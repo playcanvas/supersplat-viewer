@@ -74,6 +74,6 @@
     "xr-menu.exit-ar": "ARを終了",
     "xr-menu.ice-cream": "アイスクリームモード",
     "xr-hint.place": "ピンチして床かテーブルを指し、離して配置",
-    "xr-hint.place-screen": "床かテーブルに向けて、タップで配置",
+    "xr-hint.place-screen": "床かテーブルをタッチして配置、ピンチで拡大縮小、ひねって回転",
     "xr-hint.stalled": "反応がない場合は、タブを切り替えてから戻ってください。"
 }
