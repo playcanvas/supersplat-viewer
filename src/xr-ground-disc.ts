@@ -3,8 +3,8 @@ import type { AppBase } from 'playcanvas';
 
 import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 
-// The ground of a scene without collision, in XR: a patch of the floor the user stands on,
-// RADIUS across around the user's feet and following them, so content
+// The ground of a scene without collision, in XR: a patch of the floor the user stands on (the
+// splats', xr-splat-floor.ts), RADIUS across around the user's feet and following them, so content
 // with no floor of its own (a car, a statue) shows where the floor is, wherever they stand. Lines
 // CELL apart, fixed in the world, show it passing underfoot as they move; it fades out to its edge.
 // The sizes are for a user at real size and scale with them. It sits just above that floor, below

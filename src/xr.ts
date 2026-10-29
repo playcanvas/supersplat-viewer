@@ -17,6 +17,7 @@ import { XrIceCream } from './xr-ice-cream';
 import { XrObjectGrab } from './xr-object-grab';
 import { XrPalmMenu } from './xr-palm-menu';
 import type { XrPalmMenuItem } from './xr-palm-menu';
+import { XrSplatFloor } from './xr-splat-floor';
 import { XrStats } from './xr-stats';
 import { replaceTeleportArc } from './xr-teleport-arc';
 import type { TeleportArcNavigation } from './xr-teleport-arc';
@@ -34,6 +35,8 @@ const STAND_STEP = 0.15;
 const CAPSULE_HEIGHT = 1.5;
 const CAPSULE_RADIUS = 0.2;
 const CAPSULE_HOVER = 0.2;
+// how long after a session starts the start's floor is picked from the splats, without collision
+const FLOOR_SETTLE = 500;
 
 // the device tests live with the quality decisions they drive (quality.ts); re-exported below
 // for the ui
@@ -204,7 +207,19 @@ const initXr = (global: Global) => {
     let aimed = false;
     let aimValid = false;
     let target: TeleportTarget | null = null;
+    // Without collision, a scene's splats stand in for it (XrSplatFloor): the arc lands on the floor
+    // the eyes see where it aims, the plane following that floor's height where one can be stood
+    // on, and keeping the floor it has where none is found (a wall, or nothing picked yet)
+    let splatFloor: XrSplatFloor | null = null;
+    let floorTimer: ReturnType<typeof setTimeout> | null = null;
+    const followSplatFloor = (point: Vec3) => {
+        if (!splatFloor) return;
+        splatFloor.aim(point);
+        const floor = splatFloor.floorNear(point);
+        if (floor !== null) navigation.groundHeight = floor;
+    };
     navigation.isValidTeleportDistance = (point: Vec3) => {
+        followSplatFloor(point);
         const valid = validDistance(point) && (!collision || hitStandable);
         aimPoint.copy(point);
         aimed = true;
@@ -314,6 +329,22 @@ const initXr = (global: Global) => {
         startYaw = Math.atan2(-x, -z) * math.RAD_TO_DEG;
         placeAtStart();
         if (groundDisc) groundDisc.visible = true;
+        // without collision, the start stands on the splats' floor in front of the user, picked once
+        // the session's first frames have posed the eyes and settled the scene (between frames, as
+        // the picker needs)
+        if (splatFloor) {
+            const floorUnder = splatFloor;
+            floorTimer = setTimeout(() => {
+                floorTimer = null;
+                void floorUnder.floorAhead().then((y) => {
+                    if (y === null || destroyed || !xr.active) return;
+                    startFloorY = y;
+                    startPosition.y = y;
+                    navigation.groundHeight = y;
+                    placeAtStart();
+                });
+            }, FLOOR_SETTLE);
+        }
         referenceSpace = (xr as unknown as { _referenceSpace: EventTarget | null })._referenceSpace;
         referenceSpace?.addEventListener('reset', recentered);
 
@@ -343,6 +374,8 @@ const initXr = (global: Global) => {
         camera.setRotation(cameraRotation);
         objectGrab?.restore();
         if (groundDisc) groundDisc.visible = false;
+        if (floorTimer) clearTimeout(floorTimer);
+        floorTimer = null;
 
         state.xrMode = null;
 
@@ -557,6 +590,8 @@ const initXr = (global: Global) => {
             // the collision is the floor now
             groundDisc?.destroy();
             groundDisc = null;
+            splatFloor?.destroy();
+            splatFloor = null;
         },
         setGrabTarget: (entity: Entity, scene: boolean) => {
             if (scene) {
@@ -570,6 +605,7 @@ const initXr = (global: Global) => {
                         () => standing._currentGroundY,
                         () => userScale
                     );
+                    splatFloor = new XrSplatFloor(app, camera);
                 }
             } else {
                 objectGrab = new XrObjectGrab(app, entity, parent);
@@ -613,6 +649,10 @@ const initXr = (global: Global) => {
             objectGrab = null;
             groundDisc?.destroy();
             groundDisc = null;
+            if (floorTimer) clearTimeout(floorTimer);
+            floorTimer = null;
+            splatFloor?.destroy();
+            splatFloor = null;
             target?.destroy();
             target = null;
             if (restoreFrame !== null) cancelAnimationFrame(restoreFrame);
