@@ -124,11 +124,15 @@ const initXr = (global: Global) => {
     const scaleModel = (entity: Entity) => entity.setLocalScale(userScale, userScale, userScale);
     // Hands drawn faint over the splats: the input profiles' generic hand, lit like the scene, looked
     // heavy, and its steps at the scene's frame rate stood out (xr-hand-style.ts). Controllers keep
-    // their own models' materials
+    // their own models' materials. In AR the passthrough shows the real hands, so none is drawn: the
+    // controllers script keeps a hidden model hidden as tracking comes and goes
     const handStyle = new XrHandStyle();
     const modelAdded = app.on('xr:controller:add', (source: XrInputSource, entity: Entity) => {
         scaleModel(entity);
-        if (source.hand) handStyle.apply(entity);
+        if (source.hand) {
+            handStyle.apply(entity);
+            if (xr.type === 'immersive-ar') entity.enabled = false;
+        }
     });
     const setUserScale = (scale: number) => {
         userScale = scale;
