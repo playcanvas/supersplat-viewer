@@ -102,6 +102,10 @@ class CameraManager {
     // and the mode the camera falls back to when an animation is interrupted.
     setCollision: (collision: Collision | null) => void;
 
+    // Whether the start camera is outside the scene bounds: an object to orbit rather than a
+    // scene to be in. XR holds and grabs the splat by the same test
+    readonly isObjectExperience: boolean;
+
     // holds the camera state
     camera = new Camera();
 
@@ -143,6 +147,7 @@ class CameraManager {
 
         // object experience starts outside the bounding box
         const isObjectExperience = !bbox.containsPoint(resetCamera.position);
+        this.isObjectExperience = isObjectExperience;
         const animTrack = cameraAnimation ? getAnimTrack(resetCamera, isObjectExperience) : null;
 
         const controllers = {
@@ -489,4 +494,4 @@ class CameraManager {
     }
 }
 
-export { CameraManager, isWalkableSize, isWalkAllowed };
+export { CameraManager, isWalkAllowed };
