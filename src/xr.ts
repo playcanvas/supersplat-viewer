@@ -556,9 +556,9 @@ const initXr = (global: Global) => {
                     properties: { target: entity, scalePivot: 'hands', minScale: 0.25, maxScale: 4 }
                 }) as unknown as XrManipulation;
             }
-            // A held scene's grab scales the user, so the scene in the hand; an object's would
-            // move the object the hold places, so it waits (the event the engine's XrMenu pauses
-            // XrManipulation with)
+            // The grab waits while the splat is held, as it would move what the hold places, and
+            // the hold resizes it instead (the event the engine's XrMenu pauses XrManipulation with,
+            // which XrGrabMove waits on too)
             iceCream = new XrIceCream(
                 app,
                 entity,
@@ -566,9 +566,7 @@ const initXr = (global: Global) => {
                 parent,
                 camera,
                 () => userScale,
-                (holding) => {
-                    if (manipulation) app.fire('xr:menu:active', holding);
-                }
+                (holding) => app.fire('xr:menu:active', holding)
             );
             iceCream.enabled = state.iceCream;
         },

@@ -3,6 +3,7 @@ import {
     CULLFACE_NONE,
     Entity,
     Mat4,
+    math,
     Quat,
     SEMANTIC_POSITION,
     SEMANTIC_TEXCOORD0,
@@ -20,15 +21,21 @@ import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 // stands, an object fitted to OBJECT_SIZE. Twisting the wrist turns it like a turntable and bending
 // it tips it.
 // Opening the hand, or losing it for LOST_TIME, puts it back where it was at once. The sizes are for
-// a user at real size and scale with them as the hold starts; a scene held keeps its size while the
-// two-hand grab scales the user, so the grab grows or shrinks it in the hand.
+// a user at real size and scale with them as the hold starts. The two-hand grab waits while the
+// splat is held, and a right fist grows or shrinks it instead: by the hands' distance against where
+// the fist closed, changes within RESIZE_DEAD_ZONE of it ignored as the grab's are, from RESIZE_MIN
+// to RESIZE_MAX of the size the hold gave it, standing on the fist as it does. While the right fist
+// is closed the splat keeps its turn about the fist's axis, so twisting the wrist then turns the hand
+// under it, and the splat follows the wrist from there once the right hand opens; and swinging the
+// right fist around the left turns it about the axis, like a turntable, past TURN_DEAD_ZONE, so the
+// hand's drift while it resizes does not.
 //
 // A fist closes by the engine's test (all four fingers folded back, its emulated squeeze), and
 // then holds while HELD_FINGERS of them stay folded past a right angle: on Apple Vision Pro the
 // engine's test reads a closed fist's index finger open for half a second at a time. A left hand
 // open, and a right fist, count once they last FLICKER_TIME, as a relaxed right hand curls into the
 // engine's fist for a few frames now and then. And the left keeps its state while the right is a
-// fist (the two-hand grab) or within COVER_DISTANCE of it: a right hand over the left hides its
+// fist (the resize) or within COVER_DISTANCE of it: a right hand over the left hides its
 // fingers, which visionOS then reports open.
 //
 // The ring fills while the fist is upright, where its top is in view: the axis through it within
@@ -46,6 +53,10 @@ const LOST_TIME = 1;
 const COVER_DISTANCE = 0.15;
 const SCENE_SCALE = 0.01;
 const OBJECT_SIZE = 0.15;
+const RESIZE_DEAD_ZONE = 0.15;
+const RESIZE_MIN = 0.25;
+const RESIZE_MAX = 4;
+const TURN_DEAD_ZONE = (10 * Math.PI) / 180;
 // above the top of the fist along its axis: the splat's floor or bottom, and the ring
 const LIFT = 0.02;
 const RING_LIFT = 0.02;
@@ -184,9 +195,20 @@ const target = new Vec3();
 const offset = new Vec3();
 const position = new Vec3();
 const rotation = new Quat();
+const delta = new Quat();
+const unturn = new Quat();
+const spin = new Quat();
+const toRight = new Vec3();
 const inverse = new Mat4();
 const turn = new Mat4();
 const toFist = new Vec3();
+
+const wrapPi = (angle: number) => {
+    angle %= Math.PI * 2;
+    if (angle > Math.PI) return angle - Math.PI * 2;
+    if (angle <= -Math.PI) return angle + Math.PI * 2;
+    return angle;
+};
 
 // 0 to 1 over 0 to 1, past 1 by a tenth at about three quarters, then back
 const overshoot = (x: number) => {
@@ -254,8 +276,8 @@ const measureFist = (hand: XrHand, top: Vec3, turned: Quat) => {
 
 /**
  * Holds the loaded splat on top of the left fist, like an ice cream in its cone, while
- * {@link XrIceCream#enabled} (the XR menu's Ice Cream). The two-hand grab carries on while it is
- * held; the viewer pauses the teleport ({@link XrIceCream#holding}).
+ * {@link XrIceCream#enabled} (the XR menu's Ice Cream). While it is held a right fist resizes it,
+ * and the viewer pauses the two-hand grab and the teleport ({@link XrIceCream#holding}).
  */
 class XrIceCream {
     private app: AppBase;
@@ -317,6 +339,28 @@ class XrIceCream {
     private holdScale = 1;
 
     private bottom = 0;
+
+    // a held splat's size against the hold's, and the hands' distance and that size as the right
+    // fist closed (0 while it is open)
+    private size = 1;
+
+    private resizeFrom = 0;
+
+    private resizeSize = 1;
+
+    // a held splat's turn about the fist's axis, between the fist's frame and the splat's, and the
+    // fist's frame and that turn as the right fist closed
+    private twist = new Quat();
+
+    private gripHand = new Quat();
+
+    private gripTwist = new Quat();
+
+    // the right fist's heading about the fist's axis last frame (null as the grip closes), and its
+    // swing since the grip closed, in radians
+    private swingFrom: number | null = null;
+
+    private swung = 0;
 
     private updating: { off(): void };
 
@@ -456,6 +500,49 @@ class XrIceCream {
         }
         if (this.armed === 0) this.pulse = 0;
 
+        if (this.hold && rightFist && rightJoint) {
+            const distance = Math.max(rightJoint.getPosition().distance(this.handPosition), 1e-3);
+            if (this.resizeFrom === 0) {
+                this.resizeFrom = distance;
+                this.resizeSize = this.size;
+                this.gripHand.copy(this.handRotation);
+                this.gripTwist.copy(this.twist);
+                this.swingFrom = null;
+                this.swung = 0;
+            } else {
+                const ratio = distance / this.resizeFrom;
+                const resized =
+                    ratio > 1 + RESIZE_DEAD_ZONE
+                        ? ratio / (1 + RESIZE_DEAD_ZONE)
+                        : ratio < 1 - RESIZE_DEAD_ZONE
+                          ? ratio / (1 - RESIZE_DEAD_ZONE)
+                          : 1;
+                this.size = Math.min(Math.max(this.resizeSize * resized, RESIZE_MIN), RESIZE_MAX);
+            }
+            // the fist's turn since the grip closed, in its own frame, has a twist about its axis
+            // (the quaternion's y and w, normalized) that the turn undoes; its tip still tips the splat
+            delta.invert(this.gripHand).mul(this.handRotation);
+            const length = Math.hypot(delta.y, delta.w);
+            if (length > 1e-6) unturn.set(0, -delta.y / length, 0, delta.w / length);
+            else unturn.set(0, 0, 0, 1);
+            // and the right fist's swing about the axis since then, in the fist's frame as the grip
+            // closed (summed frame to frame, so it can go round), turns it past TURN_DEAD_ZONE
+            delta
+                .invert(this.gripHand)
+                .transformVector(toRight.sub2(rightJoint.getPosition(), this.handPosition), toRight);
+            const angle = Math.atan2(toRight.x, toRight.z);
+            if (this.swingFrom !== null && Math.hypot(toRight.x, toRight.z) > 1e-3) {
+                this.swung += wrapPi(angle - this.swingFrom);
+            }
+            this.swingFrom = angle;
+            const turned =
+                Math.abs(this.swung) > TURN_DEAD_ZONE ? this.swung - Math.sign(this.swung) * TURN_DEAD_ZONE : 0;
+            spin.setFromAxisAngle(Vec3.UP, turned * math.RAD_TO_DEG);
+            this.twist.mul2(this.gripTwist, unturn).mul(spin);
+        } else {
+            this.resizeFrom = 0;
+        }
+
         this.ring.enabled = this.armed > 0 || this.burstFor < BURST_TIME;
         if (this.ring.enabled) this.placeRing(dt);
 
@@ -533,6 +620,8 @@ class XrIceCream {
             const m = turn.data;
             this.bottom = this.holdScale * (Math.abs(m[1]) * h.x + Math.abs(m[5]) * h.y + Math.abs(m[9]) * h.z);
         }
+        this.size = 1;
+        this.twist.set(0, 0, 0, 1);
         this.hold = true;
         this.onHolding(true);
     }
@@ -541,14 +630,14 @@ class XrIceCream {
     // size from its pinned point as it arrives
     private place() {
         const { entity } = this;
-        const pop = this.popFor < POP_TIME ? Math.max(overshoot(this.popFor / POP_TIME), 0.01) : 1;
+        const pop = (this.popFor < POP_TIME ? Math.max(overshoot(this.popFor / POP_TIME), 0.01) : 1) * this.size;
         const scale = this.holdScale * pop;
         this.handRotation.transformVector(Vec3.UP, up);
         target
             .copy(up)
             .mulScalar(LIFT * this.userScale() + this.bottom * pop)
             .add(this.handPosition);
-        rotation.mul2(this.handRotation, this.homeRotation);
+        rotation.mul2(this.handRotation, this.twist).mul(this.homeRotation);
         offset.copy(this.pinLocal).mulScalar(scale);
         rotation.transformVector(offset, offset);
         position.sub2(target, offset);
