@@ -11,6 +11,7 @@ import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
 import { initXrDepthClear } from './xr-depth-clear';
 import { XrGrabMove } from './xr-grab-move';
+import { XrGroundDisc } from './xr-ground-disc';
 import { XrHandStyle } from './xr-hand-style';
 import { XrIceCream } from './xr-ice-cream';
 import { XrObjectGrab } from './xr-object-grab';
@@ -231,9 +232,11 @@ const initXr = (global: Global) => {
     // front of them at table height as the session starts, it moves about its base (XrObjectGrab,
     // put back when the session ends, as the viewer's camera, collision and annotations assume the
     // authored placement), and there is no teleport. In a scene the user moves instead (XrGrabMove),
-    // so the scene stays on its collision, and the user's feet on its floor.
+    // so the scene stays on its collision, and the user's feet on its floor; one without collision
+    // has a patch of the teleport's plane around their feet (XrGroundDisc), showing where that floor is.
     let objectGrab: XrObjectGrab | null = null;
     let grabMove: XrGrabMove | null = null;
+    let groundDisc: XrGroundDisc | null = null;
     // and holding it on top of the left fist like an ice cream (state.iceCream, a switch in the menu)
     let iceCream: XrIceCream | null = null;
     const iceCreamChanged = events.on('iceCream:changed', (value: boolean) => {
@@ -310,6 +313,7 @@ const initXr = (global: Global) => {
         startPosition.set(cameraPosition.x, startFloorY, cameraPosition.z);
         startYaw = Math.atan2(-x, -z) * math.RAD_TO_DEG;
         placeAtStart();
+        if (groundDisc) groundDisc.visible = true;
         referenceSpace = (xr as unknown as { _referenceSpace: EventTarget | null })._referenceSpace;
         referenceSpace?.addEventListener('reset', recentered);
 
@@ -338,6 +342,7 @@ const initXr = (global: Global) => {
         camera.setPosition(cameraPosition);
         camera.setRotation(cameraRotation);
         objectGrab?.restore();
+        if (groundDisc) groundDisc.visible = false;
 
         state.xrMode = null;
 
@@ -549,10 +554,23 @@ const initXr = (global: Global) => {
             navigation.castRay = castRay;
             target?.destroy();
             target = value instanceof VoxelCollision ? new TeleportTarget(app, value) : null;
+            // the collision is the floor now
+            groundDisc?.destroy();
+            groundDisc = null;
         },
         setGrabTarget: (entity: Entity, scene: boolean) => {
             if (scene) {
                 grabMove = new XrGrabMove(app, parent, setUserScale);
+                if (!collision) {
+                    // the patch follows the floor the user stands on, which teleports change
+                    const standing = navigation as unknown as { _currentGroundY: number };
+                    groundDisc = new XrGroundDisc(
+                        app,
+                        camera,
+                        () => standing._currentGroundY,
+                        () => userScale
+                    );
+                }
             } else {
                 objectGrab = new XrObjectGrab(app, entity, parent);
                 navigation.enableTeleport = false;
@@ -593,6 +611,8 @@ const initXr = (global: Global) => {
             grabMove = null;
             objectGrab?.destroy();
             objectGrab = null;
+            groundDisc?.destroy();
+            groundDisc = null;
             target?.destroy();
             target = null;
             if (restoreFrame !== null) cancelAnimationFrame(restoreFrame);
