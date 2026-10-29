@@ -38,6 +38,8 @@ const CAPSULE_RADIUS = 0.2;
 const CAPSULE_HOVER = 0.2;
 // how long after a session starts the start's floor is picked from the splats, without collision
 const FLOOR_SETTLE = 500;
+// how often, at most, a lost XR projection layer is made again (see layerLost)
+const LAYER_RETRY_MS = 1000;
 
 // the device tests live with the quality decisions they drive (quality.ts); re-exported below
 // for the ui
@@ -74,6 +76,61 @@ const initXr = (global: Global) => {
     // TEMPORARY, until the viewer requires an engine that clears Safari's XR depth
     // (playcanvas/engine#9748): then delete this, its off() in destroy and xr-depth-clear.ts
     const depthClear = renderer === 'webgpu' ? initXrDepthClear(app) : null;
+
+    // TEMPORARY, until the viewer requires an engine whose WebGPU XR bridge recovers its projection
+    // layer itself: then delete this and its off() in destroy. The Quest Browser loses the layer's
+    // textures when the headset sleeps and wakes, and every getViewSubImage after it throws, which
+    // the engine reports as an XR error and skips the frame's views, so the session draws nothing
+    // and shows black. A new binding and layer, as the engine makes after a lost device, bring it
+    // back; at most once a LAYER_RETRY_MS, should the new layer fail too. It reaches into the bridge
+    // (xrBridge, attachPresentation), so check it when updating the engine
+    let layerRetriedAt = -Infinity;
+    const layerLost = xr.on('error', (error: Error) => {
+        if (renderer !== 'webgpu' || !xr.session || error?.name !== 'OperationError') return;
+        if (!/getViewSubImage/.test(error.message)) return;
+        const now = performance.now();
+        if (now - layerRetriedAt < LAYER_RETRY_MS) return;
+        layerRetriedAt = now;
+        const bridge = (
+            xr as unknown as {
+                xrBridge: {
+                    _framebufferScaleFactor: number;
+                    _onBindingError: (error: Error) => void;
+                    presentationLayer: { destroy?(): void } | null;
+                    attachPresentation(
+                        session: unknown,
+                        options: {
+                            framebufferScaleFactor: number;
+                            depthNear: number;
+                            depthFar: number;
+                            onBindingError: (error: Error) => void;
+                        }
+                    ): void;
+                } | null;
+            }
+        ).xrBridge;
+        if (!bridge) return;
+        // the fixed foveation lives on the layer, so the new one takes the lost one's
+        const foveation = xr.fixedFoveation;
+        const lost = bridge.presentationLayer;
+        const { depthNear, depthFar } = xr.session.renderState;
+        try {
+            bridge.attachPresentation(xr.session, {
+                framebufferScaleFactor: bridge._framebufferScaleFactor,
+                depthNear,
+                depthFar,
+                onBindingError: bridge._onBindingError
+            });
+        } catch {
+            // this runs inside the XR frame, which an exception would abandon; the next retry tries
+            // again
+            return;
+        }
+        if (bridge.presentationLayer === lost) return;
+        if (foveation !== null) xr.fixedFoveation = foveation;
+        // free the lost layer's textures now rather than once it is garbage collected
+        lost?.destroy?.();
+    });
 
     if (renderer === 'webgpu') {
         Promise.all([
@@ -651,6 +708,7 @@ const initXr = (global: Global) => {
             destroyed = true;
             availability.off();
             depthClear?.off();
+            layerLost.off();
             started.off();
             ended.off();
             viewsArrived?.off();
