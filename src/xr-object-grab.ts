@@ -1,12 +1,16 @@
-import { BoundingBox, math, Quat, Vec3 } from 'playcanvas';
+import { BoundingBox, Mat4, math, Quat, Vec3 } from 'playcanvas';
 import type { AppBase, Entity, XrInputSource } from 'playcanvas';
 
 // An object is brought to the user as the session starts: standing PLACE_HEIGHT above their floor
 // (about a table's), its near side PLACE_GAP in front of them, at real size up to PLACE_SIZE across
-// and fitted to it beyond, and turned as it was, so they see the side the orbit camera showed
+// and fitted to it beyond, and turned as it was, so they see the side the orbit camera showed. A
+// scene held as one (an AR diorama) is shrunk by DIORAMA_SCALE instead, its bounds reaching its
+// stray splats, and pinned at the start camera's spot on its floor, DIORAMA_REACH in front of them
 const PLACE_HEIGHT = 0.8;
 const PLACE_GAP = 0.35;
 const PLACE_SIZE = 0.8;
+const DIORAMA_SCALE = 1 / 40;
+const DIORAMA_REACH = 0.6;
 
 // Changes in the hands' separation within SPREAD_DEAD_ZONE of the grab's do not scale (as the
 // two-hand grab's elsewhere), and the object stays from MIN_SCALE to MAX_SCALE of its placed size
@@ -25,6 +29,7 @@ const base = new Vec3();
 const offset = new Vec3();
 const turn = new Quat();
 const bound = new BoundingBox();
+const inverse = new Mat4();
 
 const wrapPi = (angle: number) => {
     angle %= Math.PI * 2;
@@ -40,19 +45,28 @@ const handPosition = (source: XrInputSource, out: Vec3) =>
     out.copy(source.grip ? source.getPosition() : source.hand.wrist.getPosition());
 
 /**
- * Holds an object in XR, where the user manipulates it rather than themselves. As the session
- * starts it is placed in front of them at table height ({@link XrObjectGrab#place}), and grabbing
- * it with both hands (both grips, or two fists) moves it about its base, the middle of its bounds'
- * bottom: moving the hands together drags it, lifting included, swinging them turns it about the
- * vertical through its base, and spreading them grows it there, so it stays standing where it is.
- * Waits while `xr:menu:active` is set, as the engine's XrManipulation does.
+ * Holds an object in XR, or a scene as a diorama in AR, where the user manipulates it rather than
+ * themselves. As the session starts it is placed in front of them at table height
+ * ({@link XrObjectGrab#place}), and grabbing it with both hands (both grips, or two fists) moves it
+ * about its base, the point the placement stood on the table: moving the hands together drags it,
+ * lifting included, swinging them turns it about the vertical through its base, and spreading them
+ * grows it there, so it stays standing where it is. Grabs only while {@link XrObjectGrab#enabled},
+ * and waits while `xr:menu:active` is set, as the engine's XrManipulation does.
  */
 class XrObjectGrab {
+    /** Whether the user handles the splat this session (an object, or any splat in AR). */
+    enabled = false;
+
     private app: AppBase;
 
     private entity: Entity;
 
     private rig: Entity;
+
+    private scene: boolean;
+
+    // the base the placement stands on the table, in the splat's own space
+    private pinLocal = new Vec3();
 
     // the authored transform, which the session's end puts back, as the viewer's camera, collision
     // and annotations assume it
@@ -102,11 +116,13 @@ class XrObjectGrab {
      * @param app - The application.
      * @param entity - The splat's entity, a child of the root.
      * @param rig - The camera's parent, where the user stands.
+     * @param scene - Whether it is a scene, held as a diorama, or an object.
      */
-    constructor(app: AppBase, entity: Entity, rig: Entity) {
+    constructor(app: AppBase, entity: Entity, rig: Entity, scene: boolean) {
         this.app = app;
         this.entity = entity;
         this.rig = rig;
+        this.scene = scene;
         this.homePosition.copy(entity.getPosition());
         this.homeRotation.copy(entity.getRotation());
         this.homeScale.copy(entity.getLocalScale());
@@ -121,22 +137,44 @@ class XrObjectGrab {
         this.end();
         this.restoreHome();
         const { entity, rig } = this;
-        this.worldBound();
-        const { center, halfExtents: h } = bound;
-        const scale = Math.min(1, PLACE_SIZE / (2 * Math.max(h.x, h.y, h.z, 1e-6)));
+        const rigPosition = rig.getPosition();
+        let scale: number;
+        let reach: number;
+        if (this.scene) {
+            base.copy(rigPosition);
+            scale = DIORAMA_SCALE;
+            reach = DIORAMA_REACH;
+        } else {
+            this.worldBound();
+            const { center, halfExtents: h } = bound;
+            base.set(center.x, center.y - h.y, center.z);
+            scale = Math.min(1, PLACE_SIZE / (2 * Math.max(h.x, h.y, h.z, 1e-6)));
+            reach = PLACE_GAP + Math.max(h.x, h.z) * scale;
+        }
+        inverse.copy(entity.getWorldTransform()).invert();
+        inverse.transformPoint(base, this.pinLocal);
         const { forward } = rig;
         delta.set(forward.x, 0, forward.z);
         if (delta.lengthSq() < 1e-8) delta.set(0, 0, -1);
         delta.normalize();
-        // the base's new place, and the object about it, scaled
-        const reach = PLACE_GAP + Math.max(h.x, h.z) * scale;
-        const rigPosition = rig.getPosition();
+        // the base's new place, and the splat about it, scaled
         mid.set(rigPosition.x + delta.x * reach, rigPosition.y + PLACE_HEIGHT, rigPosition.z + delta.z * reach);
-        base.set(center.x, center.y - h.y, center.z);
         offset.sub2(entity.getPosition(), base).mulScalar(scale);
         entity.setPosition(mid.add(offset));
         entity.setLocalScale(this.homeScale.x * scale, this.homeScale.y * scale, this.homeScale.z * scale);
         this.placedScale = scale;
+    }
+
+    /**
+     * Moves the placed splat so its base stands at a point (an AR surface), keeping its size and turn.
+     *
+     * @param point - Where its base goes, in the world.
+     */
+    moveTo(point: Vec3) {
+        this.end();
+        this.basePoint(base);
+        offset.sub2(point, base).add(this.entity.getPosition());
+        this.entity.setPosition(offset);
     }
 
     /** Puts the object back where it was authored, ending a grab. */
@@ -156,6 +194,16 @@ class XrObjectGrab {
         this.entity.setPosition(this.homePosition);
         this.entity.setRotation(this.homeRotation);
         this.entity.setLocalScale(this.homeScale);
+    }
+
+    /**
+     * Where the splat's base is in the world, as it stands now.
+     *
+     * @param out - Receives the base.
+     * @returns `out`.
+     */
+    basePoint(out: Vec3) {
+        return this.entity.getWorldTransform().transformPoint(this.pinLocal, out);
     }
 
     // the object's bounds in the world, as it stands now, into bound
@@ -181,8 +229,7 @@ class XrObjectGrab {
         delta.sub2(right, left);
         this.grabDistance = delta.length();
         this.grabHeading = Math.hypot(delta.x, delta.z) > EPS_XZ ? Math.atan2(delta.x, delta.z) : null;
-        this.worldBound();
-        this.grabBase.set(bound.center.x, bound.center.y - bound.halfExtents.y, bound.center.z);
+        this.basePoint(this.grabBase);
         this.grabPosition.copy(this.entity.getPosition());
         this.grabRotation.copy(this.entity.getRotation());
         this.grabScale.copy(this.entity.getLocalScale());
@@ -193,7 +240,7 @@ class XrObjectGrab {
 
     private update() {
         const { xr } = this.app;
-        if (!xr?.active || this.paused) {
+        if (!xr?.active || this.paused || !this.enabled) {
             this.end();
             return;
         }

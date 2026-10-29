@@ -62,6 +62,9 @@ class XrGrabMove {
     /** The user's scale, the rig's, relative to real size. */
     scale = 1;
 
+    /** Whether the user moves through the scene this session (a scene in VR; in AR it is held). */
+    enabled = true;
+
     private app: AppBase;
 
     private rig: Entity;
@@ -163,7 +166,7 @@ class XrGrabMove {
 
     private update() {
         const { xr } = this.app;
-        if (!xr?.active || this.paused) {
+        if (!xr?.active || this.paused || !this.enabled) {
             this.end();
             return;
         }

@@ -9,6 +9,7 @@ import { DEBUG_MODES, standaloneHeadset, visionPro } from './quality';
 import type { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
 import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
+import { XrArPlacement } from './xr-ar-placement';
 import { initXrDepthClear } from './xr-depth-clear';
 import { XrGrabMove } from './xr-grab-move';
 import { XrGroundDisc } from './xr-ground-disc';
@@ -243,15 +244,20 @@ const initXr = (global: Global) => {
     };
 
     // Grabbing with both hands drags, turns and scales what was loaded, chosen once the splat
-    // entity has loaded, which is before XR can start. An object is the user's to handle: placed in
-    // front of them at table height as the session starts, it moves about its base (XrObjectGrab,
-    // put back when the session ends, as the viewer's camera, collision and annotations assume the
-    // authored placement), and there is no teleport. In a scene the user moves instead (XrGrabMove),
-    // so the scene stays on its collision, and the user's feet on its floor; one without collision
-    // has a patch of the teleport's plane around their feet (XrGroundDisc), showing where that floor is.
+    // entity has loaded, which is before XR can start. An object is the user's to handle, and in AR,
+    // where the room is real, so is a scene, as a diorama: placed in front of them at table height
+    // as the session starts, and in AR onto the surface they point a held pinch at and let go
+    // (XrArPlacement), it moves about its base (XrObjectGrab, put back when the session ends, as the
+    // viewer's camera, collision and annotations assume the authored placement), and there is no
+    // teleport. In a scene in VR the user moves instead (XrGrabMove), so the scene stays on its
+    // collision, and the user's feet on its floor; one without collision has a patch of the
+    // teleport's plane around their feet (XrGroundDisc), showing where that floor is.
     let objectGrab: XrObjectGrab | null = null;
+    let arPlacement: XrArPlacement | null = null;
     let grabMove: XrGrabMove | null = null;
     let groundDisc: XrGroundDisc | null = null;
+    // whether the session's splat is the user's to handle, which the session's type decides
+    let holding = false;
     // and holding it on top of the left fist like an ice cream (state.iceCream, a switch in the menu)
     let iceCream: XrIceCream | null = null;
     const iceCreamChanged = events.on('iceCream:changed', (value: boolean) => {
@@ -276,7 +282,10 @@ const initXr = (global: Global) => {
         // and has no setter for that floor. TEMPORARY: playcanvas/engine#9750 adds one; once the
         // viewer requires an engine with it, set navigation.currentGroundHeight instead
         (navigation as unknown as { _currentGroundY: number })._currentGroundY = startFloorY;
-        objectGrab?.place();
+        if (holding) {
+            objectGrab?.place();
+            if (xr.type === 'immersive-ar') arPlacement?.start();
+        }
     };
     const recentered = () => {
         if (!destroyed && xr.active) placeAtStart();
@@ -327,12 +336,16 @@ const initXr = (global: Global) => {
         startFloorY = floorBelow(cameraPosition) ?? navigation.groundHeight;
         startPosition.set(cameraPosition.x, startFloorY, cameraPosition.z);
         startYaw = Math.atan2(-x, -z) * math.RAD_TO_DEG;
+        holding = !!objectGrab && (!grabMove || xr.type === 'immersive-ar');
+        if (objectGrab) objectGrab.enabled = holding;
+        if (grabMove) grabMove.enabled = !holding;
+        navigation.enableTeleport = !holding;
         placeAtStart();
-        if (groundDisc) groundDisc.visible = true;
+        if (groundDisc) groundDisc.visible = !holding;
         // without collision, the start stands on the splats' floor in front of the user, picked once
         // the session's first frames have posed the eyes and settled the scene (between frames, as
         // the picker needs)
-        if (splatFloor) {
+        if (splatFloor && !holding) {
             const floorUnder = splatFloor;
             floorTimer = setTimeout(() => {
                 floorTimer = null;
@@ -372,6 +385,7 @@ const initXr = (global: Global) => {
         parent.setRotation(parentRotation);
         camera.setPosition(cameraPosition);
         camera.setRotation(cameraRotation);
+        arPlacement?.stop();
         objectGrab?.restore();
         if (groundDisc) groundDisc.visible = false;
         if (floorTimer) clearTimeout(floorTimer);
@@ -607,10 +621,18 @@ const initXr = (global: Global) => {
                     );
                     splatFloor = new XrSplatFloor(app, camera);
                 }
-            } else {
-                objectGrab = new XrObjectGrab(app, entity, parent);
-                navigation.enableTeleport = false;
             }
+            objectGrab = new XrObjectGrab(app, entity, parent, scene);
+            // a select on the menu, or while the system has the session, is not a placement's; one
+            // with the palm towards the eyes, which the navigation leaves to the system, is
+            arPlacement = new XrArPlacement(
+                app,
+                parent,
+                camera,
+                objectGrab,
+                (source) => xr.visibilityState !== 'visible' || menu.pointsAt(source),
+                (pointing) => localize(pointing ? 'xr-hint.place' : 'xr-hint.place-screen')
+            );
             // The grab waits while the splat is held, as it would move what the hold places, and
             // the hold resizes it instead (the event XrObjectGrab and XrGrabMove wait on, as the
             // engine's XrManipulation does for its XrMenu)
@@ -645,6 +667,8 @@ const initXr = (global: Global) => {
             iceCream = null;
             grabMove?.destroy();
             grabMove = null;
+            arPlacement?.destroy();
+            arPlacement = null;
             objectGrab?.destroy();
             objectGrab = null;
             groundDisc?.destroy();

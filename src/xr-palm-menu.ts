@@ -327,6 +327,17 @@ class XrPalmMenu {
      * @param source - The input source whose select starts.
      * @returns True when the menu took the select.
      */
+    /**
+     * Whether a select from an input source would be the menu's, as {@link XrPalmMenu#select}
+     * takes it, without pressing anything.
+     *
+     * @param source - The input source.
+     * @returns Whether it points at the open menu.
+     */
+    pointsAt(source: XrInputSource) {
+        return this.open && !source.hand && !!this.pointedAt(source);
+    }
+
     select(source: XrInputSource) {
         if (!this.open || source.hand) return false;
         const quad = this.pointedAt(source);

@@ -73,5 +73,7 @@
     "xr-menu.exit-vr": "VR beenden",
     "xr-menu.exit-ar": "AR beenden",
     "xr-menu.ice-cream": "Eiscreme-Modus",
+    "xr-hint.place": "Zusammendrücken, auf Boden oder Tisch zeigen, dann loslassen zum Platzieren",
+    "xr-hint.place-screen": "Auf Boden oder Tisch richten, dann zum Platzieren tippen",
     "xr-hint.stalled": "Passiert nichts? Wechsle den Tab und wieder zurück."
 }
