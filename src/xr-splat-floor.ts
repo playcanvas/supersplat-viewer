@@ -10,21 +10,20 @@ import { Picker, withoutXrViews } from './picker';
 // of straight up (the cosine, about 30 degrees) can be stood on; a wall, or a fit with too few
 // samples, cannot. Picks run between frames, as the picker needs, PICK_INTERVAL apart while the
 // teleport aims, and one taken within MATCH_DISTANCE of the aim across the floor stands for it.
-// The start's floor is picked AHEAD in front of the user, at about STAND_HEIGHT below their eyes,
-// and taken only within FLOOR_DROP below them, so stray splats under a scene are not a floor.
+// The start's floor is picked where the middle of the view meets FLOOR_VIEW_Y of the way down it
+// (in view however the user looks, a couple of meters ahead when they look level), and taken only
+// within FLOOR_DROP below their eyes, so stray splats under a scene are not a floor.
 // The picks see the sorted renderer's splats only: the stochastic renderer draws the splats in the
 // engine's place and leaves no depth for a stereo frame, so with it the floor stays where it is
 const PICK_SIZE = 256;
 const STAND_SLOPE = 0.87;
 const PICK_INTERVAL = 150;
 const MATCH_DISTANCE = 0.75;
-const AHEAD = 1.5;
-const STAND_HEIGHT = 1.6;
+const FLOOR_VIEW_Y = 0.85;
 const FLOOR_DROP = 3;
 
 const viewProjection = new Mat4();
 const clip = new Vec4();
-const ahead = new Vec3();
 
 /** The splats' floor where the eyes see it, for the XR teleport in a scene without collision. */
 class XrSplatFloor {
@@ -85,16 +84,14 @@ class XrSplatFloor {
     }
 
     /**
-     * Picks the floor in front of the user at once, between frames, as a session starts.
+     * Picks the floor in front of the user at once, low in the middle of their view, between
+     * frames, as a session starts.
      *
      * @returns The floor's height, or null where it found none to stand on.
      */
     async floorAhead() {
         const eyes = this.camera.getPosition();
-        const { forward } = this.camera;
-        const across = Math.hypot(forward.x, forward.z) || 1;
-        ahead.set(eyes.x + (forward.x / across) * AHEAD, eyes.y - STAND_HEIGHT, eyes.z + (forward.z / across) * AHEAD);
-        if (!(await this.pickAt(ahead))) return null;
+        if (!(await this.pickScreen(0.5, FLOOR_VIEW_Y))) return null;
         const drop = eyes.y - this.found.y;
         return drop >= 0 && drop <= FLOOR_DROP ? this.found.y : null;
     }
@@ -128,9 +125,15 @@ class XrSplatFloor {
             this.standable = false;
             return false;
         }
+        return this.pickScreen((x + 1) / 2, (1 - y) / 2);
+    }
+
+    // picks the surface the camera sees at a point of its view (0 to 1 across, and down from the
+    // top), keeping what it found
+    private async pickScreen(x: number, y: number) {
         this.picking = true;
         try {
-            const surface = await this.picker.pickSurface((x + 1) / 2, (1 - y) / 2);
+            const surface = await this.picker.pickSurface(x, y);
             if (this.released) return false;
             this.standable = !!surface && surface.fitted && surface.normal.y > STAND_SLOPE;
             if (surface) this.found.copy(surface.position);
