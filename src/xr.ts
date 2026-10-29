@@ -315,11 +315,8 @@ const initXr = (global: Global) => {
     let groundDisc: XrGroundDisc | null = null;
     // whether the session's splat is the user's to handle, which the session's type decides
     let holding = false;
-    // and holding it on top of the left fist like an ice cream (state.iceCream, a switch in the menu)
+    // and holding it on top of the left fist like an ice cream
     let iceCream: XrIceCream | null = null;
-    const iceCreamChanged = events.on('iceCream:changed', (value: boolean) => {
-        if (iceCream) iceCream.enabled = value;
-    });
 
     // Where the session started, which the headset's recenter (holding the Meta button on Quest,
     // the Digital Crown on Vision Pro) puts the user back to, at real size and with a grabbed
@@ -618,15 +615,6 @@ const initXr = (global: Global) => {
                 state.performanceMode = !state.performanceMode;
             }
         },
-        {
-            label: () => localize('xr-menu.ice-cream'),
-            checked: () => state.iceCream,
-            // tracked hands only: a session without them has no fist
-            visible: () => !!iceCream && xr.input.inputSources.some((source) => !!source.hand),
-            action: () => {
-                state.iceCream = !state.iceCream;
-            }
-        },
         ...(config.debug ? [{ label: () => 'Debug  ›', submenu: debugItems }] : []),
         {
             label: () => localize(xr.type === 'immersive-ar' ? 'xr-menu.exit-ar' : 'xr-menu.exit-vr'),
@@ -702,7 +690,6 @@ const initXr = (global: Global) => {
                 () => userScale,
                 (holding) => app.fire('xr:menu:active', holding)
             );
-            iceCream.enabled = state.iceCream;
         },
         destroy: () => {
             destroyed = true;
@@ -720,7 +707,6 @@ const initXr = (global: Global) => {
             menu.destroy();
             stats?.destroy();
             for (const handle of rendererHandles) handle.off();
-            iceCreamChanged.off();
             iceCream?.destroy();
             iceCream = null;
             grabMove?.destroy();

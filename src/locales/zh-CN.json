@@ -72,7 +72,6 @@
     "vr-prompt.enter": "点击进入 VR",
     "xr-menu.exit-vr": "退出 VR",
     "xr-menu.exit-ar": "退出 AR",
-    "xr-menu.ice-cream": "冰淇淋模式",
     "xr-hint.place": "捏合并指向地面或桌面，松开以放置",
     "xr-hint.place-screen": "触摸地面或桌面放置，捏合缩放，旋转手指转动",
     "xr-hint.stalled": "没有反应？切换到其他标签页再切回来。"

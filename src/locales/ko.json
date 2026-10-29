@@ -72,7 +72,6 @@
     "vr-prompt.enter": "탭하여 VR 시작",
     "xr-menu.exit-vr": "VR 종료",
     "xr-menu.exit-ar": "AR 종료",
-    "xr-menu.ice-cream": "아이스크림 모드",
     "xr-hint.place": "집은 채로 바닥이나 테이블을 가리키고 놓아서 배치",
     "xr-hint.place-screen": "바닥이나 테이블을 터치해 배치, 집어서 크기 조절, 비틀어 회전",
     "xr-hint.stalled": "반응이 없나요? 다른 탭으로 전환했다가 돌아오세요."
