@@ -97,8 +97,8 @@ class XrGrabMove {
 
     private updating: { off(): void } | null;
 
-    // whether grabs wait, ending any under way: while a menu is open or the splat is held on the
-    // fist (XrIceCream), by the event the engine's XrMenu pauses its XrManipulation with
+    // whether grabs wait, ending any under way: while the splat is held on the fist (XrIceCream),
+    // by the event the engine's XrMenu pauses its XrManipulation with
     private paused = false;
 
     private menuActive: { off(): void };

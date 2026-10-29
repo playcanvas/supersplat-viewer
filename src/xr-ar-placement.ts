@@ -25,15 +25,15 @@ import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 // Placing the splat in AR, as the teleport moves the user in VR: a select held (a pinch, a trigger)
 // draws a thin ray from that hand or controller, and a ring where it meets a surface of the room,
 // which the browser's hit test finds among the planes and mesh it has of it along the pointer's own
-// ray; letting go moves the splat there. On a phone a touch does the same where the finger touches the
-// room, and two fingers pinch to scale and twist to turn the splat about its base. Only a surface within LEVEL of horizontal (the cosine)
-// takes it, a floor or a table top; letting go with no ring leaves it where it is. As the session
-// starts the splat stands on the table in front of the user (XrObjectGrab.place), drawn at
-// PREVIEW_ALPHA until its first placing, with a hint, above the ring or in front of the eyes, saying
-// what to do. The ring glides to each new hit at SMOOTH (a lerp a second), and holds where it is for
-// HOLD seconds without one; the splat glides to where it is placed the same way. The ring is
-// RING_SIZE across, RING_LIFT above the surface, and draws over everything, as there is no depth of
-// the room
+// ray; letting go moves the splat there. On a phone a touch does the same where the finger touches
+// the room, and two fingers pinch to scale and twist to turn the splat about its base. Only a surface
+// within LEVEL of horizontal (the cosine) takes it, a floor or a table top; letting go with no ring
+// leaves it where it is. As the session starts the splat stands on the table in front of the user
+// (XrObjectGrab.place), drawn at PREVIEW_ALPHA until its first placing, with a hint, above the ring
+// or in front of the eyes, saying what to do. The ring glides to each new hit at SMOOTH (a lerp a
+// second), and holds where it is for HOLD seconds without one; the splat glides to where it is placed
+// the same way. The ring is RING_SIZE across, RING_LIFT above the surface, and draws over
+// everything, as there is no depth of the room
 const LEVEL = 0.8;
 const PREVIEW_ALPHA = 0.35;
 const SMOOTH = 10;
@@ -198,7 +198,7 @@ type Pointer = {
 
 /**
  * Places the splat on a surface of the room in AR until the user selects: where a hand or
- * controller points, in a headset, or the middle of the view, on a phone.
+ * controller points, in a headset, or where a finger touches, on a phone.
  */
 class XrArPlacement {
     private app: AppBase;
@@ -283,7 +283,7 @@ class XrArPlacement {
      * @param grab - The splat's grab, which stands it on the surface.
      * @param claimed - Whether a select belongs to something else (the system, the menu).
      * @param hintText - The hint's text, in the user's language, for pointing with a hand or
-     * controller, or aiming the middle of the view (a phone).
+     * controller, or touching the screen (a phone).
      */
     constructor(
         app: AppBase,

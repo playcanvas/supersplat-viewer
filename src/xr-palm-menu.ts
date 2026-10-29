@@ -321,13 +321,6 @@ class XrPalmMenu {
     }
 
     /**
-     * Takes a select that starts on a row of the open menu, pressing it. A hand's select is left
-     * alone: its fingertip pokes instead.
-     *
-     * @param source - The input source whose select starts.
-     * @returns True when the menu took the select.
-     */
-    /**
      * Whether a select from an input source would be the menu's, as {@link XrPalmMenu#select}
      * takes it, without pressing anything.
      *
@@ -338,6 +331,13 @@ class XrPalmMenu {
         return this.open && !source.hand && !!this.pointedAt(source);
     }
 
+    /**
+     * Takes a select that starts on a row of the open menu, pressing it. A hand's select is left
+     * alone: its fingertip pokes instead.
+     *
+     * @param source - The input source whose select starts.
+     * @returns True when the menu took the select.
+     */
     select(source: XrInputSource) {
         if (!this.open || source.hand) return false;
         const quad = this.pointedAt(source);
