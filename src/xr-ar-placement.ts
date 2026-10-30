@@ -279,6 +279,14 @@ class XrArPlacement {
 
     private released = false;
 
+    // the hit tests asked for and not yet answered, and the placing's number, so an answer to an
+    // earlier session's counts for nothing; and the wait for the session's hit test to be confirmed
+    private asking = 0;
+
+    private generation = 0;
+
+    private waiting: { off(): void } | null = null;
+
     private handles: { off(): void }[];
 
     /**
@@ -449,17 +457,29 @@ class XrArPlacement {
     /**
      * Starts an AR session's placing, the splat standing where the session put it, faint, until it
      * is first placed. Again (the menu's reset), it is faint again. A session without a hit test
-     * leaves it solid where it is.
+     * leaves it solid where it is: one whose hit test is not confirmed yet starts once it is, and
+     * where no hit test can be made, of the screen's touches or any pointer's, it is solid again.
      */
     start() {
         const { hitTest } = this.app.xr;
         if (this.released || !hitTest.supported) return;
+        // the browser has hit tests, but the session's is confirmed once it starts, or never (the
+        // feature not granted)
+        if (!hitTest.available) {
+            this.waiting ??= hitTest.once('available', () => {
+                this.waiting = null;
+                if (this.app.xr.active) this.start();
+            });
+            return;
+        }
         this.placed = false;
         this.gliding = false;
         this.aiming = null;
         this.setFade(PREVIEW_ALPHA);
         if (this.active) return;
         this.active = true;
+        this.generation++;
+        this.asking = 0;
         for (const source of this.app.xr.input.inputSources) this.addPointer(source);
         this.requestTouches([XRTRACKABLE_PLANE, XRTRACKABLE_MESH]);
     }
@@ -467,6 +487,8 @@ class XrArPlacement {
     /** Ends placing as the session ends, leaving the splat where it stands, solid. */
     stop() {
         this.active = false;
+        this.waiting?.off();
+        this.waiting = null;
         this.aiming = null;
         this.gliding = false;
         this.ring.enabled = false;
@@ -502,6 +524,15 @@ class XrArPlacement {
         this.fade.enabled = true;
     }
 
+    // a hit test answered, made or not: once none is left to answer and none was made, there is
+    // nowhere to place the splat, so it stands solid where it is
+    private answered(generation: number) {
+        if (generation !== this.generation) return;
+        this.asking--;
+        if (this.asking > 0 || !this.active || this.source) return;
+        if (![...this.pointers.values()].some((pointer) => pointer.test)) this.fade.enabled = false;
+    }
+
     // glides the splat's base to a point, solid from now on
     private placeAt(target: Vec3) {
         this.grab.basePoint(this.baseAt);
@@ -531,14 +562,18 @@ class XrArPlacement {
         const session = this.app.xr.session as unknown as RaySession | null;
         const request = session?.requestHitTestSource?.bind(session);
         if (!request) return;
+        const { generation } = this;
+        this.asking++;
         request({ space, entityTypes: [XRTRACKABLE_PLANE, XRTRACKABLE_MESH] })
             .catch(() => request({ space, entityTypes: [XRTRACKABLE_PLANE] }))
             .then((test: RayHitTest) => {
                 if (pointer.cancelled) test.cancel();
                 else pointer.test = test;
+                this.answered(generation);
             })
             .catch(() => {
                 // this pointer has no hit test; the others, or the view's, place
+                this.answered(generation);
             });
     }
 
@@ -581,19 +616,25 @@ class XrArPlacement {
     // asks for a hit test from where the screen is touched, against planes alone where the room's
     // mesh is not offered
     private requestTouches(entityTypes: string[]) {
+        const { generation } = this;
+        this.asking++;
         this.app.xr.hitTest.start({
             profile: 'generic-touchscreen',
             entityTypes,
             callback: (error: Error | null, source: XrHitTestSource | null) => {
+                const current = generation === this.generation && this.active && !this.released;
                 if (error || !source) {
-                    if (entityTypes.length > 1 && this.active) this.requestTouches([XRTRACKABLE_PLANE]);
+                    if (entityTypes.length > 1 && current) this.requestTouches([XRTRACKABLE_PLANE]);
+                    this.answered(generation);
                     return;
                 }
-                if (!this.active || this.released) {
+                if (!current) {
                     source.remove();
+                    this.answered(generation);
                     return;
                 }
                 this.source = source;
+                this.answered(generation);
                 source.on('result', (position: Vec3, rotation: Quat, touch: XrInputSource) => {
                     rotation.transformVector(Vec3.UP, up);
                     if (up.y < LEVEL || !touch) return;
