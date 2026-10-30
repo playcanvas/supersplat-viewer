@@ -24,7 +24,7 @@ import {
 } from 'playcanvas';
 import type { CameraComponent, Entity, GraphicsDevice, GSplatComponent, Layer } from 'playcanvas';
 
-import { CameraManager, isWalkableSize, isWalkAllowed } from './camera-manager';
+import { CameraManager, isWalkAllowed } from './camera-manager';
 import type { Camera } from './cameras/camera';
 import { Capture } from './capture';
 import type { CaptureResult } from './capture';
@@ -585,8 +585,6 @@ class Viewer {
                 sceneBound.setFromTransformedAabb(gsplatBbox, results[0].getWorldTransform());
             }
 
-            this.xr.setGrabTarget(results[0], isWalkableSize(sceneBound));
-
             // the stochastic renderer leaves its frame's depth behind, so no pick pass is needed
             // while it draws; the pass picker serves the sorted renderer. Each is made on first
             // use, and the one in use follows the Stochastic setting
@@ -616,6 +614,8 @@ class Viewer {
 
             this.cameraManager = new CameraManager(global, sceneBound, null, !sequence);
             applyCamera(this.cameraManager.camera);
+
+            this.xr.setGrabTarget(results[0], !this.cameraManager.isObjectExperience);
 
             // the vr flag's prompt (ui/vr-prompt.ts) can start a session from here on, where
             // startXR waits for the scene to finish loading: the camera is where the session

@@ -12,7 +12,7 @@ const readPreferences = (mobile: boolean): Preferences => {
         performanceMode: false,
         gamingControls: false,
         showAnnotations: true,
-        iceCream: false
+        iceCream: true
     };
     try {
         // Preserve the legacy preference migration and origin-wide keys.
@@ -35,7 +35,7 @@ const readPreferences = (mobile: boolean): Preferences => {
             performanceMode: performanceMode === 'true',
             gamingControls: localStorage.getItem('gamingControls') === 'true',
             showAnnotations: localStorage.getItem('showAnnotations') !== 'false',
-            iceCream: localStorage.getItem('iceCream') === 'true'
+            iceCream: localStorage.getItem('iceCream') !== 'false'
         };
     } catch {
         // Embedded documents can be denied storage. Preferences must not prevent viewing.

@@ -62,6 +62,9 @@ class XrGrabMove {
     /** The user's scale, the rig's, relative to real size. */
     scale = 1;
 
+    /** Whether the user moves through the scene this session (a scene in VR; in AR it is held). */
+    enabled = true;
+
     private app: AppBase;
 
     private rig: Entity;
@@ -94,6 +97,12 @@ class XrGrabMove {
 
     private updating: { off(): void } | null;
 
+    // whether grabs wait, ending any under way: while the splat is held on the fist (XrIceCream),
+    // by the event the engine's XrMenu pauses its XrManipulation with
+    private paused = false;
+
+    private menuActive: { off(): void };
+
     /**
      * @param app - The application.
      * @param rig - The camera's parent, which the session's poses are relative to.
@@ -107,6 +116,9 @@ class XrGrabMove {
         // poses the hand and controller models in the world in its update, from the rig as it is
         // then, so moving the rig after it would leave them a frame behind the eyes
         this.updating = app.xr?.on('update', () => this.update()) ?? null;
+        this.menuActive = app.on('xr:menu:active', (active: boolean) => {
+            this.paused = !!active;
+        });
     }
 
     /** Ends the grab, if any. */
@@ -127,6 +139,7 @@ class XrGrabMove {
 
     destroy() {
         this.updating?.off();
+        this.menuActive.off();
         this.end();
     }
 
@@ -153,7 +166,7 @@ class XrGrabMove {
 
     private update() {
         const { xr } = this.app;
-        if (!xr?.active) {
+        if (!xr?.active || this.paused || !this.enabled) {
             this.end();
             return;
         }

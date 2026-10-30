@@ -114,7 +114,8 @@ type State = {
     /**
      * In XR with tracked hands, a left fist held upright for two seconds, the right hand open,
      * puts the scene or object in miniature on top of the fist, like an ice cream in its cone,
-     * until the hand opens. Persisted; off by default. The XR menu offers it as Ice Cream.
+     * until the hand opens; with controllers, the left grip squeezed does the same on the
+     * controller's top face. Persisted; on by default. The XR menu offers it as Ice Cream.
      */
     iceCream: boolean;
     /**

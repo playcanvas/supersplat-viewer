@@ -320,6 +320,9 @@ const NORMAL_SAMPLE_DIRECTIONS = [
 type PickSurface = {
     position: Vec3;
     normal: Vec3;
+    // whether the normal was fitted through the surface around the position; false where too few
+    // samples were found, when it is the direction back to the camera instead
+    fitted: boolean;
 };
 
 type PickCameraSnapshot = {
@@ -430,6 +433,25 @@ const unregisterPickerShaderPatches = (app: AppBase) => {
     wgslChunks.set('gsplatVS', state.wgslGsplatVS);
     wgslChunks.set('gsplatHybridVS', state.wgslGsplatHybridVS);
     pickerShaderPatchState.delete(device);
+};
+
+// An XR session's camera renders each eye's view into its own viewport of a target, with the eye's
+// matrices, and reports the session's projection. A pick wants the camera's own single view, the
+// one its snapshot decodes, so the session's views are set aside while the pass renders and the
+// snapshot is taken (or a point is projected into the pick), and the projection refreshed both
+// ways. The engine has no switch for this: `_xrViews` and `_projMatDirty` are its camera's own
+const withoutXrViews = <T>(camera: Entity, fn: () => T): T => {
+    const cam = camera.camera.camera as unknown as { _xrViews: unknown; _projMatDirty: boolean };
+    const views = cam._xrViews;
+    if (views === null) return fn();
+    cam._xrViews = null;
+    cam._projMatDirty = true;
+    try {
+        return fn();
+    } finally {
+        cam._xrViews = views;
+        cam._projMatDirty = true;
+    }
 };
 
 const createPickCameraSnapshot = (): PickCameraSnapshot => ({
@@ -749,13 +771,15 @@ const estimateSurface = (
     }
 
     const normal = new Vec3();
-    if (!fitPlaneNormal(fitPoints, toCamera, normal)) {
+    const fitted = fitPlaneNormal(fitPoints, toCamera, normal);
+    if (!fitted) {
         normal.copy(toCamera);
     }
 
     return {
         position,
-        normal
+        normal,
+        fitted
     };
 };
 
@@ -862,7 +886,13 @@ class Picker {
 
     release: () => void;
 
-    constructor(app: AppBase, camera: Entity) {
+    /**
+     * @param app - The application.
+     * @param camera - The camera the picks look through.
+     * @param size - A fixed size for the pick render, for a camera of its own (the XR floor pick);
+     * otherwise it follows the canvas.
+     */
+    constructor(app: AppBase, camera: Entity, size?: { width: number; height: number }) {
         const { graphicsDevice } = app;
 
         let pickBuffer: Texture;
@@ -1009,11 +1039,11 @@ class Picker {
                 return null;
             }
 
-            const size = pickTargetSize(graphicsDevice);
-            if (!size) {
+            const target = size ?? pickTargetSize(graphicsDevice);
+            if (!target) {
                 return null;
             }
-            const { width, height } = size;
+            const { width, height } = target;
 
             const worldLayer = app.scene.layers.getLayerByName('World');
             if (!worldLayer) {
@@ -1023,7 +1053,7 @@ class Picker {
             const screenX = clampPixel(x, width);
             const screenY = clampPixel(y, height);
 
-            ensureRendered(width, height, worldLayer);
+            withoutXrViews(camera, () => ensureRendered(width, height, worldLayer));
             const pickCamera = getCacheCameraSnapshot();
 
             return { width, height, screenX, screenY, pickCamera };
@@ -1132,6 +1162,7 @@ export {
     opacityInFront,
     pickTargetSize,
     surfaceDepth,
+    withoutXrViews,
     NORMAL_SAMPLE_MAX_PX,
     PICK_TRIALS,
     SURFACE_RADIUS_PX,

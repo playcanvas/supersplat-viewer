@@ -73,5 +73,8 @@
     "xr-menu.exit-vr": "VR beenden",
     "xr-menu.exit-ar": "AR beenden",
     "xr-menu.ice-cream": "Eiscreme-Modus",
+    "xr-hint.place": "Zusammendrücken, auf Boden oder Tisch zeigen, dann loslassen",
+    "xr-hint.place-controller": "Trigger halten, auf Boden oder Tisch zeigen, dann loslassen",
+    "xr-hint.place-screen": "Boden oder Tisch berühren zum Platzieren, mit zwei Fingern skalieren und drehen",
     "xr-hint.stalled": "Passiert nichts? Wechsle den Tab und wieder zurück."
 }

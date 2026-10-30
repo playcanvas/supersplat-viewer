@@ -3,6 +3,7 @@ import {
     CULLFACE_NONE,
     Entity,
     Mat4,
+    math,
     Quat,
     SEMANTIC_POSITION,
     SEMANTIC_TEXCOORD0,
@@ -17,24 +18,37 @@ import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 // (Stoakley, Conway and Pausch, CHI 1995). Closing the left hand, held upright and looked at, while
 // the right is open fills a ring on top of the fist over ARM_TIME seconds; then the splat pops
 // there, standing along the axis through the fist: a scene at SCENE_SCALE pinned where the user
-// stands, an object fitted to OBJECT_SIZE. Twisting the wrist turns it like a turntable and bending
+// stands in it (or, a diorama in AR, at its base), an object fitted to OBJECT_SIZE. Twisting the wrist turns it like a turntable and bending
 // it tips it.
 // Opening the hand, or losing it for LOST_TIME, puts it back where it was at once. The sizes are for
-// a user at real size and scale with them as the hold starts; a scene held keeps its size while the
-// two-hand grab scales the user, so the grab grows or shrinks it in the hand.
+// a user at real size and scale with them as the hold starts. The two-hand grab waits while the
+// splat is held, and a right fist grows or shrinks it instead: by the hands' distance against where
+// the fist closed, changes within RESIZE_DEAD_ZONE of it ignored as the grab's are, from RESIZE_MIN
+// to RESIZE_MAX of the size the hold gave it, standing on the fist as it does. While the right fist
+// is closed the splat keeps its turn about the fist's axis, so twisting the wrist then turns the hand
+// under it, and the splat follows the wrist from there once the right hand opens; and swinging the
+// right fist around the left turns it about the axis, like a turntable, past TURN_DEAD_ZONE, so the
+// hand's drift while it resizes does not.
 //
 // A fist closes by the engine's test (all four fingers folded back, its emulated squeeze), and
 // then holds while HELD_FINGERS of them stay folded past a right angle: on Apple Vision Pro the
 // engine's test reads a closed fist's index finger open for half a second at a time. A left hand
 // open, and a right fist, count once they last FLICKER_TIME, as a relaxed right hand curls into the
 // engine's fist for a few frames now and then. And the left keeps its state while the right is a
-// fist (the two-hand grab) or within COVER_DISTANCE of it: a right hand over the left hides its
+// fist (the resize) or within COVER_DISTANCE of it: a right hand over the left hides its
 // fingers, which visionOS then reports open.
+//
+// Controllers work as the hands do, their grip buttons the fists: a left controller with its grip
+// squeezed is a fist, its flat top face (FACE_TILT from the handle, the Quest's Touch controllers')
+// the fist's top, held upright as the face looks up, the splat standing on it CONTROLLER_TOP from
+// the grip; and a right controller's squeeze resizes and turns the splat about the left as a right
+// fist does.
 //
 // The ring fills while the fist is upright, where its top is in view: the axis through it within
 // UPRIGHT_START of straight up as it starts (the cosine, about 50 degrees) and UPRIGHT_KEEP once
-// filling (about 65); and while the user looks at it: its top within LOOK_START of the middle of
-// the view as it starts (about 25 degrees) and LOOK_KEEP once filling (about 40)
+// filling (about 65); while the user looks at it: its top within LOOK_START of the middle of
+// the view as it starts (about 25 degrees) and LOOK_KEEP once filling (about 40); and while the XR
+// menu is closed, as the left controller's grip can be squeezed while its button opens the menu
 const UPRIGHT_START = 0.65;
 const UPRIGHT_KEEP = 0.42;
 const LOOK_START = 0.9;
@@ -44,8 +58,14 @@ const FLICKER_TIME = 0.2;
 const HELD_FINGERS = 3;
 const LOST_TIME = 1;
 const COVER_DISTANCE = 0.15;
+const CONTROLLER_TOP = 0.02;
+const FACE_TILT = 38;
 const SCENE_SCALE = 0.01;
 const OBJECT_SIZE = 0.15;
+const RESIZE_DEAD_ZONE = 0.15;
+const RESIZE_MIN = 0.25;
+const RESIZE_MAX = 4;
+const TURN_DEAD_ZONE = (10 * Math.PI) / 180;
 // above the top of the fist along its axis: the splat's floor or bottom, and the ring
 const LIFT = 0.02;
 const RING_LIFT = 0.02;
@@ -184,9 +204,20 @@ const target = new Vec3();
 const offset = new Vec3();
 const position = new Vec3();
 const rotation = new Quat();
+const delta = new Quat();
+const unturn = new Quat();
+const spin = new Quat();
+const toRight = new Vec3();
 const inverse = new Mat4();
 const turn = new Mat4();
 const toFist = new Vec3();
+
+const wrapPi = (angle: number) => {
+    angle %= Math.PI * 2;
+    if (angle > Math.PI) return angle - Math.PI * 2;
+    if (angle <= -Math.PI) return angle + Math.PI * 2;
+    return angle;
+};
 
 // 0 to 1 over 0 to 1, past 1 by a tenth at about three quarters, then back
 const overshoot = (x: number) => {
@@ -195,8 +226,19 @@ const overshoot = (x: number) => {
     return 1 + (c + 1) * y * y * y + c * y * y;
 };
 
-const handOf = (sources: XrInputSource[], handedness: string) =>
-    sources.find((source) => source.hand && source.handedness === handedness) ?? null;
+// a side's tracked hand, or else its controller
+const sourceOf = (sources: XrInputSource[], handedness: string) =>
+    sources.find((source) => source.hand && source.handedness === handedness) ??
+    sources.find((source) => !source.hand && source.grip && source.handedness === handedness) ??
+    null;
+
+// where a right hand or controller is for the cover test, the resize and the turn: the hand's
+// COVER_JOINT, or the controller's grip; null where a hand is not tracked
+const pointOf = (source: XrInputSource | null) => {
+    if (!source) return null;
+    if (!source.hand) return source.getPosition();
+    return source.hand.tracking ? (source.hand.getJointById(COVER_JOINT)?.getPosition() ?? null) : null;
+};
 
 // how many of the hand's four fingers fold past a right angle: the knuckle's bone against the
 // finger's last but one, as the engine's test measures them
@@ -252,10 +294,22 @@ const measureFist = (hand: XrHand, top: Vec3, turned: Quat) => {
     return true;
 };
 
+// The same for a controller held as a fist: its grip's -Z runs up the handle out of the top of the
+// fist, and its flat face tilts FACE_TILT from there towards the grip's +Y (measured on a Quest 3's
+// Touch Plus), so the fist's frame is the grip's turned about its X until +Y is the face's normal,
+// and the top is CONTROLLER_TOP along that normal from the grip (at real size, scaled by `scale`)
+const GRIP_TO_FIST = new Quat().setFromEulerAngles(FACE_TILT - 90, 0, 0);
+const measureGrip = (source: XrInputSource, top: Vec3, turned: Quat, scale: number) => {
+    turned.mul2(source.getRotation(), GRIP_TO_FIST);
+    turned.transformVector(Vec3.UP, top);
+    top.mulScalar(CONTROLLER_TOP * scale).add(source.getPosition());
+    return true;
+};
+
 /**
  * Holds the loaded splat on top of the left fist, like an ice cream in its cone, while
- * {@link XrIceCream#enabled} (the XR menu's Ice Cream). The two-hand grab carries on while it is
- * held; the viewer pauses the teleport ({@link XrIceCream#holding}).
+ * {@link XrIceCream#enabled} (the XR menu's Ice Cream). While it is held a right fist resizes it,
+ * and the viewer pauses the two-hand grab and the teleport ({@link XrIceCream#holding}).
  */
 class XrIceCream {
     private app: AppBase;
@@ -264,13 +318,15 @@ class XrIceCream {
 
     private scene: boolean;
 
-    private rig: Entity;
+    private scenePin: (out: Vec3) => Vec3;
 
     private camera: Entity;
 
     private userScale: () => number;
 
     private onHolding: (holding: boolean) => void;
+
+    private menuOpen: () => boolean;
 
     private ring: Entity;
 
@@ -318,33 +374,59 @@ class XrIceCream {
 
     private bottom = 0;
 
+    // a held splat's size against the hold's, and the hands' distance and that size as the right
+    // fist closed (0 while it is open)
+    private size = 1;
+
+    private resizeFrom = 0;
+
+    private resizeSize = 1;
+
+    // a held splat's turn about the fist's axis, between the fist's frame and the splat's, and the
+    // fist's frame and that turn as the right fist closed
+    private twist = new Quat();
+
+    private gripHand = new Quat();
+
+    private gripTwist = new Quat();
+
+    // the right fist's heading about the fist's axis last frame (null as the grip closes), and its
+    // swing since the grip closed, in radians
+    private swingFrom: number | null = null;
+
+    private swung = 0;
+
     private updating: { off(): void };
 
     /**
      * @param app - The application.
      * @param entity - The splat's entity, a child of the root.
-     * @param scene - Whether it is a scene, held pinned where the user stands, or an object.
-     * @param rig - The camera's parent, where the user stands.
+     * @param scene - Whether it is a scene, held pinned at `scenePin`, or an object.
+     * @param scenePin - Into `out`, where a scene sits on the fist, in the world: the floor where the
+     * user stands in it, or the base of a diorama the user handles (in AR).
      * @param camera - The camera, the user's eyes.
      * @param userScale - The user's scale.
      * @param onHolding - Called as the hold takes the splat and gives it back.
+     * @param menuOpen - Whether the XR menu is open, which the hold waits for to close.
      */
     constructor(
         app: AppBase,
         entity: Entity,
         scene: boolean,
-        rig: Entity,
+        scenePin: (out: Vec3) => Vec3,
         camera: Entity,
         userScale: () => number,
-        onHolding: (holding: boolean) => void
+        onHolding: (holding: boolean) => void,
+        menuOpen: () => boolean
     ) {
         this.app = app;
         this.entity = entity;
         this.scene = scene;
-        this.rig = rig;
+        this.scenePin = scenePin;
         this.camera = camera;
         this.userScale = userScale;
         this.onHolding = onHolding;
+        this.menuOpen = menuOpen;
 
         this.material = new ShaderMaterial({
             uniqueName: 'sse-fist-hold-ring',
@@ -416,24 +498,26 @@ class XrIceCream {
         const { xr } = this.app;
         if (!xr?.active) return;
         const sources = xr.input.inputSources;
-        const left = handOf(sources, 'left');
-        const tracked = !!left?.hand.tracking && measureFist(left.hand, this.handPosition, this.handRotation);
+        const left = sourceOf(sources, 'left');
+        const tracked =
+            !!left &&
+            (left.hand
+                ? left.hand.tracking && measureFist(left.hand, this.handPosition, this.handRotation)
+                : measureGrip(left, this.handPosition, this.handRotation, this.userScale()));
         if (tracked) {
             this.lostFor = 0;
         } else {
             this.lostFor += dt;
         }
-        const right = handOf(sources, 'right');
-        const rightJoint = right?.hand.tracking ? right.hand.getJointById(COVER_JOINT) : null;
+        const right = sourceOf(sources, 'right');
+        const rightAt = pointOf(right);
         const covered =
             !!right?.squeezing ||
-            (tracked &&
-                !!rightJoint &&
-                rightJoint.getPosition().distance(this.handPosition) < COVER_DISTANCE * this.userScale());
+            (tracked && !!rightAt && rightAt.distance(this.handPosition) < COVER_DISTANCE * this.userScale());
         // a hand out of sight, or covered, is neither open nor closed: losing it counts by LOST_TIME
         if (tracked && left && !covered) {
             const wasFist = this.openFor < FLICKER_TIME;
-            const closed = left.squeezing || (wasFist && foldedFingers(left.hand) >= HELD_FINGERS);
+            const closed = left.squeezing || (wasFist && !!left.hand && foldedFingers(left.hand) >= HELD_FINGERS);
             this.openFor = closed ? 0 : this.openFor + dt;
         }
         const fist = this.openFor < FLICKER_TIME;
@@ -442,7 +526,15 @@ class XrIceCream {
 
         if (this.hold) {
             if (!fist || this.lostFor > LOST_TIME || !this.on) this.release();
-        } else if (this.on && fist && !rightFist && this.lostFor < FLICKER_TIME && this.upright() && this.looking()) {
+        } else if (
+            this.on &&
+            fist &&
+            !rightFist &&
+            !this.menuOpen() &&
+            this.lostFor < FLICKER_TIME &&
+            this.upright() &&
+            this.looking()
+        ) {
             // a moment without the hand pauses the ring
             if (tracked) this.armed += dt;
             if (this.armed >= ARM_TIME) {
@@ -455,6 +547,47 @@ class XrIceCream {
             this.armed = 0;
         }
         if (this.armed === 0) this.pulse = 0;
+
+        if (this.hold && rightFist && rightAt) {
+            const distance = Math.max(rightAt.distance(this.handPosition), 1e-3);
+            if (this.resizeFrom === 0) {
+                this.resizeFrom = distance;
+                this.resizeSize = this.size;
+                this.gripHand.copy(this.handRotation);
+                this.gripTwist.copy(this.twist);
+                this.swingFrom = null;
+                this.swung = 0;
+            } else {
+                const ratio = distance / this.resizeFrom;
+                const resized =
+                    ratio > 1 + RESIZE_DEAD_ZONE
+                        ? ratio / (1 + RESIZE_DEAD_ZONE)
+                        : ratio < 1 - RESIZE_DEAD_ZONE
+                          ? ratio / (1 - RESIZE_DEAD_ZONE)
+                          : 1;
+                this.size = Math.min(Math.max(this.resizeSize * resized, RESIZE_MIN), RESIZE_MAX);
+            }
+            // the fist's turn since the grip closed, in its own frame, has a twist about its axis
+            // (the quaternion's y and w, normalized) that the turn undoes; its tip still tips the splat
+            delta.invert(this.gripHand).mul(this.handRotation);
+            const length = Math.hypot(delta.y, delta.w);
+            if (length > 1e-6) unturn.set(0, -delta.y / length, 0, delta.w / length);
+            else unturn.set(0, 0, 0, 1);
+            // and the right fist's swing about the axis since then, in the fist's frame as the grip
+            // closed (summed frame to frame, so it can go round), turns it past TURN_DEAD_ZONE
+            delta.invert(this.gripHand).transformVector(toRight.sub2(rightAt, this.handPosition), toRight);
+            const angle = Math.atan2(toRight.x, toRight.z);
+            if (this.swingFrom !== null && Math.hypot(toRight.x, toRight.z) > 1e-3) {
+                this.swung += wrapPi(angle - this.swingFrom);
+            }
+            this.swingFrom = angle;
+            const turned =
+                Math.abs(this.swung) > TURN_DEAD_ZONE ? this.swung - Math.sign(this.swung) * TURN_DEAD_ZONE : 0;
+            spin.setFromAxisAngle(Vec3.UP, turned * math.RAD_TO_DEG);
+            this.twist.mul2(this.gripTwist, unturn).mul(spin);
+        } else {
+            this.resizeFrom = 0;
+        }
 
         this.ring.enabled = this.armed > 0 || this.burstFor < BURST_TIME;
         if (this.ring.enabled) this.placeRing(dt);
@@ -519,9 +652,9 @@ class XrIceCream {
         const s = this.userScale();
         const aabb = (entity.gsplat?.resource as { aabb?: BoundingBox } | null)?.aabb;
         if (this.scene || !aabb) {
-            // the floor where the user stands; the bounds of a scene reach its stray splats
+            // the scene's pin (the bounds of a scene reach its stray splats)
             inverse.copy(world).invert();
-            inverse.transformPoint(this.rig.getPosition(), this.pinLocal);
+            inverse.transformPoint(this.scenePin(target), this.pinLocal);
             this.holdScale = SCENE_SCALE * s;
             this.bottom = 0;
         } else {
@@ -533,6 +666,8 @@ class XrIceCream {
             const m = turn.data;
             this.bottom = this.holdScale * (Math.abs(m[1]) * h.x + Math.abs(m[5]) * h.y + Math.abs(m[9]) * h.z);
         }
+        this.size = 1;
+        this.twist.set(0, 0, 0, 1);
         this.hold = true;
         this.onHolding(true);
     }
@@ -541,14 +676,14 @@ class XrIceCream {
     // size from its pinned point as it arrives
     private place() {
         const { entity } = this;
-        const pop = this.popFor < POP_TIME ? Math.max(overshoot(this.popFor / POP_TIME), 0.01) : 1;
+        const pop = (this.popFor < POP_TIME ? Math.max(overshoot(this.popFor / POP_TIME), 0.01) : 1) * this.size;
         const scale = this.holdScale * pop;
         this.handRotation.transformVector(Vec3.UP, up);
         target
             .copy(up)
             .mulScalar(LIFT * this.userScale() + this.bottom * pop)
             .add(this.handPosition);
-        rotation.mul2(this.handRotation, this.homeRotation);
+        rotation.mul2(this.handRotation, this.twist).mul(this.homeRotation);
         offset.copy(this.pinLocal).mulScalar(scale);
         rotation.transformVector(offset, offset);
         position.sub2(target, offset);
