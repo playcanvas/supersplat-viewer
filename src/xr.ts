@@ -16,6 +16,7 @@ import { XrGroundDisc } from './xr-ground-disc';
 import { XrHandStyle } from './xr-hand-style';
 import { XrIceCream } from './xr-ice-cream';
 import { XrObjectGrab } from './xr-object-grab';
+import { XrObjectShadow } from './xr-object-shadow';
 import { XrPalmMenu } from './xr-palm-menu';
 import type { XrPalmMenuItem } from './xr-palm-menu';
 import { XrSplatFloor } from './xr-splat-floor';
@@ -313,6 +314,7 @@ const initXr = (global: Global) => {
     let arPlacement: XrArPlacement | null = null;
     let grabMove: XrGrabMove | null = null;
     let groundDisc: XrGroundDisc | null = null;
+    let objectShadow: XrObjectShadow | null = null;
     // whether the session's splat is the user's to handle, which the session's type decides
     let holding = false;
     // and holding it on top of the left fist like an ice cream (state.iceCream, a switch in the menu)
@@ -715,6 +717,12 @@ const initXr = (global: Global) => {
                 () => menu.isOpen
             );
             iceCream.enabled = state.iceCream;
+            // an object placed on the room in AR stands on a soft shadow there, but not on the fist
+            if (!scene) {
+                objectShadow = new XrObjectShadow(app, entity, () =>
+                    iceCream?.holding ? null : (arPlacement?.surface ?? null)
+                );
+            }
         },
         destroy: () => {
             destroyed = true;
@@ -735,6 +743,8 @@ const initXr = (global: Global) => {
             iceCreamChanged.off();
             iceCream?.destroy();
             iceCream = null;
+            objectShadow?.destroy();
+            objectShadow = null;
             grabMove?.destroy();
             grabMove = null;
             arPlacement?.destroy();

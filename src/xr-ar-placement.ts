@@ -489,6 +489,11 @@ class XrArPlacement {
         this.requestTouches([XRTRACKABLE_PLANE, XRTRACKABLE_MESH]);
     }
 
+    /** Where the splat was last placed on a surface of the room, in the world, or null before it is. */
+    get surface(): Vec3 | null {
+        return this.active && this.placed ? this.goal : null;
+    }
+
     /** Ends placing as the session ends, leaving the splat where it stands, solid. */
     stop() {
         this.active = false;
