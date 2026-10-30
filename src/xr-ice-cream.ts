@@ -46,8 +46,9 @@ import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 //
 // The ring fills while the fist is upright, where its top is in view: the axis through it within
 // UPRIGHT_START of straight up as it starts (the cosine, about 50 degrees) and UPRIGHT_KEEP once
-// filling (about 65); and while the user looks at it: its top within LOOK_START of the middle of
-// the view as it starts (about 25 degrees) and LOOK_KEEP once filling (about 40)
+// filling (about 65); while the user looks at it: its top within LOOK_START of the middle of
+// the view as it starts (about 25 degrees) and LOOK_KEEP once filling (about 40); and while the XR
+// menu is closed, as the left controller's grip can be squeezed while its button opens the menu
 const UPRIGHT_START = 0.65;
 const UPRIGHT_KEEP = 0.42;
 const LOOK_START = 0.9;
@@ -325,6 +326,8 @@ class XrIceCream {
 
     private onHolding: (holding: boolean) => void;
 
+    private menuOpen: () => boolean;
+
     private ring: Entity;
 
     private material: ShaderMaterial;
@@ -401,6 +404,7 @@ class XrIceCream {
      * @param camera - The camera, the user's eyes.
      * @param userScale - The user's scale.
      * @param onHolding - Called as the hold takes the splat and gives it back.
+     * @param menuOpen - Whether the XR menu is open, which the hold waits for to close.
      */
     constructor(
         app: AppBase,
@@ -409,7 +413,8 @@ class XrIceCream {
         rig: Entity,
         camera: Entity,
         userScale: () => number,
-        onHolding: (holding: boolean) => void
+        onHolding: (holding: boolean) => void,
+        menuOpen: () => boolean
     ) {
         this.app = app;
         this.entity = entity;
@@ -418,6 +423,7 @@ class XrIceCream {
         this.camera = camera;
         this.userScale = userScale;
         this.onHolding = onHolding;
+        this.menuOpen = menuOpen;
 
         this.material = new ShaderMaterial({
             uniqueName: 'sse-fist-hold-ring',
@@ -504,7 +510,14 @@ class XrIceCream {
 
         if (this.hold) {
             if (!fist || this.lostFor > LOST_TIME) this.release();
-        } else if (fist && !rightFist && this.lostFor < FLICKER_TIME && this.upright() && this.looking()) {
+        } else if (
+            fist &&
+            !rightFist &&
+            !this.menuOpen() &&
+            this.lostFor < FLICKER_TIME &&
+            this.upright() &&
+            this.looking()
+        ) {
             // a moment without the hand pauses the ring
             if (tracked) this.armed += dt;
             if (this.armed >= ARM_TIME) {

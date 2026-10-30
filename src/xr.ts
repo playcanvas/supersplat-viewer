@@ -688,7 +688,8 @@ const initXr = (global: Global) => {
                 parent,
                 camera,
                 () => userScale,
-                (holding) => app.fire('xr:menu:active', holding)
+                (holding) => app.fire('xr:menu:active', holding),
+                () => menu.isOpen
             );
         },
         destroy: () => {

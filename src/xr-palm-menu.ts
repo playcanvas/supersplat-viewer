@@ -321,6 +321,11 @@ class XrPalmMenu {
         this.hide();
     }
 
+    /** Whether the menu is open. */
+    get isOpen() {
+        return this.open;
+    }
+
     /**
      * Whether a select from an input source would be the menu's, as {@link XrPalmMenu#select}
      * takes it, without pressing anything.
