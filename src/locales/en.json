@@ -78,7 +78,8 @@
     "xr-menu.exit-vr": "Exit VR",
     "xr-menu.exit-ar": "Exit AR",
     "xr-menu.ice-cream": "Ice-cream mode",
-    "xr-hint.place": "Pinch and point at a floor or table, then let go to place",
-    "xr-hint.place-screen": "Touch a floor or table to place, pinch to resize and twist to turn",
+    "xr-hint.place": "Pinch, point at a floor or table, then let go",
+    "xr-hint.place-controller": "Hold the trigger, point at a floor or table, then let go",
+    "xr-hint.place-screen": "Touch a floor or table to place, two fingers to resize and turn",
     "xr-hint.stalled": "Nothing happening? Switch tabs and back."
 }

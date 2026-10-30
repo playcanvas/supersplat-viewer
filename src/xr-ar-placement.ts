@@ -49,8 +49,8 @@ const RAY_REACH = 1.5;
 // HINT_AHEAD in front of the eyes and HINT_DROP below them; on a phone, where that reads small,
 // fixed to the screen instead, HINT_SCREEN_WIDTH of its width across and HINT_SCREEN_LOW of the way
 // from its middle to its bottom edge, HINT_SCREEN_AHEAD in front of the camera
-const HINT_WIDTH = 0.26;
-const HINT_HEIGHT = 0.036;
+const HINT_WIDTH = 0.36;
+const HINT_HEIGHT = 0.05;
 const HINT_PIXELS = 4000;
 const HINT_RISE = 0.09;
 const HINT_AHEAD = 0.8;
@@ -186,6 +186,9 @@ type RayFrame = {
     getPose(space: unknown, base: unknown): RayPose | undefined;
 };
 
+/** What places the splat, which the hint is written for. */
+type PlacingInput = 'hand' | 'controller' | 'screen';
+
 // A hand's or controller's hit test from its own ray, the browser's (its target ray space, which
 // for a hand on Quest is the system's pointer, not the engine's ray from the fingers); that ray,
 // this frame, in the session's space, where it has one; its last level hit there; and that hit's
@@ -216,7 +219,7 @@ class XrArPlacement {
 
     private claimed: (source: XrInputSource) => boolean;
 
-    private hintText: (pointing: boolean) => string;
+    private hintText: (input: PlacingInput) => string;
 
     private ring: Entity;
 
@@ -295,8 +298,8 @@ class XrArPlacement {
      * @param camera - The camera, the user's eyes.
      * @param grab - The splat's grab, which stands it on the surface.
      * @param claimed - Whether a select belongs to something else (the system, the menu).
-     * @param hintText - The hint's text, in the user's language, for pointing with a hand or
-     * controller, or touching the screen (a phone).
+     * @param hintText - The hint's text, in the user's language, for what places: hands,
+     * controllers or a phone's screen.
      */
     constructor(
         app: AppBase,
@@ -304,7 +307,7 @@ class XrArPlacement {
         camera: Entity,
         grab: XrObjectGrab,
         claimed: (source: XrInputSource) => boolean,
-        hintText: (pointing: boolean) => string
+        hintText: (input: PlacingInput) => string
     ) {
         this.app = app;
         this.rig = rig;
@@ -791,9 +794,16 @@ class XrArPlacement {
             this.placeHintInWorld();
         }
 
-        const text = this.hintText(this.pointers.size > 0);
+        const text = this.hintText(this.placingInput());
         if (text !== this.hintDrawn) this.drawHint(text);
         this.hint.entity.enabled = true;
+    }
+
+    // what places, for the hint: a phone's screen, which has no pointers, else controllers where
+    // any pointer is one, else hands
+    private placingInput(): PlacingInput {
+        if (this.pointers.size === 0) return 'screen';
+        return [...this.pointers.keys()].some((source) => !source.hand) ? 'controller' : 'hand';
     }
 
     // low in the middle of the screen, a share of its width across: a point of the view's

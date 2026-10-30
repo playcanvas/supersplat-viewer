@@ -73,7 +73,8 @@
     "xr-menu.exit-vr": "VRを終了",
     "xr-menu.exit-ar": "ARを終了",
     "xr-menu.ice-cream": "アイスクリームモード",
-    "xr-hint.place": "ピンチして床かテーブルを指し、離して配置",
-    "xr-hint.place-screen": "床かテーブルをタッチして配置、ピンチで拡大縮小、ひねって回転",
+    "xr-hint.place": "ピンチして床かテーブルを指し、離す",
+    "xr-hint.place-controller": "トリガーを押したまま床かテーブルを指し、離す",
+    "xr-hint.place-screen": "床かテーブルをタッチして配置、2本指で拡大縮小と回転",
     "xr-hint.stalled": "反応がない場合は、タブを切り替えてから戻ってください。"
 }
