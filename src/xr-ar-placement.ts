@@ -472,6 +472,8 @@ class XrArPlacement {
             });
             return;
         }
+        // placing under way whose hit tests have all failed has nowhere to place: it stays solid
+        if (this.active && this.asking === 0 && !this.hasHitTest()) return;
         this.placed = false;
         this.gliding = false;
         this.aiming = null;
@@ -529,8 +531,12 @@ class XrArPlacement {
     private answered(generation: number) {
         if (generation !== this.generation) return;
         this.asking--;
-        if (this.asking > 0 || !this.active || this.source) return;
-        if (![...this.pointers.values()].some((pointer) => pointer.test)) this.fade.enabled = false;
+        if (this.asking === 0 && this.active && !this.hasHitTest()) this.fade.enabled = false;
+    }
+
+    // whether a hit test was made: the screen's touches', or a pointer's
+    private hasHitTest() {
+        return !!this.source || [...this.pointers.values()].some((pointer) => !!pointer.test);
     }
 
     // glides the splat's base to a point, solid from now on
