@@ -18,7 +18,7 @@ import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 // (Stoakley, Conway and Pausch, CHI 1995). Closing the left hand, held upright and looked at, while
 // the right is open fills a ring on top of the fist over ARM_TIME seconds; then the splat pops
 // there, standing along the axis through the fist: a scene at SCENE_SCALE pinned where the user
-// stands, an object fitted to OBJECT_SIZE. Twisting the wrist turns it like a turntable and bending
+// stands in it (or, a diorama in AR, at its base), an object fitted to OBJECT_SIZE. Twisting the wrist turns it like a turntable and bending
 // it tips it.
 // Opening the hand, or losing it for LOST_TIME, puts it back where it was at once. The sizes are for
 // a user at real size and scale with them as the hold starts. The two-hand grab waits while the
@@ -318,7 +318,7 @@ class XrIceCream {
 
     private scene: boolean;
 
-    private rig: Entity;
+    private scenePin: (out: Vec3) => Vec3;
 
     private camera: Entity;
 
@@ -401,8 +401,9 @@ class XrIceCream {
     /**
      * @param app - The application.
      * @param entity - The splat's entity, a child of the root.
-     * @param scene - Whether it is a scene, held pinned where the user stands, or an object.
-     * @param rig - The camera's parent, where the user stands.
+     * @param scene - Whether it is a scene, held pinned at `scenePin`, or an object.
+     * @param scenePin - Into `out`, where a scene sits on the fist, in the world: the floor where the
+     * user stands in it, or the base of a diorama the user handles (in AR).
      * @param camera - The camera, the user's eyes.
      * @param userScale - The user's scale.
      * @param onHolding - Called as the hold takes the splat and gives it back.
@@ -412,7 +413,7 @@ class XrIceCream {
         app: AppBase,
         entity: Entity,
         scene: boolean,
-        rig: Entity,
+        scenePin: (out: Vec3) => Vec3,
         camera: Entity,
         userScale: () => number,
         onHolding: (holding: boolean) => void,
@@ -421,7 +422,7 @@ class XrIceCream {
         this.app = app;
         this.entity = entity;
         this.scene = scene;
-        this.rig = rig;
+        this.scenePin = scenePin;
         this.camera = camera;
         this.userScale = userScale;
         this.onHolding = onHolding;
@@ -651,9 +652,9 @@ class XrIceCream {
         const s = this.userScale();
         const aabb = (entity.gsplat?.resource as { aabb?: BoundingBox } | null)?.aabb;
         if (this.scene || !aabb) {
-            // the floor where the user stands; the bounds of a scene reach its stray splats
+            // the scene's pin (the bounds of a scene reach its stray splats)
             inverse.copy(world).invert();
-            inverse.transformPoint(this.rig.getPosition(), this.pinLocal);
+            inverse.transformPoint(this.scenePin(target), this.pinLocal);
             this.holdScale = SCENE_SCALE * s;
             this.bottom = 0;
         } else {

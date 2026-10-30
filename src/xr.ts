@@ -693,11 +693,15 @@ const initXr = (global: Global) => {
             // The grab waits while the splat is held, as it would move what the hold places, and
             // the hold resizes it instead (the event XrObjectGrab and XrGrabMove wait on, as the
             // engine's XrManipulation does for its XrMenu)
+            // a scene sits on the fist at the floor where the user stands in it, or, a diorama the
+            // user handles (in AR), at the base it was placed on
+            const scenePin = (out: Vec3) =>
+                holding && objectGrab ? objectGrab.basePoint(out) : out.copy(parent.getPosition());
             iceCream = new XrIceCream(
                 app,
                 entity,
                 scene,
-                parent,
+                scenePin,
                 camera,
                 () => userScale,
                 (holding) => app.fire('xr:menu:active', holding),
