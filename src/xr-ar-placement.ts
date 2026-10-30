@@ -46,13 +46,18 @@ const RAY_WIDTH = 0.004;
 const RAY_OPACITY = 0.55;
 const RAY_REACH = 1.5;
 // the hint: HINT_WIDTH by HINT_HEIGHT at HINT_PIXELS per meter, HINT_RISE above the ring, or
-// HINT_AHEAD in front of the eyes and HINT_DROP below them
+// HINT_AHEAD in front of the eyes and HINT_DROP below them; on a phone, where that reads small,
+// fixed to the screen instead, HINT_SCREEN_WIDTH of its width across and HINT_SCREEN_LOW of the way
+// from its middle to its bottom edge, HINT_SCREEN_AHEAD in front of the camera
 const HINT_WIDTH = 0.26;
 const HINT_HEIGHT = 0.036;
 const HINT_PIXELS = 4000;
 const HINT_RISE = 0.09;
 const HINT_AHEAD = 0.8;
 const HINT_DROP = 0.2;
+const HINT_SCREEN_WIDTH = 0.9;
+const HINT_SCREEN_LOW = 0.7;
+const HINT_SCREEN_AHEAD = 0.3;
 // The preview's fade: a quad over the whole view, given in clip space so it covers each eye's,
 // which multiplies what is drawn by the fade, colour and alpha alike, as the frame is premultiplied
 // and its alpha is what shows the room through. Drawn in FADE_DRAW_BUCKET, after the splats (127,
@@ -729,8 +734,34 @@ class XrArPlacement {
         this.ray.enabled = true;
     }
 
-    // the hint above the ring, or in front of the eyes before there is one, facing them
+    // the hint above the ring, or in front of the eyes before there is one, facing them; on a phone,
+    // which has no pointers, on the screen
     private placeHint() {
+        const view = this.pointers.size === 0 ? this.camera.camera.camera.xrViews?.[0] : undefined;
+        if (view) {
+            this.placeHintOnScreen(view.projMat.data);
+        } else {
+            this.placeHintInWorld();
+        }
+
+        const text = this.hintText(this.pointers.size > 0);
+        if (text !== this.hintDrawn) this.drawHint(text);
+        this.hint.entity.enabled = true;
+    }
+
+    // low in the middle of the screen, a share of its width across: a point of the view's
+    // projection at HINT_SCREEN_AHEAD, square to the camera
+    private placeHintOnScreen(m: Float32Array) {
+        const ahead = HINT_SCREEN_AHEAD;
+        point.set((m[8] * ahead) / m[0], ((m[9] - HINT_SCREEN_LOW) * ahead) / m[5], -ahead);
+        this.camera.getWorldTransform().transformPoint(point, point);
+        this.hintHolder.setPosition(point);
+        this.hintHolder.setRotation(this.camera.getRotation());
+        const scale = ((2 * HINT_SCREEN_WIDTH * ahead) / m[0] / HINT_WIDTH) * this.camera.getScale().x;
+        this.hintHolder.setLocalScale(scale, scale, scale);
+    }
+
+    private placeHintInWorld() {
         const eyes = this.camera.getPosition();
         if (this.ring.enabled) {
             point.set(this.ringAt.x, this.ringAt.y + HINT_RISE, this.ringAt.z);
@@ -743,10 +774,7 @@ class XrArPlacement {
         // its quad faces the holder's +z, so the holder looks away from the eyes
         facing.sub2(point, eyes).add(point);
         this.hintHolder.lookAt(facing.x, point.y, facing.z);
-
-        const text = this.hintText(this.pointers.size > 0);
-        if (text !== this.hintDrawn) this.drawHint(text);
-        this.hint.entity.enabled = true;
+        this.hintHolder.setLocalScale(1, 1, 1);
     }
 
     private drawHint(text: string) {
