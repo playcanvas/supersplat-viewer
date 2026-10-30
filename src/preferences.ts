@@ -2,7 +2,7 @@ import type { EventHandler } from 'playcanvas';
 
 import type { QualityLevel, State } from './types';
 
-type Preferences = Pick<State, 'quality' | 'performanceMode' | 'gamingControls' | 'showAnnotations'>;
+type Preferences = Pick<State, 'quality' | 'performanceMode' | 'gamingControls' | 'showAnnotations' | 'iceCream'>;
 
 const QUALITY_VALUES: readonly QualityLevel[] = ['performance', 'default', 'high', 'max'];
 
@@ -11,7 +11,8 @@ const readPreferences = (mobile: boolean): Preferences => {
         quality: (mobile ? 'performance' : 'default') as QualityLevel,
         performanceMode: false,
         gamingControls: false,
-        showAnnotations: true
+        showAnnotations: true,
+        iceCream: true
     };
     try {
         // Preserve the legacy preference migration and origin-wide keys.
@@ -33,7 +34,8 @@ const readPreferences = (mobile: boolean): Preferences => {
                 : defaults.quality,
             performanceMode: performanceMode === 'true',
             gamingControls: localStorage.getItem('gamingControls') === 'true',
-            showAnnotations: localStorage.getItem('showAnnotations') !== 'false'
+            showAnnotations: localStorage.getItem('showAnnotations') !== 'false',
+            iceCream: localStorage.getItem('iceCream') !== 'false'
         };
     } catch {
         // Embedded documents can be denied storage. Preferences must not prevent viewing.
@@ -43,7 +45,9 @@ const readPreferences = (mobile: boolean): Preferences => {
 
 const persistPreferences = (events: EventHandler) => {
     // Write changes only, so creating a viewer does not persist platform defaults.
-    const subscriptions = (['quality', 'performanceMode', 'gamingControls', 'showAnnotations'] as const).map((key) =>
+    const subscriptions = (
+        ['quality', 'performanceMode', 'gamingControls', 'showAnnotations', 'iceCream'] as const
+    ).map((key) =>
         events.on(`${key}:changed`, (value: boolean | string) => {
             try {
                 localStorage.setItem(key, String(value));

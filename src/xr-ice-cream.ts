@@ -307,9 +307,9 @@ const measureGrip = (source: XrInputSource, top: Vec3, turned: Quat, scale: numb
 };
 
 /**
- * Holds the loaded splat on top of the left fist, like an ice cream in its cone. While it is held a
- * right fist resizes it, and the viewer pauses the two-hand grab and the teleport
- * ({@link XrIceCream#holding}).
+ * Holds the loaded splat on top of the left fist, like an ice cream in its cone, while
+ * {@link XrIceCream#enabled} (the XR menu's Ice Cream). While it is held a right fist resizes it,
+ * and the viewer pauses the two-hand grab and the teleport ({@link XrIceCream#holding}).
  */
 class XrIceCream {
     private app: AppBase;
@@ -331,6 +331,8 @@ class XrIceCream {
     private ring: Entity;
 
     private material: ShaderMaterial;
+
+    private on = false;
 
     // seconds the left fist has been held with the right hand open, the left hand open (while
     // tracked) and lost, and the right a fist
@@ -455,6 +457,19 @@ class XrIceCream {
         this.updating = app.on('update', (dt: number) => this.update(dt));
     }
 
+    /** Whether a left fist summons the splat. Turning it off gives a held splat back. */
+    set enabled(value: boolean) {
+        this.on = value;
+        if (!value) {
+            this.armed = 0;
+            this.release();
+        }
+    }
+
+    get enabled() {
+        return this.on;
+    }
+
     /** Whether the splat is on the fist. */
     get holding() {
         return this.hold;
@@ -509,8 +524,9 @@ class XrIceCream {
         const rightFist = this.rightFor >= FLICKER_TIME;
 
         if (this.hold) {
-            if (!fist || this.lostFor > LOST_TIME) this.release();
+            if (!fist || this.lostFor > LOST_TIME || !this.on) this.release();
         } else if (
+            this.on &&
             fist &&
             !rightFist &&
             !this.menuOpen() &&
