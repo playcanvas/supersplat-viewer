@@ -116,10 +116,7 @@ describe('the /viewer entry', () => {
 
     it('scopes every stylesheet rule to the instance root', () => {
         const css = read('../../dist/viewer.css');
-        // at-rule preludes (`@media …`) are skipped: their rules are matched inside them. The
-        // first character is not whitespace either, so `\s*` cannot give back the newline before
-        // an at-rule and let it in
-        const selectors = [...css.matchAll(/(?:^|\}|\{)\s*([^{}@\s][^{}]*?)\{/g)].map((m) => m[1].trim());
+        const selectors = [...css.matchAll(/(?:^|\}|\{)\s*([^{}@][^{}]*?)\{/g)].map((m) => m[1].trim());
 
         assert.ok(selectors.length > 50, `only ${selectors.length} selectors found — did the parse break?`);
 

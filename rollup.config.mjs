@@ -53,7 +53,6 @@ function htmlPlugin() {
             this.addWatchFile('src/dev/mount-loop.html');
             this.addWatchFile('src/dev/custom-ui.html');
             this.addWatchFile('src/dev/bench.html');
-            this.addWatchFile('src/dev/card.html');
         },
         generateBundle() {
             const contents = readFileSync('src/index.html', 'utf-8');
@@ -82,14 +81,6 @@ function htmlPlugin() {
                 type: 'asset',
                 fileName: 'custom-ui.html',
                 source: readFileSync('src/dev/custom-ui.html', 'utf-8')
-            });
-
-            // Development page that frames the viewer as a social card player does, with host
-            // chrome over its bottom, for the `experimentalTouchInsetBottom` option.
-            this.emitFile({
-                type: 'asset',
-                fileName: 'card.html',
-                source: readFileSync('src/dev/card.html', 'utf-8')
             });
 
             // Development page that measures the splat renderers (docs/stochastic-renderer.md).
