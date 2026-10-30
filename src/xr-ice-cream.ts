@@ -38,6 +38,12 @@ import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 // fist (the resize) or within COVER_DISTANCE of it: a right hand over the left hides its
 // fingers, which visionOS then reports open.
 //
+// Controllers work as the hands do, their grip buttons the fists: a left controller with its grip
+// squeezed is a fist, its flat top face (FACE_TILT from the handle, the Quest's Touch controllers')
+// the fist's top, held upright as the face looks up, the splat standing on it CONTROLLER_TOP from
+// the grip; and a right controller's squeeze resizes and turns the splat about the left as a right
+// fist does.
+//
 // The ring fills while the fist is upright, where its top is in view: the axis through it within
 // UPRIGHT_START of straight up as it starts (the cosine, about 50 degrees) and UPRIGHT_KEEP once
 // filling (about 65); and while the user looks at it: its top within LOOK_START of the middle of
@@ -51,6 +57,8 @@ const FLICKER_TIME = 0.2;
 const HELD_FINGERS = 3;
 const LOST_TIME = 1;
 const COVER_DISTANCE = 0.15;
+const CONTROLLER_TOP = 0.02;
+const FACE_TILT = 38;
 const SCENE_SCALE = 0.01;
 const OBJECT_SIZE = 0.15;
 const RESIZE_DEAD_ZONE = 0.15;
@@ -217,8 +225,19 @@ const overshoot = (x: number) => {
     return 1 + (c + 1) * y * y * y + c * y * y;
 };
 
-const handOf = (sources: XrInputSource[], handedness: string) =>
-    sources.find((source) => source.hand && source.handedness === handedness) ?? null;
+// a side's tracked hand, or else its controller
+const sourceOf = (sources: XrInputSource[], handedness: string) =>
+    sources.find((source) => source.hand && source.handedness === handedness) ??
+    sources.find((source) => !source.hand && source.grip && source.handedness === handedness) ??
+    null;
+
+// where a right hand or controller is for the cover test, the resize and the turn: the hand's
+// COVER_JOINT, or the controller's grip; null where a hand is not tracked
+const pointOf = (source: XrInputSource | null) => {
+    if (!source) return null;
+    if (!source.hand) return source.getPosition();
+    return source.hand.tracking ? (source.hand.getJointById(COVER_JOINT)?.getPosition() ?? null) : null;
+};
 
 // how many of the hand's four fingers fold past a right angle: the knuckle's bone against the
 // finger's last but one, as the engine's test measures them
@@ -271,6 +290,18 @@ const measureFist = (hand: XrHand, top: Vec3, turned: Quat) => {
     turned.setFromMat4(frame);
 
     top.add2(index.getPosition(), thumb.getPosition()).mulScalar(0.5);
+    return true;
+};
+
+// The same for a controller held as a fist: its grip's -Z runs up the handle out of the top of the
+// fist, and its flat face tilts FACE_TILT from there towards the grip's +Y (measured on a Quest 3's
+// Touch Plus), so the fist's frame is the grip's turned about its X until +Y is the face's normal,
+// and the top is CONTROLLER_TOP along that normal from the grip (at real size, scaled by `scale`)
+const GRIP_TO_FIST = new Quat().setFromEulerAngles(FACE_TILT - 90, 0, 0);
+const measureGrip = (source: XrInputSource, top: Vec3, turned: Quat, scale: number) => {
+    turned.mul2(source.getRotation(), GRIP_TO_FIST);
+    turned.transformVector(Vec3.UP, top);
+    top.mulScalar(CONTROLLER_TOP * scale).add(source.getPosition());
     return true;
 };
 
@@ -445,24 +476,26 @@ class XrIceCream {
         const { xr } = this.app;
         if (!xr?.active) return;
         const sources = xr.input.inputSources;
-        const left = handOf(sources, 'left');
-        const tracked = !!left?.hand.tracking && measureFist(left.hand, this.handPosition, this.handRotation);
+        const left = sourceOf(sources, 'left');
+        const tracked =
+            !!left &&
+            (left.hand
+                ? left.hand.tracking && measureFist(left.hand, this.handPosition, this.handRotation)
+                : measureGrip(left, this.handPosition, this.handRotation, this.userScale()));
         if (tracked) {
             this.lostFor = 0;
         } else {
             this.lostFor += dt;
         }
-        const right = handOf(sources, 'right');
-        const rightJoint = right?.hand.tracking ? right.hand.getJointById(COVER_JOINT) : null;
+        const right = sourceOf(sources, 'right');
+        const rightAt = pointOf(right);
         const covered =
             !!right?.squeezing ||
-            (tracked &&
-                !!rightJoint &&
-                rightJoint.getPosition().distance(this.handPosition) < COVER_DISTANCE * this.userScale());
+            (tracked && !!rightAt && rightAt.distance(this.handPosition) < COVER_DISTANCE * this.userScale());
         // a hand out of sight, or covered, is neither open nor closed: losing it counts by LOST_TIME
         if (tracked && left && !covered) {
             const wasFist = this.openFor < FLICKER_TIME;
-            const closed = left.squeezing || (wasFist && foldedFingers(left.hand) >= HELD_FINGERS);
+            const closed = left.squeezing || (wasFist && !!left.hand && foldedFingers(left.hand) >= HELD_FINGERS);
             this.openFor = closed ? 0 : this.openFor + dt;
         }
         const fist = this.openFor < FLICKER_TIME;
@@ -485,8 +518,8 @@ class XrIceCream {
         }
         if (this.armed === 0) this.pulse = 0;
 
-        if (this.hold && rightFist && rightJoint) {
-            const distance = Math.max(rightJoint.getPosition().distance(this.handPosition), 1e-3);
+        if (this.hold && rightFist && rightAt) {
+            const distance = Math.max(rightAt.distance(this.handPosition), 1e-3);
             if (this.resizeFrom === 0) {
                 this.resizeFrom = distance;
                 this.resizeSize = this.size;
@@ -512,9 +545,7 @@ class XrIceCream {
             else unturn.set(0, 0, 0, 1);
             // and the right fist's swing about the axis since then, in the fist's frame as the grip
             // closed (summed frame to frame, so it can go round), turns it past TURN_DEAD_ZONE
-            delta
-                .invert(this.gripHand)
-                .transformVector(toRight.sub2(rightJoint.getPosition(), this.handPosition), toRight);
+            delta.invert(this.gripHand).transformVector(toRight.sub2(rightAt, this.handPosition), toRight);
             const angle = Math.atan2(toRight.x, toRight.z);
             if (this.swingFrom !== null && Math.hypot(toRight.x, toRight.z) > 1e-3) {
                 this.swung += wrapPi(angle - this.swingFrom);
