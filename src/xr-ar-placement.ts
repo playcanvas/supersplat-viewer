@@ -35,7 +35,7 @@ import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 // the same way. The ring is RING_SIZE across, RING_LIFT above the surface, and draws over
 // everything, as there is no depth of the room
 const LEVEL = 0.8;
-const PREVIEW_ALPHA = 0.35;
+const PREVIEW_ALPHA = 0.65;
 const SMOOTH = 10;
 const HOLD = 1;
 const RING_SIZE = 0.12;
