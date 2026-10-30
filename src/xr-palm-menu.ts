@@ -24,7 +24,8 @@ const PIXELS = 4000;
 // of its four fingers' tips more than FINGER_REACH from their knuckles, its palm facing the eyes
 // within PALM_FACING (the cosine), puts the menu PALM_OFFSET out from the middle of the palm,
 // facing the eyes; a controller's TOGGLE_BUTTON opens and closes it on that controller,
-// CONTROLLER_OFFSET towards the user. It follows its anchor at FOLLOW_SPEED (a lerp a second)
+// CONTROLLER_OFFSET towards the eyes and facing them, however the controller is held. It follows
+// its anchor at FOLLOW_SPEED (a lerp a second)
 const FINGER_REACH = 0.06;
 const FINGERS_OPEN = 3;
 const PALM_FACING = 0.6;
@@ -597,7 +598,7 @@ class XrPalmMenu {
     }
 
     // where the menu goes for its anchor, into `position` and `rotation`: out from the middle of
-    // a palm facing the eyes, or towards the user from a controller, turned as it is
+    // a palm, or towards the eyes from a controller, facing the eyes either way
     private anchorPose(source: XrInputSource) {
         const scale = this.scale;
         const hand = source.hand;
@@ -607,19 +608,19 @@ class XrPalmMenu {
             if (!knuckle || !proximal || !this.palmNormal(source)) return false;
             position.lerp(knuckle.getPosition(), proximal.getPosition(), 0.5);
             position.add(target.copy(normal).mulScalar(PALM_OFFSET * scale));
+        } else {
+            if (!source.grip) return false;
+            position.copy(source.getPosition());
             toEyes.sub2(this.camera.getPosition(), position);
-            if (toEyes.lengthSq() > 1e-6) {
-                toEyes.normalize();
-                const yaw = Math.atan2(toEyes.x, toEyes.z) * (180 / Math.PI);
-                const pitch = -Math.asin(toEyes.y) * (180 / Math.PI);
-                rotation.setFromEulerAngles(pitch, yaw, 0);
-            }
-            return true;
+            if (toEyes.lengthSq() > 1e-6) position.add(toEyes.normalize().mulScalar(CONTROLLER_OFFSET * scale));
         }
-        if (!source.grip) return false;
-        rotation.copy(source.getRotation());
-        rotation.transformVector(target.set(0, 0, CONTROLLER_OFFSET * scale), target);
-        position.add2(source.getPosition(), target);
+        toEyes.sub2(this.camera.getPosition(), position);
+        if (toEyes.lengthSq() > 1e-6) {
+            toEyes.normalize();
+            const yaw = Math.atan2(toEyes.x, toEyes.z) * (180 / Math.PI);
+            const pitch = -Math.asin(toEyes.y) * (180 / Math.PI);
+            rotation.setFromEulerAngles(pitch, yaw, 0);
+        }
         return true;
     }
 
