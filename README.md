@@ -47,6 +47,7 @@ By default the viewer uses WebGPU when available (falling back automatically whe
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `webgl`       | Force the WebGL renderer (required for AR/VR)                                                                                                                                    |
 | `aa`          | Enable antialiasing (WebGL only)                                                                                                                                                 |
+| `3d`          | Show the scene in 3D on a glasses-free 3D display ([DisplayXR Browser](docs/api.md#glasses-free-3d-displays)); implies `webgl`. `3d=0.5` sets the depth (default `0.3`)          |
 | `stochastic`  | Experimental unsorted, depth-tested splat renderer: `stochastic` for per-pixel quality, `stochastic=mobile` for phones and headsets. WebGPU only, its XR included                |
 | `splatSource` | Developer knob for the stochastic renderer: the data path feeding it (`direct`, the default, reads the resident files in place; `workbuffer` reads the engine's work buffer)     |
 | `variant`     | Developer knob for the stochastic renderer: comma-separated `key:value` experiment switches over the mode's, e.g. `taaSharp:8`                                                   |
