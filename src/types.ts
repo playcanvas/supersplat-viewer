@@ -30,8 +30,8 @@ type QualityLevel = 'performance' | 'default' | 'high' | 'max';
 // the createViewer options with every default applied: what the viewer reads at runtime, and
 // immutable once it starts. The flags are documented on ViewerFlags
 type Config = ViewerAssets &
-    Required<Omit<ViewerFlags, 'hpr' | 'budget' | 'lang'>> &
-    Pick<ViewerFlags, 'hpr' | 'budget' | 'lang'> & {
+    Required<Omit<ViewerFlags, 'hpr' | 'budget' | 'lang' | 'display3dDepth'>> &
+    Pick<ViewerFlags, 'hpr' | 'budget' | 'lang' | 'display3dDepth'> & {
         poster?: HTMLImageElement;
         contents: Promise<Response>;
     };
@@ -93,6 +93,17 @@ type State = {
     canStartVR: boolean;
     /** Active immersive session kind, or null. Read-only: use `startXR` / `endXR`. */
     xrMode: XrMode | null;
+    /**
+     * Whether this browser can weave the canvas for a glasses-free 3D display (the DisplayXR
+     * Browser). Read once at startup, without loading the SDK.
+     */
+    hasDisplay3d: boolean;
+    /**
+     * Show the scene in 3D on a glasses-free 3D display. Setting it loads the SDK and starts the
+     * mode; it falls back to false where the mode cannot start (no display, or the WebGPU
+     * renderer: the mode needs WebGL) and when the display's session ends.
+     */
+    display3d: boolean;
     /** Whether the experience ships collision data, which walk mode needs. */
     hasCollision: boolean;
     /** Whether that collision data can be drawn as a debug overlay. */
@@ -141,7 +152,8 @@ type WritableStateKey =
     | 'animationPaused'
     | 'collisionOverlayEnabled'
     | 'controlsHidden'
-    | 'inputEnabled';
+    | 'inputEnabled'
+    | 'display3d';
 
 /**
  * The viewer's state as a host sees it: one observable object, with the keys the viewer owns

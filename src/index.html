@@ -63,7 +63,11 @@
             // ?content= override replaces the url it describes.
             const contentFilename = url.searchParams.has('content') ? null : (bootstrap.contentFilename ?? null);
 
-            const renderer = url.searchParams.has('webgl') ? 'webgl' : 'webgpu';
+            // a glasses-free 3D display needs WebGL, as AR and VR do
+            const display3d = url.searchParams.has('3d');
+            const renderer = url.searchParams.has('webgl') || display3d ? 'webgl' : 'webgpu';
+            const display3dDepthParam = url.searchParams.get('3d');
+            const display3dDepth = display3dDepthParam ? Number(display3dDepthParam) : undefined;
 
             const budgetParam = url.searchParams.get('budget');
             const budget = budgetParam !== null ? Number(budgetParam) : undefined;
@@ -97,6 +101,8 @@
                 colorize: url.searchParams.has('colorize'),
                 renderer,
                 aa: url.searchParams.has('aa'),
+                display3d,
+                display3dDepth,
                 stochastic: url.searchParams.has('stochastic')
                     ? url.searchParams.get('stochastic') === 'mobile'
                         ? 'mobile'

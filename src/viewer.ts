@@ -32,6 +32,7 @@ import type { Collision } from './collision';
 import { MeshCollision, VoxelCollision } from './collision';
 import { nearlyEquals } from './core/math';
 import { DebugPanel } from './debug';
+import { initDisplay3d } from './display3d';
 import { FrameGate } from './frame-gate';
 import { initFullscreen } from './fullscreen';
 import type { GsafPlayer } from './gsaf/gsaf-player';
@@ -216,6 +217,8 @@ class Viewer {
 
     private xr: ReturnType<typeof initXr>;
 
+    private display3d: ReturnType<typeof initDisplay3d>;
+
     private capture: Capture | null = null;
 
     // captures are serialised: they share the viewer camera, so concurrent ones would
@@ -261,6 +264,8 @@ class Viewer {
 
         this.fullscreen = initFullscreen(global);
         this.xr = initXr(global);
+        // converges on the camera's focus distance: the orbit pivot, or the distance carried into fly/walk
+        this.display3d = initDisplay3d(global, () => this.cameraManager?.camera.distance ?? null);
 
         this.ready = new Promise((resolve, reject) => {
             events.once('firstFrame', () => resolve());
@@ -335,6 +340,13 @@ class Viewer {
             this.configureCamera(settings);
         });
         this.onDestroy(() => xrModeChanged.off());
+
+        // and for the 3D-display mode, which has no post effects either
+        const display3dChanged = events.on('display3d:changed', () => {
+            if (this.destroyed) return;
+            this.configureCamera(settings);
+        });
+        this.onDestroy(() => display3dChanged.off());
 
         // debug ministats, from the flag at start and the debug panel's toggle after
         this.setMiniStats(config.ministats);
@@ -1057,6 +1069,7 @@ class Viewer {
 
         this.fullscreen.destroy();
         this.xr.destroy();
+        this.display3d.destroy();
 
         // subsystems holding listeners on the canvas, window or document, or gpu resources
         // outside the entity hierarchy
@@ -1126,8 +1139,9 @@ class Viewer {
 
         const postFxRequested = !config.nofx && (anyPostEffectEnabled(postEffectSettings) || highPrecisionRendering);
 
-        // CameraFrame has no XR path, so post effects are off for the session
-        const enableCameraFrame = state.xrMode === null && postFxRequested;
+        // CameraFrame has no XR path, so post effects are off for the session, and while the
+        // scene is shown on a 3D display, whose two eyes render through the same views
+        const enableCameraFrame = state.xrMode === null && !state.display3d && postFxRequested;
 
         if (enableCameraFrame) {
             // create instance

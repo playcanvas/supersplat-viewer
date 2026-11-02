@@ -49,6 +49,8 @@
     "public/index.css",
     "public/index.js",
     "public/index.js.map",
+    "public/inline3d.js",
+    "public/inline3d.js.map",
     "public/gsaf-decoder.wasm",
     "docs/api.md",
     "LICENSE",
@@ -57,14 +59,19 @@
     "README.md"
   ],
   "peerDependencies": {
+    "@displayxr/inline3d": "1.47.5",
     "playcanvas": "^2.23.0"
   },
   "peerDependenciesMeta": {
+    "@displayxr/inline3d": {
+      "optional": true
+    },
     "playcanvas": {
       "optional": true
     }
   },
   "devDependencies": {
+    "@displayxr/inline3d": "1.47.5",
     "@playcanvas/eslint-config": "3.0.0",
     "@rollup/plugin-json": "6.1.0",
     "@rollup/plugin-node-resolve": "16.0.3",

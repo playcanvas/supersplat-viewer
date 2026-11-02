@@ -170,12 +170,16 @@ function wasmDataUrlPlugin() {
     };
 }
 
+// The DisplayXR inline-3D SDK (src/display3d.ts) is imported only when the 3D-display mode
+// starts. Here it is its own chunk beside the bundle, fetched on that first use, so index.js does
+// not grow by it; a single-file document inlines index.js alone, and stays 2D there.
 const buildPublic = {
     input: 'src/index.ts',
     output: {
         dir: 'public',
         format: 'esm',
-        sourcemap: true
+        sourcemap: true,
+        chunkFileNames: '[name].js'
     },
     plugins: [
         resolve(debugEngine ? { exportConditions: ['development'] } : {}),
@@ -210,6 +214,10 @@ const buildDist = {
 // scripts are imported from a subpath.
 const engineExternal = [/^playcanvas(\/|$)/];
 
+// The 3D-display SDK, loaded lazily (src/display3d.ts): external here like the engine, an
+// optional peer dependency that a host resolves only if it offers the mode.
+const display3dExternal = [/^@displayxr\/inline3d(\/|$)/];
+
 const buildViewer = {
     input: 'src/index.ts',
     output: {
@@ -217,7 +225,7 @@ const buildViewer = {
         format: 'esm',
         sourcemap: true
     },
-    external: engineExternal,
+    external: [...engineExternal, ...display3dExternal],
     plugins: [
         resolve(),
         ...gsafDecoder(),
@@ -274,7 +282,7 @@ const buildDistTypes = {
 const buildViewerTypes = {
     input: 'src/index.ts',
     output: { file: 'dist/viewer.d.ts', format: 'es' },
-    external: [...engineExternal, /\.html$/, /package\.json$/, /lib\/gsaf\//],
+    external: [...engineExternal, ...display3dExternal, /\.html$/, /package\.json$/, /lib\/gsaf\//],
     plugins: [dts()]
 };
 

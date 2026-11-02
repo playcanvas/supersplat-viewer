@@ -1,0 +1,324 @@
+import { Mat4, RenderView } from 'playcanvas';
+
+import type { Global } from './types';
+
+// Glasses-free 3D displays, through the DisplayXR inline-3D web SDK (`@displayxr/inline3d`).
+//
+// On such a display the browser weaves the canvas for the viewer's eyes: the page draws a
+// side-by-side pair, the left eye's view in the left half of the canvas and the right eye's in
+// the right half, and the browser interleaves them for the panel's optics. The SDK opens the
+// page's inline-3D session and hands over the two eye views each frame; everything else stays
+// the viewer's own. The camera manager keeps driving the camera entity exactly as in 2D, and the
+// engine draws both eyes in one pass through the same `RenderView` path its WebXR support uses
+// (`camera.xrViews`), so LOD, culling and the splat sort see the views' real frustum.
+//
+// Nothing here runs, and the SDK is never fetched, unless the mode is asked for (the `3d` url
+// param, the `display3d` option, or the button that appears only where a 3D display is found).
+// The SDK is imported lazily, so the normal bundle does not grow by it.
+//
+// The camera rig: the runtime keeps this camera's framing and perturbs its frustum per eye. The
+// rig is posed at the camera itself (identity) and each eye's pose is composed under the camera
+// node, so this frame's camera is the one rendered, with no frame of lag (the SDK's "attach
+// pattern"). Convergence, the distance that lands on the glass, is the camera's focus distance:
+// the orbit pivot in orbit mode, and the distance carried into fly and walk mode, which stays
+// fixed while flying. The depth budget is scaled by that distance (`metersToVirtual`), so a
+// 10 cm object and a 100 m scene get the same comfortable depth; `display3dDepth` changes it.
+// Values are passed to the runtime as given: the SDK warns about unusual ones and never clamps.
+
+/** The comfort number the camera rig is built to, the SDK's default for a page-owned camera. */
+const DEFAULT_DEPTH = 0.3;
+
+// frames the rig spends going flat before the layer is released, so stopping does not cut from
+// the woven pair to a squeezed one
+const FLATTEN_FRAMES = 10;
+
+// the SDK surface this file uses (see the package's index.d.ts for the full api)
+type Viewport = { x: number; y: number; width: number; height: number };
+type CameraRig = {
+    type: 'camera';
+    verticalFov: number;
+    convergenceDiopters: number;
+    metersToVirtual: number;
+    ipdFactor: number;
+    parallaxFactor: number;
+};
+type SceneHandle = { remove(): void; setViewRig(rig: CameraRig): boolean };
+type Wall = {
+    supported: true;
+    liveCount: number;
+    addScene(
+        canvas: HTMLCanvasElement,
+        onFrame: (views: readonly XRView[], layer: { getViewport(view: XRView): Viewport | null }) => void,
+        opts: { viewRig: CameraRig; bufferClamped: boolean; onLayerLost: () => void }
+    ): SceneHandle;
+    close(): void;
+};
+type Sdk = {
+    sharedInline3D(opts: { lazy: boolean }): Promise<Wall | { supported: false; error?: unknown }>;
+};
+
+/**
+ * Whether this browser can weave a canvas for a glasses-free 3D display. Synchronous and cheap,
+ * and it does not load the SDK: it reads the same two things the SDK's `inline3DAvailable()`
+ * does, WebXR and the DisplayXR Browser's `XRDisplayLayer`. The session itself is the final word.
+ */
+const display3dAvailable = () =>
+    typeof navigator !== 'undefined' &&
+    !!navigator.xr &&
+    typeof (window as unknown as { XRDisplayLayer?: unknown }).XRDisplayLayer === 'function';
+
+const DEG = Math.PI / 180;
+
+// the depth range of a GL projection (col-major), rewritten in place; fov, skew and principal
+// point are untouched
+const setDepthRange = (p: Float32Array, near: number, far: number) => {
+    p[10] = -(far + near) / (far - near);
+    p[14] = (-2 * far * near) / (far - near);
+};
+
+// a symmetric GL perspective (col-major), for the frames before the first eye views arrive
+const perspective = (out: Float32Array, vfov: number, aspect: number, near: number, far: number) => {
+    const f = 1 / Math.tan(vfov / 2);
+    out.fill(0);
+    out[0] = f / aspect;
+    out[5] = f;
+    out[11] = -1;
+    setDepthRange(out, near, far);
+};
+
+// The engine reads the camera's fov and aspect for LOD and culling while xrViews is set from the
+// XR properties, as its XrManager does for a headset. From the first eye's projection
+const frustumOf = (p: Float32Array, near: number, far: number) => ({
+    fov: (2 * Math.atan(1 / p[5])) / DEG,
+    aspectRatio: p[5] / p[0],
+    nearClip: near,
+    farClip: far,
+    horizontalFov: false
+});
+
+/**
+ * @param global - The viewer's globals.
+ * @param focusDistance - The camera's focus distance in scene units, or null before the camera
+ * manager exists.
+ */
+const initDisplay3d = (global: Global, focusDistance: () => number | null) => {
+    const { app, config, events, state, camera } = global;
+    const { canvas } = app.graphicsDevice;
+    const depth = config.display3dDepth ?? DEFAULT_DEPTH;
+    // the engine camera behind the camera component, which holds the eye views
+    const cam = () => camera.camera.camera;
+
+    // The lens the viewer set on the camera (applyCamera in viewer.ts). While xrViews is set the
+    // engine's public fov / near / far getters answer the XR properties set below instead, so
+    // read the camera's own fields
+    const lens = () => {
+        const c = cam() as unknown as { _fov: number; _horizontalFov: boolean; _nearClip: number; _farClip: number };
+        return { fov: c._fov, horizontalFov: c._horizontalFov, nearClip: c._nearClip, farClip: c._farClip };
+    };
+
+    // the last good eye views, copied field by field: an XRView and its viewport are only valid
+    // inside the callback that delivered them, and their fields are prototype getters, so
+    // Object.assign or a spread would copy nothing
+    const eyes = [0, 1].map(() => ({
+        proj: new Float32Array(16),
+        pose: new Float32Array(16),
+        vp: { x: 0, y: 0, width: 1, height: 1 }
+    }));
+    let haveViews = false;
+
+    const views = [new RenderView(), new RenderView()];
+    const poseMat = new Mat4();
+    const eyeMat = new Mat4();
+    const projScratch = new Float32Array(16);
+    let frustumKey = '';
+
+    let sdk: Promise<Sdk> | null = null;
+    let wall: Wall | null = null;
+    let handle: SceneHandle | null = null;
+    // bumped by every start and stop, so a start that resolves after a stop does nothing
+    let generation = 0;
+    let flatten = 0;
+    let destroyed = false;
+
+    // the camera's vertical field of view in radians: the viewer's fov is horizontal on a
+    // landscape canvas
+    const verticalFov = () => {
+        const { fov, horizontalFov } = lens();
+        const aspect = canvas.width / Math.max(canvas.height, 1);
+        return horizontalFov ? 2 * Math.atan(Math.tan((fov * DEG) / 2) / aspect) : fov * DEG;
+    };
+
+    // The rig for this frame's camera. `distance` is the camera's focus distance in scene units
+    const rig = (): CameraRig => {
+        const distance = Math.max(focusDistance() ?? 1, 1e-6);
+        const k = flatten > 0 ? flatten / FLATTEN_FRAMES : 1;
+        return {
+            type: 'camera',
+            verticalFov: verticalFov(),
+            convergenceDiopters: 1 / distance,
+            metersToVirtual: (depth * distance) / 0.5,
+            ipdFactor: k,
+            parallaxFactor: k
+        };
+    };
+
+    const onFrame = (xrViews: readonly XRView[], layer: { getViewport(view: XRView): Viewport | null }) => {
+        // a short view list or a missing viewport is a frame to replay, never one to skip or
+        // half-draw: the last good views stay in place
+        if (xrViews.length < 2) return;
+        const vps = [layer.getViewport(xrViews[0]), layer.getViewport(xrViews[1])];
+        if (!vps[0] || !vps[1]) return;
+        for (let i = 0; i < 2; i++) {
+            const e = eyes[i];
+            e.proj.set(xrViews[i].projectionMatrix);
+            e.pose.set(xrViews[i].transform.matrix);
+            e.vp = { x: vps[i].x, y: vps[i].y, width: vps[i].width, height: vps[i].height };
+        }
+        haveViews = true;
+    };
+
+    // Each render, after the camera manager has placed the camera: the two eyes, composed under
+    // the camera node (the engine composes a RenderView's pose with the camera's PARENT, so the
+    // pose given is the camera's local transform times the eye's pose in rig space)
+    const updateViews = () => {
+        const { nearClip, farClip } = lens();
+        const local = camera.getLocalTransform();
+        const w = app.graphicsDevice.width;
+        const h = app.graphicsDevice.height;
+        for (let i = 0; i < 2; i++) {
+            if (haveViews) {
+                projScratch.set(eyes[i].proj);
+                setDepthRange(projScratch, nearClip, farClip);
+                poseMat.data.set(eyes[i].pose);
+                eyeMat.mul2(local, poseMat);
+                views[i].setView(projScratch, eyeMat.data);
+                const { x, y, width, height } = eyes[i].vp;
+                views[i].setViewport(x, y, width, height);
+            } else {
+                // no eyes yet: the camera's own frustum in both halves, never an empty one
+                perspective(projScratch, verticalFov(), w / Math.max(h, 1), nearClip, farClip);
+                views[i].setView(projScratch, local.data);
+                views[i].setViewport((i * w) / 2, 0, w / 2, h);
+            }
+        }
+        const f = frustumOf(projScratch, nearClip, farClip);
+        const key = `${f.fov.toFixed(4)}|${f.aspectRatio.toFixed(4)}|${nearClip}|${farClip}`;
+        if (key !== frustumKey) {
+            frustumKey = key;
+            cam().setXrProperties(f);
+        }
+    };
+
+    const release = () => {
+        handle?.remove();
+        handle = null;
+        cam().xrViews = null;
+        frustumKey = '';
+        haveViews = false;
+        flatten = 0;
+        app.renderNextFrame = true;
+    };
+
+    const handles = [
+        // the woven canvas is read every frame, so it is drawn every frame while it is woven
+        app.on('framerender', () => {
+            if (handle) app.renderNextFrame = true;
+        }),
+        app.on('prerender', () => {
+            if (!handle) return;
+            handle.setViewRig(rig());
+            if (flatten > 0 && --flatten === 0) {
+                release();
+                return;
+            }
+            updateViews();
+        })
+    ];
+
+    const start = async () => {
+        const run = ++generation;
+        if (state.xrMode !== null) {
+            // an immersive session owns the camera's views
+            state.display3d = false;
+            return;
+        }
+        if (global.renderer !== 'webgl') {
+            console.warn(
+                'display3d: glasses-free 3D displays need the WebGL renderer; reload with the `3d` url param (or `renderer: "webgl"`)'
+            );
+            state.display3d = false;
+            return;
+        }
+        try {
+            sdk ??= import('@displayxr/inline3d') as unknown as Promise<Sdk>;
+            const result = await (await sdk).sharedInline3D({ lazy: false });
+            if (destroyed || run !== generation) return;
+            if (result.supported === false) {
+                console.info('display3d: no glasses-free 3D display here, staying 2D', result.error ?? '');
+                state.display3d = false;
+                return;
+            }
+            wall = result;
+            handle = wall.addScene(canvas, onFrame, {
+                viewRig: rig(),
+                // the viewer sizes its own canvas within the device limits
+                bufferClamped: true,
+                // the session ended or the layer could not be made: back to 2D
+                onLayerLost: () => {
+                    if (!handle) return;
+                    release();
+                    state.display3d = false;
+                }
+            });
+            updateViews();
+            cam().xrViews = views.slice();
+            app.renderNextFrame = true;
+        } catch (err) {
+            console.warn('display3d: could not start', err);
+            if (run === generation) state.display3d = false;
+        }
+    };
+
+    const stop = () => {
+        generation++;
+        // ease the eye separation to zero, then let the layer go
+        if (handle && flatten === 0) flatten = FLATTEN_FRAMES;
+    };
+
+    const changed = events.on('display3d:changed', (value: boolean) => {
+        if (destroyed) return;
+        if (value) {
+            // a stop still flattening is undone rather than restarted
+            if (handle) {
+                flatten = 0;
+                return;
+            }
+            void start();
+        } else {
+            stop();
+        }
+    });
+
+    // an immersive session takes the camera's views over, so it ends the mode
+    const xrModeChanged = events.on('xrMode:changed', (mode: string | null) => {
+        if (mode) state.display3d = false;
+    });
+
+    state.hasDisplay3d = display3dAvailable();
+    if (state.display3d) void start();
+
+    return {
+        destroy: () => {
+            destroyed = true;
+            generation++;
+            changed.off();
+            xrModeChanged.off();
+            for (const h of handles) h.off();
+            if (handle) release();
+            if (wall && wall.liveCount === 0) wall.close();
+            wall = null;
+        }
+    };
+};
+
+export { display3dAvailable, initDisplay3d };
