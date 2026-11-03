@@ -196,14 +196,15 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null, autho
         const k = flatten > 0 ? flatten / FLATTEN_FRAMES : 1;
         if (objectRig()) {
             // the window sits at the pivot (the camera looks down -z) and shows what the 2D
-            // camera frames at that distance. The default depth is the subject's real proportions
-            const gain = k * (depth / DEFAULT_DEPTH);
+            // camera frames at that distance. The default depth is the subject's real proportions.
+            // Only the eye separation follows it: scaling the head's parallax as well would also
+            // scale the viewer's offset from the window, and shear the picture with nobody moving
             return {
                 type: 'display',
                 position: { x: 0, y: 0, z: -distance },
                 virtualDisplayHeight: 2 * distance * Math.tan(verticalFov() / 2),
-                ipdFactor: gain,
-                parallaxFactor: gain
+                ipdFactor: k * (depth / DEFAULT_DEPTH),
+                parallaxFactor: k
             };
         }
         return {
@@ -291,6 +292,7 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null, autho
         blend = 0;
         lastRigType = null;
         app.renderNextFrame = true;
+        events.fire('display3d:released');
     };
 
     const handles = [
@@ -396,6 +398,8 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null, autho
     if (state.display3d) void start();
 
     return {
+        // the eye views are in place, or still easing out after the mode was turned off
+        active: () => state.display3d || handle !== null,
         destroy: () => {
             destroyed = true;
             generation++;

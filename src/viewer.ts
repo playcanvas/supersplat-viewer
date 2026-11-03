@@ -351,6 +351,11 @@ class Viewer {
             this.configureCamera(settings);
         });
         this.onDestroy(() => display3dChanged.off());
+        const display3dReleased = events.on('display3d:released', () => {
+            if (this.destroyed) return;
+            this.configureCamera(settings);
+        });
+        this.onDestroy(() => display3dReleased.off());
 
         // debug ministats, from the flag at start and the debug panel's toggle after
         this.setMiniStats(config.ministats);
@@ -1145,7 +1150,7 @@ class Viewer {
 
         // CameraFrame has no XR path, so post effects are off for the session, and while the
         // scene is shown on a 3D display, whose two eyes render through the same views
-        const enableCameraFrame = state.xrMode === null && !state.display3d && postFxRequested;
+        const enableCameraFrame = state.xrMode === null && !this.display3d?.active() && postFxRequested;
 
         if (enableCameraFrame) {
             // create instance
