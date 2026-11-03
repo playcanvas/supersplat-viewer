@@ -20,13 +20,16 @@ import type { Global } from './types';
 // relative to the camera, and each eye's pose is composed under the camera node, so this frame's
 // camera is the one rendered, with no frame of lag (the SDK's "attach pattern").
 //
-// Looking at an object (orbit, and the turntable that precedes it) uses the display rig: the
-// canvas is a window onto the scene and the subject sits in it at its real proportions. The window
-// is posed at the orbit pivot and sized to what the 2D camera frames there, so the pivot stays on
-// the glass, the framing at the pivot matches 2D, zooming scales the subject, and moving the head
-// shows true parallax.
+// Looking at an object (orbit, and the turntable that precedes it, in a scene seen from outside its
+// bounds and with the pivot near their centre) uses the display rig: the canvas is a window onto
+// the scene and the subject sits in it at its real proportions. The window is posed at the orbit
+// pivot and sized to what the 2D camera frames there, so the pivot stays on the glass, the framing
+// at the pivot matches 2D, zooming scales the subject, and moving the head shows true parallax.
+// Around a pivot off to one side the subject swings across the window and in and out of the glass,
+// so that case is treated as a world.
 //
-// Moving through a world (fly, walk, an authored camera path) uses the camera rig: the runtime
+// Moving through a world (fly, walk, an authored camera path, an orbit away from the centre of the
+// scene or inside it) uses the camera rig: the runtime
 // keeps the camera's lens and skews each eye so the focus distance lands on the glass. That
 // distance is carried in from orbit and stays fixed while flying, so what is ahead never goes flat
 // from being looked at. The eye separation is scaled by it, so a 10 cm object and a 100 m scene
@@ -132,8 +135,15 @@ const frustumOf = (p: Float32Array, near: number, far: number) => ({
  * manager exists.
  * @param authoredPath - Whether the anim camera mode plays an authored path, rather than the
  * turntable the viewer makes up for an object.
+ * @param centredOnObject - Whether the scene is an object seen from outside, with the camera's
+ * focus within this fraction of its size from its centre.
  */
-const initDisplay3d = (global: Global, focusDistance: () => number | null, authoredPath: boolean) => {
+const initDisplay3d = (
+    global: Global,
+    focusDistance: () => number | null,
+    authoredPath: boolean,
+    centredOnObject: (margin: number) => boolean
+) => {
     const { app, config, events, state, camera } = global;
     const { canvas } = app.graphicsDevice;
     const depth = config.display3dDepth ?? DEFAULT_DEPTH;
@@ -189,8 +199,14 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null, autho
         return horizontalFov ? 2 * Math.atan(Math.tan((fov * DEG) / 2) / aspect) : fov * DEG;
     };
 
-    // an object is orbited, or spun by the turntable; everything else is moving through a world
-    const objectRig = () => state.cameraMode === 'orbit' || (state.cameraMode === 'anim' && !authoredPath);
+    // an object is orbited, or spun by the turntable, about its middle; everything else is moving
+    // through a world. Two margins, so a pivot near the limit does not flip the rig back and forth
+    let onObject = false;
+    const objectRig = () => {
+        const orbiting = state.cameraMode === 'orbit' || (state.cameraMode === 'anim' && !authoredPath);
+        onObject = orbiting && centredOnObject(onObject ? 0.35 : 0.25);
+        return onObject;
+    };
 
     // The rig for this frame's camera. `distance` is the camera's focus distance in scene units
     const rig = (): ViewRig => {

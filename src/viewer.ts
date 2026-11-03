@@ -268,7 +268,8 @@ class Viewer {
         this.display3d = initDisplay3d(
             global,
             () => this.cameraManager?.camera.distance ?? null,
-            settings.animTracks?.length > 0 && settings.startMode === 'animTrack'
+            settings.animTracks?.length > 0 && settings.startMode === 'animTrack',
+            (margin) => this.cameraManager?.isCentredOnObject(margin) ?? false
         );
 
         this.ready = new Promise((resolve, reject) => {

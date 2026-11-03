@@ -106,6 +106,14 @@ class CameraManager {
     // scene to be in. XR holds and grabs the splat by the same test
     readonly isObjectExperience: boolean;
 
+    /**
+     * Whether this is an object experience with the camera's focus point near the object's centre.
+     *
+     * @param margin - How far the focus may be from the centre, as a fraction of the object's size.
+     * @returns True if the focus is that close.
+     */
+    isCentredOnObject: (margin: number) => boolean;
+
     // holds the camera state
     camera = new Camera();
 
@@ -148,6 +156,11 @@ class CameraManager {
         // object experience starts outside the bounding box
         const isObjectExperience = !bbox.containsPoint(resetCamera.position);
         this.isObjectExperience = isObjectExperience;
+        this.isCentredOnObject = (margin) => {
+            if (!isObjectExperience) return false;
+            this.camera.calcFocusPoint(tmpv);
+            return tmpv.distance(bbox.center) <= margin * bbox.halfExtents.length();
+        };
         const animTrack = cameraAnimation ? getAnimTrack(resetCamera, isObjectExperience) : null;
 
         const controllers = {
