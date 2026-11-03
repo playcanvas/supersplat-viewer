@@ -30,8 +30,8 @@ type QualityLevel = 'performance' | 'default' | 'high' | 'max';
 // the createViewer options with every default applied: what the viewer reads at runtime, and
 // immutable once it starts. The flags are documented on ViewerFlags
 type Config = ViewerAssets &
-    Required<Omit<ViewerFlags, 'hpr' | 'budget' | 'lang'>> &
-    Pick<ViewerFlags, 'hpr' | 'budget' | 'lang'> & {
+    Required<Omit<ViewerFlags, 'hpr' | 'aa' | 'budget' | 'lang'>> &
+    Pick<ViewerFlags, 'hpr' | 'aa' | 'budget' | 'lang'> & {
         poster?: HTMLImageElement;
         contents: Promise<Response>;
     };

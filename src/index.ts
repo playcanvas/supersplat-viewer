@@ -298,7 +298,7 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     colorize: options.colorize ?? false,
     fullload: options.fullload ?? false,
     vr: options.vr ?? false,
-    aa: options.aa ?? false,
+    aa: options.aa,
     stochastic: options.stochastic ?? false,
     // the direct source reads the engine's own splat files, not the container a gsaf sequence
     // plays through; the work buffer source reads whatever the engine copied

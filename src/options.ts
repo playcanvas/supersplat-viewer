@@ -75,7 +75,11 @@ type ViewerFlags = {
      * Defaults to `false`.
      */
     vr?: boolean;
-    /** Render with antialiasing. */
+    /**
+     * Override the anti-aliasing compensation that splats trained with anti-aliasing need: `true`
+     * renders every splat with it, `false` without. When not set, the engine follows the training
+     * mode each splat file records (PlayCanvas Engine 2.24 and later).
+     */
     aa?: boolean;
     /**
      * Developer override of the Performance Mode setting: `true` forces the stochastic splat
