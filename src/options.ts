@@ -87,9 +87,10 @@ type ViewerFlags = {
      */
     display3d?: boolean;
     /**
-     * How deep the scene looks on a 3D display: the comfort number the camera rig is built to,
-     * `ipd x metersToVirtual x convergenceDiopters x 0.5`. Passed through as given. Defaults to
-     * `0.3`, the SDK's own default for an app that owns its camera.
+     * How deep the scene looks on a 3D display. In orbit, `0.3` is the subject's real proportions
+     * and the value scales the eye separation from there; in fly and walk it is the comfort number
+     * the camera rig is built to, `ipd x metersToVirtual x convergenceDiopters x 0.5`. Passed through
+     * as given. Defaults to `0.3`.
      */
     display3dDepth?: number;
     /**
