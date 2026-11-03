@@ -41,9 +41,27 @@ import type { Global } from './types';
 /** The comfort number the camera rig is built to, the SDK's default for a page-owned camera. */
 const DEFAULT_DEPTH = 0.3;
 
-// frames the rig spends going flat before the layer is released, so stopping does not cut from
-// the woven pair to a squeezed one
-const FLATTEN_FRAMES = 10;
+// How the mode turns on and off without a visible cut. Stereo fades in and out on the camera rig,
+// with both eyes on the 2D camera at the flat end, so what is on screen at that end is the 2D
+// picture. The canvas does not change size between the modes, so a full-width frame on a canvas
+// that is still being woven would be split into a pair, and the pair on one no longer woven would
+// show raw. So the swap happens under a cover: a still of that same picture, in the canvas's place.
+//
+//   off: display rig -> camera rig -> fade to flat -> cover -> release the layer -> 2D frame -> uncover
+//   on:  cover -> layer, panel to 3D -> first woven frame -> uncover -> fade in -> display rig
+
+// how long the depth takes to fade in or out
+const FADE_MS = 500;
+
+// frames to let the cover land before releasing the layer under it
+const COVER_LAND_FRAMES = 2;
+
+// the cover stays until the layer's release has landed and the canvas is a plain 2D layer again
+const COVER_CLEAR_FRAMES = 6;
+const COVER_CLEAR_MS = 150;
+
+// the longest the cover waits for the first woven frame; the SDK's answer normally comes well before
+const COVER_HOLD_MAX_MS = 5000;
 
 // frames spent easing from one rig's eyes to the other's when the camera mode changes
 const RIG_BLEND_FRAMES = 30;
@@ -66,7 +84,7 @@ type DisplayRig = {
     parallaxFactor: number;
 };
 type ViewRig = CameraRig | DisplayRig;
-type SceneHandle = { remove(): void; setViewRig(rig: ViewRig): boolean };
+type SceneHandle = { remove(): void; setViewRig(rig: ViewRig): boolean; firstWoven: Promise<unknown> };
 type Wall = {
     supported: true;
     liveCount: number;
@@ -186,7 +204,19 @@ const initDisplay3d = (
     let handle: SceneHandle | null = null;
     // bumped by every start and stop, so a start that resolves after a stop does nothing
     let generation = 0;
-    let flatten = 0;
+    // off -> opening (cover up, loading) -> live (the layer is bound) -> closing (under the cover)
+    let phase: 'off' | 'opening' | 'live' | 'closing' = 'off';
+    // the mode has been turned off, and is on its way out
+    let stopping = false;
+    // the stereo fade: 0 is both eyes on the 2D camera, 1 is the full rig
+    let k = 1;
+    let fade: { from: number; to: number; t0: number } | null = null;
+    // waiting for the first woven frame, under the cover
+    let holding = false;
+    let closeDue = false;
+    let cover: HTMLCanvasElement | null = null;
+    let pausedAnimation = false;
+    let drawnOnce = false;
     let destroyed = false;
     // captures in progress: they render the camera's own 2D view, not the eyes
     let suspended = 0;
@@ -204,14 +234,15 @@ const initDisplay3d = (
     let onObject = false;
     const objectRig = () => {
         const orbiting = state.cameraMode === 'orbit' || (state.cameraMode === 'anim' && !authoredPath);
-        onObject = orbiting && centredOnObject(onObject ? 0.35 : 0.25);
+        // the display rig only once the stereo has faded all the way in, and not on the way out
+        const settled = phase === 'live' && !stopping && !holding && k === 1;
+        onObject = settled && orbiting && centredOnObject(onObject ? 0.35 : 0.25);
         return onObject;
     };
 
     // The rig for this frame's camera. `distance` is the camera's focus distance in scene units
     const rig = (): ViewRig => {
         const distance = Math.max(focusDistance() ?? 1, 1e-6);
-        const k = flatten > 0 ? flatten / FLATTEN_FRAMES : 1;
         if (objectRig()) {
             // the window sits at the pivot (the camera looks down -z) and shows what the 2D
             // camera frames at that distance. The default depth is the subject's real proportions.
@@ -258,8 +289,8 @@ const initDisplay3d = (
         const local = camera.getLocalTransform();
         const w = app.graphicsDevice.width;
         const h = app.graphicsDevice.height;
-        // while stopping, each eye also eases to the 2D camera, so releasing the layer does not cut
-        const toFlat = flatten > 0 ? 1 - flatten / FLATTEN_FRAMES : 0;
+        // the fade also eases each eye to the 2D camera, so its flat end is the 2D picture exactly
+        const toFlat = 1 - k;
         if (toFlat > 0) perspective(flatProj, verticalFov(), w / Math.max(h, 1), nearClip, farClip);
         const fromT = blend > 0 ? easeInOut(blend / RIG_BLEND_FRAMES) : 0;
         for (let i = 0; i < 2; i++) {
@@ -300,17 +331,130 @@ const initDisplay3d = (
         }
     };
 
+    // a still of this part of the canvas, in the canvas's place. Called just after a frame is drawn,
+    // while the canvas's pixels can be read
+    const raiseCover = (x: number, y: number, width: number, height: number) => {
+        const gl = (app.graphicsDevice as unknown as { gl: WebGL2RenderingContext }).gl;
+        const bound = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
+        const pixels = new Uint8ClampedArray(width * height * 4);
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+        gl.readPixels(x, y, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, bound);
+        // the rows arrive bottom-up
+        const flipped = new Uint8ClampedArray(pixels.length);
+        const stride = width * 4;
+        for (let row = 0; row < height; row++) {
+            flipped.set(pixels.subarray(row * stride, (row + 1) * stride), (height - 1 - row) * stride);
+        }
+        const next = document.createElement('canvas');
+        next.width = width;
+        next.height = height;
+        next.getContext('2d').putImageData(new ImageData(flipped, width, height), 0, 0);
+        const { style } = next;
+        const computed = getComputedStyle(canvas);
+        style.position = computed.position === 'fixed' ? 'fixed' : 'absolute';
+        style.left = `${canvas.offsetLeft}px`;
+        style.top = `${canvas.offsetTop}px`;
+        style.width = `${canvas.offsetWidth}px`;
+        style.height = `${canvas.offsetHeight}px`;
+        style.zIndex = computed.zIndex;
+        style.pointerEvents = 'none';
+        // right after the canvas, so whatever the viewer draws over the canvas stays over the cover
+        canvas.after(next);
+        cover?.remove();
+        cover = next;
+    };
+
+    const dropCover = () => {
+        cover?.remove();
+        cover = null;
+    };
+
+    // the camera would carry on behind a still, and jump when it lifts
+    const pauseAnimation = () => {
+        if (state.cameraMode === 'anim' && !state.animationPaused) {
+            pausedAnimation = true;
+            state.animationPaused = true;
+        }
+    };
+    const resumeAnimation = () => {
+        if (pausedAnimation) state.animationPaused = false;
+        pausedAnimation = false;
+    };
+
+    const afterFrames = (frames: number, minMs: number, done: () => void) => {
+        const t0 = performance.now();
+        let count = 0;
+        const step = () => {
+            if (destroyed) return;
+            if (++count >= frames && performance.now() - t0 >= minMs) done();
+            else requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+    };
+
+    const startFade = (to: number) => {
+        fade = { from: k, to, t0: performance.now() };
+    };
+
+    const tickFade = () => {
+        if (!fade) return;
+        const u = Math.min((performance.now() - fade.t0) / FADE_MS, 1);
+        k = fade.from + (fade.to - fade.from) * easeInOut(u);
+        if (u === 1) {
+            k = fade.to;
+            fade = null;
+        }
+    };
+
+    // let the layer and the session go, and the camera have its own view back
     const release = () => {
         handle?.remove();
         handle = null;
+        if (wall && wall.liveCount === 0) wall.close();
+        wall = null;
         cam().xrViews = null;
         frustumKey = '';
         haveViews = false;
-        flatten = 0;
         blend = 0;
         lastRigType = null;
+        holding = false;
+        closeDue = false;
+        fade = null;
+        k = 1;
         app.renderNextFrame = true;
         events.fire('display3d:released');
+    };
+
+    // at once, with nothing to wait for: the session has gone, or something else needs the camera
+    const releaseNow = () => {
+        generation++;
+        release();
+        dropCover();
+        resumeAnimation();
+        stopping = false;
+        phase = 'off';
+    };
+
+    const closeUnderCover = () => {
+        const run = ++generation;
+        phase = 'closing';
+        // both eyes are the 2D picture now, so one of them is the still
+        const { x, y, z, w } = views[0].viewport;
+        raiseCover(x, y, z, w);
+        afterFrames(COVER_LAND_FRAMES, 0, () => {
+            if (run !== generation) return;
+            release();
+            afterFrames(COVER_CLEAR_FRAMES, COVER_CLEAR_MS, () => {
+                if (run !== generation) return;
+                dropCover();
+                resumeAnimation();
+                stopping = false;
+                phase = 'off';
+                // turned back on while closing
+                if (state.display3d) void start();
+            });
+        });
     };
 
     const handles = [
@@ -320,6 +464,7 @@ const initDisplay3d = (
         }),
         app.on('prerender', () => {
             if (!handle) return;
+            tickFade();
             const next = rig();
             if (haveViews && lastRigType !== null && next.type !== lastRigType) {
                 // start from the eyes on screen now, including any blend still running
@@ -335,13 +480,37 @@ const initDisplay3d = (
             }
             lastRigType = next.type;
             handle.setViewRig(next);
-            if (flatten > 0 && --flatten === 0) {
-                release();
-                return;
+            if (stopping && phase === 'live' && !holding) {
+                if (k === 0 && !fade) {
+                    closeDue = true;
+                } else if (next.type === 'camera' && blend === 0 && (!fade || fade.to !== 0)) {
+                    // on the camera rig now: fade out
+                    startFade(0);
+                }
             }
             if (!suspended) updateViews();
+        }),
+        app.on('frameend', () => {
+            if (closeDue) {
+                closeDue = false;
+                closeUnderCover();
+            }
         })
     ];
+
+    const firstFrame = events.once('firstFrame', () => {
+        drawnOnce = true;
+    });
+
+    // the 2D picture just drawn, as the cover the layer joins under
+    const coverCurrentFrame = () =>
+        new Promise<void>((resolve) => {
+            app.once('frameend', () => {
+                if (!destroyed) raiseCover(0, 0, canvas.width, canvas.height);
+                resolve();
+            });
+            app.renderNextFrame = true;
+        });
 
     const start = async () => {
         const run = ++generation;
@@ -357,16 +526,42 @@ const initDisplay3d = (
             state.display3d = false;
             return;
         }
+        phase = 'opening';
+        stopping = false;
+        const giveUp = () => {
+            dropCover();
+            resumeAnimation();
+            phase = 'off';
+            // turned off and on again while this was still opening
+            if (!destroyed && run !== generation && state.display3d) void start();
+        };
         try {
+            // before the first frame the viewer's own loading screen is up, and there is nothing to hold
+            if (drawnOnce) {
+                pauseAnimation();
+                await coverCurrentFrame();
+                if (destroyed || run !== generation) {
+                    giveUp();
+                    return;
+                }
+            }
             sdk ??= import('@displayxr/inline3d') as unknown as Promise<Sdk>;
             const result = await (await sdk).sharedInline3D({ lazy: false });
-            if (destroyed || run !== generation) return;
+            if (destroyed || run !== generation) {
+                giveUp();
+                return;
+            }
             if (result.supported === false) {
                 console.info('display3d: no glasses-free 3D display here, staying 2D', result.error ?? '');
+                giveUp();
                 state.display3d = false;
                 return;
             }
             wall = result;
+            k = 0;
+            fade = null;
+            holding = true;
+            phase = 'live';
             handle = wall.addScene(canvas, onFrame, {
                 viewRig: rig(),
                 // the viewer sizes its own canvas within the device limits
@@ -374,42 +569,60 @@ const initDisplay3d = (
                 // the session ended or the layer could not be made: back to 2D
                 onLayerLost: () => {
                     if (!handle) return;
-                    release();
+                    releaseNow();
                     state.display3d = false;
                 }
             });
             updateViews();
             cam().xrViews = views.slice();
             app.renderNextFrame = true;
+            const timeout = new Promise((resolve) => {
+                setTimeout(resolve, COVER_HOLD_MAX_MS);
+            });
+            void Promise.race([handle.firstWoven, timeout]).then(() => {
+                if (destroyed || !holding) return;
+                holding = false;
+                dropCover();
+                resumeAnimation();
+                if (!stopping) startFade(1);
+            });
         } catch (err) {
             console.warn('display3d: could not start', err);
             if (run === generation) state.display3d = false;
+            giveUp();
         }
-    };
-
-    const stop = () => {
-        generation++;
-        // ease the eye separation to zero, then let the layer go
-        if (handle && flatten === 0) flatten = FLATTEN_FRAMES;
     };
 
     const changed = events.on('display3d:changed', (value: boolean) => {
         if (destroyed) return;
         if (value) {
-            // a stop still flattening is undone rather than restarted
-            if (handle) {
-                flatten = 0;
-                return;
+            if (phase === 'off') {
+                void start();
+            } else if (phase === 'live') {
+                // turned back on on the way out: fade back up, unless still waiting to go up at all
+                stopping = false;
+                if (!holding) startFade(1);
             }
-            void start();
-        } else {
-            stop();
+            // while closing, the close starts it again when it is done
+        } else if (phase === 'opening') {
+            // not started yet: its next step finds the generation moved on, and gives up
+            generation++;
+        } else if (phase === 'live') {
+            stopping = true;
+            // while still waiting for the first woven frame there is no depth to fade
+            if (holding) {
+                holding = false;
+                k = 0;
+                fade = null;
+            }
         }
     });
 
     // an immersive session takes the camera's views over, so it ends the mode
     const xrModeChanged = events.on('xrMode:changed', (mode: string | null) => {
-        if (mode) state.display3d = false;
+        if (!mode) return;
+        if (handle) releaseNow();
+        state.display3d = false;
     });
 
     state.hasDisplay3d = display3dAvailable();
@@ -431,11 +644,11 @@ const initDisplay3d = (
             destroyed = true;
             generation++;
             changed.off();
+            firstFrame.off();
             xrModeChanged.off();
             for (const h of handles) h.off();
-            if (handle) release();
-            if (wall && wall.liveCount === 0) wall.close();
-            wall = null;
+            release();
+            dropCover();
         }
     };
 };
