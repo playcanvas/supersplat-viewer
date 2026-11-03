@@ -960,7 +960,10 @@ class Viewer {
             if (!this.capture) {
                 this.capture = new Capture(app, camera.camera, () => this.cameraFrame ?? null);
             }
-            const grab = this.capture.grab({
+            // a capture is one picture from the camera, whatever the 3D display is showing
+            const resume = this.display3d.suspend();
+            const grab = this.capture
+            .grab({
                 time,
                 width,
                 height,
@@ -971,7 +974,8 @@ class Viewer {
                         await this.seekTo(t);
                     }
                 }
-            });
+            })
+            .finally(resume);
             return this.untilDestroyed(grab);
         };
         const result = this.captureQueue.then(run, run);

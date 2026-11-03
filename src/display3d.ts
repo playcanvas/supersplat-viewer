@@ -178,6 +178,8 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null, autho
     let generation = 0;
     let flatten = 0;
     let destroyed = false;
+    // captures in progress: they render the camera's own 2D view, not the eyes
+    let suspended = 0;
 
     // the camera's vertical field of view in radians: the viewer's fov is horizontal on a
     // landscape canvas
@@ -321,7 +323,7 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null, autho
                 release();
                 return;
             }
-            updateViews();
+            if (!suspended) updateViews();
         })
     ];
 
@@ -400,6 +402,15 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null, autho
     return {
         // the eye views are in place, or still easing out after the mode was turned off
         active: () => state.display3d || handle !== null,
+        // hand the camera back its own view for a capture; the returned function undoes it
+        suspend: () => {
+            suspended++;
+            cam().xrViews = null;
+            return () => {
+                if (--suspended === 0 && handle) cam().xrViews = views.slice();
+                app.renderNextFrame = true;
+            };
+        },
         destroy: () => {
             destroyed = true;
             generation++;
