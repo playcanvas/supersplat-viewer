@@ -264,8 +264,12 @@ class Viewer {
 
         this.fullscreen = initFullscreen(global);
         this.xr = initXr(global);
-        // converges on the camera's focus distance: the orbit pivot, or the distance carried into fly/walk
-        this.display3d = initDisplay3d(global, () => this.cameraManager?.camera.distance ?? null);
+        // the camera's focus distance: the orbit pivot, or the distance carried into fly/walk
+        this.display3d = initDisplay3d(
+            global,
+            () => this.cameraManager?.camera.distance ?? null,
+            settings.animTracks?.length > 0 && settings.startMode === 'animTrack'
+        );
 
         this.ready = new Promise((resolve, reject) => {
             events.once('firstFrame', () => resolve());

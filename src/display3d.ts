@@ -16,14 +16,24 @@ import type { Global } from './types';
 // param, the `display3d` option, or the button that appears only where a 3D display is found).
 // The SDK is imported lazily, so the normal bundle does not grow by it.
 //
-// The camera rig: the runtime keeps this camera's framing and perturbs its frustum per eye. The
-// rig is posed at the camera itself (identity) and each eye's pose is composed under the camera
-// node, so this frame's camera is the one rendered, with no frame of lag (the SDK's "attach
-// pattern"). Convergence, the distance that lands on the glass, is the camera's focus distance:
-// the orbit pivot in orbit mode, and the distance carried into fly and walk mode, which stays
-// fixed while flying. The depth budget is scaled by that distance (`metersToVirtual`), so a
-// 10 cm object and a 100 m scene get the same comfortable depth; `display3dDepth` changes it.
-// Values are passed to the runtime as given: the SDK warns about unusual ones and never clamps.
+// Two rigs, because an object and a world want different things from the glass. Both are posed
+// relative to the camera, and each eye's pose is composed under the camera node, so this frame's
+// camera is the one rendered, with no frame of lag (the SDK's "attach pattern").
+//
+// Looking at an object (orbit, and the turntable that precedes it) uses the display rig: the
+// canvas is a window onto the scene and the subject sits in it at its real proportions. The window
+// is posed at the orbit pivot and sized to what the 2D camera frames there, so the pivot stays on
+// the glass, the framing at the pivot matches 2D, zooming scales the subject, and moving the head
+// shows true parallax.
+//
+// Moving through a world (fly, walk, an authored camera path) uses the camera rig: the runtime
+// keeps the camera's lens and skews each eye so the focus distance lands on the glass. That
+// distance is carried in from orbit and stays fixed while flying, so what is ahead never goes flat
+// from being looked at. The eye separation is scaled by it, so a 10 cm object and a 100 m scene
+// get the same comfortable depth.
+//
+// `display3dDepth` sets the depth of both. Values are passed to the runtime as given: the SDK warns
+// about unusual ones and never clamps.
 
 /** The comfort number the camera rig is built to, the SDK's default for a page-owned camera. */
 const DEFAULT_DEPTH = 0.3;
@@ -31,6 +41,9 @@ const DEFAULT_DEPTH = 0.3;
 // frames the rig spends going flat before the layer is released, so stopping does not cut from
 // the woven pair to a squeezed one
 const FLATTEN_FRAMES = 10;
+
+// frames spent easing from one rig's eyes to the other's when the camera mode changes
+const RIG_BLEND_FRAMES = 30;
 
 // the SDK surface this file uses (see the package's index.d.ts for the full api)
 type Viewport = { x: number; y: number; width: number; height: number };
@@ -42,14 +55,22 @@ type CameraRig = {
     ipdFactor: number;
     parallaxFactor: number;
 };
-type SceneHandle = { remove(): void; setViewRig(rig: CameraRig): boolean };
+type DisplayRig = {
+    type: 'display';
+    position: { x: number; y: number; z: number };
+    virtualDisplayHeight: number;
+    ipdFactor: number;
+    parallaxFactor: number;
+};
+type ViewRig = CameraRig | DisplayRig;
+type SceneHandle = { remove(): void; setViewRig(rig: ViewRig): boolean };
 type Wall = {
     supported: true;
     liveCount: number;
     addScene(
         canvas: HTMLCanvasElement,
         onFrame: (views: readonly XRView[], layer: { getViewport(view: XRView): Viewport | null }) => void,
-        opts: { viewRig: CameraRig; bufferClamped: boolean; onLayerLost: () => void }
+        opts: { viewRig: ViewRig; bufferClamped: boolean; onLayerLost: () => void }
     ): SceneHandle;
     close(): void;
 };
@@ -68,6 +89,15 @@ const display3dAvailable = () =>
     typeof (window as unknown as { XRDisplayLayer?: unknown }).XRDisplayLayer === 'function';
 
 const DEG = Math.PI / 180;
+
+const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+
+const easeInOut = (t: number) => t * t * (3 - 2 * t);
+
+// `out` moved t of the way towards `to`
+const lerpInto = (out: Float32Array, to: Float32Array, t: number) => {
+    for (let i = 0; i < 16; i++) out[i] += (to[i] - out[i]) * t;
+};
 
 // the depth range of a GL projection (col-major), rewritten in place; fov, skew and principal
 // point are untouched
@@ -100,8 +130,10 @@ const frustumOf = (p: Float32Array, near: number, far: number) => ({
  * @param global - The viewer's globals.
  * @param focusDistance - The camera's focus distance in scene units, or null before the camera
  * manager exists.
+ * @param authoredPath - Whether the anim camera mode plays an authored path, rather than the
+ * turntable the viewer makes up for an object.
  */
-const initDisplay3d = (global: Global, focusDistance: () => number | null) => {
+const initDisplay3d = (global: Global, focusDistance: () => number | null, authoredPath: boolean) => {
     const { app, config, events, state, camera } = global;
     const { canvas } = app.graphicsDevice;
     const depth = config.display3dDepth ?? DEFAULT_DEPTH;
@@ -130,7 +162,14 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null) => {
     const poseMat = new Mat4();
     const eyeMat = new Mat4();
     const projScratch = new Float32Array(16);
+    const poseScratch = new Float32Array(16);
+    const flatProj = new Float32Array(16);
     let frustumKey = '';
+
+    // the eyes being eased away from, after a rig change
+    const blendFrom = [0, 1].map(() => ({ proj: new Float32Array(16), pose: new Float32Array(16) }));
+    let blend = 0;
+    let lastRigType: ViewRig['type'] | null = null;
 
     let sdk: Promise<Sdk> | null = null;
     let wall: Wall | null = null;
@@ -148,10 +187,25 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null) => {
         return horizontalFov ? 2 * Math.atan(Math.tan((fov * DEG) / 2) / aspect) : fov * DEG;
     };
 
+    // an object is orbited, or spun by the turntable; everything else is moving through a world
+    const objectRig = () => state.cameraMode === 'orbit' || (state.cameraMode === 'anim' && !authoredPath);
+
     // The rig for this frame's camera. `distance` is the camera's focus distance in scene units
-    const rig = (): CameraRig => {
+    const rig = (): ViewRig => {
         const distance = Math.max(focusDistance() ?? 1, 1e-6);
         const k = flatten > 0 ? flatten / FLATTEN_FRAMES : 1;
+        if (objectRig()) {
+            // the window sits at the pivot (the camera looks down -z) and shows what the 2D
+            // camera frames at that distance. The default depth is the subject's real proportions
+            const gain = k * (depth / DEFAULT_DEPTH);
+            return {
+                type: 'display',
+                position: { x: 0, y: 0, z: -distance },
+                virtualDisplayHeight: 2 * distance * Math.tan(verticalFov() / 2),
+                ipdFactor: gain,
+                parallaxFactor: gain
+            };
+        }
         return {
             type: 'camera',
             verticalFov: verticalFov(),
@@ -185,11 +239,28 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null) => {
         const local = camera.getLocalTransform();
         const w = app.graphicsDevice.width;
         const h = app.graphicsDevice.height;
+        // while stopping, each eye also eases to the 2D camera, so releasing the layer does not cut
+        const toFlat = flatten > 0 ? 1 - flatten / FLATTEN_FRAMES : 0;
+        if (toFlat > 0) perspective(flatProj, verticalFov(), w / Math.max(h, 1), nearClip, farClip);
+        const fromT = blend > 0 ? easeInOut(blend / RIG_BLEND_FRAMES) : 0;
         for (let i = 0; i < 2; i++) {
             if (haveViews) {
                 projScratch.set(eyes[i].proj);
-                setDepthRange(projScratch, nearClip, farClip);
-                poseMat.data.set(eyes[i].pose);
+                poseScratch.set(eyes[i].pose);
+                if (fromT > 0) {
+                    lerpInto(projScratch, blendFrom[i].proj, fromT);
+                    lerpInto(poseScratch, blendFrom[i].pose, fromT);
+                }
+                if (toFlat > 0) {
+                    lerpInto(projScratch, flatProj, toFlat);
+                    lerpInto(poseScratch, IDENTITY, toFlat);
+                }
+                // the viewer sets near and far from the camera. The eye can be far behind it (the
+                // display rig's eye is wherever the window's geometry puts it), so the clip range
+                // moves with the eye and still bounds the same part of the scene
+                const eyeZ = poseScratch[14];
+                setDepthRange(projScratch, Math.max(nearClip + eyeZ, nearClip * 0.1), farClip + Math.max(eyeZ, 0));
+                poseMat.data.set(poseScratch);
                 eyeMat.mul2(local, poseMat);
                 views[i].setView(projScratch, eyeMat.data);
                 const { x, y, width, height } = eyes[i].vp;
@@ -201,6 +272,7 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null) => {
                 views[i].setViewport((i * w) / 2, 0, w / 2, h);
             }
         }
+        if (blend > 0) blend--;
         const f = frustumOf(projScratch, nearClip, farClip);
         const key = `${f.fov.toFixed(4)}|${f.aspectRatio.toFixed(4)}|${nearClip}|${farClip}`;
         if (key !== frustumKey) {
@@ -216,6 +288,8 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null) => {
         frustumKey = '';
         haveViews = false;
         flatten = 0;
+        blend = 0;
+        lastRigType = null;
         app.renderNextFrame = true;
     };
 
@@ -226,7 +300,21 @@ const initDisplay3d = (global: Global, focusDistance: () => number | null) => {
         }),
         app.on('prerender', () => {
             if (!handle) return;
-            handle.setViewRig(rig());
+            const next = rig();
+            if (haveViews && lastRigType !== null && next.type !== lastRigType) {
+                // start from the eyes on screen now, including any blend still running
+                const t = blend > 0 ? easeInOut(blend / RIG_BLEND_FRAMES) : 0;
+                for (let i = 0; i < 2; i++) {
+                    const from = blendFrom[i];
+                    for (let j = 0; j < 16; j++) {
+                        from.proj[j] = eyes[i].proj[j] + (from.proj[j] - eyes[i].proj[j]) * t;
+                        from.pose[j] = eyes[i].pose[j] + (from.pose[j] - eyes[i].pose[j]) * t;
+                    }
+                }
+                blend = RIG_BLEND_FRAMES;
+            }
+            lastRigType = next.type;
+            handle.setViewRig(next);
             if (flatten > 0 && --flatten === 0) {
                 release();
                 return;
