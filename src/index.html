@@ -63,7 +63,8 @@
             // ?content= override replaces the url it describes.
             const contentFilename = url.searchParams.has('content') ? null : (bootstrap.contentFilename ?? null);
 
-            const renderer = url.searchParams.has('webgl') ? 'webgl' : 'webgpu';
+            // unset unless asked for, so createViewer picks the default for this browser
+            const renderer = url.searchParams.has('webgl') ? 'webgl' : undefined;
 
             const budgetParam = url.searchParams.get('budget');
             const budget = budgetParam !== null ? Number(budgetParam) : undefined;

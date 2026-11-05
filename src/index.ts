@@ -50,6 +50,19 @@ const isPrefetchable = (contentUrl: string, contentFilename?: string | null) =>
 const isGsaf = (contentUrl: string, contentFilename?: string | null) =>
     contentName(contentUrl, contentFilename)?.toLowerCase().endsWith('.gsaf');
 
+// TEMPORARY, until a Quest Browser release accepts a WebGPU device for WebXR again: then delete
+// this and the default it picks below. Quest Browser 156 refuses every WebGPU device for an
+// immersive session, even one from an adapter requested with xrCompatible (XRGPUBinding throws
+// "WebGPU device must be created by an XR compatible adapter"), so VR and AR show black. The
+// headsets already run the sorted renderer (quality.ts keeps the stochastic one off them), so
+// WebGL costs them only the gpu sort. A ?webgpu in the page url opts back in, to check a new
+// browser release for the fix. It is read here rather than in index.html, against the rule that
+// only the document reads url params, because hosts parse the url themselves (superspl.at
+// forwards its scene page's params to the viewer's document but does not pass this one on)
+const questBrowser =
+    /OculusBrowser/.test(globalThis.navigator?.userAgent ?? '') &&
+    !new URLSearchParams(globalThis.location?.search ?? '').has('webgpu');
+
 const loadGsplat = async (
     app: AppBase,
     config: Config,
@@ -288,7 +301,7 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     contents:
         options.contents ??
         (isPrefetchable(options.contentUrl, options.contentFilename) ? fetch(options.contentUrl) : undefined),
-    renderer: options.renderer ?? 'webgpu',
+    renderer: options.renderer ?? (questBrowser ? 'webgl' : 'webgpu'),
     ui: options.ui ?? true,
     reticle: options.reticle ?? false,
     noanim: options.noanim ?? false,
