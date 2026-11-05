@@ -385,7 +385,11 @@ class Viewer {
             const dist = vec.dot(cameraEntity.forward);
 
             const far = Math.max(dist + boundRadius, 1e-2);
-            const near = Math.max(dist - boundRadius, far / (1024 * 16));
+            // the near plane's floor is capped at the orbit's closest zoom: a few stray splats far
+            // outside a scene stretch its bound, and a floor of far / 16k would then cull the
+            // streamed nodes just in front of the camera, and flatten the stochastic renderer's
+            // depths there
+            const near = Math.max(dist - boundRadius, Math.min(far / (1024 * 16), 0.01));
 
             cameraEntity.camera.farClip = far;
             cameraEntity.camera.nearClip = Math.min(1.0, near);
