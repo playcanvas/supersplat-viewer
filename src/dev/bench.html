@@ -515,6 +515,8 @@
                 });
                 viewer.events.once('splatRenderer:ready', (r) => {
                     renderer = r;
+                    // the sorted mode has no stochastic renderer: the event passes null
+                    if (!renderer) return;
                     // captures photograph the culled frame, so the image diff covers the cull
                     renderer.allowQueryCull = true;
                     renderer.allowQueryTaa = true;
