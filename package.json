@@ -101,5 +101,8 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.17"
   }
 }

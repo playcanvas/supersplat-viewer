@@ -1282,28 +1282,70 @@
                 transition: opacity 0.2s ease-out;
             }
 
-            > .sse-annotation-title {
+            > .sse-annotation-content {
+                max-height: max(
+                    0px,
+                    calc(
+                        min(
+                                var(--sse-panel-max-height, 400px),
+                                var(--sse-panel-available-height, calc(100dvh - 16px))
+                            ) -
+                            24px
+                    )
+                );
+                overflow: auto;
+                overscroll-behavior: contain;
+                pointer-events: auto;
+                &,
+                * {
+                    touch-action: pan-y;
+                }
+            }
+
+            > .sse-annotation-content > .sse-annotation-title {
                 font-size: 13px;
                 font-weight: bold;
                 color: var(--sse-text-light);
             }
 
-            > .sse-annotation-text {
+            > .sse-annotation-content > .sse-annotation-text {
                 margin-top: 4px;
             }
 
             // a title with no text: one line, centred with even padding
-            &:has(> .sse-annotation-text:empty) {
+            &:not(.sse-has-html):has(> .sse-annotation-content > .sse-annotation-text:empty) {
                 padding-bottom: 10px;
 
-                > .sse-annotation-text {
+                > .sse-annotation-content > .sse-annotation-text {
                     display: none;
                 }
             }
 
             // no title and no text: nothing to show, so no empty panel
-            &:has(> .sse-annotation-title:empty):has(> .sse-annotation-text:empty) {
+            &:not(.sse-has-html):has(> .sse-annotation-content > .sse-annotation-title:empty):has(
+                    > .sse-annotation-content > .sse-annotation-text:empty
+                ) {
                 display: none;
+            }
+
+            > .sse-annotation-content > .sse-annotation-html {
+                display: none;
+                pointer-events: auto;
+                img,
+                video {
+                    max-width: 100%;
+                    height: auto;
+                }
+            }
+
+            &.sse-has-html {
+                > .sse-annotation-content > .sse-annotation-title,
+                > .sse-annotation-content > .sse-annotation-text {
+                    display: none;
+                }
+                > .sse-annotation-content > .sse-annotation-html {
+                    display: block;
+                }
             }
 
             // the arrow pointing at the hotspot; --arrow-top is set to the hotspot's height
@@ -1325,6 +1367,26 @@
             &.sse-arrow-left::before {
                 right: -8px;
                 border-left: 8px solid var(--sse-annotation-bkg);
+            }
+
+            &.sse-arrow-top::before,
+            &.sse-arrow-bottom::before {
+                content: '';
+                position: absolute;
+                left: var(--arrow-left, 50%);
+                transform: translateX(-50%);
+                border-left: 8px solid transparent;
+                border-right: 8px solid transparent;
+            }
+
+            &.sse-arrow-top::before {
+                top: -8px;
+                border-bottom: 8px solid var(--sse-annotation-bkg);
+            }
+
+            &.sse-arrow-bottom::before {
+                bottom: -8px;
+                border-top: 8px solid var(--sse-annotation-bkg);
             }
         }
     }

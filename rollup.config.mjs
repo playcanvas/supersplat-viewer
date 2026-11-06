@@ -144,6 +144,16 @@ const buildCss = {
 
 const debugEngine = process.env.ENGINE === 'debug';
 
+// DOMPurify uses HTML-comment strings internally. Escape their opening '<' in JavaScript
+// literals so the document's single-file export can inline the bundle safely, too.
+const inlineSafePurify = () => ({
+    name: 'inline-safe-purify',
+    transform(code, id) {
+        if (!id.includes('/dompurify/')) return null;
+        return { code: code.replace(/(["'])<!--/g, '$1\\x3c!--'), map: null };
+    }
+});
+
 // The committed gsaf decoder (scripts/build-gsaf.sh). Its glue is bundled as a string, the source
 // of the decoder worker started from a blob when a gsaf file loads; its wasm ships beside the bundle
 // and is fetched only then (src/gsaf/gsaf-worker.ts resolves it against the bundle's url).
@@ -179,6 +189,7 @@ const buildPublic = {
     },
     plugins: [
         resolve(debugEngine ? { exportConditions: ['development'] } : {}),
+        inlineSafePurify(),
         ...gsafDecoder(),
         typescriptPlugin(),
         json(),
@@ -220,6 +231,7 @@ const buildViewer = {
     external: engineExternal,
     plugins: [
         resolve(),
+        inlineSafePurify(),
         ...gsafDecoder(),
         typescriptPlugin(),
         json(),
