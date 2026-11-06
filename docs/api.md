@@ -172,7 +172,24 @@ The value stays active until replaced. The viewer clears it on camera/XR mode ch
 
 ### Controlling annotations
 
-`viewer.annotations` contains each annotation's title, text, position, camera and optional extras. Indices follow settings order and stay fixed for the instance. Treat the data as read-only; runtime annotation editing is not supported.
+`viewer.annotations` contains each annotation's title, text, position, camera, optional HTML and optional extras. Indices follow settings order and stay fixed for the instance. Treat the data as read-only; runtime annotation editing is not supported.
+
+Set an annotation's optional `html` string to display custom HTML in the existing annotation panel instead of its title and text. The title still labels the annotation in navigation. Omitted, empty or whitespace-only HTML uses the ordinary title/text panel. HTML supports formatting, links, images and inline styles; DOMPurify removes scripts, event handlers, unsafe URLs and unsupported markup. Stylesheet tags are removed; use inline styles. This is a content fragment, not a complete HTML document or JavaScript application.
+
+For example, add `"html": "<article style='color:#fff'><h3>Entrance</h3><p>Welcome to the building.</p></article>"` to an annotation. The viewer renders this content; Studio's hosted authoring form is separate from this repository.
+
+Use `panel` to configure the outer box for either HTML or ordinary text:
+
+```json
+{
+    "maxHeight": 240,
+    "anchor": { "relativeTo": "viewport", "position": "top-right" }
+}
+```
+
+`panel.maxHeight` is the maximum total height in CSS pixels (minimum 48, default 400). The whole content area scrolls when it exceeds that height; the panel also shrinks to fit its viewer. Keep internal HTML height unrestricted unless you intentionally want a nested scroll area.
+
+`panel.anchor.relativeTo` supports `hotspot` and `viewport`. Hotspot positions are `auto` (default), `top`, `bottom`, `left`, and `right`. Viewport positions are `top-left`, `top`, `top-right`, `left`, `center`, `right`, `bottom-left`, `bottom`, and `bottom-right`. Positions are clamped to the viewer with an 8px margin. Viewport panels stay fixed as the camera moves and have no hotspot arrow. This configuration positions the selected panel, not the numbered hotspot.
 
 `state.selectedAnnotation` is the selected index, or `null` when nothing is selected. Observe `selectedAnnotation:changed` to update custom controls or panels; it fires when the index changes. The built-in hotspots and previous/next buttons use the same `selectAnnotation(index)` command as the host:
 
@@ -314,8 +331,17 @@ type Annotation = {
     position: [number, number, number],
     title: string,
     text: string,
+    html?: string,
+    panel?: AnnotationPanel,
     extras?: any,
     camera: Camera
+};
+
+type AnnotationPanel = {
+    maxHeight?: number,
+    anchor?:
+        | { relativeTo: 'hotspot', position: 'auto' | 'top' | 'bottom' | 'left' | 'right' }
+        | { relativeTo: 'viewport', position: 'top-left' | 'top' | 'top-right' | 'left' | 'center' | 'right' | 'bottom-left' | 'bottom' | 'bottom-right' }
 };
 
 type PostEffectSettings = {
