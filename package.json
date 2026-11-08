@@ -59,7 +59,7 @@
     "README.md"
   ],
   "peerDependencies": {
-    "@displayxr/inline3d": "1.47.5",
+    "@displayxr/inline3d": "^1.50.0",
     "playcanvas": "^2.23.0"
   },
   "peerDependenciesMeta": {
@@ -71,7 +71,7 @@
     }
   },
   "devDependencies": {
-    "@displayxr/inline3d": "1.47.5",
+    "@displayxr/inline3d": "1.50.0",
     "@playcanvas/eslint-config": "3.0.0",
     "@rollup/plugin-json": "6.1.0",
     "@rollup/plugin-node-resolve": "16.0.3",
