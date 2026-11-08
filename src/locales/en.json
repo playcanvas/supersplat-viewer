@@ -7,6 +7,8 @@
     "settings.quality-max": "Max",
     "settings.gaming-controls": "Gaming Controls",
     "settings.show-annotations": "Show Annotations",
+    "settings.display3d-depth": "Depth",
+    "settings.display3d-convergence": "Convergence",
     "settings.show-collision": "Show Collision",
     "settings.frame": "Frame",
     "settings.reset": "Reset",
@@ -23,6 +25,7 @@
     "tooltip.controls": "Controls",
     "tooltip.enter-ar": "Enter AR",
     "tooltip.enter-vr": "Enter VR",
+    "tooltip.display3d": "3D Display",
     "tooltip.fullscreen": "Fullscreen",
 
     "help.section.orbit": "Orbit Mode",

@@ -79,6 +79,21 @@ type ViewerFlags = {
     /** Render with antialiasing. */
     aa?: boolean;
     /**
+     * Show the scene in 3D on a glasses-free 3D display, through the DisplayXR inline-3D web SDK
+     * (`@displayxr/inline3d`), which is loaded only when this is set or the user turns the mode
+     * on. Needs the WebGL renderer. Where no such display is found the viewer stays 2D. Without
+     * it the mode is off, and its button shows only where a 3D display is found. Defaults to
+     * `false`.
+     */
+    display3d?: boolean;
+    /**
+     * How deep the scene looks on a 3D display. In orbit, `0.3` is the subject's real proportions
+     * and the value scales the eye separation from there; in fly and walk it is the comfort number
+     * the camera rig is built to, `ipd x metersToVirtual x convergenceDiopters x 0.5`. Passed through
+     * as given. Defaults to `0.3`.
+     */
+    display3dDepth?: number;
+    /**
      * Developer override of the Performance Mode setting: `true` forces the stochastic splat
      * renderer (unsorted, depth-tested splats whose depth buffer also serves picking) in its
      * per-pixel mode, `'mobile'` in its interleaved-pixel-sets mode, and `'off'` keeps the

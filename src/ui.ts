@@ -11,6 +11,7 @@ import { initAnnotationControls } from './ui/annotation-controls';
 import { Annotations } from './ui/annotations';
 import { initCameraControls } from './ui/camera-controls';
 import { initControlsHint, readControlsOpen, writeControlsOpen } from './ui/controls-hint';
+import { initDisplay3dControls } from './ui/display3d-controls';
 import { initFullscreenControls } from './ui/fullscreen-controls';
 import { initJoystick } from './ui/joystick';
 import { initPlayback } from './ui/playback';
@@ -84,6 +85,7 @@ const initUI = (
         'annotationNav',
         'arMode',
         'vrMode',
+        'display3dMode',
         'enterFullscreen',
         'exitFullscreen',
         'info',
@@ -498,6 +500,7 @@ const initUI = (
     disposers.push(initControlsHint(viewer, root, localize));
     disposers.push(initFullscreenControls(viewer, root));
     disposers.push(initXrControls(viewer, root));
+    disposers.push(initDisplay3dControls(viewer, root, global.renderer));
     if (visionPro) {
         disposers.push(initXrHint(viewer, root));
     }
@@ -550,6 +553,7 @@ const initUI = (
     tooltip.register(dom.controlsButton, localize('tooltip.controls'), 'top');
     tooltip.register(dom.arMode, localize('tooltip.enter-ar'), 'top');
     tooltip.register(dom.vrMode, localize('tooltip.enter-vr'), 'top');
+    tooltip.register(dom.display3dMode, localize('tooltip.display3d'), 'top');
     tooltip.register(dom.enterFullscreen, localize('tooltip.fullscreen'), 'top');
     tooltip.register(dom.exitFullscreen, localize('tooltip.fullscreen'), 'top');
 

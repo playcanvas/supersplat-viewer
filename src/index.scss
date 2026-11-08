@@ -1530,4 +1530,10 @@
             }
         }
     }
+
+    .sse-display3dRow input[type='range'] {
+        flex: 1;
+        min-width: 0;
+        margin-left: 12px;
+    }
 }

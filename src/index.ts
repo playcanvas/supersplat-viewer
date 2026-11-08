@@ -303,7 +303,8 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     contents:
         options.contents ??
         (isPrefetchable(options.contentUrl, options.contentFilename) ? fetch(options.contentUrl) : undefined),
-    renderer: questBrowser ? 'webgl' : (options.renderer ?? 'webgpu'),
+    // the 3D-display mode needs WebGL, so asking for it picks that renderer
+    renderer: questBrowser ? 'webgl' : (options.renderer ?? (options.display3d ? 'webgl' : 'webgpu')),
     ui: options.ui ?? true,
     reticle: options.reticle ?? false,
     noanim: options.noanim ?? false,
@@ -314,6 +315,8 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     fullload: options.fullload ?? false,
     vr: options.vr ?? false,
     aa: options.aa ?? false,
+    display3d: options.display3d ?? false,
+    display3dDepth: options.display3dDepth,
     stochastic: options.stochastic ?? false,
     // the direct source reads the engine's own splat files, not the container a gsaf sequence
     // plays through; the work buffer source reads whatever the engine copied
@@ -397,6 +400,11 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         canStartAR: false,
         canStartVR: false,
         xrMode: null,
+        hasDisplay3d: false,
+        display3d: config.display3d,
+        display3dDepth: config.display3dDepth ?? 0.3,
+        display3dConvergence: 1,
+        display3dCameraRig: false,
         hasCollision: false,
         hasCollisionOverlay: false,
         walkAllowed: false,

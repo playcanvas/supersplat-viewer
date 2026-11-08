@@ -82,7 +82,7 @@ scene is visible. It returns:
 
 | Member | Purpose |
 | --- | --- |
-| `state` | Observable state. Writable keys (`cameraMode`, `performanceMode`, `showAnnotations`, `gamingControls`, `animationPaused`, `collisionOverlayEnabled`, `controlsHidden`, `inputEnabled`) apply at once; the rest are the viewer's to report and are `readonly` in the types |
+| `state` | Observable state. Writable keys (`cameraMode`, `performanceMode`, `showAnnotations`, `gamingControls`, `animationPaused`, `collisionOverlayEnabled`, `controlsHidden`, `inputEnabled`, `display3d`) apply at once; the rest are the viewer's to report and are `readonly` in the types |
 | `events` | Fires `<key>:changed` with `(value, previous)` for every key of `state` |
 | `annotations` | Annotation data in settings order, available as soon as creation resolves. Editing entries is unsupported |
 | `captureFrame(options?)` | Renders offscreen, supersampled, and resolves to `{ width, height, data }` with `data` base64. Waits for the first frame |
@@ -217,6 +217,22 @@ Read-only `state.xrMode` is `'ar'`, `'vr'` or `null` and follows both API and br
 On standalone headsets (Meta Quest and Pico browsers), sessions render with fixed foveation, a 72 Hz target where supported and a 1 million splat budget, or the `budget` option when it is set. In performance mode they also render at 0.8x resolution, chosen when the session starts. The 2D budget returns when the session ends.
 
 During a session, squeezing both grips, or making fists with tracked hands, drags, turns and scales the scene: about the user's feet in VR, and about their hands in AR. The scene returns to its authored placement when the session ends.
+
+### Glasses-free 3D displays
+
+On a glasses-free 3D display the viewer can show the scene in 3D, with no headset: the browser weaves the canvas for the viewer's eyes, and the scene keeps its page, its UI and its camera controls. This goes through the DisplayXR inline-3D web SDK, [`@displayxr/inline3d`](https://www.npmjs.com/package/@displayxr/inline3d), which works in the DisplayXR Browser; everywhere else the viewer stays 2D.
+
+```ts
+const viewer = await createViewer({ container, settings, contentUrl, display3d: true });
+viewer.events.on('display3d:changed', (on) => console.log(on ? 'in 3D' : 'in 2D'));
+viewer.state.display3d = false; // back to 2D, and true to return
+```
+
+Nothing runs unless `display3d` is set (the `3d` URL parameter, the option, or the state key), and the SDK is imported only then: the standalone build ships it as `public/inline3d.js` beside `index.js`, and the `/viewer` entry imports `@displayxr/inline3d`, an optional peer dependency that only a host offering the mode needs to install. A document rendered with `inlineJs` carries `index.js` alone, so the mode stays 2D there.
+
+Read-only `state.hasDisplay3d` is true in a browser that can weave a canvas, read once at startup without loading the SDK; the built-in UI shows its 3D button only then. Whether a display is actually attached is known once the session starts: where it is not, `display3d` returns to `false`. The mode needs WebGL: the `display3d` option and the `3d` parameter pick it, as AR and VR do. On WebGPU, setting `state.display3d` is refused (a console warning, and the key returns to `false`), and the built-in button reloads the page with `?3d` instead. Post effects are off in 3D, as in XR, and an immersive session ends the mode.
+
+Orbit and the turntable use a display rig: the canvas is a window onto the scene, posed at the orbit pivot and sized to what the 2D camera frames there, so the pivot stays on the glass. Fly, walk and an authored camera path use a camera rig, with the focus distance, carried in from orbit and fixed while flying, on the glass. A change of camera mode changes the rig without changing the picture, because each rig is computed as the exact equivalent of the other. What sets the picture is chosen when the mode turns on and kept until it turns off: an object seen from outside its bounds, with the pivot near its centre, is shown at the panel's own angle of view and keeps its real proportions, and anything else is shown through the camera's lens. Each eye's clip range follows the eye. `display3dDepth` (or `3d=0.5`) sets the starting depth, default `0.3`, which sets the eye separation and the response to the head together, and is passed through as given: on an object `0.3` is its real proportions. The settings panel has a Depth slider while the mode is on, and on a camera rig a Convergence slider; `state.display3dDepth` and `state.display3dConvergence` are the same values. A double-click looks from the tracked viewer, through the point on the glass. `captureFrame` returns one picture from the camera, as it does in 2D.
 
 ### Restyling
 

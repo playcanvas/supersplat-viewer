@@ -1,7 +1,12 @@
 import { Script, Vec3 } from 'playcanvas';
 import type { Entity } from 'playcanvas';
 
+import { getClickView } from '../picker';
+
 const vec = new Vec3();
+const eyeOffset = new Vec3();
+const eyeWorld = new Vec3();
+const eyeScreen = new Vec3();
 
 /**
  * A script for creating interactive 3D annotations in a scene. Each annotation consists of:
@@ -99,8 +104,28 @@ export class Annotation extends Script {
     _update() {
         if (this.destroyed) return;
 
-        const { camera } = this.context;
+        const { camera, canvas } = this.context;
         const position = this.entity.getPosition();
+
+        // on a 3D display the hotspot sits where the line from the viewer to the point meets the glass
+        const view = getClickView(camera);
+        if (view) {
+            const toPoint = eyeOffset.sub2(position, eyeWorld.set(view.position[0], view.position[1], view.position[2]));
+            const depth = toPoint.dot(camera.forward);
+            if (depth <= 0) {
+                this.screen = null;
+                this._hideElements();
+                return;
+            }
+            const p = view.projection;
+            const x = (p[0] * toPoint.dot(camera.right) - p[8] * depth) / depth;
+            const y = (p[5] * toPoint.dot(camera.up) - p[9] * depth) / depth;
+            const screen = eyeScreen.set(((x + 1) / 2) * canvas.clientWidth, ((1 - y) / 2) * canvas.clientHeight, depth);
+            const eyeDistance = toPoint.length();
+            this.screen = { x: screen.x, y: screen.y, distance: eyeDistance, depth };
+            this._updatePositions(screen, eyeDistance);
+            return;
+        }
 
         camera.camera.viewMatrix.transformPoint(position, vec);
         if (vec.z >= 0) {
