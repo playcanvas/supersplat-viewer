@@ -7,6 +7,8 @@
     "settings.quality-max": "Max",
     "settings.gaming-controls": "Gaming Controls",
     "settings.show-annotations": "Show Annotations",
+    "settings.display3d-depth": "Depth",
+    "settings.display3d-convergence": "Convergence",
     "settings.show-collision": "Show Collision",
     "settings.frame": "Frame",
     "settings.reset": "Reset",

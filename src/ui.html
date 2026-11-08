@@ -237,6 +237,15 @@
                     </div>
                 </div>
             </div>
+            <!-- the 3D display's own controls, which have no 2D equivalent: only while it is on -->
+            <div class="sse-display3dDepthRow sse-display3dRow sse-settingsRow sse-hidden">
+                <div data-i18n="settings.display3d-depth">Depth</div>
+                <input class="sse-display3dDepth" type="range" min="0" max="1" step="0.01">
+            </div>
+            <div class="sse-display3dConvergenceRow sse-display3dRow sse-settingsRow sse-hidden">
+                <div data-i18n="settings.display3d-convergence">Convergence</div>
+                <input class="sse-display3dConvergence" type="range" min="0" max="1" step="0.01">
+            </div>
             <!-- Performance Mode: the stochastic renderer, on WebGPU except standalone headsets -->
             <div class="sse-performanceModeRow sse-settingsRow sse-hidden">
                 <div class="sse-performanceModeOption" data-i18n="settings.performance-mode">Performance Mode</div>
