@@ -39,7 +39,7 @@ import type { GsafPlayer } from './gsaf/gsaf-player';
 import { InputController } from './input-controller';
 import { MeshDebugOverlay } from './mesh-debug-overlay';
 import { NavCursor } from './nav-cursor';
-import { Picker } from './picker';
+import { Picker, setClickView } from './picker';
 import type { ScenePicker } from './picker';
 import { FrameDepthPicker } from './picker-frame-depth';
 import { StochasticSplatRenderer } from './render/stochastic-splat-renderer';
@@ -268,9 +268,13 @@ class Viewer {
         this.display3d = initDisplay3d(
             global,
             () => this.cameraManager?.camera.distance ?? null,
+            (distance) => {
+                if (this.cameraManager) this.cameraManager.camera.distance = distance;
+            },
             settings.animTracks?.length > 0 && settings.startMode === 'animTrack',
             (margin) => this.cameraManager?.isCentredOnObject(margin) ?? false
         );
+        setClickView(camera, () => this.display3d?.pickView() ?? null);
 
         this.ready = new Promise((resolve, reject) => {
             events.once('firstFrame', () => resolve());

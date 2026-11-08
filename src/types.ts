@@ -104,6 +104,12 @@ type State = {
      * renderer: the mode needs WebGL) and when the display's session ends.
      */
     display3d: boolean;
+    /** The depth on a 3D display: eye separation and head response together. */
+    display3dDepth: number;
+    /** Where the glass is on a camera rig, as a multiple of the focus distance. */
+    display3dConvergence: number;
+    /** Whether a 3D display is on a camera rig, so the convergence applies (read-only). */
+    display3dCameraRig: boolean;
     /** Whether the experience ships collision data, which walk mode needs. */
     hasCollision: boolean;
     /** Whether that collision data can be drawn as a debug overlay. */
@@ -153,7 +159,9 @@ type WritableStateKey =
     | 'collisionOverlayEnabled'
     | 'controlsHidden'
     | 'inputEnabled'
-    | 'display3d';
+    | 'display3d'
+    | 'display3dDepth'
+    | 'display3dConvergence';
 
 /**
  * The viewer's state as a host sees it: one observable object, with the keys the viewer owns

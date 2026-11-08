@@ -20,23 +20,26 @@ import type { Global } from './types';
 // relative to the camera, and each eye's pose is composed under the camera node, so this frame's
 // camera is the one rendered, with no frame of lag (the SDK's "attach pattern").
 //
-// Looking at an object (orbit, and the turntable that precedes it, in a scene seen from outside its
-// bounds and with the pivot near their centre) uses the display rig: the canvas is a window onto
-// the scene and the subject sits in it at its real proportions. The window is posed at the orbit
-// pivot and sized to what the 2D camera frames there, so the pivot stays on the glass, the framing
-// at the pivot matches 2D, zooming scales the subject, and moving the head shows true parallax.
-// Around a pivot off to one side the subject swings across the window and in and out of the glass,
-// so that case is treated as a world.
+// Orbit, and the turntable that precedes it, uses the display rig: the canvas is a window posed at
+// the orbit pivot and sized to what the 2D camera frames there, so the pivot stays on the glass and
+// zooming scales the subject. Moving through a world (fly, walk, an authored camera path) uses the
+// camera rig: the focus distance lands on the glass and stays fixed while flying, so what is ahead
+// never goes flat from being looked at.
 //
-// Moving through a world (fly, walk, an authored camera path, an orbit away from the centre of the
-// scene or inside it) uses the camera rig: the runtime
-// keeps the camera's lens and skews each eye so the focus distance lands on the glass. That
-// distance is carried in from orbit and stays fixed while flying, so what is ahead never goes flat
-// from being looked at. The eye separation is scaled by it, so a 10 cm object and a 100 m scene
-// get the same comfortable depth.
+// A change of camera mode changes the rig and nothing on screen: each rig is computed as the exact
+// equivalent of the other, so it is one picture in two descriptions. What sets the picture is the
+// look, chosen when the stereo has faded in and kept until the mode is turned off:
 //
-// `display3dDepth` sets the depth of both. Values are passed to the runtime as given: the SDK warns
-// about unusual ones and never clamps.
+//   panel: the eyes see at the panel's own angle of view, and the subject has its real proportions.
+//          For an object seen from outside, with the camera's focus near its centre.
+//   lens:  the eyes see at the 2D camera's lens. For everything else, and on the way in and out.
+//
+// The look only changes when the mode opens or closes, eased, never on a change of camera mode.
+//
+// The controls with no 2D equivalent are depth, which sets the eye separation and the response to
+// the head together, and on the camera rig the convergence, which moves the glass off the focus
+// distance. Values are passed to the runtime as given: the SDK warns about unusual ones and never
+// clamps.
 
 /** The comfort number the camera rig is built to, the SDK's default for a page-owned camera. */
 const DEFAULT_DEPTH = 0.3;
@@ -63,13 +66,14 @@ const COVER_CLEAR_MS = 150;
 // the longest the cover waits for the first woven frame; the SDK's answer normally comes well before
 const COVER_HOLD_MAX_MS = 5000;
 
-// frames spent easing from one rig's eyes to the other's when the camera mode changes
+// frames spent easing from one look's eyes to the other's, as the mode opens and closes
 const RIG_BLEND_FRAMES = 30;
 
 // the SDK surface this file uses (see the package's index.d.ts for the full api)
 type Viewport = { x: number; y: number; width: number; height: number };
 type CameraRig = {
     type: 'camera';
+    position?: { x: number; y: number; z: number };
     verticalFov: number;
     convergenceDiopters: number;
     metersToVirtual: number;
@@ -80,11 +84,18 @@ type DisplayRig = {
     type: 'display';
     position: { x: number; y: number; z: number };
     virtualDisplayHeight: number;
+    perspectiveFactor: number;
     ipdFactor: number;
     parallaxFactor: number;
 };
 type ViewRig = CameraRig | DisplayRig;
-type SceneHandle = { remove(): void; setViewRig(rig: ViewRig): boolean; firstWoven: Promise<unknown> };
+type DisplayMetrics = { canvasSizeM: [number, number] };
+type SceneHandle = {
+    remove(): void;
+    setViewRig(rig: ViewRig): boolean;
+    displayMetrics(): Promise<DisplayMetrics>;
+    firstWoven: Promise<unknown>;
+};
 type Wall = {
     supported: true;
     liveCount: number;
@@ -151,6 +162,7 @@ const frustumOf = (p: Float32Array, near: number, far: number) => ({
  * @param global - The viewer's globals.
  * @param focusDistance - The camera's focus distance in scene units, or null before the camera
  * manager exists.
+ * @param setFocusDistance - Moves the camera's focus along its view, leaving its pose unchanged.
  * @param authoredPath - Whether the anim camera mode plays an authored path, rather than the
  * turntable the viewer makes up for an object.
  * @param centredOnObject - Whether the scene is an object seen from outside, with the camera's
@@ -159,12 +171,12 @@ const frustumOf = (p: Float32Array, near: number, far: number) => ({
 const initDisplay3d = (
     global: Global,
     focusDistance: () => number | null,
+    setFocusDistance: (distance: number) => void,
     authoredPath: boolean,
     centredOnObject: (margin: number) => boolean
 ) => {
-    const { app, config, events, state, camera } = global;
+    const { app, events, state, camera } = global;
     const { canvas } = app.graphicsDevice;
-    const depth = config.display3dDepth ?? DEFAULT_DEPTH;
     // the engine camera behind the camera component, which holds the eye views
     const cam = () => camera.camera.camera;
 
@@ -182,8 +194,18 @@ const initDisplay3d = (
     const eyes = [0, 1].map(() => ({
         proj: new Float32Array(16),
         pose: new Float32Array(16),
-        vp: { x: 0, y: 0, width: 1, height: 1 }
+        vp: { x: 0, y: 0, width: 1, height: 1 },
+        distance: 1,
+        plane: 1
     }));
+    // the rigs last sent, oldest first: the eye views of a frame are made from the rig sent two
+    // frames before it
+    const sent = [
+        { distance: 1, plane: 1 },
+        { distance: 1, plane: 1 }
+    ];
+    // the eye between the two, in the camera's parent's space, and its projection: see pickView
+    const betweenEyes = { position: [0, 0, 0], z: 0, projection: new Float32Array(16) };
     let haveViews = false;
 
     const views = [new RenderView(), new RenderView()];
@@ -194,10 +216,17 @@ const initDisplay3d = (
     const flatProj = new Float32Array(16);
     let frustumKey = '';
 
-    // the eyes being eased away from, after a rig change
+    // the eyes being eased away from, after a change of look
     const blendFrom = [0, 1].map(() => ({ proj: new Float32Array(16), pose: new Float32Array(16) }));
     let blend = 0;
-    let lastRigType: ViewRig['type'] | null = null;
+    // the look (see the top of this file), and whether it has been chosen since the mode opened
+    let panelLook = false;
+    let lastPanelLook = false;
+    let lookChosen = false;
+    // the canvas's height on the panel and the nominal viewer distance, in metres
+    let physical: { height: number; viewer: number } | null = null;
+    // tan(fov / 2) of the eyes on the first frame: see `rig`
+    let measuredTan: number | null = null;
 
     let sdk: Promise<Sdk> | null = null;
     let wall: Wall | null = null;
@@ -229,37 +258,91 @@ const initDisplay3d = (
         return horizontalFov ? 2 * Math.atan(Math.tan((fov * DEG) / 2) / aspect) : fov * DEG;
     };
 
-    // an object is orbited, or spun by the turntable, about its middle; everything else is moving
-    // through a world. Two margins, so a pivot near the limit does not flip the rig back and forth
-    let onObject = false;
-    const objectRig = () => {
-        const orbiting = state.cameraMode === 'orbit' || (state.cameraMode === 'anim' && !authoredPath);
-        // the display rig only once the stereo has faded all the way in, and not on the way out
-        const settled = phase === 'live' && !stopping && !holding && k === 1;
-        onObject = settled && orbiting && centredOnObject(onObject ? 0.35 : 0.25);
-        return onObject;
+    // orbiting, or the turntable the viewer makes up for an object
+    const orbiting = () => state.cameraMode === 'orbit' || (state.cameraMode === 'anim' && !authoredPath);
+    // the stereo has faded all the way in, and is not on the way out
+    const settled = () => phase === 'live' && !stopping && !holding && k === 1;
+
+    const updateLook = () => {
+        if (stopping) {
+            panelLook = false;
+            lookChosen = false;
+        } else if (!lookChosen && physical && settled()) {
+            lookChosen = true;
+            panelLook = orbiting() && centredOnObject(0.25);
+        }
     };
 
-    // The rig for this frame's camera. `distance` is the camera's focus distance in scene units
+    // The rig for this frame's camera, the same picture in either description. With the window at
+    // the focus distance d and H_v tall, panel height H and nominal viewer distance N, the display
+    // rig's eye scale is s = perspective * H_v / H, its eyes sit s * N in front of the window, and
+    // they see at tan(fov / 2) = H / (2 * N * perspective). The camera rig matches each of those.
     const rig = (): ViewRig => {
         const distance = Math.max(focusDistance() ?? 1, 1e-6);
-        if (objectRig()) {
-            // the window sits at the pivot (the camera looks down -z) and shows what the 2D
-            // camera frames at that distance. The default depth is the subject's real proportions.
-            // Only the eye separation follows it: scaling the head's parallax as well would also
-            // scale the viewer's offset from the window, and shear the picture with nobody moving
+        const tanLens = Math.tan(verticalFov() / 2);
+        const height = 2 * distance * tanLens;
+        // The equivalence needs the viewer distance the runtime uses, which not every browser
+        // reports. So the mode opens on a display rig with no eye separation and no head tracking,
+        // under the cover, and the eyes of that first frame are at the nominal viewer: their angle
+        // of view, with the canvas's height, is that distance
+        if (measuredTan === null) {
             return {
                 type: 'display',
                 position: { x: 0, y: 0, z: -distance },
-                virtualDisplayHeight: 2 * distance * Math.tan(verticalFov() / 2),
-                ipdFactor: k * (depth / DEFAULT_DEPTH),
-                parallaxFactor: k
+                virtualDisplayHeight: height,
+                perspectiveFactor: 1,
+                ipdFactor: 0,
+                parallaxFactor: 0
             };
+        }
+        const displayRig = settled() && orbiting();
+        const depth = state.display3dDepth;
+        const convergence = state.display3dConvergence;
+        const plane = distance * convergence;
+        if (physical) {
+            const tanPanel = physical.height / (2 * physical.viewer);
+            if (panelLook) {
+                const factor = k * (depth / DEFAULT_DEPTH);
+                if (displayRig) {
+                    return {
+                        type: 'display',
+                        position: { x: 0, y: 0, z: -plane },
+                        virtualDisplayHeight: height * convergence,
+                        perspectiveFactor: 1,
+                        ipdFactor: factor / convergence,
+                        parallaxFactor: factor / convergence
+                    };
+                }
+                const scale = height / physical.height;
+                const eyeDistance = scale * convergence * physical.viewer;
+                return {
+                    type: 'camera',
+                    position: { x: 0, y: 0, z: eyeDistance - plane },
+                    verticalFov: 2 * Math.atan(tanPanel),
+                    convergenceDiopters: 1 / eyeDistance,
+                    metersToVirtual: scale,
+                    ipdFactor: factor,
+                    parallaxFactor: factor
+                };
+            }
+            if (displayRig) {
+                // the camera rig below, with its eyes where the camera is: the perspective factor
+                // is what turns the camera's lens into the window's
+                const factor = (k * depth * physical.viewer) / (0.5 * convergence);
+                return {
+                    type: 'display',
+                    position: { x: 0, y: 0, z: -plane },
+                    virtualDisplayHeight: height * convergence,
+                    perspectiveFactor: tanPanel / tanLens,
+                    ipdFactor: factor,
+                    parallaxFactor: factor
+                };
+            }
         }
         return {
             type: 'camera',
             verticalFov: verticalFov(),
-            convergenceDiopters: 1 / distance,
+            convergenceDiopters: 1 / plane,
             metersToVirtual: (depth * distance) / 0.5,
             ipdFactor: k,
             parallaxFactor: k
@@ -277,6 +360,9 @@ const initDisplay3d = (
             e.proj.set(xrViews[i].projectionMatrix);
             e.pose.set(xrViews[i].transform.matrix);
             e.vp = { x: vps[i].x, y: vps[i].y, width: vps[i].width, height: vps[i].height };
+            e.distance = sent[0].distance;
+            e.plane = sent[0].plane;
+            if (measuredTan === null && i === 1) measuredTan = 1 / e.proj[5];
         }
         haveViews = true;
     };
@@ -293,10 +379,19 @@ const initDisplay3d = (
         const toFlat = 1 - k;
         if (toFlat > 0) perspective(flatProj, verticalFov(), w / Math.max(h, 1), nearClip, farClip);
         const fromT = blend > 0 ? easeInOut(blend / RIG_BLEND_FRAMES) : 0;
+        const distance = Math.max(focusDistance() ?? 1, 1e-6);
         for (let i = 0; i < 2; i++) {
             if (haveViews) {
                 projScratch.set(eyes[i].proj);
                 poseScratch.set(eyes[i].pose);
+                // A rig reaches the eye views two frames late, and the camera has already moved. Both
+                // rigs scale with the focus distance about the plane at that distance, so moving the
+                // eyes the same way gives this frame's rig, with the frustum as it is. A zoom is then
+                // the camera's own move, with the plane on the pivot all the way
+                const scale = distance / eyes[i].distance;
+                poseScratch[12] *= scale;
+                poseScratch[13] *= scale;
+                poseScratch[14] = (poseScratch[14] + eyes[i].plane) * scale - distance * state.display3dConvergence;
                 if (fromT > 0) {
                     lerpInto(projScratch, blendFrom[i].proj, fromT);
                     lerpInto(poseScratch, blendFrom[i].pose, fromT);
@@ -313,6 +408,13 @@ const initDisplay3d = (
                 poseMat.data.set(poseScratch);
                 eyeMat.mul2(local, poseMat);
                 views[i].setView(projScratch, eyeMat.data);
+                betweenEyes.z = (i === 0 ? 0 : betweenEyes.z) + poseScratch[14] / 2;
+                for (let j = 0; j < 3; j++) {
+                    betweenEyes.position[j] = (i === 0 ? 0 : betweenEyes.position[j]) + eyeMat.data[12 + j] / 2;
+                }
+                for (let j = 0; j < 16; j++) {
+                    betweenEyes.projection[j] = (i === 0 ? 0 : betweenEyes.projection[j]) + projScratch[j] / 2;
+                }
                 const { x, y, width, height } = eyes[i].vp;
                 views[i].setViewport(x, y, width, height);
             } else {
@@ -409,6 +511,11 @@ const initDisplay3d = (
 
     // let the layer and the session go, and the camera have its own view back
     const release = () => {
+        panelLook = false;
+        lastPanelLook = false;
+        lookChosen = false;
+        physical = null;
+        measuredTan = null;
         handle?.remove();
         handle = null;
         if (wall && wall.liveCount === 0) wall.close();
@@ -417,7 +524,6 @@ const initDisplay3d = (
         frustumKey = '';
         haveViews = false;
         blend = 0;
-        lastRigType = null;
         holding = false;
         closeDue = false;
         fade = null;
@@ -457,6 +563,15 @@ const initDisplay3d = (
         });
     };
 
+    const readPhysical = () => {
+        void handle?.displayMetrics().then((m) => {
+            if (!handle || measuredTan === null) return;
+            const height = m.canvasSizeM[1];
+            // measured once: the viewer stays where the runtime puts it when the canvas resizes
+            physical = { height, viewer: physical?.viewer ?? height / (2 * measuredTan) };
+        });
+    };
+
     const handles = [
         // the woven canvas is read every frame, so it is drawn every frame while it is woven
         app.on('framerender', () => {
@@ -465,8 +580,9 @@ const initDisplay3d = (
         app.on('prerender', () => {
             if (!handle) return;
             tickFade();
+            updateLook();
             const next = rig();
-            if (haveViews && lastRigType !== null && next.type !== lastRigType) {
+            if (haveViews && panelLook !== lastPanelLook) {
                 // start from the eyes on screen now, including any blend still running
                 const t = blend > 0 ? easeInOut(blend / RIG_BLEND_FRAMES) : 0;
                 for (let i = 0; i < 2; i++) {
@@ -478,13 +594,17 @@ const initDisplay3d = (
                 }
                 blend = RIG_BLEND_FRAMES;
             }
-            lastRigType = next.type;
+            lastPanelLook = panelLook;
+            const sentDistance = Math.max(focusDistance() ?? 1, 1e-6);
+            sent.push({ distance: sentDistance, plane: sentDistance * state.display3dConvergence });
+            sent.shift();
+            state.display3dCameraRig = next.type === 'camera';
             handle.setViewRig(next);
             if (stopping && phase === 'live' && !holding) {
                 if (k === 0 && !fade) {
                     closeDue = true;
                 } else if (next.type === 'camera' && blend === 0 && (!fade || fade.to !== 0)) {
-                    // on the camera rig now: fade out
+                    // on the lens look now: fade out
                     startFade(0);
                 }
             }
@@ -580,6 +700,7 @@ const initDisplay3d = (
                 setTimeout(resolve, COVER_HOLD_MAX_MS);
             });
             void Promise.race([handle.firstWoven, timeout]).then(() => {
+                readPhysical();
                 if (destroyed || !holding) return;
                 holding = false;
                 dropCover();
@@ -592,6 +713,9 @@ const initDisplay3d = (
             giveUp();
         }
     };
+
+    // the canvas's size on the panel changes with it, and the rigs' equivalence depends on it
+    const resized = app.graphicsDevice.on('resizecanvas', readPhysical);
 
     const changed = events.on('display3d:changed', (value: boolean) => {
         if (destroyed) return;
@@ -618,6 +742,22 @@ const initDisplay3d = (
         }
     });
 
+    // Back to orbiting, the orbit's centre becomes whatever sits on the glass: the focus moves out
+    // to the plane and convergence returns to 1, so the plane, and every eye, stay where they are.
+    // This runs before the camera manager's own handler, which enters the orbit from that focus.
+    // The rigs still on their way to the eye views were made for the same plane, so they are
+    // relabelled to the focus they now stand for, or the zoom compensation would see a zoom
+    const modeChanged = events.on('cameraMode:changed', (value: string, prev: string) => {
+        const c = state.display3dConvergence;
+        if (!handle || value !== 'orbit' || prev === 'orbit' || c === 1) return;
+        const distance = focusDistance();
+        if (distance === null) return;
+        setFocusDistance(distance * c);
+        for (const rig of sent) rig.distance = rig.plane;
+        for (const e of eyes) e.distance = e.plane;
+        state.display3dConvergence = 1;
+    });
+
     // an immersive session takes the camera's views over, so it ends the mode
     const xrModeChanged = events.on('xrMode:changed', (mode: string | null) => {
         if (!mode) return;
@@ -631,6 +771,18 @@ const initDisplay3d = (
     return {
         // the eye views are in place, or still easing out after the mode was turned off
         active: () => state.display3d || handle !== null,
+        // What a click on the canvas looks through: the tracked eye between the two. A point on the
+        // glass is seen along the line from there, which is not the line from the 2D camera
+        pickView: () => {
+            if (!handle || !haveViews || suspended > 0) return null;
+            const { nearClip, farClip } = lens();
+            // the clip range follows the eye, as it does for the eyes themselves
+            const near = Math.max(nearClip + betweenEyes.z, nearClip * 0.1);
+            const far = farClip + Math.max(betweenEyes.z, 0);
+            const projection = betweenEyes.projection.slice();
+            setDepthRange(projection, near, far);
+            return { position: betweenEyes.position.slice() as [number, number, number], projection, near, far };
+        },
         // hand the camera back its own view for a capture; the returned function undoes it
         suspend: () => {
             suspended++;
@@ -646,6 +798,8 @@ const initDisplay3d = (
             changed.off();
             firstFrame.off();
             xrModeChanged.off();
+            modeChanged.off();
+            resized.off();
             for (const h of handles) h.off();
             release();
             dropCover();
