@@ -454,6 +454,45 @@ const withoutXrViews = <T>(camera: Entity, fn: () => T): T => {
     }
 };
 
+/** A view to pick from in place of the camera's own: its local position and its projection. */
+type PickView = { position: [number, number, number]; projection: Float32Array; near: number; far: number };
+
+// Where a camera's picture is seen from, when that is not the camera: the tracked viewer of a 3D
+// display, whose clicks and whose hotspots both lie on the line from there through the glass
+const clickViews = new WeakMap<Entity, () => PickView | null>();
+const setClickView = (camera: Entity, view: () => PickView | null) => {
+    clickViews.set(camera, view);
+};
+const getClickView = (camera: Entity): PickView | null => clickViews.get(camera)?.() ?? null;
+
+// Pose the camera at the view while the pass renders and the snapshot is taken, then put it back
+const withPickView = <T>(camera: Entity, view: PickView | null, fn: () => T): T => {
+    if (!view) return fn();
+    const component = camera.camera;
+    const cam = component.camera as unknown as { _viewMatDirty: boolean; _projMatDirty: boolean };
+    const position = camera.getLocalPosition().clone();
+    const calculateProjection = component.calculateProjection;
+    const { nearClip, farClip } = component;
+    camera.setLocalPosition(view.position[0], view.position[1], view.position[2]);
+    component.nearClip = view.near;
+    component.farClip = view.far;
+    component.calculateProjection = (mat: Mat4) => {
+        mat.set(view.projection as unknown as number[]);
+    };
+    cam._viewMatDirty = true;
+    cam._projMatDirty = true;
+    try {
+        return fn();
+    } finally {
+        camera.setLocalPosition(position);
+        component.nearClip = nearClip;
+        component.farClip = farClip;
+        component.calculateProjection = calculateProjection;
+        cam._viewMatDirty = true;
+        cam._projMatDirty = true;
+    }
+};
+
 const createPickCameraSnapshot = (): PickCameraSnapshot => ({
     position: new Vec3(),
     viewMatrix: new Mat4(),
@@ -1034,7 +1073,7 @@ class Picker {
             renders++;
         };
 
-        const prepareSample = (x: number, y: number) => {
+        const prepareSample = (x: number, y: number, fromClickView = false) => {
             if (queue.released) {
                 return null;
             }
@@ -1053,14 +1092,15 @@ class Picker {
             const screenX = clampPixel(x, width);
             const screenY = clampPixel(y, height);
 
-            withoutXrViews(camera, () => ensureRendered(width, height, worldLayer));
+            const view = fromClickView ? getClickView(camera) : null;
+            withoutXrViews(camera, () => withPickView(camera, view, () => ensureRendered(width, height, worldLayer)));
             const pickCamera = getCacheCameraSnapshot();
 
             return { width, height, screenX, screenY, pickCamera };
         };
 
         const pick = async (x: number, y: number) => {
-            const sample = prepareSample(x, y);
+            const sample = prepareSample(x, y, true);
             if (!sample) {
                 return null;
             }
@@ -1072,7 +1112,7 @@ class Picker {
         };
 
         const pickSurface = async (x: number, y: number) => {
-            const sample = prepareSample(x, y);
+            const sample = prepareSample(x, y, true);
             if (!sample) {
                 return null;
             }
@@ -1093,7 +1133,7 @@ class Picker {
             // between these synchronous calls; the reads then run in parallel
             return Promise.all(
                 points.map(async ({ x, y, depth }) => {
-                    const sample = prepareSample(x, y);
+                    const sample = prepareSample(x, y, true);
                     if (!sample) {
                         return null;
                     }
@@ -1163,6 +1203,8 @@ export {
     pickTargetSize,
     surfaceDepth,
     withoutXrViews,
+    setClickView,
+    getClickView,
     NORMAL_SAMPLE_MAX_PX,
     PICK_TRIALS,
     SURFACE_RADIUS_PX,
