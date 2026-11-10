@@ -2,6 +2,8 @@
 
 The MIT License in [`LICENSE`](LICENSE) applies to the SuperSplat Viewer's own code. This package also distributes the gsaf decoder, a WebAssembly module and its JavaScript glue built from gsaf by `scripts/build-gsaf.sh`. It ships as `public/gsaf-decoder.wasm` and `dist/gsaf-decoder.wasm`, inside `public/index.js` and `dist/viewer.js`, and as a `data:` url in `dist/gsaf-decoder.js`. The decoder and the code compiled into it remain under their own licenses, reproduced below.
 
+It also distributes the ZSTD decoder the PlayCanvas engine's spz parser uses for version 4 files: zstd's single-file decoder compiled to WebAssembly by zstddec, with the engine's JavaScript glue, copied from the engine by hand (`lib/zstd/VERSION`). The wasm ships as `public/zstd-decoder.wasm` and `dist/zstd-decoder.wasm`, the glue inside `public/index.js` and `dist/viewer.js`. Its license, which includes zstd's, is reproduced below.
+
 The LLVM runtime libraries Emscripten links (libc++, libc++abi, compiler-rt) are under Apache-2.0 with the LLVM exception, which waives the notice requirements for code embedded in compiled output.
 
 ## gsaf v2.7.3-1-ge227c1b
@@ -433,4 +435,65 @@ negated the permissions granted in the license. In the spirit of
 permissive licensing, and of not having licensing issues being an
 obstacle to adoption, that text has been removed.
 
+```
+
+## zstddec 0.3.4, with Zstandard
+
+Project: <https://github.com/donmccurdy/zstddec>
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2020 Don McCurdy
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+***
+
+BSD License
+
+For Zstandard software
+
+Copyright (c) 2016-present, Yann Collet, Facebook, Inc. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+ list of conditions and the following disclaimer.
+
+ * Redistributions in binary form must reproduce the above copyright notice,
+ this list of conditions and the following disclaimer in the documentation
+ and/or other materials provided with the distribution.
+
+ * Neither the name Facebook nor the names of its contributors may be used to
+ endorse or promote products derived from this software without specific
+ prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```

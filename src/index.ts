@@ -27,6 +27,7 @@ import type { Config, Global, State, ViewerHandle } from './types';
 import { initPoster, initUI } from './ui';
 import uiHtml from './ui.html';
 import { Viewer } from './viewer';
+import { registerZstdDecoder } from './zstd-decoder';
 import { version as appVersion } from '../package.json';
 
 // The filename's extension selects the gsplat parser, so a url with no usable name (a data:
@@ -35,15 +36,20 @@ import { version as appVersion } from '../package.json';
 const contentName = (contentUrl: string, contentFilename?: string | null) =>
     contentFilename || new URL(contentUrl, location.href).pathname.split('/').pop();
 
-// Whether a prefetched response for this content is worth starting. The engine's octree parser
-// fetches lod-meta.json itself and ignores `asset.file.contents`, so prefetching it downloads
-// the metadata twice — a quarter of a megabyte on a real scene, served with no cache-control
-// header, so the second request is not a cache hit. Every other splat parser consumes the
-// prefetched response, so they keep the head start. `src/index.html` applies the same rule when
-// it starts its own prefetch, and docs/streaming-progress.md covers the engine fix that would
-// let the octree path reuse the response instead of opting out of it.
-const isPrefetchable = (contentUrl: string, contentFilename?: string | null) =>
-    contentName(contentUrl, contentFilename)?.toLowerCase() !== 'lod-meta.json';
+// Whether a prefetched response for this content is worth starting. The engine's octree and lcc2
+// parsers fetch lod-meta.json and .lcc2 files themselves and ignore `asset.file.contents`, so
+// prefetching them downloads the metadata twice — a quarter of a megabyte on a real scene,
+// served with no cache-control header, so the second request is not a cache hit. The spz parser
+// takes `asset.file.contents` only as an ArrayBuffer, not the prefetched response, so it fetches
+// its file itself too, which keeps the download progress (`loadGsplat` reads a response the
+// caller passes to an ArrayBuffer). Every other splat parser consumes the prefetched response, so they keep
+// the head start. `src/index.html` applies the same rule when it starts its own prefetch, and
+// docs/streaming-progress.md covers the engine fix that would let the octree path reuse the
+// response instead of opting out of it.
+const isPrefetchable = (contentUrl: string, contentFilename?: string | null) => {
+    const name = contentName(contentUrl, contentFilename)?.toLowerCase();
+    return name !== 'lod-meta.json' && !name?.endsWith('.lcc2') && !name?.endsWith('.spz');
+};
 
 // gsaf is an animated splat sequence, which the viewer decodes and plays itself rather than
 // through an engine parser
@@ -72,13 +78,19 @@ const loadGsplat = async (
     cancelled: () => boolean
 ) => {
     const { contents, contentUrl, contentFilename } = config;
-    const c = contents as unknown as ArrayBuffer;
     const filename = contentName(contentUrl, contentFilename);
-    const data = filename.toLowerCase() === 'meta.json' ? await (await contents).json() : undefined;
+    const name = filename.toLowerCase();
+    const data = name === 'meta.json' ? await (await contents).json() : undefined;
+    // The spz parser reads `asset.file.contents` only as an ArrayBuffer, so a fetch the caller
+    // started is read to one here (the viewer starts none for spz, see `isPrefetchable`)
+    const c = (name.endsWith('.spz') && contents
+        ? await (await contents).arrayBuffer()
+        : contents) as unknown as ArrayBuffer;
 
-    // Reading that metadata spans a network round trip, so a destroy can land in the middle of
-    // it. `app.destroy()` nulls the asset registry, so registering the asset now would throw
-    // from the engine's internals; reject instead, which the viewer's load chains expect.
+    // Reading that metadata or those bytes spans a network round trip, so a destroy can land in
+    // the middle of it. `app.destroy()` nulls the asset registry, so registering the asset now
+    // would throw from the engine's internals; reject instead, which the viewer's load chains
+    // expect.
     if (cancelled()) {
         throw new Error('loadGsplat: the viewer was destroyed while loading');
     }
@@ -90,7 +102,12 @@ const loadGsplat = async (
             // always name the app: the engine's default is the most recently created one,
             // which is another viewer's when two share a page
             const entity = new Entity('gsplat', app);
-            entity.setLocalEulerAngles(0, 0, 180);
+            // LCC2 scenes are stored +Z up, spz files +Y up, the other formats -Y up
+            if (name.endsWith('.lcc2')) {
+                entity.setLocalEulerAngles(270, 0, 0);
+            } else if (!name.endsWith('.spz')) {
+                entity.setLocalEulerAngles(0, 0, 180);
+            }
             entity.addComponent('gsplat', {
                 unified: true,
                 asset
@@ -180,6 +197,8 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
         touch: new TouchDevice(canvas),
         keyboard: new Keyboard(window)
     });
+
+    registerZstdDecoder(config.zstdDecoderUrl);
 
     // The per-splat centres the engine reads back for its cpu sort (12 bytes each, plus a gpu
     // readback per file) serve only that sort and non-unified rendering. On WebGPU the viewer
@@ -299,6 +318,7 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     skyboxUrl: options.skyboxUrl,
     collisionUrl: options.collisionUrl,
     gsafDecoderUrl: options.gsafDecoderUrl,
+    zstdDecoderUrl: options.zstdDecoderUrl,
     poster: options.poster ?? (options.posterUrl ? createImage(options.posterUrl) : undefined),
     contents:
         options.contents ??

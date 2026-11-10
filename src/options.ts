@@ -35,6 +35,12 @@ type ViewerAssets = {
      * export provides.
      */
     gsafDecoderUrl?: string;
+    /**
+     * The ZSTD decoder's wasm, fetched only when a version 4 `.spz` file loads, on its own or as
+     * a chunk of an `.lcc2` scene. Defaults to the `zstd-decoder.wasm` shipped beside the viewer's
+     * bundle. A document with no sibling files (an inlined bundle) sets it to a `data:` url.
+     */
+    zstdDecoderUrl?: string;
 };
 
 /** Per-instance switches. Every one is optional and off unless stated. */

@@ -13,6 +13,7 @@ import {
     XrManager
 } from 'playcanvas';
 import type { GraphicsDevice, Keyboard, Mouse, TouchDevice } from 'playcanvas';
+import { SpzParser } from 'playcanvas/scripts/esm/parsers/spz-parser.mjs';
 
 type AppConstructorOptions = {
     graphicsDevice: GraphicsDevice;
@@ -46,6 +47,10 @@ class App extends AppBase {
         appOptions.xr = XrManager;
 
         this.init(appOptions);
+
+        // spz files, and the spz chunks of lcc2 scenes. Version 3 files are gzip compressed;
+        // version 4 files need the ZSTD decoder module (src/zstd-decoder.ts)
+        this.loader.getHandler('gsplat').addParser(new SpzParser(this));
     }
 }
 

@@ -50,6 +50,7 @@
     "public/index.js",
     "public/index.js.map",
     "public/gsaf-decoder.wasm",
+    "public/zstd-decoder.wasm",
     "docs/api.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
@@ -57,7 +58,7 @@
     "README.md"
   ],
   "peerDependencies": {
-    "playcanvas": "^2.23.0"
+    "playcanvas": "^2.24.0"
   },
   "peerDependenciesMeta": {
     "playcanvas": {

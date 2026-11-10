@@ -1,0 +1,2 @@
+playcanvas/engine v2.24.0 (0d07e104e), examples/assets/wasm/zstd
+zstd.wasm.js -> zstd-decoder.js, zstd.wasm.wasm -> zstd-decoder.wasm

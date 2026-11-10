@@ -49,6 +49,8 @@ renderViewerHtml({
 
 `gsafDecoderUrl` is also a `createViewer` option, for a host serving the wasm from elsewhere. It has no URL parameter, since a link could then run any wasm in the page's origin.
 
+Version 4 `.spz` files, on their own or as the chunks of an `.lcc2` scene, are decompressed by the engine's ZSTD decoder, `zstd-decoder.wasm`, which ships and is fetched the same way: beside `index.js` (and `dist/viewer.js`), only when such a file loads. Its glue is loaded from a `blob:` url, so a page's Content-Security-Policy has to allow `blob:` scripts. `zstdDecoderUrl`, a bootstrap field and `createViewer` option with no URL parameter, points it elsewhere, e.g. a `data:` url for a document with no sibling files.
+
 `html` is still exported as a raw string, but is **deprecated**: its formatting is not part of
 this package's API and changes between releases, so pattern-matching it is unsupported. `css`
 and `js` remain exported for serving (or writing) the stylesheet and bundle alongside a

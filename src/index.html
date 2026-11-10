@@ -57,6 +57,7 @@
             const contentUrl = url.searchParams.get('content') ?? bootstrap.contentUrl ?? './scene.compressed.ply';
             // the bootstrap's alone: a url param would let a link run any wasm in this origin
             const gsafDecoderUrl = bootstrap.gsafDecoderUrl ?? null;
+            const zstdDecoderUrl = bootstrap.zstdDecoderUrl ?? null;
 
             // Names the bootstrap's contentUrl when the url itself has no usable name (a data:
             // uri, say) — the splat format is chosen by the name's extension. Ignored when a
@@ -68,12 +69,18 @@
             const budgetParam = url.searchParams.get('budget');
             const budget = budgetParam !== null ? Number(budgetParam) : undefined;
 
-            // The engine's octree parser fetches lod-meta.json itself and ignores a prefetched
-            // response, so starting one here would download the metadata twice. Every other splat
+            // The engine's octree and lcc2 parsers fetch lod-meta.json and .lcc2 files themselves
+            // and ignore a prefetched response, so starting one here would download the metadata
+            // twice, and the spz parser cannot read a prefetched response. Every other splat
             // parser consumes it, so they keep the head start. `isPrefetchable` in src/index.ts
             // applies the same rule for embedders that do not pass `contents`.
-            const contentName = contentFilename ?? new URL(contentUrl, location.href).pathname.split('/').pop() ?? '';
-            const prefetchContent = contentName.toLowerCase() !== 'lod-meta.json';
+            const contentName = (
+                contentFilename ??
+                new URL(contentUrl, location.href).pathname.split('/').pop() ??
+                ''
+            ).toLowerCase();
+            const prefetchContent =
+                contentName !== 'lod-meta.json' && !contentName.endsWith('.lcc2') && !contentName.endsWith('.spz');
 
             // createViewer's options, minus the container and the settings. The poster image and
             // the content fetch start here, before the module bundle has arrived.
@@ -84,6 +91,7 @@
                 skyboxUrl,
                 collisionUrl,
                 gsafDecoderUrl,
+                zstdDecoderUrl,
                 poster: posterUrl && createImage(posterUrl),
                 contents: prefetchContent ? fetch(contentUrl) : undefined,
                 ui: !url.searchParams.has('noui'),
