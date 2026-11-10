@@ -58,7 +58,7 @@
     "README.md"
   ],
   "peerDependencies": {
-    "playcanvas": "^2.23.0"
+    "playcanvas": "^2.24.0"
   },
   "peerDependenciesMeta": {
     "playcanvas": {

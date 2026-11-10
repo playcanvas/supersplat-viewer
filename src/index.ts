@@ -41,7 +41,8 @@ const contentName = (contentUrl: string, contentFilename?: string | null) =>
 // prefetching them downloads the metadata twice — a quarter of a megabyte on a real scene,
 // served with no cache-control header, so the second request is not a cache hit. The spz parser
 // takes `asset.file.contents` only as an ArrayBuffer, not the prefetched response, so it fetches
-// its file itself too. Every other splat parser consumes the prefetched response, so they keep
+// its file itself too, which keeps the download progress (`loadGsplat` reads a response the
+// caller passes to an ArrayBuffer). Every other splat parser consumes the prefetched response, so they keep
 // the head start. `src/index.html` applies the same rule when it starts its own prefetch, and
 // docs/streaming-progress.md covers the engine fix that would let the octree path reuse the
 // response instead of opting out of it.
@@ -77,12 +78,17 @@ const loadGsplat = async (
     cancelled: () => boolean
 ) => {
     const { contents, contentUrl, contentFilename } = config;
-    const c = contents as unknown as ArrayBuffer;
     const filename = contentName(contentUrl, contentFilename);
-    const data = filename.toLowerCase() === 'meta.json' ? await (await contents).json() : undefined;
+    const name = filename.toLowerCase();
+    const data = name === 'meta.json' ? await (await contents).json() : undefined;
+    // The spz parser reads `asset.file.contents` only as an ArrayBuffer, so a fetch the caller
+    // started is read to one here (the viewer starts none for spz, see `isPrefetchable`)
+    const c = (
+        name.endsWith('.spz') && contents ? await (await contents).arrayBuffer() : contents
+    ) as unknown as ArrayBuffer;
 
-    // Reading that metadata spans a network round trip, so a destroy can land in the middle of
-    // it. `app.destroy()` nulls the asset registry, so registering the asset now would throw
+    // Reading that metadata or those bytes spans a network round trip, so a destroy can land in
+    // the middle of it. `app.destroy()` nulls the asset registry, so registering the asset now would throw
     // from the engine's internals; reject instead, which the viewer's load chains expect.
     if (cancelled()) {
         throw new Error('loadGsplat: the viewer was destroyed while loading');
@@ -96,7 +102,6 @@ const loadGsplat = async (
             // which is another viewer's when two share a page
             const entity = new Entity('gsplat', app);
             // LCC2 scenes are stored +Z up, spz files +Y up, the other formats -Y up
-            const name = filename.toLowerCase();
             if (name.endsWith('.lcc2')) {
                 entity.setLocalEulerAngles(270, 0, 0);
             } else if (!name.endsWith('.spz')) {
