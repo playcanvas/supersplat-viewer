@@ -49,7 +49,7 @@ class App extends AppBase {
         this.init(appOptions);
 
         // spz files, and the spz chunks of lcc2 scenes. Version 3 files are gzip compressed;
-        // version 4 files need the ZSTD decoder module, which the viewer does not register
+        // version 4 files need the ZSTD decoder module (src/zstd-decoder.ts)
         this.loader.getHandler('gsplat').addParser(new SpzParser(this));
     }
 }

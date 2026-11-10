@@ -27,6 +27,7 @@ import type { Config, Global, State, ViewerHandle } from './types';
 import { initPoster, initUI } from './ui';
 import uiHtml from './ui.html';
 import { Viewer } from './viewer';
+import { registerZstdDecoder } from './zstd-decoder';
 import { version as appVersion } from '../package.json';
 
 // The filename's extension selects the gsplat parser, so a url with no usable name (a data:
@@ -191,6 +192,8 @@ const createApp = async (canvas: HTMLCanvasElement, config: Config) => {
         keyboard: new Keyboard(window)
     });
 
+    registerZstdDecoder(config.zstdDecoderUrl);
+
     // The per-splat centres the engine reads back for its cpu sort (12 bytes each, plus a gpu
     // readback per file) serve only that sort and non-unified rendering. On WebGPU the viewer
     // renders unified, and neither renderer sorts on the cpu (the engine's sorts on the gpu, the
@@ -309,6 +312,7 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     skyboxUrl: options.skyboxUrl,
     collisionUrl: options.collisionUrl,
     gsafDecoderUrl: options.gsafDecoderUrl,
+    zstdDecoderUrl: options.zstdDecoderUrl,
     poster: options.poster ?? (options.posterUrl ? createImage(options.posterUrl) : undefined),
     contents:
         options.contents ??

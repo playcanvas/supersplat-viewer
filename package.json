@@ -50,6 +50,7 @@
     "public/index.js",
     "public/index.js.map",
     "public/gsaf-decoder.wasm",
+    "public/zstd-decoder.wasm",
     "docs/api.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",

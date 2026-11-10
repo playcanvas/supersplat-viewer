@@ -158,6 +158,21 @@ const gsafDecoder = () => [
     }
 ];
 
+// The engine's ZSTD decoder (lib/zstd/VERSION), which the spz parser needs for version 4 files.
+// Its glue is bundled as a string, loaded from a blob url when a version 4 file loads; its wasm
+// ships beside the bundle and is fetched only then (src/zstd-decoder.ts resolves it against the
+// bundle's url).
+const ZSTD_WASM = 'lib/zstd/zstd-decoder.wasm';
+const zstdDecoder = () => [
+    string({ include: ['lib/zstd/*.js'] }),
+    {
+        name: 'zstd-decoder-wasm',
+        generateBundle() {
+            this.emitFile({ type: 'asset', fileName: 'zstd-decoder.wasm', source: readFileSync(ZSTD_WASM) });
+        }
+    }
+];
+
 // Imports a .wasm as a `data:` url, for the entry that hands it to single-file documents.
 function wasmDataUrlPlugin() {
     return {
@@ -180,6 +195,7 @@ const buildPublic = {
     plugins: [
         resolve(debugEngine ? { exportConditions: ['development'] } : {}),
         ...gsafDecoder(),
+        ...zstdDecoder(),
         typescriptPlugin(),
         json(),
         htmlTemplatePlugin(),
@@ -221,6 +237,7 @@ const buildViewer = {
     plugins: [
         resolve(),
         ...gsafDecoder(),
+        ...zstdDecoder(),
         typescriptPlugin(),
         json(),
         htmlTemplatePlugin(),
