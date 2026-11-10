@@ -190,6 +190,11 @@ fn srcOpacity() -> f32 {
     return f32((packedG.w >> 8u) & 0xffu) / 255.0;
 }
 
+// the file's training mode: one file per dispatch, so the renderer sets it per dispatch
+fn srcAntiAlias() -> bool {
+    return uniforms.fileAntiAlias != 0u;
+}
+
 // the file stores three components and the omitted axis; the engine's getRotation
 fn srcRotation() -> vec4f {
     let qb = vec4u((packedG.y >> 16u) & 0xffu, packedG.y >> 24u, packedG.z & 0xffu, (packedG.z >> 8u) & 0xffu);

@@ -37,6 +37,8 @@ fn srcOpacity() -> f32 { return getOpacity(); }
 fn srcRotation() -> vec4f { return getRotation(); }
 fn srcScale() -> vec3f { return getScale(); }
 fn srcColor() -> vec3f { return getColor(); }
+// the training mode the engine stamps on each splat it copies (the low bit of its centre)
+fn srcAntiAlias() -> bool { return getAntiAlias(); }
 `;
     }
 

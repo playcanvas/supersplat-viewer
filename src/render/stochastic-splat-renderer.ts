@@ -88,7 +88,7 @@ import {
     polygonScale,
     projectorWGSL
 } from './shaders/projector';
-import type { CoverageMode } from './shaders/projector';
+import type { AntiAliasMode, CoverageMode } from './shaders/projector';
 import { QUADS_PER_INSTANCE, rasterFragmentWGSL, rasterVertexWGSL } from './shaders/raster';
 import { reduceL1WGSL, reduceL2WGSL } from './shaders/reduce';
 import { TAA_MAX_COUNT, taaFragmentWGSL, taaVertexWGSL } from './shaders/taa';
@@ -204,7 +204,7 @@ type Variant = {
      * centre and footprint (shaders/projector.ts); `separate` projects and orders every eye on its own.
      */
     stereo: 'shared' | 'separate';
-    /** Covariance units: true pixels, or the engine's doubled-focal convention (its dilation and culls scale with it). */
+    /** Covariance units for the culls: true pixels, or the engine's doubled-focal convention (its culls scale with it). */
     units: 'px' | 'engine';
 };
 
@@ -1970,11 +1970,12 @@ class StochasticSplatRenderer {
                 Math.abs(otherProjection.data[0]) * width * 0.5,
                 Math.abs(otherProjection.data[5]) * height * 0.5
             ];
+            const antiAlias = this.antiAliasMode(set);
             const groups = this.source.dispatchPlan(set, this.numChunks);
             for (const group of groups) {
                 // a file with no node in the frustum has nothing to dispatch
                 if (group.fileIndex >= 0 && !this.anyNodeVisible(view, set.files[group.fileIndex].nodes)) continue;
-                const projector = this.ensureProjector(view, culling, coverage, warped, !!eye1, group);
+                const projector = this.ensureProjector(view, culling, coverage, warped, !!eye1, antiAlias, group);
                 this.source.bind(projector, group, set);
                 projector.setParameter('chunks', this.chunkBuffer!);
                 projector.setParameter('nodeVisible', view.nodeVisibleBuffer!);
@@ -2023,6 +2024,12 @@ class StochasticSplatRenderer {
                 projector.setParameter('occL2Base', view.occBlocks.x1 * view.occBlocks.y1);
                 projector.setParameter('stereoBase', view.cacheSlots * CACHE_WORDS);
                 projector.setParameter('warpBaseEye1', view.warpTable?.length ?? 0);
+                projector.setParameter('antiAliasFilterSize', gsplat.antiAliasFilterSize);
+                // the per-file sources' training mode (the work buffer's splats carry their own)
+                projector.setParameter(
+                    'fileAntiAlias',
+                    group.fileIndex >= 0 && set.files[group.fileIndex].resource.antiAlias ? 1 : 0
+                );
                 Compute.calcDispatchSize(group.chunkCount, tmpVec2);
                 projector.setupDispatch(tmpVec2.x, tmpVec2.y, 1);
                 device.computeDispatch([projector], 'sse-splat-project');
@@ -2427,12 +2434,23 @@ class StochasticSplatRenderer {
         return nodes.some((node) => (bits[node.nodeIndex >> 5] >>> (node.nodeIndex & 31)) & 1);
     }
 
+    // The anti-aliasing compensation, resolved as the engine's manager resolves it for its own
+    // renderer: the scene's GSplatParams#antiAlias when set, else each file's training mode,
+    // compiled out when no file needs it and read per splat when only some do
+    private antiAliasMode(set: ResidentSet): AntiAliasMode {
+        const { antiAlias } = this.app.scene.gsplat;
+        if (antiAlias !== undefined) return antiAlias ? 'on' : 'off';
+        const flagged = set.files.filter((file) => file.resource.antiAlias).length;
+        return flagged === 0 ? 'off' : flagged === set.files.length ? 'on' : 'mixed';
+    }
+
     private ensureProjector(
         view: SplatView,
         occlusion: boolean,
         coverage: CoverageMode,
         warp: boolean,
         stereo: boolean,
+        antiAlias: AntiAliasMode,
         group: DispatchGroup
     ) {
         const sourceKey = this.source.shaderKey();
@@ -2441,11 +2459,11 @@ class StochasticSplatRenderer {
             this.destroyProjector();
             this.projectorSourceKey = sourceKey;
         }
-        const key = `${occlusion ? 'occlusion' : 'plain'}-${coverage}${warp ? '-warp' : ''}${stereo ? '-stereo' : ''}`;
+        const key = `${occlusion ? 'occlusion' : 'plain'}-${coverage}${warp ? '-warp' : ''}${stereo ? '-stereo' : ''}${antiAlias === 'off' ? '' : `-aa-${antiAlias}`}`;
         const computeKey = `${key}:${group.fileIndex}`;
         const existing = view.projectorComputes.get(computeKey);
         if (existing) return existing;
-        const shader = this.ensureProjectorShader(key, occlusion, coverage, warp, stereo);
+        const shader = this.ensureProjectorShader(key, occlusion, coverage, warp, stereo, antiAlias);
         const compute = new Compute(this.device, shader, 'sse-splat-project');
         view.projectorComputes.set(computeKey, compute);
         return compute;
@@ -2469,7 +2487,8 @@ class StochasticSplatRenderer {
         occlusion: boolean,
         coverage: CoverageMode,
         warp: boolean,
-        stereo: boolean
+        stereo: boolean,
+        antiAlias: AntiAliasMode
     ) {
         const existing = this.projectorShaders.get(key);
         if (existing) return existing;
@@ -2494,7 +2513,7 @@ class StochasticSplatRenderer {
         const shader = new Shader(device, {
             name: `sse-splat-project-${key}`,
             shaderLanguage: SHADERLANGUAGE_WGSL,
-            cshader: projectorWGSL(this.source.readChunk(fixed.length), occlusion, coverage, warp, stereo),
+            cshader: projectorWGSL(this.source.readChunk(fixed.length), occlusion, coverage, warp, stereo, antiAlias),
             cincludes: this.source.shaderIncludes(),
             cdefines: this.source.shaderDefines(),
             computeUniformBufferFormats: {
@@ -2541,7 +2560,9 @@ class StochasticSplatRenderer {
                     new UniformFormat('prevFocalEye1', UNIFORMTYPE_VEC2),
                     new UniformFormat('occL2Base', UNIFORMTYPE_UINT),
                     new UniformFormat('stereoBase', UNIFORMTYPE_UINT),
-                    new UniformFormat('warpBaseEye1', UNIFORMTYPE_UINT)
+                    new UniformFormat('warpBaseEye1', UNIFORMTYPE_UINT),
+                    new UniformFormat('antiAliasFilterSize', UNIFORMTYPE_FLOAT),
+                    new UniformFormat('fileAntiAlias', UNIFORMTYPE_UINT)
                 ])
             },
             computeBindGroupFormat: this.projectorBindGroupFormat

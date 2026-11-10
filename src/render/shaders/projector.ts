@@ -36,6 +36,12 @@ const polygonScale = (circumscribed = false) =>
 type CoverageMode = 'pixel' | 'splat' | 'interleaved';
 
 /**
+ * The anti-aliasing compensation splats trained with anti-aliasing need (the engine's
+ * GSplatParams#antiAlias): none, every splat, or the splats whose source flags them.
+ */
+type AntiAliasMode = 'off' | 'on' | 'mixed';
+
+/**
  * Draw groups with coverage:interleaved: the four pixel sets (0-3) and the full target (4),
  * which takes the splats below the variant's interleaveArea; each is one contiguous range of the
  * ordered list. (A third tier, the largest splats into quarter-resolution targets per set, one
@@ -168,7 +174,7 @@ struct FootprintEye1 {
     determinant: f32
 }
 
-fn footprintEye1(center: vec3f, rot: vec4f, scale: vec3f, viewport: vec2f) -> FootprintEye1 {
+fn footprintEye1(center: vec3f, rot: vec4f, scale: vec3f, viewport: vec2f, lowpass: f32) -> FootprintEye1 {
     var f: FootprintEye1;
     f.visible = false;
     f.ndc = vec2f(1e4);
@@ -242,22 +248,26 @@ ${
     f.ndc = clip.xy / clip.w;
 `
 }
+    // the culls measure the footprint with the cull filter, and the drawn one takes the view's
+    // filter (see project() below)
     let us2 = uniforms.unitScale * uniforms.unitScale;
-    cov00 += 0.3 / us2;
-    cov11 += 0.3 / us2;
-    f.determinant = cov00 * cov11 - cov01 * cov01;
+    let cullDilation = 0.3 / us2;
+    f.determinant = (cov00 + cullDilation) * (cov11 + cullDilation) - cov01 * cov01;
     if (f.determinant <= 0.0) {
         f.ndc = vec2f(1e4);
         return f;
     }
+    f.lambda1 = 0.5 * (cov00 + cov11) + cullDilation + length(vec2f(0.5 * (cov00 - cov11), cov01));
+    cov00 += lowpass;
+    cov11 += lowpass;
     let mid = 0.5 * (cov00 + cov11);
     let radius = length(vec2f(0.5 * (cov00 - cov11), cov01));
-    f.lambda1 = mid + radius;
+    let lambda1 = mid + radius;
     let lambda2 = max(mid - radius, 0.1 / us2);
-    let eigenVec = vec2f(cov01, f.lambda1 - cov00);
+    let eigenVec = vec2f(cov01, lambda1 - cov00);
     let eigenLen = length(eigenVec);
     let direction = select(vec2f(1.0, 0.0), eigenVec / eigenLen, eigenLen > 1e-9);
-    let len1 = 2.0 * sqrt(2.0 * f.lambda1);
+    let len1 = 2.0 * sqrt(2.0 * lambda1);
     let clampScale = min(1.0, min(1024.0, min(viewport.x, viewport.y)) / len1);
     f.axis1 = len1 * clampScale * direction;
     f.len2 = 2.0 * sqrt(2.0 * lambda2) * clampScale;
@@ -271,8 +281,88 @@ const projectorWGSL = (
     occlusion: boolean,
     coverage: CoverageMode,
     warp: boolean,
-    stereo: boolean
-) => /* wgsl */ `
+    stereo: boolean,
+    antiAlias: AntiAliasMode
+) => {
+    const aa = antiAlias !== 'off';
+    // the coverage thresholds, drawn from the splat's alpha: before the projection, or with
+    // anti-aliasing after it, once the compensation has set the alpha
+    const coverageWGSL =
+        coverage !== 'pixel'
+            ? `
+    // Variant coverage:splat: one coverage threshold per splat and frame instead of one per
+    // pixel. The pixels where alpha exceeds it form a solid ellipse, which the raster draws as a
+    // polygon of the same area with no discard, so a gpu updates depth early and rejects what
+    // lies behind it before rasterising it. Each pixel is still kept with probability alpha,
+    // independently per splat; the noise is a splat at a random size rather than a dither. The
+    // threshold is hashed afresh every frame: one sequence shared by every splat, rotated per
+    // splat, would keep two splats' thresholds a fixed distance apart, so their coverage would
+    // stay correlated over frames and the accumulation would converge to the wrong image. A
+    // splat whose opacity does not exceed its threshold keeps nothing this frame and stops here.
+    // The draw goes into cache word 5 as ${DRAW_BITS} bits, and the raster rebuilds the same
+    // thresholds from them (shaders/raster.ts).
+    let id = slot ^ (file * 2654435761u);
+    let hashed = hashU32(((id + 1u) * 26699u) ^ uniforms.frameSeed);
+    let drawnBits = hashed >> ${32 - DRAW_BITS}u;
+    let drawn = f32(drawnBits) * (1.0 / ${(1 << DRAW_BITS) - 1}.0);
+    // Variant jitter: the threshold is the base of a random stratum instead of the draw itself,
+    // and every pixel adds its own jitter within the stratum in the raster, so the kept region
+    // is the stratum's ellipse with a dithered rim rather than a solid one. Each pixel's
+    // threshold is still uniform over [0, 1) and independent per splat, so the expectation is
+    // unchanged, but neighbouring pixels no longer all agree. Sub-strata (jitterSubs above 1)
+    // narrow the jitter: smaller polygons, more agreement.
+    let subs = uniforms.jitterSubs;
+    let jittered = subs > 0u;
+    let subMask = max(subs, 1u) - 1u;
+    // the per-splat threshold (coverage:splat, and the small splats of the interleaved mode): a
+    // stratum of \`strata\`, its sub-stratum, and the nibble the raster reads them back from
+    // (kept | stratum << 1 | sub << 3)
+    let strata = max(uniforms.strata, 1u);
+    let splatStratum = min(u32(drawn * f32(strata)), strata - 1u);
+    let splatSub = (hashed >> 15u) & subMask;
+    let splatBase = select(drawn, f32(splatStratum * max(subs, 1u) + splatSub) / f32(strata * max(subs, 1u)), jittered);
+    let splatNibble = 1u | (splatStratum << 1u) | (splatSub << 3u);
+    let splatThreshold = max(splatBase, uniforms.alphaClip);
+    let splatKept = splatThreshold < opacity;
+${
+    coverage === 'interleaved'
+        ? `
+    // Variant coverage:interleaved: the pixels split into four interleaved sets, the four of a
+    // 2x2 quad, and each set takes its own threshold, the four quarters of [0, 1) from the one
+    // draw: a quad holds the splat at four stratified sizes, so its mean is nearly the splat's
+    // alpha, as the per-pixel thresholds' is, and neighbouring pixels are no longer all one
+    // splat. Jittered, the sets take the four strata in a random order, each within a random
+    // sub-stratum, and their pixels jitter inside it
+    var setBases = fract(vec4f(drawn) + vec4f(0.0, 0.25, 0.5, 0.75));
+    var setNibbles = vec4u(0u);
+    if (jittered) {
+        let bits = hashU32(hashed ^ 0x9e3779b9u);
+        let packed = PERMUTATIONS[bits % 24u];
+        let perm = (vec4u(packed) >> vec4u(0u, 2u, 4u, 6u)) & vec4u(3u);
+        let subsOf = (vec4u(bits) >> vec4u(8u, 10u, 12u, 14u)) & vec4u(subMask);
+        setBases = vec4f(perm * subs + subsOf) / f32(4u * subs);
+        setNibbles = (perm << vec4u(1u)) | (subsOf << vec4u(3u));
+    }
+    let setThresholds = max(setBases, vec4f(uniforms.alphaClip));
+    let keptSets = setThresholds < vec4f(opacity);
+    setNibbles = select(vec4u(0u), setNibbles | vec4u(1u), keptSets);
+    // whether the splat draws into the sets or the full target waits for its footprint; a splat
+    // keeping nothing either way stops here
+    if (!any(keptSets) && !splatKept) {
+        return result;
+    }
+    let lowest = select(vec4f(2.0), setThresholds, keptSets);
+    let setThreshold = min(min(lowest.x, lowest.y), min(lowest.z, lowest.w));
+`
+        : `
+    if (!splatKept) {
+        return result;
+    }
+`
+}
+`
+            : '';
+    return /* wgsl */ `
 struct ProjectorUniforms {
     view: mat4x4f,
     viewProj: mat4x4f,
@@ -311,7 +401,7 @@ struct ProjectorUniforms {
     modelScale: vec4f,
     cameraPosition: vec4f,
     // 1: covariance in true pixels. 2: the engine's convention (its focal is viewport * proj[0][0],
-    // twice the pixel focal), which makes its 0.3 dilation 0.075 px^2 and scales its culls
+    // twice the pixel focal), which scales its culls and makes their 0.3 filter 0.075 px^2
     unitScale: f32,
     // the coverage seed (variant coverage:splat; see the raster's frameSeed)
     frameSeed: u32,
@@ -334,7 +424,12 @@ struct ProjectorUniforms {
     // and its warp table in warpTable
     occL2Base: u32,
     stereoBase: u32,
-    warpBaseEye1: u32
+    warpBaseEye1: u32,
+    // the variance, in pixels squared, of the filter splats trained with anti-aliasing were
+    // trained with (GSplatParams#antiAliasFilterSize), and the dispatched file's training mode
+    // for the sources that dispatch per file (1: anti-aliased)
+    antiAliasFilterSize: f32,
+    fileAntiAlias: u32
 }
 
 // chunk table entry: slotBase, count, node, lod | file << 16
@@ -432,86 +527,12 @@ fn project(slot: u32, file: u32${stereo ? ', local: u32' : ''}) -> Projected {
 
     setSplat(slot);
     let center = srcCenter();
-    let opacity = srcOpacity();
-    if (opacity < uniforms.alphaClip) {
+    // the file's alpha; the compensation for anti-aliasing (aa) only lowers it, after the culls
+    let opacityRaw = srcOpacity();
+    if (opacityRaw < uniforms.alphaClip) {
         return result;
     }
-${
-    coverage !== 'pixel'
-        ? `
-    // Variant coverage:splat: one coverage threshold per splat and frame instead of one per
-    // pixel. The pixels where alpha exceeds it form a solid ellipse, which the raster draws as a
-    // polygon of the same area with no discard, so a gpu updates depth early and rejects what
-    // lies behind it before rasterising it. Each pixel is still kept with probability alpha,
-    // independently per splat; the noise is a splat at a random size rather than a dither. The
-    // threshold is hashed afresh every frame: one sequence shared by every splat, rotated per
-    // splat, would keep two splats' thresholds a fixed distance apart, so their coverage would
-    // stay correlated over frames and the accumulation would converge to the wrong image. A
-    // splat whose opacity does not exceed its threshold keeps nothing this frame and stops here.
-    // The draw goes into cache word 5 as ${DRAW_BITS} bits, and the raster rebuilds the same
-    // thresholds from them (shaders/raster.ts).
-    let id = slot ^ (file * 2654435761u);
-    let hashed = hashU32(((id + 1u) * 26699u) ^ uniforms.frameSeed);
-    let drawnBits = hashed >> ${32 - DRAW_BITS}u;
-    let drawn = f32(drawnBits) * (1.0 / ${(1 << DRAW_BITS) - 1}.0);
-    // Variant jitter: the threshold is the base of a random stratum instead of the draw itself,
-    // and every pixel adds its own jitter within the stratum in the raster, so the kept region
-    // is the stratum's ellipse with a dithered rim rather than a solid one. Each pixel's
-    // threshold is still uniform over [0, 1) and independent per splat, so the expectation is
-    // unchanged, but neighbouring pixels no longer all agree. Sub-strata (jitterSubs above 1)
-    // narrow the jitter: smaller polygons, more agreement.
-    let subs = uniforms.jitterSubs;
-    let jittered = subs > 0u;
-    let subMask = max(subs, 1u) - 1u;
-    // the per-splat threshold (coverage:splat, and the small splats of the interleaved mode): a
-    // stratum of \`strata\`, its sub-stratum, and the nibble the raster reads them back from
-    // (kept | stratum << 1 | sub << 3)
-    let strata = max(uniforms.strata, 1u);
-    let splatStratum = min(u32(drawn * f32(strata)), strata - 1u);
-    let splatSub = (hashed >> 15u) & subMask;
-    let splatBase = select(drawn, f32(splatStratum * max(subs, 1u) + splatSub) / f32(strata * max(subs, 1u)), jittered);
-    let splatNibble = 1u | (splatStratum << 1u) | (splatSub << 3u);
-    let splatThreshold = max(splatBase, uniforms.alphaClip);
-    let splatKept = splatThreshold < opacity;
-${
-    coverage === 'interleaved'
-        ? `
-    // Variant coverage:interleaved: the pixels split into four interleaved sets, the four of a
-    // 2x2 quad, and each set takes its own threshold, the four quarters of [0, 1) from the one
-    // draw: a quad holds the splat at four stratified sizes, so its mean is nearly the splat's
-    // alpha, as the per-pixel thresholds' is, and neighbouring pixels are no longer all one
-    // splat. Jittered, the sets take the four strata in a random order, each within a random
-    // sub-stratum, and their pixels jitter inside it
-    var setBases = fract(vec4f(drawn) + vec4f(0.0, 0.25, 0.5, 0.75));
-    var setNibbles = vec4u(0u);
-    if (jittered) {
-        let bits = hashU32(hashed ^ 0x9e3779b9u);
-        let packed = PERMUTATIONS[bits % 24u];
-        let perm = (vec4u(packed) >> vec4u(0u, 2u, 4u, 6u)) & vec4u(3u);
-        let subsOf = (vec4u(bits) >> vec4u(8u, 10u, 12u, 14u)) & vec4u(subMask);
-        setBases = vec4f(perm * subs + subsOf) / f32(4u * subs);
-        setNibbles = (perm << vec4u(1u)) | (subsOf << vec4u(3u));
-    }
-    let setThresholds = max(setBases, vec4f(uniforms.alphaClip));
-    let keptSets = setThresholds < vec4f(opacity);
-    setNibbles = select(vec4u(0u), setNibbles | vec4u(1u), keptSets);
-    // whether the splat draws into the sets or the full target waits for its footprint; a splat
-    // keeping nothing either way stops here
-    if (!any(keptSets) && !splatKept) {
-        return result;
-    }
-    let lowest = select(vec4f(2.0), setThresholds, keptSets);
-    let setThreshold = min(min(lowest.x, lowest.y), min(lowest.z, lowest.w));
-`
-        : `
-    if (!splatKept) {
-        return result;
-    }
-`
-}
-`
-        : ''
-}
+${aa ? '' : `    let opacity = opacityRaw;\n${coverageWGSL}`}
     let viewCenter = uniforms.view * vec4f(center, 1.0);
     let depth = -viewCenter.z;
     if (uniforms.isOrtho == 0u && depth <= 0.0) {
@@ -598,33 +619,47 @@ ${
     let pixelScale = vec2f(1.0);
 `
 }
-    // the low-pass dilation every splat renderer applies, 0.3 in the chosen units
+    // The low-pass filter, a variance added to the footprint. The culls measure the footprint
+    // with 0.3 in the chosen units, so in the engine's units with the 0.075 px^2 its culls still
+    // measure; the drawn footprint takes the filter splats are trained with, in true pixels
+    // whatever the units: 0.3 px^2, as the engine's renderer draws them since 2.24
     let us2 = uniforms.unitScale * uniforms.unitScale;
-    cov00 += 0.3 / us2;
-    cov11 += 0.3 / us2;
+    let cullDilation = 0.3 / us2;
+    cov00 += cullDilation;
+    cov11 += cullDilation;
     let determinant = cov00 * cov11 - cov01 * cov01;
     if (determinant <= 0.0) {
         return result;
     }
-
-    let mid = 0.5 * (cov00 + cov11);
-    let radius = length(vec2f(0.5 * (cov00 - cov11), cov01));
-    let lambda1 = mid + radius;
-    let lambda2 = max(mid - radius, 0.1 / us2);
+    let cullLambda1 = 0.5 * (cov00 + cov11) + length(vec2f(0.5 * (cov00 - cov11), cov01));
 ${
-    stereo
+    aa
         ? `
+    // Anti-aliasing compensation, as the engine's projector applies it: a splat trained with
+    // anti-aliasing draws with the filter it was trained with (antiAliasFilterSize), its alpha
+    // scaled by the square root of the unfiltered footprint's determinant over the filtered one's,
+    // which keeps a small splat's alpha mass what it was in training. The culls below still
+    // measure the footprint with the file's alpha, as the engine's do
+    let compensated = ${antiAlias === 'mixed' ? 'srcAntiAlias()' : 'true'};
+    let lowpass = select(0.3, uniforms.antiAliasFilterSize, compensated);
+`
+        : `
+    let lowpass = 0.3;
+`
+}${
+        stereo
+            ? `
     // Stereo: one projection serves both eyes, as the engine's own stereo projector does: the
     // second eye takes this view's depth, colour, coverage and order and its own footprint, and
     // every cull keeps what either eye would
-    let eye1 = footprintEye1(center, rot, scale, viewport);
+    let eye1 = footprintEye1(center, rot, scale, viewport, lowpass);
 `
-        : ''
-}
+            : ''
+    }
     // size cull on the footprint's radius in pixels. minPixelSize is a diameter: the engine's
     // projector is dispatched with half of it, and its quad path tests the full extent
     // (2 sqrt(2 lambda)) against the whole value, so both cut at the same place
-    if (uniforms.unitScale * sqrt(2.0 * lambda1) < 0.5 * uniforms.minPixelSize${
+    if (uniforms.unitScale * sqrt(2.0 * cullLambda1) < 0.5 * uniforms.minPixelSize${
         stereo
             ? ' && (!eye1.visible || uniforms.unitScale * sqrt(2.0 * eye1.lambda1) < 0.5 * uniforms.minPixelSize)'
             : ''
@@ -633,13 +668,41 @@ ${
     }
 
     // contribution cull: the splat's alpha mass in pixels (the engine's minContribution rule)
-    if (opacity * 6.283185 * sqrt(determinant) * us2 < uniforms.minContribution${
+    if (opacityRaw * 6.283185 * sqrt(determinant) * us2 < uniforms.minContribution${
         stereo
-            ? ' && (!eye1.visible || opacity * 6.283185 * sqrt(eye1.determinant) * us2 < uniforms.minContribution)'
+            ? ' && (!eye1.visible || opacityRaw * 6.283185 * sqrt(eye1.determinant) * us2 < uniforms.minContribution)'
             : ''
     }) {
         return result;
     }
+
+    // the drawn footprint
+    let raw00 = cov00 - cullDilation;
+    let raw11 = cov11 - cullDilation;
+    cov00 = raw00 + lowpass;
+    cov11 = raw11 + lowpass;
+${
+    aa
+        ? `
+    var opacity = opacityRaw;
+    if (compensated) {
+        opacity *= sqrt(max((raw00 * raw11 - cov01 * cov01) / (cov00 * cov11 - cov01 * cov01), 0.0));
+    }
+    // a splat the compensation faded below the clip is dropped, as the engine's projector drops it.
+    // In stereo the second eye takes this eye's compensated alpha, its clip and its coverage, as it
+    // does in the engine's stereo projector (which shares the footprint too): the factor depends
+    // on the view, so a thin splat edge-on to this eye but not to the other is fainter there than
+    // it should be, or gone. Separate projections (variant stereo:separate) compensate per eye
+    if (opacity < uniforms.alphaClip) {
+        return result;
+    }
+${coverageWGSL}`
+        : ''
+}
+    let mid = 0.5 * (cov00 + cov11);
+    let radius = length(vec2f(0.5 * (cov00 - cov11), cov01));
+    let lambda1 = mid + radius;
+    let lambda2 = max(mid - radius, 0.1 / us2);
 
     // principal axis; a circular footprint has no defined eigenvector, any axis is right
     let eigenVec = vec2f(cov01, lambda1 - cov00);
@@ -790,8 +853,8 @@ ${
     result.words[5] = drawnBits | (splatNibble << 16u);
 `
 }${
-    stereo
-        ? `
+        stereo
+            ? `
     // the second eye's centre, in the same range, and its full quad's axes (shaders/raster.ts),
     // stashed in workgroup memory rather than returned: three more words in the per-thread state
     // that main() holds across its barriers put the Adreno 740's compiler on a slow path, 6-9x
@@ -801,8 +864,8 @@ ${
         pack2x16float(eye1.axis1),
         pack2x16float(vec2f(eye1.len2, 0.0))
     );`
-        : ''
-}
+            : ''
+    }
     return result;
 }
 
@@ -810,12 +873,12 @@ var<workgroup> wgCount: atomic<u32>;
 var<workgroup> wgOccluded: atomic<u32>;
 var<workgroup> wgBase: u32;
 var<workgroup> wgBuckets: array<atomic<u32>, ${ORDER_BUCKETS}>;${
-    stereo
-        ? `
+        stereo
+            ? `
 // stereo: each thread's second-eye words, from project() to the cache write
 var<workgroup> wgEye1: array<vec3u, ${PROJECTOR_WORKGROUP_SIZE}>;`
-        : ''
-}
+            : ''
+    }
 
 @compute @workgroup_size(${PROJECTOR_WORKGROUP_SIZE})
 fn main(
@@ -897,6 +960,7 @@ ${
     }
 }
 `;
+};
 
 export {
     CACHE_WORDS,
@@ -911,4 +975,4 @@ export {
     polygonScale,
     projectorWGSL
 };
-export type { CoverageMode };
+export type { AntiAliasMode, CoverageMode };

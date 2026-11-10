@@ -573,6 +573,11 @@ fn srcOpacity() -> f32 {
     return srcColorCache.a;
 }
 
+// the file's training mode: one file per dispatch, so the renderer sets it per dispatch
+fn srcAntiAlias() -> bool {
+    return uniforms.fileAntiAlias != 0u;
+}
+
 // the format returns (w, x, y, z); world = model * source
 fn srcRotation() -> vec4f {
     let q = quatMulF(uniforms.modelRotation, getRotation().yzwx);

@@ -89,6 +89,9 @@
               closeup                       add an automatic pose at 0.3 of the subject pose's distance (no poses file)
               pick                          pick noise: surface picks over a 9 x 5 grid on 8 frames, spread and offset from the sorted pick
               far=<m>                       fix the camera's far plane (both modes) instead of the viewer's fit to the scene bound
+              aa=1                          force the anti-aliasing compensation on (1) or off (0) in both modes, or on in the
+                                            sorted mode only (sorted: the stochastic renderer as it was before it compensated);
+                                            default: each file's training mode
               keep                          leave the last viewer alive as window.bench { viewer, app, renderer, pump(n) }
               against=<tag>                 diff every capture against the one saved under that tag by an earlier run,
                                             usually another build: a variant accumulates the same seeds each time, so
@@ -502,6 +505,11 @@
                     noanim: true,
                     nofx: !params.has('fx'),
                     hpr: params.has('hpr'),
+                    aa: !params.has('aa')
+                        ? undefined
+                        : params.get('aa') === 'sorted'
+                          ? mode === 'sorted'
+                          : params.get('aa') === '1',
                     fullload: true,
                     budget,
                     // the debug panel publishes window.setCameraState, which the poses use
