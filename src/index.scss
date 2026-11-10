@@ -26,6 +26,8 @@
     overflow: hidden;
     // a stacking context of its own, so nothing inside the viewer interleaves with the host's
     isolation: isolate;
+    // the ui sizes itself by the viewer's width, not the viewport's: a host may embed it narrower
+    container-type: inline-size;
     font-family: 'Arial', sans-serif;
     user-select: none;
     -webkit-user-select: none;
@@ -559,6 +561,26 @@
                             background-position: 200% 0%;
                         }
                     }
+                }
+            }
+        }
+    }
+
+    // A full toolbar (play, orbit/fly/walk, settings/controls/info/AR/VR/fullscreen) needs 396px
+    // and clips the fullscreen button on narrower viewers, as on phones where a host embeds the
+    // viewer in a card. Compact it there: the worst case then needs 328px.
+    @container (max-width: 420px) {
+        .sse-controlsWrap {
+            left: max(8px, env(safe-area-inset-left));
+            right: max(8px, env(safe-area-inset-right));
+            bottom: max(8px, env(safe-area-inset-bottom));
+
+            > .sse-buttonsContainer {
+                gap: 4px;
+
+                .sse-controlButton {
+                    width: 30px;
+                    height: 30px;
                 }
             }
         }
