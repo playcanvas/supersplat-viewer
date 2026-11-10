@@ -96,7 +96,9 @@
                 ministats: url.searchParams.has('ministats'),
                 colorize: url.searchParams.has('colorize'),
                 renderer,
-                aa: url.searchParams.has('aa'),
+                aa: url.searchParams.has('aa')
+                    ? ['', '1', 'true', 'enable'].includes(url.searchParams.get('aa'))
+                    : undefined,
                 stochastic: url.searchParams.has('stochastic')
                     ? url.searchParams.get('stochastic') === 'mobile'
                         ? 'mobile'
