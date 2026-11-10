@@ -26,8 +26,6 @@
     overflow: hidden;
     // a stacking context of its own, so nothing inside the viewer interleaves with the host's
     isolation: isolate;
-    // the ui sizes itself by the viewer's width, not the viewport's: a host may embed it narrower
-    container-type: inline-size;
     font-family: 'Arial', sans-serif;
     user-select: none;
     -webkit-user-select: none;
@@ -471,8 +469,18 @@
             display: flex;
             gap: 8px;
 
+            // the gap falls on both sides of the spacer: take one back, so the groups either side
+            // sit one gap apart once the spacer has collapsed
+            > .sse-spacer {
+                margin-right: -8px;
+            }
+
+            // When the buttons run out of room (a full toolbar needs 396px, and a phone may embed
+            // the viewer narrower) the groups shrink in proportion to their width and the buttons
+            // within them equally, so every button scales down by the same amount
             .sse-buttonGroup {
                 display: flex;
+                min-width: 0;
                 background-color: rgba(black, 0.3);
                 border-radius: 6px;
 
@@ -485,7 +493,8 @@
 
             .sse-controlButton {
                 width: 34px;
-                height: 34px;
+                min-width: 0;
+                aspect-ratio: 1;
                 padding: 0;
                 margin: 0;
                 border: 0;
@@ -502,6 +511,10 @@
                 > svg {
                     display: block;
                     margin: auto;
+                    // 24px in a 34px button, scaling with it
+                    width: calc(24 / 34 * 100%);
+                    height: auto;
+                    aspect-ratio: 1;
 
                     > g {
                         &.sse-stroke {
@@ -561,26 +574,6 @@
                             background-position: 200% 0%;
                         }
                     }
-                }
-            }
-        }
-    }
-
-    // A full toolbar (play, orbit/fly/walk, settings/controls/info/AR/VR/fullscreen) needs 396px
-    // and clips the fullscreen button on narrower viewers, as on phones where a host embeds the
-    // viewer in a card. Compact it there: the worst case then needs 328px.
-    @container (max-width: 420px) {
-        .sse-controlsWrap {
-            left: max(8px, env(safe-area-inset-left));
-            right: max(8px, env(safe-area-inset-right));
-            bottom: max(8px, env(safe-area-inset-bottom));
-
-            > .sse-buttonsContainer {
-                gap: 4px;
-
-                .sse-controlButton {
-                    width: 30px;
-                    height: 30px;
                 }
             }
         }
