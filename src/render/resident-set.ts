@@ -54,6 +54,8 @@ type EngineResource = {
     textureDimensions: { x: number; y: number };
     parameters: Map<string, unknown>;
     configureMaterialDefines(defines: Map<string, string>): void;
+    /** Whether the file's splats were trained with anti-aliasing (from the file, or the engine's override). */
+    antiAlias: boolean;
     /**
      * The sog file's metadata (the v2 codebooks are 256 floats each), and the file's textures by
      * stream name, which it destroys when the engine unloads the file.

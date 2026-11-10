@@ -22,7 +22,8 @@ type SplatSource = {
     /**
      * Wgsl declaring this source's bindings from `bindingBase` upward and defining
      * `srcCenter()` (world space; call first), `srcOpacity()` (second), `srcRotation()`
-     * (w, x, y, z), `srcScale()` and `srcColor()` (last) for the splat set by `setSplat(index)`.
+     * (w, x, y, z), `srcScale()` and `srcColor()` (last) for the splat set by `setSplat(index)`,
+     * and `srcAntiAlias()`, whether the splat was trained with anti-aliasing (after `srcCenter()`).
      */
     readChunk(bindingBase: number): string;
 
