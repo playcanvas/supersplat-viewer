@@ -469,8 +469,18 @@
             display: flex;
             gap: 8px;
 
+            // the gap falls on both sides of the spacer: take one back, so the groups either side
+            // sit one gap apart once the spacer has collapsed
+            > .sse-spacer {
+                margin-right: -8px;
+            }
+
+            // When the buttons run out of room (a full toolbar needs 396px, and a phone may embed
+            // the viewer narrower) the groups shrink in proportion to their width and the buttons
+            // within them equally, so every button scales down by the same amount
             .sse-buttonGroup {
                 display: flex;
+                min-width: 0;
                 background-color: rgba(black, 0.3);
                 border-radius: 6px;
 
@@ -483,7 +493,8 @@
 
             .sse-controlButton {
                 width: 34px;
-                height: 34px;
+                min-width: 0;
+                aspect-ratio: 1;
                 padding: 0;
                 margin: 0;
                 border: 0;
@@ -500,6 +511,10 @@
                 > svg {
                     display: block;
                     margin: auto;
+                    // 24px in a 34px button, scaling with it
+                    width: calc(24 / 34 * 100%);
+                    height: auto;
+                    aspect-ratio: 1;
 
                     > g {
                         &.sse-stroke {

@@ -46,7 +46,7 @@ By default the viewer uses WebGPU when available (falling back automatically whe
 | Parameter     | Description                                                                                                                                                                      |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `webgl`       | Force the WebGL renderer (required for AR/VR)                                                                                                                                    |
-| `aa`          | Enable antialiasing (WebGL only)                                                                                                                                                 |
+| `aa`          | Force the anti-aliasing compensation for splats: `?aa`, `?aa=1`, `?aa=true`, `?aa=enable` on, other values off (default: per splat, from the file)                               |
 | `stochastic`  | Experimental unsorted, depth-tested splat renderer: `stochastic` for per-pixel quality, `stochastic=mobile` for phones and headsets. WebGPU only, its XR included                |
 | `splatSource` | Developer knob for the stochastic renderer: the data path feeding it (`direct`, the default, reads the resident files in place; `workbuffer` reads the engine's work buffer)     |
 | `variant`     | Developer knob for the stochastic renderer: comma-separated `key:value` experiment switches over the mode's, e.g. `taaSharp:8`                                                   |

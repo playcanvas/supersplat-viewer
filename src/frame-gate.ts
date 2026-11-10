@@ -1,6 +1,6 @@
 import type { AppBase, EventHandle } from 'playcanvas';
 
-type GpuQueue = { onSubmittedWorkDone(): Promise<void> };
+type GpuQueue = { onSubmittedWorkDone(): Promise<void>; submit(commandBuffers: unknown[]): void };
 
 /**
  * Holds the viewer's continuous on-demand renders while the gpu is behind. Browsers let a page
@@ -84,7 +84,12 @@ class FrameGate {
 
     // a rendered frame's work is all submitted by its end
     private frameEnd() {
-        if (!this.rendered) return;
+        if (!this.rendered) {
+            // Firefox resolves onSubmittedWorkDone only when its gpu process polls the device, on a
+            // submit or a ~100 ms timer, so an empty submit each tick a request waits makes it poll
+            if (this.owed && this.queue) this.queue.submit([]);
+            return;
+        }
         this.rendered = false;
         if (this.queue) {
             this.pending++;
