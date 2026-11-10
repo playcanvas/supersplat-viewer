@@ -21,13 +21,13 @@ The app supports a number of URL parameters (these are subject to change):
 
 ### Content
 
-| Parameter   | Description                                                                               | Default                  |
-| ----------- | ----------------------------------------------------------------------------------------- | ------------------------ |
-| `settings`  | URL of the `settings.json` file                                                           | `./settings.json`        |
-| `content`   | URL of the scene file (`.ply`, `.sog`, `.compressed.ply`, `.meta.json`, `.lod-meta.json`) | `./scene.compressed.ply` |
-| `skybox`    | URL of an equirectangular skybox image                                                    |                          |
-| `poster`    | URL of an image to show while loading                                                     |                          |
-| `collision` | URL of a collision asset (`.glb` mesh, or voxel data). `voxel` is accepted as an alias.   |                          |
+| Parameter   | Description                                                                                                | Default                  |
+| ----------- | ---------------------------------------------------------------------------------------------------------- | ------------------------ |
+| `settings`  | URL of the `settings.json` file                                                                            | `./settings.json`        |
+| `content`   | URL of the scene file (`.ply`, `.sog`, `.compressed.ply`, `.meta.json`, `.lod-meta.json`, `.spz`, `.lcc2`) | `./scene.compressed.ply` |
+| `skybox`    | URL of an equirectangular skybox image                                                                     |                          |
+| `poster`    | URL of an image to show while loading                                                                      |                          |
+| `collision` | URL of a collision asset (`.glb` mesh, or voxel data). `voxel` is accepted as an alias.                    |                          |
 
 ### UI
 

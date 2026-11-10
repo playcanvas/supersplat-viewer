@@ -35,15 +35,19 @@ import { version as appVersion } from '../package.json';
 const contentName = (contentUrl: string, contentFilename?: string | null) =>
     contentFilename || new URL(contentUrl, location.href).pathname.split('/').pop();
 
-// Whether a prefetched response for this content is worth starting. The engine's octree parser
-// fetches lod-meta.json itself and ignores `asset.file.contents`, so prefetching it downloads
-// the metadata twice — a quarter of a megabyte on a real scene, served with no cache-control
-// header, so the second request is not a cache hit. Every other splat parser consumes the
-// prefetched response, so they keep the head start. `src/index.html` applies the same rule when
-// it starts its own prefetch, and docs/streaming-progress.md covers the engine fix that would
-// let the octree path reuse the response instead of opting out of it.
-const isPrefetchable = (contentUrl: string, contentFilename?: string | null) =>
-    contentName(contentUrl, contentFilename)?.toLowerCase() !== 'lod-meta.json';
+// Whether a prefetched response for this content is worth starting. The engine's octree and lcc2
+// parsers fetch lod-meta.json and .lcc2 files themselves and ignore `asset.file.contents`, so
+// prefetching them downloads the metadata twice — a quarter of a megabyte on a real scene,
+// served with no cache-control header, so the second request is not a cache hit. The spz parser
+// takes `asset.file.contents` only as an ArrayBuffer, not the prefetched response, so it fetches
+// its file itself too. Every other splat parser consumes the prefetched response, so they keep
+// the head start. `src/index.html` applies the same rule when it starts its own prefetch, and
+// docs/streaming-progress.md covers the engine fix that would let the octree path reuse the
+// response instead of opting out of it.
+const isPrefetchable = (contentUrl: string, contentFilename?: string | null) => {
+    const name = contentName(contentUrl, contentFilename)?.toLowerCase();
+    return name !== 'lod-meta.json' && !name?.endsWith('.lcc2') && !name?.endsWith('.spz');
+};
 
 // gsaf is an animated splat sequence, which the viewer decodes and plays itself rather than
 // through an engine parser
@@ -90,7 +94,13 @@ const loadGsplat = async (
             // always name the app: the engine's default is the most recently created one,
             // which is another viewer's when two share a page
             const entity = new Entity('gsplat', app);
-            entity.setLocalEulerAngles(0, 0, 180);
+            // LCC2 scenes are stored +Z up, spz files +Y up, the other formats -Y up
+            const name = filename.toLowerCase();
+            if (name.endsWith('.lcc2')) {
+                entity.setLocalEulerAngles(270, 0, 0);
+            } else if (!name.endsWith('.spz')) {
+                entity.setLocalEulerAngles(0, 0, 180);
+            }
             entity.addComponent('gsplat', {
                 unified: true,
                 asset
