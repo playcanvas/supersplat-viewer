@@ -75,7 +75,9 @@
             // parser consumes it, so they keep the head start. `isPrefetchable` in src/index.ts
             // applies the same rule for embedders that do not pass `contents`.
             const contentName = (
-                contentFilename ?? new URL(contentUrl, location.href).pathname.split('/').pop() ?? ''
+                contentFilename ??
+                new URL(contentUrl, location.href).pathname.split('/').pop() ??
+                ''
             ).toLowerCase();
             const prefetchContent =
                 contentName !== 'lod-meta.json' && !contentName.endsWith('.lcc2') && !contentName.endsWith('.spz');

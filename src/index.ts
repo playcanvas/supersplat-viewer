@@ -83,13 +83,14 @@ const loadGsplat = async (
     const data = name === 'meta.json' ? await (await contents).json() : undefined;
     // The spz parser reads `asset.file.contents` only as an ArrayBuffer, so a fetch the caller
     // started is read to one here (the viewer starts none for spz, see `isPrefetchable`)
-    const c = (
-        name.endsWith('.spz') && contents ? await (await contents).arrayBuffer() : contents
-    ) as unknown as ArrayBuffer;
+    const c = (name.endsWith('.spz') && contents
+        ? await (await contents).arrayBuffer()
+        : contents) as unknown as ArrayBuffer;
 
     // Reading that metadata or those bytes spans a network round trip, so a destroy can land in
-    // the middle of it. `app.destroy()` nulls the asset registry, so registering the asset now would throw
-    // from the engine's internals; reject instead, which the viewer's load chains expect.
+    // the middle of it. `app.destroy()` nulls the asset registry, so registering the asset now
+    // would throw from the engine's internals; reject instead, which the viewer's load chains
+    // expect.
     if (cancelled()) {
         throw new Error('loadGsplat: the viewer was destroyed while loading');
     }
