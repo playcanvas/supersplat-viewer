@@ -62,6 +62,10 @@ By default the viewer uses WebGPU when available (falling back automatically whe
 
 See the [API reference](docs/api.md) for embedding, runtime control, UI customization and settings.
 
+## Developing with AI
+
+Coding agents: start from the [SuperSplat guides index](https://developer.playcanvas.com/user-manual/supersplat/llms.txt), which covers the viewer and links a Markdown version of every page.
+
 ## Local Development
 
 To initialize a local development environment for SuperSplat Viewer, ensure you have [Node.js](https://nodejs.org/) 20 or later installed. Follow these steps:
