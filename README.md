@@ -41,11 +41,11 @@ The app supports a number of URL parameters (these are subject to change):
 
 ### Renderer
 
-By default the viewer uses WebGPU when available (falling back automatically when not). The flag below forces the WebGL renderer (also required for WebXR / AR / VR):
+By default the viewer uses WebGPU when available (falling back automatically when not). The flag below forces the WebGL renderer:
 
 | Parameter     | Description                                                                                                                                                                      |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `webgl`       | Force the WebGL renderer (required for AR/VR)                                                                                                                                    |
+| `webgl`       | Force the WebGL renderer                                                                                                                                                         |
 | `aa`          | Force the anti-aliasing compensation for splats: `?aa`, `?aa=1`, `?aa=true`, `?aa=enable` on, other values off (default: per splat, from the file)                               |
 | `stochastic`  | Experimental unsorted, depth-tested splat renderer: `stochastic` for per-pixel quality, `stochastic=mobile` for phones and headsets. WebGPU only, its XR included                |
 | `splatSource` | Developer knob for the stochastic renderer: the data path feeding it (`direct`, the default, reads the resident files in place; `workbuffer` reads the engine's work buffer)     |
