@@ -8,6 +8,52 @@ import { warpWGSL } from './warp';
 /** Words per cache entry: ndc, depth, axis1, len2 | alpha | bucket, rgb, id (or the coverage draw). */
 const CACHE_WORDS = 6;
 
+// The cached alpha and the splat's shape, shared by the projector and the raster. The alpha byte
+// is sog v3's encoding, alpha = (1.25 b / 255)^2, so it holds the alpha above 1 a sog v3 file
+// stores (up to 1.5625); every other source's alpha converts to it. Above 1 a splat draws as the
+// engine's does: a plateau at full alpha out to plateauCore of the quad's half extent, and the
+// falloff stretched over the rest (the engine's gsplatPlateauCore, clipCorner and splat shader).
+const cacheAlphaWGSL = /* wgsl */ `
+fn encodeCacheAlpha(alpha: f32) -> u32 {
+    return u32(sqrt(clamp(alpha, 0.0, 1.5625)) * (255.0 / 1.25) + 0.5);
+}
+
+fn decodeCacheAlpha(bits: u32) -> f32 {
+    let o = f32(bits & 0xffu) * (1.25 / 255.0);
+    return o * o;
+}
+
+// the radius, in units of the quad's half extent, out to which alpha above 1 holds at full alpha
+fn plateauCore(alpha: f32) -> f32 {
+    if (alpha <= 1.0) {
+        return 0.0;
+    }
+    let t = min(alpha - 1.0, 0.5625);
+    return sqrt(0.28986718 + 0.62504992 * t) - 0.53839315;
+}
+
+// the splat's alpha at r^2, in units of the quad's half extent:
+// alpha * falloff(r^2) with falloff(x) = (exp(-4 x) - exp(-4)) / (1 - exp(-4)), or above 1 the plateau
+fn splatAlpha(r2: f32, alpha: f32) -> f32 {
+    var x = r2;
+    if (alpha > 1.0) {
+        let core = plateauCore(alpha);
+        let c = max(0.0, sqrt(r2) - core) / (1.0 - core);
+        x = c * c;
+    }
+    let e4 = exp(-4.0);
+    return (exp(x * -4.0) - e4) / (1.0 - e4) * min(alpha, 1.0);
+}
+
+// the radius, in units of the quad's half extent, where splatAlpha falls to a threshold
+fn radiusAt(threshold: f32, alpha: f32) -> f32 {
+    let e4 = exp(-4.0);
+    let core = plateauCore(alpha);
+    let r = sqrt(max(-log(threshold / min(alpha, 1.0) * (1.0 - e4) + e4) * 0.25, 0.0));
+    return core + (1.0 - core) * r;
+}
+`;
+
 const PROJECTOR_WORKGROUP_SIZE = 256;
 
 /** Buckets of the counting order (shaders/order.ts); the workgroup size, so each thread owns one. */
@@ -474,6 +520,7 @@ ${warp ? warpEye1WGSL : ''}
         : ''
 }
 ${readChunk}
+${cacheAlphaWGSL}
 ${
     coverage !== 'pixel'
         ? `
@@ -486,13 +533,6 @@ fn hashU32(x: u32) -> u32 {
     v *= 0x846ca68bu;
     v ^= v >> 16u;
     return v;
-}
-
-// the radius, in units of the quad's half extent, where alpha = opacity * falloff(r^2) falls to
-// a threshold, with falloff(x) = (exp(-4 x) - exp(-4)) / (1 - exp(-4))
-fn radiusAt(threshold: f32, opacity: f32) -> f32 {
-    let e4 = exp(-4.0);
-    return sqrt(max(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25, 0.0));
 }
 
 // the 24 orders of four strata, 2 bits a set
@@ -822,11 +862,11 @@ ${
         ? `
     // the full quad's axes (clamped to the radius limit); the raster scales them to each polygon
     result.words[2] = pack2x16float(len1 * clampScale * direction);
-    result.words[3] = pack2x16float(vec2f(len2Full * clampScale, 0.0)) | (u32(clamp(opacity, 0.0, 1.0) * 255.0 + 0.5) << 16u);
+    result.words[3] = pack2x16float(vec2f(len2Full * clampScale, 0.0)) | (encodeCacheAlpha(opacity) << 16u);
 `
         : `
     result.words[2] = pack2x16float(axis1);
-    result.words[3] = pack2x16float(vec2f(len2, 0.0)) | (u32(clamp(opacity, 0.0, 1.0) * 255.0 + 0.5) << 16u);
+    result.words[3] = pack2x16float(vec2f(len2, 0.0)) | (encodeCacheAlpha(opacity) << 16u);
 `
 }
     // the depth bucket, log-spaced from the near plane, in the flags byte
@@ -965,6 +1005,7 @@ ${
 export {
     CACHE_WORDS,
     CHUNK_SIZE,
+    cacheAlphaWGSL,
     DRAW_BITS,
     FULL_ENTRY_BIT,
     ORDER_BUCKETS,

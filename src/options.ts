@@ -47,8 +47,7 @@ type ViewerAssets = {
 type ViewerFlags = {
     /**
      * Requested renderer; the engine falls back to WebGL when WebGPU is unavailable. Default
-     * `webgpu`. For now the Quest Browser, whose WebGPU cannot host an XR session, gets `webgl`
-     * whatever is requested, unless the page url has `?webgpu`. Both are temporary.
+     * `webgpu`.
      */
     renderer?: 'webgl' | 'webgpu';
     /**

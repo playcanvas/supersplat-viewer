@@ -2,7 +2,7 @@
 // survivors, into the renderer's own colour + depth target. Fragments keep themselves with
 // probability alpha (StochasticSplats, Listing 1) and write opaque colour with hardware depth,
 // so no sort is needed and the depth buffer holds the nearest surviving sample per pixel.
-import { CACHE_WORDS, DRAW_BITS } from './projector';
+import { CACHE_WORDS, cacheAlphaWGSL, DRAW_BITS } from './projector';
 
 /** Quads per draw instance; the mesh holds this many quads. */
 const QUADS_PER_INSTANCE = 128;
@@ -80,17 +80,9 @@ ${varyingsWGSL}
 // the splat's share of the coverage hash, once per vertex rather than per fragment
 uniform frameSeed: u32;
 ${hashWGSL}
+${cacheAlphaWGSL}
 
 const discardPosition = vec4f(0.0, 0.0, 2.0, 1.0);
-
-#ifdef SSE_COVERAGE_SPLAT
-    // the radius, in units of the quad's half extent, where alpha = opacity * falloff(r^2) falls
-    // to a threshold (the projector's radiusAt)
-    fn radiusAt(threshold: f32, opacity: f32) -> f32 {
-        let e4 = exp(-4.0);
-        return sqrt(max(-log(threshold / opacity * (1.0 - e4) + e4) * 0.25, 0.0));
-    }
-#endif
 
 @vertex
 fn vertexMain(input: VertexInput) -> VertexOutput {
@@ -137,7 +129,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
         // (shaders/projector.ts): the splat's 15-bit draw, and a nibble per draw group holding
         // the stratum and sub-stratum of the jittered modes
         let word5 = splatCache[base + 5u];
-        let opacityS = f32((word3 >> 16u) & 0xffu) / 255.0;
+        let opacityS = decodeCacheAlpha(word3 >> 16u);
         let drawn = f32(word5 & ${(1 << DRAW_BITS) - 1}u) * (1.0 / ${(1 << DRAW_BITS) - 1}.0);
         #ifdef SSE_INTERLEAVED
             let group = uniform.setIndex;
@@ -170,9 +162,12 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
         let corner = unit * polygonRadius;
     #else
         // shrink the quad to where alpha falls below the clip, as the engine's clipCorner does:
-        // the fragment shader discards everything outside it anyway, but still pays to shade it
-        let opacity = f32((word3 >> 16u) & 0xffu) / 255.0;
-        let corner = vertex_position.xy * min(1.0, sqrt(max(0.0, log(opacity / uniform.sseAlphaClip))) * 0.5);
+        // the fragment shader discards everything outside it anyway, but still pays to shade it.
+        // Above 1 the plateau widens it, as there
+        let opacity = decodeCacheAlpha(word3 >> 16u);
+        let clip = min(1.0, sqrt(max(0.0, log(min(opacity, 1.0) / uniform.sseAlphaClip))) * 0.5);
+        let core = plateauCore(opacity);
+        let corner = vertex_position.xy * (core + (1.0 - core) * clip);
     #endif
     let pixelOffset = corner.x * axis1 + corner.y * axis2;
     let w = select(depth, 1.0, ortho);
@@ -216,13 +211,7 @@ uniform sseAlphaClip: f32;
     uniform jitterParams: vec4f;
 #endif
 
-const EXP4 = exp(-4.0);
-const INV_EXP4 = 1.0 / (1.0 - EXP4);
-
-// the engine's falloff: zero at the quad edge, which sits at 2 sqrt(2) sigma
-fn falloff(x: f32) -> f32 {
-    return (exp(x * -4.0) - EXP4) * INV_EXP4;
-}
+${cacheAlphaWGSL}
 
 @fragment
 fn fragmentMain(input: FragmentInput) -> FragmentOutput {
@@ -234,7 +223,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             // stratum: interleaved gradient noise rotated by the entry's key, as the per-pixel
             // raster's. The test discards the square's corners too (alpha is negative past the
             // quad's edge), so the kept region is the exact ellipse with a dithered rim
-            let alphaJ = falloff(dot(gaussianUV, gaussianUV)) * jitterVary.z;
+            let alphaJ = splatAlpha(dot(gaussianUV, gaussianUV), jitterVary.z);
             let ignJ = fract(52.9829189 * fract(dot(pcPosition.xy, vec2f(0.06711056, 0.00583715))));
             let thresholdJ = jitterVary.x + fract(ignJ + jitterVary.y) * uniform.jitterParams.z;
             if (alphaJ <= max(thresholdJ, uniform.sseAlphaClip)) {
@@ -248,8 +237,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         if (radius > 1.0) {
             discard;
         }
-        let opacity = f32(packedAlpha & 0xffu) / 255.0;
-        let alpha = falloff(radius) * opacity;
+        let alpha = splatAlpha(radius, decodeCacheAlpha(packedAlpha));
         if (alpha < uniform.sseAlphaClip) {
             discard;
         }
