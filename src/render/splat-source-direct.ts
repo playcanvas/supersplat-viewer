@@ -282,11 +282,10 @@ class DirectSplatSource implements SplatSource {
         this.decodedSH.set(resource, { texture, compute });
     }
 
-    // the packed layout applies to sog v2 files, the only ones the repack reads. The engine gives
-    // sog v3 files a codebook too, but no quats texture: their rotation is in the alpha channels
+    // the packed layout applies to sog v2 files, the only ones the repack reads. Sog v3 files have
+    // the same textures, but a different rotation and opacity encoding and 24-bit sh labels
     private packedActive() {
-        const textures = this.resource?.streams.textures;
-        return !!textures && textures.has('sogCodebook') && textures.has('quats');
+        return this.resource?.gsplatData?.meta?.version === 2;
     }
 
     private hasSH() {
