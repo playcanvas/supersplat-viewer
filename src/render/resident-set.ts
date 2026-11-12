@@ -57,10 +57,10 @@ type EngineResource = {
     /** Whether the file's splats were trained with anti-aliasing (from the file, or the engine's override). */
     antiAlias: boolean;
     /**
-     * The sog file's metadata (the v2 codebooks are 256 floats each), and the file's textures by
-     * stream name, which it destroys when the engine unloads the file.
+     * The sog file's metadata (its format version; the v2 codebooks are 256 floats each), and the
+     * file's textures by stream name, which it destroys when the engine unloads the file.
      */
-    gsplatData?: { meta?: { shN?: { codebook?: number[] } } };
+    gsplatData?: { meta?: { version?: number; shN?: { codebook?: number[] } } };
     /** Sog resources: let each texture drop its cpu image source, at once if already uploaded. */
     releaseTextureSources?(): void;
     /** The materials the engine's work buffer copies the file with, which bind its textures once, when made. */
