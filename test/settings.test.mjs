@@ -205,6 +205,21 @@ describe('validateSettings', () => {
         ];
         assert.throws(() => validateSettings(settings, { limits: true }), /annotations\[0\].title/);
     });
+
+    it('allows up to 50 annotations', () => {
+        const annotation = {
+            position: [0, 0, 0],
+            title: 'title',
+            text: 'text',
+            camera: { initial: { position: [0, 0, 0], target: [0, 0, 0], fov: 75 } }
+        };
+        const settings = clone(defaultSettings());
+        settings.annotations = Array.from({ length: 50 }, () => clone(annotation));
+        assert.doesNotThrow(() => validateSettings(settings, { limits: true }));
+
+        settings.annotations.push(clone(annotation));
+        assert.throws(() => validateSettings(settings, { limits: true }), /settings.annotations must have at most 50/);
+    });
 });
 
 describe('importSettings', () => {
