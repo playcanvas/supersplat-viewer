@@ -1,5 +1,8 @@
+import DOMPurify from 'dompurify';
 import { Script, Vec3 } from 'playcanvas';
 import type { Entity } from 'playcanvas';
+
+import type { AnnotationPanel } from '../settings';
 
 const vec = new Vec3();
 
@@ -9,7 +12,7 @@ const vec = new Vec3();
  * - A hotspot: a dom circle with the annotation's number, kept over the annotation's position.
  * `Annotations` tests it against the scene and marks it occluded, which fades it rather than
  * letting the scene cover it pixel by pixel. It stays clickable either way.
- * - An annotation panel that shows title and description text, shared by every annotation.
+ * - An annotation panel that shows title/text or sanitized HTML, shared by every annotation.
  *
  * Styles live in `index.scss`, under `.sse-annotations`.
  */
@@ -36,6 +39,11 @@ export class Annotation extends Script {
      * @attribute
      */
     text: string;
+
+    /** Optional HTML panel content; title remains available to navigation. */
+    html?: string;
+
+    panel?: AnnotationPanel;
 
     /**
      * @private
@@ -103,7 +111,7 @@ export class Annotation extends Script {
         const position = this.entity.getPosition();
 
         camera.camera.viewMatrix.transformPoint(position, vec);
-        if (vec.z >= 0) {
+        if (vec.z >= 0 && this.panel?.anchor?.relativeTo !== 'viewport') {
             this.screen = null;
             this._hideElements();
             return;
@@ -148,8 +156,15 @@ export class Annotation extends Script {
             // taken over only now, so the tooltip fades out with the previous annotation's text,
             // beside its hotspot; and with no side yet, rather than the one it left it on
             ctx.tooltipOwner = this;
-            ctx.titleDom.textContent = this.title;
-            ctx.textDom.textContent = this.text;
+            const hasHtml = !!this.html?.trim();
+            ctx.titleDom.textContent = hasHtml ? '' : this.title;
+            ctx.textDom.textContent = hasHtml ? '' : this.text;
+            ctx.htmlDom.innerHTML = hasHtml
+                ? DOMPurify.sanitize(this.html, { USE_PROFILES: { html: true }, FORBID_TAGS: ['style'] })
+                : '';
+            ctx.tooltipDom.classList.toggle('sse-has-html', hasHtml);
+            ctx.tooltipDom.style.setProperty('--sse-panel-max-height', `${this.panel?.maxHeight ?? 400}px`);
+            ctx.contentDom.scrollTop = 0;
             ctx.tooltipDom.classList.remove('sse-arrow-left', 'sse-arrow-right');
         }
 
@@ -205,6 +220,7 @@ export class Annotation extends Script {
         const tooltip = ctx.tooltipDom;
         const vw = ctx.canvas.clientWidth;
         const vh = ctx.canvas.clientHeight;
+        tooltip.style.setProperty('--sse-panel-available-height', `${vh - 16}px`);
         const onCanvas = screenPos.x >= 0 && screenPos.x <= vw && screenPos.y >= 0 && screenPos.y <= vh;
         if (ctx.activeAnnotation !== this || !ctx.revealed) {
             tooltip.classList.remove('sse-visible');
@@ -235,6 +251,21 @@ export class Annotation extends Script {
         let left = flipped ? onLeft : onRight;
         let top = screenPos.y - th / 2;
 
+        const anchor = this.panel?.anchor;
+        const fixed = anchor?.relativeTo === 'viewport';
+        const position = anchor?.position ?? 'auto';
+        const vertical = !fixed && (position === 'top' || position === 'bottom');
+        if (fixed) {
+            left = position.includes('left') ? margin : position.includes('right') ? vw - tw - margin : (vw - tw) / 2;
+            top = position.includes('top') ? margin : position.includes('bottom') ? vh - th - margin : (vh - th) / 2;
+        } else if (vertical) {
+            left = screenPos.x - tw / 2;
+            top = position === 'top' ? screenPos.y - arrowOffset - th : screenPos.y + arrowOffset;
+        } else if (position === 'left' || position === 'right') {
+            flipped = position === 'left';
+            left = flipped ? onLeft : onRight;
+        }
+
         // Clamp horizontal
         left = Math.max(margin, Math.min(left, vw - tw - margin));
 
@@ -245,11 +276,14 @@ export class Annotation extends Script {
         const arrowY = Math.max(16, Math.min(screenPos.y - top, th - 16));
         tooltip.style.setProperty('--arrow-top', `${arrowY}px`);
 
-        tooltip.classList.toggle('sse-arrow-right', !flipped);
-        tooltip.classList.toggle('sse-arrow-left', flipped);
+        tooltip.classList.toggle('sse-arrow-right', !fixed && !vertical && !flipped);
+        tooltip.classList.toggle('sse-arrow-left', !fixed && !vertical && flipped);
+        tooltip.classList.toggle('sse-arrow-top', vertical && position === 'bottom');
+        tooltip.classList.toggle('sse-arrow-bottom', vertical && position === 'top');
+        tooltip.style.setProperty('--arrow-left', `${Math.max(16, Math.min(screenPos.x - left, tw - 16))}px`);
         tooltip.style.transform = `translate(${left}px, ${top}px)`;
         tooltip.classList.add('sse-visible');
-        ctx.tooltipOffset = onCanvas ? { x: left - screenPos.x, y: top - screenPos.y } : null;
+        ctx.tooltipOffset = onCanvas && !fixed ? { x: left - screenPos.x, y: top - screenPos.y } : null;
     }
 }
 
@@ -275,6 +309,10 @@ class AnnotationContext {
 
     textDom: HTMLDivElement;
 
+    htmlDom: HTMLDivElement;
+
+    contentDom: HTMLDivElement;
+
     activeAnnotation: Annotation | null = null;
 
     // whether the active annotation's tooltip has been revealed: it hides for each camera
@@ -298,7 +336,7 @@ class AnnotationContext {
         this.hotspotsDom.className = 'sse-annotation-hotspots';
         parentDom.appendChild(this.hotspotsDom);
 
-        // the tooltip: the title, then the text. No number: the selected hotspot beside it
+        // the tooltip: title/text or custom HTML. No number: the selected hotspot beside it
         // already shows it
         this.tooltipDom = document.createElement('div');
         this.tooltipDom.className = 'sse-annotation';
@@ -309,7 +347,26 @@ class AnnotationContext {
         this.textDom = document.createElement('div');
         this.textDom.className = 'sse-annotation-text';
 
-        this.tooltipDom.append(this.titleDom, this.textDom);
+        this.htmlDom = document.createElement('div');
+        this.htmlDom.className = 'sse-annotation-html';
+        // Interacting with custom content must not orbit the camera or dismiss the panel.
+        this.contentDom = document.createElement('div');
+        this.contentDom.className = 'sse-annotation-content';
+        for (const event of [
+            'pointerdown',
+            'pointermove',
+            'pointerup',
+            'click',
+            'dblclick',
+            'wheel',
+            'keydown',
+            'keyup'
+        ]) {
+            this.contentDom.addEventListener(event, (e) => e.stopPropagation());
+        }
+
+        this.contentDom.append(this.titleDom, this.textDom, this.htmlDom);
+        this.tooltipDom.append(this.contentDom);
         parentDom.appendChild(this.tooltipDom);
     }
 }

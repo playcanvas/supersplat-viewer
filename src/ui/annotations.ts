@@ -70,6 +70,8 @@ class Annotations {
             script.label = (i + 1).toString();
             script.title = ann.title;
             script.text = ann.text;
+            script.html = ann.html;
+            script.panel = ann.panel;
             entity.setPosition(ann.position[0], ann.position[1], ann.position[2]);
             parent.addChild(entity);
             scripts.push(script);
