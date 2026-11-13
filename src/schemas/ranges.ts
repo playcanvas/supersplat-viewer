@@ -122,7 +122,7 @@ const ANIM_TRACK_LIMITS: AnimTrackLimits = deepFreeze({
 
 /** Size limits for annotations. Intentionally tight for now. */
 const ANNOTATION_LIMITS: AnnotationLimits = deepFreeze({
-    maxCount: 25,
+    maxCount: 50,
     titleMax: 60,
     textMax: 280
 });
