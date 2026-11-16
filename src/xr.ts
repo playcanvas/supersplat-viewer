@@ -10,11 +10,13 @@ import type { StochasticSplatRenderer } from './render/stochastic-splat-renderer
 import { TeleportTarget } from './teleport-target';
 import type { Global, XrMode } from './types';
 import { XrArPlacement } from './xr-ar-placement';
+import { patchControllerHands, withoutControllerHand } from './xr-controller-hand-patch';
 import { initXrDepthClear } from './xr-depth-clear';
 import { XrGrabMove } from './xr-grab-move';
 import { XrGroundDisc } from './xr-ground-disc';
 import { XrHandStyle } from './xr-hand-style';
 import { XrIceCream } from './xr-ice-cream';
+import { isHand } from './xr-input';
 import { XrObjectGrab } from './xr-object-grab';
 import { XrObjectShadow } from './xr-object-shadow';
 import { XrPalmMenu } from './xr-palm-menu';
@@ -156,7 +158,10 @@ const initXr = (global: Global) => {
     // its models by input source (the script's own typing is Script)
     const controllers = parent.script.create(XrControllers) as unknown as {
         controllers: Map<XrInputSource, { entity: Entity }>;
+        update(dt: number): void;
     };
+    // TEMPORARY: controllers that report a hand (SteamVR), as playcanvas/engine#10053 handles them
+    const controllerHandPatch = patchControllerHands(app, controllers);
     // the members of the navigation the viewer uses (the script's own typing is Script)
     const navigation = parent.script.create(XrNavigation) as unknown as TeleportArcNavigation & {
         validTeleportColor: Color;
@@ -193,7 +198,7 @@ const initXr = (global: Global) => {
     const handStyle = new XrHandStyle();
     const modelAdded = app.on('xr:controller:add', (source: XrInputSource, entity: Entity) => {
         scaleModel(entity);
-        if (source.hand) {
+        if (isHand(source)) {
             handStyle.apply(entity);
             if (xr.type === 'immersive-ar') entity.enabled = false;
         }
@@ -642,7 +647,7 @@ const initXr = (global: Global) => {
     // and, while the splat is held, takes the rest: the world to teleport in is in the hand
     const isSystemSelect = navigation._isSystemSelect.bind(navigation);
     navigation._isSystemSelect = (source: XrInputSource) =>
-        isSystemSelect(source) || menu.select(source) || !!iceCream?.holding;
+        withoutControllerHand(source, () => isSystemSelect(source)) || menu.select(source) || !!iceCream?.holding;
 
     const cancel = events.on('inputEvent', (event) => {
         if (event === 'cancel' && xr.active) {
@@ -735,6 +740,7 @@ const initXr = (global: Global) => {
             cancel.off();
             updating.off();
             modelAdded.off();
+            controllerHandPatch.off();
             handStyle.destroy();
             forgetReferenceSpace();
             menu.destroy();

@@ -12,6 +12,7 @@ import {
 } from 'playcanvas';
 import type { AppBase, BoundingBox, XrHand, XrInputSource } from 'playcanvas';
 
+import { isHand } from './xr-input';
 import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 
 // Holding the splat on top of the left fist, where a cone's scoop would be: the world in miniature
@@ -228,15 +229,15 @@ const overshoot = (x: number) => {
 
 // a side's tracked hand, or else its controller
 const sourceOf = (sources: XrInputSource[], handedness: string) =>
-    sources.find((source) => source.hand && source.handedness === handedness) ??
-    sources.find((source) => !source.hand && source.grip && source.handedness === handedness) ??
+    sources.find((source) => isHand(source) && source.handedness === handedness) ??
+    sources.find((source) => !isHand(source) && source.grip && source.handedness === handedness) ??
     null;
 
 // where a right hand or controller is for the cover test, the resize and the turn: the hand's
 // COVER_JOINT, or the controller's grip; null where a hand is not tracked
 const pointOf = (source: XrInputSource | null) => {
     if (!source) return null;
-    if (!source.hand) return source.getPosition();
+    if (!isHand(source)) return source.getPosition();
     return source.hand.tracking ? (source.hand.getJointById(COVER_JOINT)?.getPosition() ?? null) : null;
 };
 
@@ -501,7 +502,7 @@ class XrIceCream {
         const left = sourceOf(sources, 'left');
         const tracked =
             !!left &&
-            (left.hand
+            (isHand(left)
                 ? left.hand.tracking && measureFist(left.hand, this.handPosition, this.handRotation)
                 : measureGrip(left, this.handPosition, this.handRotation, this.userScale()));
         if (tracked) {
@@ -517,7 +518,7 @@ class XrIceCream {
         // a hand out of sight, or covered, is neither open nor closed: losing it counts by LOST_TIME
         if (tracked && left && !covered) {
             const wasFist = this.openFor < FLICKER_TIME;
-            const closed = left.squeezing || (wasFist && !!left.hand && foldedFingers(left.hand) >= HELD_FINGERS);
+            const closed = left.squeezing || (wasFist && isHand(left) && foldedFingers(left.hand) >= HELD_FINGERS);
             this.openFor = closed ? 0 : this.openFor + dt;
         }
         const fist = this.openFor < FLICKER_TIME;
