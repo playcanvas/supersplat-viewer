@@ -11,6 +11,7 @@ import {
 } from 'playcanvas';
 import type { AppBase, XrInputSource } from 'playcanvas';
 
+import { isHand } from './xr-input';
 import { XR_OVERLAY_DRAW_BUCKET } from './xr-teleport-arc';
 
 // The menu's rows, a column centred on its anchor (meters, at real size), each ROW_HEIGHT tall and
@@ -334,7 +335,7 @@ class XrPalmMenu {
      * @returns Whether it points at the open menu.
      */
     pointsAt(source: XrInputSource) {
-        return this.open && !source.hand && !!this.pointedAt(source);
+        return this.open && !isHand(source) && !!this.pointedAt(source);
     }
 
     /**
@@ -345,7 +346,7 @@ class XrPalmMenu {
      * @returns True when the menu took the select.
      */
     select(source: XrInputSource) {
-        if (!this.open || source.hand) return false;
+        if (!this.open || isHand(source)) return false;
         const quad = this.pointedAt(source);
         if (!quad) return false;
         // a second select while one is held is taken, and does nothing, as is one on a stepper's
@@ -550,7 +551,7 @@ class XrPalmMenu {
     // stays an input source, and would keep the menu closed on the other
     private preferred() {
         const usable = this.app.xr.input.inputSources.filter(
-            (source) => source.handedness !== 'none' && (!source.hand || source.hand.tracking)
+            (source) => source.handedness !== 'none' && (!isHand(source) || source.hand.tracking)
         );
         return usable.find((source) => source.handedness === 'left') ?? usable[0] ?? null;
     }
@@ -564,7 +565,7 @@ class XrPalmMenu {
             this.setOpen(false);
         }
         if (!source) return;
-        if (source.hand) {
+        if (isHand(source)) {
             this.setOpen(this.palmFacing(source));
             return;
         }
@@ -607,7 +608,7 @@ class XrPalmMenu {
     private anchorPose(source: XrInputSource) {
         const scale = this.scale;
         const hand = source.hand;
-        if (hand) {
+        if (isHand(source)) {
             const knuckle = hand.getJointById('middle-finger-metacarpal');
             const proximal = hand.getJointById('middle-finger-phalanx-proximal');
             if (!knuckle || !proximal || !this.palmNormal(source)) return false;
@@ -642,7 +643,7 @@ class XrPalmMenu {
 
     // whether a source's ray points at the menu: a controller's
     private pointing(source: XrInputSource) {
-        return source.targetRayMode === 'tracked-pointer' && !source.hand;
+        return source.targetRayMode === 'tracked-pointer' && !isHand(source);
     }
 
     // controllers' rays, and the other hand's fingertip, highlight the row they are on; the
@@ -659,7 +660,7 @@ class XrPalmMenu {
                     side = this.sideOf(quad);
                 }
             }
-            if (!hovered && this.anchor?.hand) {
+            if (!hovered && this.anchor && isHand(this.anchor)) {
                 const poked = this.poke(this.anchor);
                 if (poked) {
                     hovered = poked;
@@ -683,7 +684,9 @@ class XrPalmMenu {
 
     // the row the other hand's index fingertip is on, pressing it once it reaches it
     private poke(anchor: XrInputSource) {
-        const poking = this.app.xr.input.inputSources.find((source) => source !== anchor && source.hand?.tracking);
+        const poking = this.app.xr.input.inputSources.find(
+            (source) => source !== anchor && isHand(source) && source.hand.tracking
+        );
         const tip = poking?.hand.getJointById('index-finger-tip');
         if (!poking || !tip) {
             this.pokeReady = true;

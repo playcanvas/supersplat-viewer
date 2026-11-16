@@ -15,6 +15,7 @@ import { XrGrabMove } from './xr-grab-move';
 import { XrGroundDisc } from './xr-ground-disc';
 import { XrHandStyle } from './xr-hand-style';
 import { XrIceCream } from './xr-ice-cream';
+import { isHand } from './xr-input';
 import { XrObjectGrab } from './xr-object-grab';
 import { XrObjectShadow } from './xr-object-shadow';
 import { XrPalmMenu } from './xr-palm-menu';
@@ -193,7 +194,7 @@ const initXr = (global: Global) => {
     const handStyle = new XrHandStyle();
     const modelAdded = app.on('xr:controller:add', (source: XrInputSource, entity: Entity) => {
         scaleModel(entity);
-        if (source.hand) {
+        if (isHand(source)) {
             handStyle.apply(entity);
             if (xr.type === 'immersive-ar') entity.enabled = false;
         }

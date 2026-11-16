@@ -17,6 +17,7 @@ import {
 } from 'playcanvas';
 import type { AppBase, XrHitTestSource, XrInputSource } from 'playcanvas';
 
+import { isHand } from './xr-input';
 import type { XrObjectGrab } from './xr-object-grab';
 import { createQuad, uploadQuad } from './xr-palm-menu';
 import type { Quad } from './xr-palm-menu';
@@ -808,7 +809,7 @@ class XrArPlacement {
     // any pointer is one, else hands
     private placingInput(): PlacingInput {
         if (this.pointers.size === 0) return 'screen';
-        return [...this.pointers.keys()].some((source) => !source.hand) ? 'controller' : 'hand';
+        return [...this.pointers.keys()].some((source) => !isHand(source)) ? 'controller' : 'hand';
     }
 
     // low in the middle of the screen, a share of its width across: a point of the view's
