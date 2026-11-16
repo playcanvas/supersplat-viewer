@@ -1,4 +1,4 @@
-import type { AppBase, Entity, XrInputSource } from 'playcanvas';
+import type { AppBase, XrInputSource } from 'playcanvas';
 
 import { isHand } from './xr-input';
 
@@ -42,6 +42,23 @@ const patchSource = (source: XrInputSource) => {
     };
 };
 
+// Runs a callback with the hands of the controllers among `sources` set aside, so engine code that
+// would take them for bare hands sees the devices
+const withoutControllerHands = <T>(sources: Iterable<XrInputSource>, callback: () => T): T => {
+    const setAside: [SourceInternals, HandInternals][] = [];
+    for (const source of sources) {
+        if (!controllerHand(source)) continue;
+        const internals = source as unknown as SourceInternals;
+        setAside.push([internals, internals._hand]);
+        internals._hand = null;
+    }
+    try {
+        return callback();
+    } finally {
+        for (const [internals, hand] of setAside) internals._hand = hand;
+    }
+};
+
 /**
  * Runs a callback with a controller's hand set aside, so engine code that would take the
  * controller for a bare hand (XrNavigation's palm test for the system menu) sees the device.
@@ -50,42 +67,28 @@ const patchSource = (source: XrInputSource) => {
  * @param callback - The callback.
  * @returns The callback's result.
  */
-const withoutControllerHand = <T>(source: XrInputSource, callback: () => T): T => {
-    if (!controllerHand(source)) return callback();
-    const internals = source as unknown as SourceInternals;
-    const hand = internals._hand;
-    internals._hand = null;
-    try {
-        return callback();
-    } finally {
-        internals._hand = hand;
-    }
-};
+const withoutControllerHand = <T>(source: XrInputSource, callback: () => T): T =>
+    withoutControllerHands([source], callback);
 
 /**
- * Patches the controllers with a hand as the session adds them, and places their models at their
- * grips each frame after XrControllers, which only poses a hand's joints.
+ * Patches the controllers with a hand as the session adds them, and runs XrControllers' update
+ * with their hands set aside, so it shows and places their models as it does a device's: at the
+ * grip, hidden only while the session is, rather than posing joints the model does not have and
+ * hiding it whenever the hand loses tracking.
  *
  * @param app - The application.
- * @param models - XrControllers' models by input source.
- * @returns A handle that removes the patch for later input sources.
+ * @param controllers - The XrControllers script.
+ * @returns A handle that removes the patch.
  */
-const patchControllerHands = (
-    app: AppBase,
-    models: Map<XrInputSource, { entity: Entity; jointMap: Map<unknown, Entity> }>
-) => {
+const patchControllerHands = (app: AppBase, controllers: { update(dt: number): void }) => {
     const added = app.xr.input.on('add', patchSource);
-    const updating = app.on('update', () => {
-        for (const [source, { entity, jointMap }] of models) {
-            if (jointMap.size || !source.grip || !controllerHand(source)) continue;
-            entity.setPosition(source.getPosition());
-            entity.setRotation(source.getRotation());
-        }
-    });
+    const update = controllers.update;
+    controllers.update = (dt: number) =>
+        withoutControllerHands(app.xr.input.inputSources, () => update.call(controllers, dt));
     return {
         off() {
             added.off();
-            updating.off();
+            controllers.update = update;
         }
     };
 };

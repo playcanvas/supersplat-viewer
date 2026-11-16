@@ -157,10 +157,11 @@ const initXr = (global: Global) => {
     parent.addComponent('script');
     // its models by input source (the script's own typing is Script)
     const controllers = parent.script.create(XrControllers) as unknown as {
-        controllers: Map<XrInputSource, { entity: Entity; jointMap: Map<unknown, Entity> }>;
+        controllers: Map<XrInputSource, { entity: Entity }>;
+        update(dt: number): void;
     };
     // TEMPORARY: controllers that report a hand (SteamVR), as playcanvas/engine#10053 handles them
-    const controllerHandPatch = patchControllerHands(app, controllers.controllers);
+    const controllerHandPatch = patchControllerHands(app, controllers);
     // the members of the navigation the viewer uses (the script's own typing is Script)
     const navigation = parent.script.create(XrNavigation) as unknown as TeleportArcNavigation & {
         validTeleportColor: Color;
