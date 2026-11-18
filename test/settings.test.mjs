@@ -193,6 +193,29 @@ describe('validateSettings', () => {
         assert.throws(() => validateSettings(settings, { limits: true }), /at least one keyframe/);
     });
 
+    it('validates optional annotation HTML and panel settings without changing legacy data', () => {
+        const settings = defaultSettings();
+        const annotation = { position: [0, 0, 0], title: 'Navigation', text: 'Legacy', camera: settings.cameras[0] };
+        settings.annotations = [annotation];
+        assert.doesNotThrow(() => validateSettings(settings));
+        annotation.html = '<b>Custom panel</b>';
+        annotation.panel = { maxHeight: 240, anchor: { relativeTo: 'viewport', position: 'top-right' } };
+        assert.doesNotThrow(() => validateSettings(settings));
+        assert.equal(importSettings(settings).annotations[0].html, annotation.html);
+        annotation.html = 42;
+        assert.throws(() => validateSettings(settings), /annotations\[0\].html/);
+        annotation.html = '';
+        annotation.panel.maxHeight = -1;
+        assert.throws(() => validateSettings(settings), /maxHeight/);
+        annotation.panel.maxHeight = Infinity;
+        assert.throws(() => validateSettings(settings), /maxHeight/);
+        annotation.panel.maxHeight = 240;
+        annotation.panel.anchor = { relativeTo: 'hotspot', position: 'top-right' };
+        assert.throws(() => validateSettings(settings), /anchor.position/);
+        annotation.panel.anchor.position = 'top';
+        assert.doesNotThrow(() => validateSettings(settings));
+    });
+
     it('enforces annotation limits when asked', () => {
         const settings = clone(defaultSettings());
         settings.annotations = [

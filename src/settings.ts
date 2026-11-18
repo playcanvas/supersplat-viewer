@@ -174,7 +174,15 @@ const validateSettings = (settings: unknown, options: ValidateOptions = {}): voi
     }
 };
 
-export type { AnimTrack, Camera, Annotation, CameraPose, PostEffectSettings, ExperienceSettings } from './schemas/v2';
+export type {
+    AnimTrack,
+    Camera,
+    Annotation,
+    AnnotationPanel,
+    CameraPose,
+    PostEffectSettings,
+    ExperienceSettings
+} from './schemas/v2';
 export type { AnimTrackLimits, AnnotationLimits, Bounds, NumericRange, PostEffectRanges } from './schemas/ranges';
 export type { CameraFit } from './schemas/defaults';
 export type { ValidateOptions };

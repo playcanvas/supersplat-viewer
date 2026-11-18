@@ -39,11 +39,35 @@ type Camera = {
     initial: CameraPose;
 };
 
+/** Placement of the outer annotation panel, independent of its HTML layout. */
+type AnnotationPanel = {
+    /** Maximum height in CSS pixels, including padding and border; at least 48. */
+    maxHeight?: number;
+    anchor?:
+        | { relativeTo: 'hotspot'; position: 'auto' | 'top' | 'bottom' | 'left' | 'right' }
+        | {
+              relativeTo: 'viewport';
+              position:
+                  | 'top-left'
+                  | 'top'
+                  | 'top-right'
+                  | 'left'
+                  | 'center'
+                  | 'right'
+                  | 'bottom-left'
+                  | 'bottom'
+                  | 'bottom-right';
+          };
+};
+
 /** A point of interest in the scene, with the camera framing used to view it. */
 type Annotation = {
     position: [number, number, number];
     title: string;
     text: string;
+    /** Sanitized HTML shown instead of title and text when non-empty. Title still labels navigation. */
+    html?: string;
+    panel?: AnnotationPanel;
     extras?: unknown;
     camera: Camera;
 };
@@ -141,6 +165,37 @@ const validateAnnotation = (data: unknown, path: string): Annotation => {
     assertTuple3(obj.position, `${path}.position`);
     assertString(obj.title, `${path}.title`);
     assertString(obj.text, `${path}.text`);
+    if (obj.html !== undefined) assertString(obj.html, `${path}.html`);
+    if (obj.panel !== undefined) {
+        const panel = assertObject(obj.panel, `${path}.panel`);
+        if (panel.maxHeight !== undefined) {
+            assertNumber(panel.maxHeight, `${path}.panel.maxHeight`);
+            if (!Number.isFinite(panel.maxHeight) || (panel.maxHeight as number) < 48) {
+                throw new Error(`${path}.panel.maxHeight must be a finite number of at least 48 CSS pixels`);
+            }
+        }
+        if (panel.anchor !== undefined) {
+            const anchor = assertObject(panel.anchor, `${path}.panel.anchor`);
+            assertEnum(anchor.relativeTo, ['hotspot', 'viewport'], `${path}.panel.anchor.relativeTo`);
+            assertEnum(
+                anchor.position,
+                anchor.relativeTo === 'hotspot'
+                    ? ['auto', 'top', 'bottom', 'left', 'right']
+                    : [
+                          'top-left',
+                          'top',
+                          'top-right',
+                          'left',
+                          'center',
+                          'right',
+                          'bottom-left',
+                          'bottom',
+                          'bottom-right'
+                      ],
+                `${path}.panel.anchor.position`
+            );
+        }
+    }
     validateCamera(obj.camera, `${path}.camera`);
     return data as Annotation;
 };
@@ -210,4 +265,4 @@ const validateV2 = (data: unknown): ExperienceSettings => {
 };
 
 export { validateV2 };
-export type { AnimTrack, Camera, CameraPose, Annotation, PostEffectSettings, ExperienceSettings };
+export type { AnimTrack, Camera, CameraPose, Annotation, AnnotationPanel, PostEffectSettings, ExperienceSettings };
