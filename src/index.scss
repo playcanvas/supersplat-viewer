@@ -5,7 +5,10 @@
     // Theme tokens: the colours the ui is built from. A host restyles the viewer by
     // setting any of these on the instance root, e.g.
     // `#myHost .sse-viewer { --sse-accent: #09f; }`. Translucent surfaces derive from the
-    // same properties through color-mix, so a change carries through the whole ui.
+    // same properties through color-mix: panel backgrounds from --sse-bkg, their hairlines and
+    // hover fills from --sse-text, so a change carries through the whole ui. Overlays drawn
+    // straight over the scene (annotations, the joystick, text shadows) keep fixed colours so
+    // they stay readable over any splat.
     --sse-text: #e0dcdd;
     --sse-text-light: #fff;
     --sse-text-dark: #aaa;
@@ -17,6 +20,7 @@
     --sse-bkg-dark: #282828;
     --sse-bkg-darkest: #141414;
     --sse-bkg-light: #444;
+    --sse-font: 'Arial', sans-serif;
 
     --canvas-opacity: 1;
 
@@ -26,7 +30,7 @@
     overflow: hidden;
     // a stacking context of its own, so nothing inside the viewer interleaves with the host's
     isolation: isolate;
-    font-family: 'Arial', sans-serif;
+    font-family: var(--sse-font);
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
@@ -110,9 +114,9 @@
         height: 20px;
         padding: 0 5px;
         border-radius: 4px;
-        border: 1px solid rgba(white, 0.14);
-        border-bottom-color: rgba(white, 0.26);
-        background-color: rgba(white, 0.08);
+        border: 1px solid color-mix(in srgb, var(--sse-text) 14%, transparent);
+        border-bottom-color: color-mix(in srgb, var(--sse-text) 26%, transparent);
+        background-color: color-mix(in srgb, var(--sse-text) 8%, transparent);
         color: var(--sse-text-light);
         font-family: inherit;
         font-size: 11px;
@@ -148,7 +152,7 @@
 
         &:hover {
             color: var(--sse-text-light);
-            background-color: rgba(white, 0.1);
+            background-color: color-mix(in srgb, var(--sse-text) 10%, transparent);
         }
 
         &.sse-active {
@@ -169,7 +173,7 @@
         box-sizing: border-box;
         padding: 8px 8px 8px 12px;
         border-radius: 16px;
-        border: 1px solid rgba(white, 0.08);
+        border: 1px solid color-mix(in srgb, var(--sse-text) 8%, transparent);
 
         font-size: 12px;
         color: var(--sse-text);
@@ -221,7 +225,7 @@
         > .sse-controlsHintRows {
             margin-top: 8px;
             padding: 4px 4px 0 0;
-            border-top: 1px solid rgba(white, 0.06);
+            border-top: 1px solid color-mix(in srgb, var(--sse-text) 6%, transparent);
 
             &:empty {
                 display: none;
@@ -247,7 +251,7 @@
             > .sse-divider {
                 height: 1px;
                 margin: 4px 0;
-                background-color: rgba(white, 0.06);
+                background-color: color-mix(in srgb, var(--sse-text) 6%, transparent);
             }
         }
 
@@ -263,19 +267,19 @@
 
                 > .sse-mouseBody {
                     fill: none;
-                    stroke: rgba(white, 0.6);
+                    stroke: color-mix(in srgb, var(--sse-text) 60%, transparent);
                     stroke-width: 1.5;
                 }
 
                 > .sse-mouseSplit {
                     fill: none;
-                    stroke: rgba(white, 0.35);
+                    stroke: color-mix(in srgb, var(--sse-text) 35%, transparent);
                     stroke-width: 1.25;
                 }
 
                 // the pressed button, solid against the outline
                 > .sse-mouseActive {
-                    fill: rgba(white, 0.85);
+                    fill: color-mix(in srgb, var(--sse-text) 85%, transparent);
                 }
             }
 
@@ -302,8 +306,8 @@
             padding: 1px 7px;
             box-sizing: border-box;
             border-radius: 5px;
-            border: 1px solid rgba(white, 0.14);
-            background-color: rgba(white, 0.08);
+            border: 1px solid color-mix(in srgb, var(--sse-text) 14%, transparent);
+            background-color: color-mix(in srgb, var(--sse-text) 8%, transparent);
             color: var(--sse-text-light);
             font-size: 11px;
             text-align: right;
@@ -438,7 +442,7 @@
             > .sse-line {
                 width: 100%;
                 height: 50%;
-                border-bottom: 4px solid #d9d9d9;
+                border-bottom: 4px solid color-mix(in srgb, var(--sse-text-light) 85%, var(--sse-bkg));
             }
 
             > .sse-handle {
@@ -447,7 +451,7 @@
                 width: 12px;
                 height: 12px;
                 transform: translate(-50%, -50%);
-                border: 2px solid #d9d9d9;
+                border: 2px solid color-mix(in srgb, var(--sse-text-light) 85%, var(--sse-bkg));
                 border-radius: 50%;
                 background-color: var(--sse-grip);
             }
@@ -587,7 +591,7 @@
         bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
         padding: 12px;
         border-radius: 16px;
-        border: 1px solid rgba(white, 0.08);
+        border: 1px solid color-mix(in srgb, var(--sse-text) 8%, transparent);
 
         display: flex;
         flex-direction: column;
@@ -616,7 +620,7 @@
             &:not(:last-child) {
                 padding-bottom: 8px;
                 margin-bottom: 4px;
-                border-bottom: 1px solid rgba(white, 0.08);
+                border-bottom: 1px solid color-mix(in srgb, var(--sse-text) 8%, transparent);
             }
 
             > .sse-settingsRow {
@@ -630,20 +634,20 @@
                     flex-grow: 1;
                     height: 34px;
                     padding: 0 20px;
-                    border: 1px solid rgba(white, 0.1);
+                    border: 1px solid color-mix(in srgb, var(--sse-text) 10%, transparent);
                     border-radius: 8px;
                     font-size: 13px;
                     cursor: pointer;
 
                     color: var(--sse-text-dark);
-                    background-color: rgba(white, 0.04);
+                    background-color: color-mix(in srgb, var(--sse-text) 4%, transparent);
                     transition:
                         background-color 250ms ease,
                         color 250ms ease;
 
                     &:hover {
                         color: var(--sse-text-light);
-                        background-color: rgba(white, 0.1);
+                        background-color: color-mix(in srgb, var(--sse-text) 10%, transparent);
                     }
                 }
 
@@ -663,7 +667,7 @@
                             width: 36px;
                             height: 20px;
                             border-radius: 10px;
-                            background-color: rgba(white, 0.15);
+                            background-color: color-mix(in srgb, var(--sse-text) 15%, transparent);
                             position: relative;
                             transition: background-color 200ms ease;
 
@@ -671,7 +675,7 @@
                                 width: 16px;
                                 height: 16px;
                                 border-radius: 50%;
-                                background-color: #777;
+                                background-color: color-mix(in srgb, var(--sse-text-dark) 70%, var(--sse-bkg));
                                 position: absolute;
                                 top: 2px;
                                 left: 2px;
@@ -722,7 +726,7 @@
                                 top: 12px;
                                 height: 4px;
                                 border-radius: 2px;
-                                background-color: rgba(white, 0.15);
+                                background-color: color-mix(in srgb, var(--sse-text) 15%, transparent);
                             }
                         }
 
@@ -733,7 +737,7 @@
                             height: 8px;
                             margin-left: -4px;
                             border-radius: 50%;
-                            background-color: #777;
+                            background-color: color-mix(in srgb, var(--sse-text-dark) 70%, var(--sse-bkg));
 
                             &.sse-disabled {
                                 opacity: 0.25;
@@ -799,7 +803,7 @@
             overflow-y: auto;
             padding: 24px 20px 20px;
             border-radius: 16px;
-            border: 1px solid rgba(white, 0.08);
+            border: 1px solid color-mix(in srgb, var(--sse-text) 8%, transparent);
             display: flex;
             flex-direction: column;
             gap: 16px;
@@ -908,14 +912,14 @@
 
                     &:hover {
                         color: var(--sse-text-light);
-                        background-color: rgba(white, 0.06);
+                        background-color: color-mix(in srgb, var(--sse-text) 6%, transparent);
                     }
                 }
             }
 
             > .sse-infoShortcuts {
                 padding-top: 12px;
-                border-top: 1px solid rgba(white, 0.06);
+                border-top: 1px solid color-mix(in srgb, var(--sse-text) 6%, transparent);
 
                 > h1 {
                     font-size: 11px;
@@ -1010,7 +1014,7 @@
             width: min(360px, calc(100% - 32px));
             padding: 20px;
             border-radius: 16px;
-            border: 1px solid rgba(white, 0.08);
+            border: 1px solid color-mix(in srgb, var(--sse-text) 8%, transparent);
 
             color: var(--sse-text);
             background-color: color-mix(in srgb, var(--sse-bkg) 50%, transparent);
@@ -1039,19 +1043,19 @@
                 > button {
                     height: 34px;
                     padding: 0 20px;
-                    border: 1px solid rgba(white, 0.1);
+                    border: 1px solid color-mix(in srgb, var(--sse-text) 10%, transparent);
                     border-radius: 8px;
                     font-size: 13px;
                     cursor: pointer;
                     color: var(--sse-text-dark);
-                    background-color: rgba(white, 0.04);
+                    background-color: color-mix(in srgb, var(--sse-text) 4%, transparent);
                     transition:
                         background-color 250ms ease,
                         color 250ms ease;
 
                     &:hover {
                         color: var(--sse-text-light);
-                        background-color: rgba(white, 0.1);
+                        background-color: color-mix(in srgb, var(--sse-text) 10%, transparent);
                     }
 
                     &.sse-xrModalOk {
@@ -1089,7 +1093,7 @@
             margin: 0;
             padding: 24px 40px 24px 32px;
             border-radius: 32px;
-            border: 1px solid rgba(white, 0.08);
+            border: 1px solid color-mix(in srgb, var(--sse-text) 8%, transparent);
             cursor: pointer;
 
             font-family: inherit;
@@ -1139,7 +1143,7 @@
         transform: translateX(-50%);
         padding: 12px 20px;
         border-radius: 20px;
-        border: 1px solid rgba(white, 0.08);
+        border: 1px solid color-mix(in srgb, var(--sse-text) 8%, transparent);
         pointer-events: none;
         white-space: nowrap;
 

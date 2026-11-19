@@ -234,8 +234,8 @@ retheme it without replacing anything:
 ```
 
 The full set is `--sse-text`, `--sse-text-light`, `--sse-text-dark`, `--sse-text-darkest`,
-`--sse-accent`, `--sse-grip`, `--sse-bkg`, `--sse-bkg-dark`, `--sse-bkg-darkest` and
-`--sse-bkg-light`.
+`--sse-accent`, `--sse-grip`, `--sse-bkg`, `--sse-bkg-dark`, `--sse-bkg-darkest`,
+`--sse-bkg-light` and `--sse-font`.
 
 For more than a retheme, pass `ui: false`. The viewer creates the canvas and retains core input handling, including keyboard/gamepad input gated by `state.inputEnabled`. It omits the overlay, annotation presentation and built-in controls; render your own controls through the viewer handle. Note that the touch joystick, the fullscreen button and
 the AR/VR fallback prompt are part of the UI you are replacing, so those affordances become
