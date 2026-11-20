@@ -21,6 +21,10 @@
     --sse-text-darkest: #666;
     --sse-accent: #f60;
     --sse-grip: #ffaf50;
+    // the loading bar's unfilled part, behind the --sse-accent fill. Follows the strongest text
+    // like the loading text does, so it flips with a light theme; set it to contrast with a pale
+    // accent
+    --sse-loading-track: var(--sse-text-light);
     // black like the toolbar and annotation bar; the panels show it at 50%
     --sse-bkg: #000;
     --sse-bkg-dark: #282828;

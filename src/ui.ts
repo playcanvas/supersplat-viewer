@@ -174,7 +174,7 @@ const initUI = (
     const updateLoadingProgress = (progress: number) => {
         dom.loadingText.textContent = `${progress}%`;
         if (progress < 100) {
-            dom.loadingBar.style.backgroundImage = `linear-gradient(90deg, var(--sse-accent) 0%, var(--sse-accent) ${progress}%, white ${progress}%, white 100%)`;
+            dom.loadingBar.style.backgroundImage = `linear-gradient(90deg, var(--sse-accent) 0%, var(--sse-accent) ${progress}%, var(--sse-loading-track) ${progress}%, var(--sse-loading-track) 100%)`;
         } else {
             dom.loadingBar.style.backgroundImage =
                 'linear-gradient(90deg, var(--sse-accent) 0%, var(--sse-accent) 100%)';
