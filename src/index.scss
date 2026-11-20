@@ -6,9 +6,15 @@
     // setting any of these on the instance root, e.g.
     // `#myHost .sse-viewer { --sse-accent: #09f; }`. Translucent surfaces derive from the
     // same properties through color-mix: panel backgrounds from --sse-bkg, their hairlines and
-    // hover fills from --sse-text-light, so a change carries through the whole ui. Overlays drawn
-    // straight over the scene (annotations, the joystick, text shadows) keep fixed colours so
-    // they stay readable over any splat.
+    // hover fills from --sse-text-light, so a change carries through the whole ui.
+    //
+    // Overlays drawn straight over the scene (the toolbar, the annotation hotspots, popup and
+    // nav, the loading text and the watermark) are themed the same way, backing and text
+    // together: their backings and the outlines around their icons and text follow --sse-bkg,
+    // and their text and borders the text tokens. The backings are translucent, so contrast
+    // still depends on the scene behind them, as it always has: a dark theme reads best over
+    // darker scenes and a light theme over lighter ones. Their drop shadows stay dark, and the
+    // joystick keeps fixed colours.
     --sse-text: #e0dcdd;
     --sse-text-light: #fff;
     --sse-text-dark: #aaa;
@@ -348,17 +354,17 @@
             flex-shrink: 0;
             padding: 8px;
             border-radius: 6px;
-            background-color: rgba(black, 0.3);
+            background-color: color-mix(in srgb, var(--sse-bkg) 30%, transparent);
         }
 
         > span {
             font-size: 14px;
             font-weight: bold;
             text-shadow:
-                -1px -1px 0 rgba(black, 0.4),
-                1px -1px 0 rgba(black, 0.4),
-                -1px 1px 0 rgba(black, 0.4),
-                1px 1px 0 rgba(black, 0.4);
+                -1px -1px 0 color-mix(in srgb, var(--sse-bkg) 40%, transparent),
+                1px -1px 0 color-mix(in srgb, var(--sse-bkg) 40%, transparent),
+                -1px 1px 0 color-mix(in srgb, var(--sse-bkg) 40%, transparent),
+                1px 1px 0 color-mix(in srgb, var(--sse-bkg) 40%, transparent);
         }
     }
 
@@ -395,7 +401,7 @@
             font-size: 18px;
             color: var(--sse-text-light);
             text-align: center;
-            text-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+            text-shadow: 0 0 4px color-mix(in srgb, var(--sse-bkg) 50%, transparent);
         }
 
         > .sse-loadingBar {
@@ -488,7 +494,7 @@
             .sse-buttonGroup {
                 display: flex;
                 min-width: 0;
-                background-color: rgba(black, 0.3);
+                background-color: color-mix(in srgb, var(--sse-bkg) 30%, transparent);
                 border-radius: 6px;
 
                 &:not(:has(> :not(.sse-hidden))) {
@@ -526,7 +532,7 @@
                     > g {
                         &.sse-stroke {
                             fill: none;
-                            stroke: black;
+                            stroke: var(--sse-bkg);
                             stroke-width: 2;
                             stroke-linejoin: round;
                             opacity: 0.4;
@@ -1213,13 +1219,13 @@
             width: 26px;
             height: 26px;
             border-radius: 50%;
-            border: 2px solid rgba(white, 0.9);
+            border: 2px solid color-mix(in srgb, var(--sse-text-light) 90%, transparent);
             cursor: pointer;
 
             font-size: 12px;
             font-weight: bold;
             color: var(--sse-text-light);
-            background-color: rgba(black, 0.7);
+            background-color: color-mix(in srgb, var(--sse-bkg) 70%, transparent);
             box-shadow: 0 1px 4px rgba(black, 0.4);
             // coming back into view: a smooth ease at both ends, so the change reads as a fade
             // rather than a blink
@@ -1261,13 +1267,11 @@
             }
         }
 
-        // the selected annotation's panel. Content over the scene, so a much darker surface than
-        // the other panels, dark enough to keep its text readable over a bright scene, with their
+        // the selected annotation's panel. Content over the scene, so a much more opaque surface
+        // than the other panels, enough to keep its text readable over any scene, with their
         // shape, border and type
         > .sse-annotation {
-            // plain css: sass passes a custom property's value through unevaluated, so
-            // rgba(black, 0.9) would reach the browser as an invalid colour
-            --sse-annotation-bkg: rgba(0, 0, 0, 0.9);
+            --sse-annotation-bkg: color-mix(in srgb, var(--sse-bkg) 90%, transparent);
 
             // after the hotspots' layer, so above it. Moved with a transform from the top-left
             // corner, like the hotspots and for the same reason
@@ -1280,7 +1284,7 @@
             box-sizing: border-box;
             padding: 10px 12px 12px;
             border-radius: 12px;
-            border: 1px solid rgba(white, 0.08);
+            border: 1px solid color-mix(in srgb, var(--sse-text-light) 8%, transparent);
             pointer-events: none;
 
             font-size: 12px;
@@ -1386,11 +1390,11 @@
             justify-content: center;
 
             color: var(--sse-text);
-            background-color: rgba(black, 0.3);
+            background-color: color-mix(in srgb, var(--sse-bkg) 30%, transparent);
 
             &:hover {
                 color: var(--sse-text-light);
-                background-color: rgba(black, 0.5);
+                background-color: color-mix(in srgb, var(--sse-bkg) 50%, transparent);
             }
 
             > svg {
@@ -1399,7 +1403,7 @@
                 > g {
                     &.sse-stroke {
                         fill: none;
-                        stroke: black;
+                        stroke: var(--sse-bkg);
                         stroke-width: 3;
                         stroke-linecap: round;
                         stroke-linejoin: round;
@@ -1430,7 +1434,7 @@
 
             border-radius: 6px;
             overflow: hidden;
-            background-color: rgba(black, 0.6);
+            background-color: color-mix(in srgb, var(--sse-bkg) 60%, transparent);
 
             > button {
                 width: 34px;
@@ -1438,7 +1442,7 @@
                 background-color: transparent;
 
                 &:hover {
-                    background-color: rgba(white, 0.1);
+                    background-color: color-mix(in srgb, var(--sse-text-light) 10%, transparent);
                 }
             }
 
@@ -1468,11 +1472,11 @@
                     height: 20px;
                     padding: 0 4px;
                     border-radius: 10px;
-                    border: 1.5px solid rgba(white, 0.9);
+                    border: 1.5px solid color-mix(in srgb, var(--sse-text-light) 90%, transparent);
                     font-size: 11px;
                     font-weight: bold;
                     color: var(--sse-text-light);
-                    background-color: rgba(black, 0.7);
+                    background-color: color-mix(in srgb, var(--sse-bkg) 70%, transparent);
 
                     &:empty {
                         display: none;
@@ -1505,7 +1509,7 @@
                 }
 
                 &:hover {
-                    background-color: rgba(white, 0.1);
+                    background-color: color-mix(in srgb, var(--sse-text-light) 10%, transparent);
 
                     > .sse-annotationNavNumber,
                     > .sse-annotationNavTitle {
@@ -1533,10 +1537,10 @@
                 transform: translateY(-50%);
                 width: 44px;
                 height: 80px;
-                background-color: rgba(black, 0.3);
+                background-color: color-mix(in srgb, var(--sse-bkg) 30%, transparent);
 
                 &:active {
-                    background-color: rgba(black, 0.4);
+                    background-color: color-mix(in srgb, var(--sse-bkg) 40%, transparent);
                 }
             }
 
