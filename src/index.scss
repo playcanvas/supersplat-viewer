@@ -69,8 +69,11 @@
         pointer-events: none;
     }
 
+    // buttons don't inherit the font by default, so without this the text buttons (Frame/Reset,
+    // Cancel/OK) would ignore --sse-font
     button {
         appearance: none;
+        font-family: inherit;
     }
 
     .sse-hidden {
@@ -1096,7 +1099,6 @@
             border: 1px solid color-mix(in srgb, var(--sse-text) 8%, transparent);
             cursor: pointer;
 
-            font-family: inherit;
             font-size: 15px;
             color: var(--sse-text-light);
             background-color: color-mix(in srgb, var(--sse-bkg) 50%, transparent);
