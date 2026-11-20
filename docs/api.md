@@ -222,8 +222,8 @@ During a session, squeezing both grips, or making fists with tracked hands, drag
 
 ### Restyling
 
-The colours the UI is built from are CSS custom properties on the instance root, so you can
-retheme it without replacing anything:
+The colours and font the UI is built from are CSS custom properties on the instance root, so
+you can retheme it without replacing anything:
 
 ```css
 #viewer .sse-viewer {
@@ -236,6 +236,11 @@ retheme it without replacing anything:
 The full set is `--sse-text`, `--sse-text-light`, `--sse-text-dark`, `--sse-text-darkest`,
 `--sse-accent`, `--sse-grip`, `--sse-loading-track`, `--sse-bkg`, `--sse-bkg-dark`,
 `--sse-bkg-darkest`, `--sse-bkg-light` and `--sse-font`.
+
+Panel borders, dividers, keycaps, panel hover fills and the timeline derive from
+`--sse-text-light`, as do the overlay borders and the loading bar's track, so overriding it
+changes them too. Overriding `--sse-bkg` now also tints the toolbar and the annotation
+hotspots, popup and nav.
 
 For more than a retheme, pass `ui: false`. The viewer creates the canvas and retains core input handling, including keyboard/gamepad input gated by `state.inputEnabled`. It omits the overlay, annotation presentation and built-in controls; render your own controls through the viewer handle. Note that the touch joystick, the fullscreen button and
 the AR/VR fallback prompt are part of the UI you are replacing, so those affordances become
