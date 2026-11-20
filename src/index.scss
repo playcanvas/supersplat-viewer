@@ -8,13 +8,13 @@
     // same properties through color-mix: panel backgrounds from --sse-bkg, their hairlines and
     // hover fills from --sse-text-light, so a change carries through the whole ui.
     //
-    // Overlays drawn straight over the scene (the toolbar, the annotation hotspots, popup and
-    // nav, the loading text and the watermark) are themed the same way, backing and text
-    // together: their backings and the outlines around their icons and text follow --sse-bkg,
-    // and their text and borders the text tokens. The backings are translucent, so contrast
-    // still depends on the scene behind them, as it always has: a dark theme reads best over
-    // darker scenes and a light theme over lighter ones. Their drop shadows stay dark, and the
-    // joystick keeps fixed colours.
+    // Overlays drawn straight over the scene (the toolbar, the timeline, the annotation
+    // hotspots, popup and nav, the loading text and the watermark) are themed the same way,
+    // backing and text together: their backings and the outlines around their icons and text
+    // follow --sse-bkg, and their text, lines and borders the text tokens. The backings are
+    // translucent, so contrast still depends on the scene behind them, as it always has: a dark
+    // theme reads best over darker scenes and a light theme over lighter ones. Their drop
+    // shadows stay dark, and the joystick keeps fixed colours.
     --sse-text: #e0dcdd;
     --sse-text-light: #fff;
     --sse-text-dark: #aaa;
@@ -455,6 +455,8 @@
             > .sse-line {
                 width: 100%;
                 height: 50%;
+                // themed like the other overlays: the strongest foreground, dimmed slightly
+                // toward the background (#d9d9d9 by default). The handle's border below matches
                 border-bottom: 4px solid color-mix(in srgb, var(--sse-text-light) 85%, var(--sse-bkg));
             }
 
