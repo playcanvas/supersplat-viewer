@@ -872,7 +872,7 @@
             > .sse-infoGpu {
                 padding: 7px 10px;
                 border-radius: 8px;
-                background-color: rgba(black, 0.2);
+                background-color: color-mix(in srgb, var(--sse-bkg) 20%, transparent);
                 font-size: 12px;
                 text-align: center;
                 overflow-wrap: anywhere;
@@ -1128,7 +1128,7 @@
                 > g {
                     &.sse-stroke {
                         fill: none;
-                        stroke: black;
+                        stroke: var(--sse-bkg);
                         stroke-width: 2;
                         stroke-linejoin: round;
                         opacity: 0.4;
