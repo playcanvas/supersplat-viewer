@@ -222,30 +222,25 @@ During a session, squeezing both grips, or making fists with tracked hands, drag
 
 ### Restyling
 
-The colours and font the UI is built from are CSS custom properties on the instance root, so
-you can retheme it without replacing anything:
+Set CSS custom properties on the instance root to change the built-in UI's palette and font.
 
 ```css
 #viewer .sse-viewer {
-    --sse-accent: #09f;                 /* highlights, active toggles, the timeline */
-    --sse-bkg: #204;                    /* panels; translucent surfaces derive from it */
+    --sse-accent: #09f;
+    --sse-bkg: #204;
     --sse-text-light: #fff;
+    --sse-font: system-ui, sans-serif;
 }
 ```
 
-The full set is `--sse-text`, `--sse-text-light`, `--sse-text-dark`, `--sse-text-darkest`,
-`--sse-accent`, `--sse-grip`, `--sse-loading-track`, `--sse-bkg`, `--sse-bkg-dark`,
-`--sse-bkg-darkest`, `--sse-bkg-light` and `--sse-font`.
+Use `--sse-text` for normal text, `--sse-text-light` for the strongest emphasis, and `--sse-text-dark` and `--sse-text-darkest` for lower emphasis. The background palette is `--sse-bkg`, `--sse-bkg-light`, `--sse-bkg-dark` and `--sse-bkg-darkest`. Use `--sse-accent` for highlights, `--sse-grip` for drag handles and `--sse-font` for the font family. If your accent is close to `--sse-text-light`, set `--sse-loading-track` to a contrasting colour so loading progress stays visible.
 
-Panel borders, dividers, keycaps, panel hover fills and the timeline derive from
-`--sse-text-light`, as do the overlay borders and the loading bar's track, so overriding it
-changes them too. Overriding `--sse-bkg` now also tints the toolbar and the annotation
-hotspots, popup and nav.
+These properties are the supported styling API. The built-in layout, its internal selectors and the way individual controls use the palette can change between releases.
 
 For more than a retheme, pass `ui: false`. The viewer creates the canvas and retains core input handling, including keyboard/gamepad input gated by `state.inputEnabled`. It omits the overlay, annotation presentation and built-in controls; render your own controls through the viewer handle. Note that the touch joystick, the fullscreen button and
 the AR/VR fallback prompt are part of the UI you are replacing, so those affordances become
 yours too. Everything between the two, replacing some of the UI but keeping the rest, is not
-supported yet; the class names inside the viewer are not API and do change.
+supported yet.
 
 [The custom UI example](https://github.com/playcanvas/supersplat-viewer/blob/main/src/dev/custom-ui.html) demonstrates loading, playback, camera modes, directional movement, annotations, preferences and fullscreen/XR using only the handle and documented state events. Run it locally at `/custom-ui?content=./scene.ply&settings=./settings.json` (`&webgl` selects WebGL). It is a development example, not a React package or a published UI component. Its controls live outside the fullscreen viewer root, so use Escape or the browser's exit affordance to leave fullscreen.
 
