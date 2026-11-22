@@ -1,7 +1,7 @@
 import css from '../../public/index.css';
 import html from '../../public/index.html';
 import js from '../../public/index.js';
-import type { ViewerAssets } from '../options';
+import type { ViewerAssets, ViewerBranding } from '../options';
 
 /**
  * Asset urls and settings the embedder supplies to the viewer. The asset urls are the same
@@ -21,6 +21,8 @@ type ViewerBootstrap = Partial<ViewerAssets> & {
     settings?: unknown;
     /** Where to fetch settings from. Defaults to `./settings.json`. */
     settingsUrl?: string;
+    /** The host's branding in the built-in ui. Set only here, never from a url param. */
+    branding?: ViewerBranding;
 };
 
 /** Options for {@link renderViewerHtml}. */

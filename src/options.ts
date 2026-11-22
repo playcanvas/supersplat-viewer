@@ -129,6 +129,39 @@ type ViewerFlags = {
     exposeGlobals?: boolean;
 };
 
+/** A link in the info panel, from {@link ViewerBranding.links}. */
+type ViewerBrandingLink = {
+    /** The link's text. */
+    label: string;
+    /** Where it goes. Only `http:`, `https:` and `mailto:` urls are shown. */
+    href: string;
+};
+
+/**
+ * The host's branding in the built-in ui, in place of the viewer's own. Every field is optional,
+ * and one left out keeps the default. Ignored when {@link ViewerFlags.ui} is `false`.
+ */
+type ViewerBranding = {
+    /**
+     * Title of the info panel, in place of "SuperSplat Viewer". A custom title or logo also
+     * hides the viewer's version and its link to the SuperSplat repository; the version is still
+     * logged to the console.
+     */
+    title?: string;
+    /**
+     * Logo of the info panel, as an image url rendered in an `<img>`, in place of the SuperSplat
+     * logo. A `data:` url suits a document with no sibling files.
+     */
+    logo?: string;
+    /** Links at the foot of the info panel, in place of the engine's, or `false` for none. */
+    links?: readonly ViewerBrandingLink[] | false;
+    /**
+     * Show the SuperSplat badge the viewer adds when another site frames it. Defaults to `true`;
+     * `false` turns it off.
+     */
+    watermark?: boolean;
+};
+
 /** Options for `createViewer`. */
 type CreateViewerOptions = ViewerAssets &
     ViewerFlags & {
@@ -147,6 +180,8 @@ type CreateViewerOptions = ViewerAssets &
         poster?: HTMLImageElement;
         /** A fetch of {@link ViewerAssets.contentUrl} already in flight, for the same reason. */
         contents?: Promise<Response>;
+        /** The host's branding in the built-in ui. */
+        branding?: ViewerBranding;
     };
 
-export type { CreateViewerOptions, ViewerAssets, ViewerFlags };
+export type { CreateViewerOptions, ViewerAssets, ViewerBranding, ViewerBrandingLink, ViewerFlags };

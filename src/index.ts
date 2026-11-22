@@ -335,7 +335,8 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     heatmap: options.heatmap ?? false,
     debug: options.debug ?? false,
     lang: options.lang,
-    exposeGlobals: options.exposeGlobals ?? false
+    exposeGlobals: options.exposeGlobals ?? false,
+    branding: options.branding ?? {}
 });
 
 const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle> => {
@@ -560,6 +561,6 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
 console.log(`SuperSplat Viewer v${appVersion} | Engine v${engineVersion} (${engineRevision})`);
 
 export type { CaptureResult } from './capture';
-export type { CreateViewerOptions, ViewerAssets, ViewerFlags } from './options';
+export type { CreateViewerOptions, ViewerAssets, ViewerBranding, ViewerBrandingLink, ViewerFlags } from './options';
 export type { CaptureOptions, QualityLevel, ViewerHandle, ViewerState, XrMode } from './types';
 export { createViewer };

@@ -58,6 +58,8 @@
             // the bootstrap's alone: a url param would let a link run any wasm in this origin
             const gsafDecoderUrl = bootstrap.gsafDecoderUrl ?? null;
             const zstdDecoderUrl = bootstrap.zstdDecoderUrl ?? null;
+            // the bootstrap's alone too: a url param would let a link strip the watermark
+            const branding = bootstrap.branding ?? undefined;
 
             // Names the bootstrap's contentUrl when the url itself has no usable name (a data:
             // uri, say) — the splat format is chosen by the name's extension. Ignored when a
@@ -92,6 +94,7 @@
                 collisionUrl,
                 gsafDecoderUrl,
                 zstdDecoderUrl,
+                branding,
                 poster: posterUrl && createImage(posterUrl),
                 contents: prefetchContent ? fetch(contentUrl) : undefined,
                 ui: !url.searchParams.has('noui'),

@@ -244,6 +244,24 @@ supported yet.
 
 [The custom UI example](https://github.com/playcanvas/supersplat-viewer/blob/main/src/dev/custom-ui.html) demonstrates loading, playback, camera modes, directional movement, annotations, preferences and fullscreen/XR using only the handle and documented state events. Run it locally at `/custom-ui?content=./scene.ply&settings=./settings.json` (`&webgl` selects WebGL). It is a development example, not a React package or a published UI component. Its controls live outside the fullscreen viewer root, so use Escape or the browser's exit affordance to leave fullscreen.
 
+### Branding
+
+Pass `branding` to show your own identity in the built-in UI while keeping its controls:
+
+```ts
+const viewer = await createViewer({
+    container, settings, contentUrl,
+    branding: {
+        title: 'My Viewer',
+        logo: 'https://example.com/logo.svg',
+        links: [{ label: 'Example', href: 'https://example.com' }],
+        watermark: false
+    }
+});
+```
+
+`title` and `logo` (an image URL) replace the info panel's, which also hides the viewer's version; the console still logs it. `links` replaces the panel's links, or `false` hides them; only `http:`, `https:` and `mailto:` URLs are shown. `watermark: false` turns off the SuperSplat badge shown when another site frames the viewer. Anything left out keeps the default. A document from `renderViewerHtml` takes the same object as `bootstrap.branding`; there is no URL parameter for it.
+
 ## Settings
 
 The `/settings` subpath exports the schema types plus helpers for generating, validating and

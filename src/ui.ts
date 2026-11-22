@@ -9,6 +9,7 @@ import { Tooltip } from './tooltip';
 import type { Global, ViewerHandle } from './types';
 import { initAnnotationControls } from './ui/annotation-controls';
 import { Annotations } from './ui/annotations';
+import { initBranding } from './ui/branding';
 import { initCameraControls } from './ui/camera-controls';
 import { initControlsHint, readControlsOpen, writeControlsOpen } from './ui/controls-hint';
 import { initFullscreenControls } from './ui/fullscreen-controls';
@@ -136,6 +137,9 @@ const initUI = (
     dom.engineVersionLabel.textContent = engineVersion;
     dom.rendererName.textContent = global.renderer === 'webgpu' ? 'WebGPU' : 'WebGL 2';
     dom.gpuName.textContent = getGpuName(global.app.graphicsDevice);
+
+    // the host's title, logo and links in place of the viewer's (CreateViewerOptions.branding)
+    initBranding(root, global.config.branding);
 
     // Remove focus from buttons after click so keyboard input isn't captured by the UI
     dom.ui.addEventListener('click', () => {
@@ -563,7 +567,8 @@ const initUI = (
         }
     };
 
-    if (window.parent !== window && isThirdPartyEmbedded()) {
+    // the badge for a viewer another site frames, unless the host turned it off
+    if (global.config.branding.watermark !== false && window.parent !== window && isThirdPartyEmbedded()) {
         const viewUrl = new URL(window.location.href);
         if (viewUrl.pathname === '/s') {
             viewUrl.pathname = '/view';

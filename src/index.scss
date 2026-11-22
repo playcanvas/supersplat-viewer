@@ -846,10 +846,12 @@
                 color: var(--sse-text-light);
                 transition: opacity 150ms ease;
 
+                // the SuperSplat svg, or a host's logo image, fitted without stretching
                 > .sse-viewerLogo {
                     width: 56px;
                     height: 56px;
                     margin-bottom: 6px;
+                    object-fit: contain;
                 }
 
                 > .sse-title-name {
@@ -862,7 +864,8 @@
                     color: var(--sse-accent);
                 }
 
-                &:hover {
+                // a link only with the viewer's own branding; a host's title or logo removes it
+                &[href]:hover {
                     opacity: 0.8;
                 }
             }

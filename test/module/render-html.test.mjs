@@ -144,6 +144,24 @@ describe('renderViewerHtml', () => {
         // the gsaf decoder is code, so only the bootstrap names it, never a url param
         assert.ok(html.includes('const gsafDecoderUrl = bootstrap.gsafDecoderUrl ?? null;'));
         assert.doesNotMatch(html, /searchParams\.get\([^)]*\)[^;]*bootstrap\.gsafDecoderUrl/);
+        // branding likewise: a url param would let any link strip the watermark
+        assert.ok(html.includes('const branding = bootstrap.branding ?? undefined;'));
+        assert.doesNotMatch(html, /searchParams\.\w+\([^)]*\)[^;]*branding/);
+    });
+
+    it('carries branding through the bootstrap to the viewer', () => {
+        const branding = {
+            title: 'Acme 3D Viewer',
+            logo: 'https://cdn.example.com/logo.svg',
+            links: [{ label: 'Acme', href: 'https://acme.example.com' }],
+            watermark: false
+        };
+
+        const result = renderViewerHtml({ bootstrap: { contentUrl: 'scene.sog', branding } });
+
+        assert.deepStrictEqual(readBootstrap(result).branding, branding);
+        // handed to createViewer with the other options
+        assert.match(html, /const sseOptions = \{[\s\S]*?\bbranding,[\s\S]*?\};/);
     });
 
     it('keeps both external references when inlining neither', () => {

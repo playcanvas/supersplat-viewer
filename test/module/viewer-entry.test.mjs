@@ -77,6 +77,8 @@ describe('the /viewer entry', () => {
         for (const name of [
             'CreateViewerOptions',
             'ViewerAssets',
+            'ViewerBranding',
+            'ViewerBrandingLink',
             'ViewerFlags',
             'ViewerHandle',
             'ViewerState',
@@ -95,6 +97,11 @@ describe('the /viewer entry', () => {
         // documentation a consumer never sees. These two are the ones worth having in an editor.
         assert.match(types, /\/\*\*[\s\S]*?The element the viewer builds its subtree in/);
         assert.match(types, /\/\*\*[\s\S]*?Observable state/);
+        assert.match(
+            types,
+            /\/\*\*[\s\S]*?The host's branding in the built-in ui[\s\S]*?\*\/\s*branding\?: ViewerBranding;/
+        );
+        assert.match(types, /links\?: readonly ViewerBrandingLink\[\] \| false;/);
         assert.match(types, /\/\*\*\s*\* Seek the animation in seconds[\s\S]*?\*\/\s*seek\(time: number\): void;/);
         assert.match(types, /\/\*\*\s*\* Reset the active camera[\s\S]*?\*\/\s*resetCamera\(\): void;/);
         assert.match(types, /\/\*\*\s*\* Enter walk mode[\s\S]*?\*\/\s*toggleWalk\(\): void;/);

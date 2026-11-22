@@ -7,7 +7,7 @@ import type { Entity, EventHandler, AppBase } from 'playcanvas';
 
 import type { CaptureResult } from './capture';
 import type { Localize } from './localization';
-import type { ViewerAssets, ViewerFlags } from './options';
+import type { ViewerAssets, ViewerBranding, ViewerFlags } from './options';
 import type { Quality } from './quality';
 import type { Annotation, ExperienceSettings } from './settings';
 
@@ -34,6 +34,7 @@ type Config = ViewerAssets &
     Pick<ViewerFlags, 'hpr' | 'aa' | 'budget' | 'lang'> & {
         poster?: HTMLImageElement;
         contents: Promise<Response>;
+        branding: ViewerBranding;
     };
 
 // observable state that can change at runtime
