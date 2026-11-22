@@ -29,6 +29,8 @@ type RenderViewerHtmlOptions = {
     bootstrap?: ViewerBootstrap;
     /** Value for the document's `<base href>`, for a viewer served from a sub-path. */
     baseHref?: string;
+    /** Text for the document's `<title>`, shown in the browser tab. Defaults to `SuperSplat Viewer`. */
+    title?: string;
     /**
      * Page background, applied before the first frame renders to avoid a flash. Components
      * are normalized 0..1, not 0..255, matching `background.color` in the settings format —
@@ -83,9 +85,10 @@ const jsonForScriptBlock = (value: unknown) => {
         .replace(/\u2029/g, '\\u2029');
 };
 
-// Escape for use inside a double-quoted html attribute. `headExtras` is documented as raw
-// markup and is deliberately not escaped, but scalar options like `baseHref` are not an
-// injection channel and a caller passing one through from user input should be safe.
+// Escape for use inside a double-quoted html attribute, or as the text of an element like
+// `<title>`. `headExtras` is documented as raw markup and is deliberately not escaped, but
+// scalar options like `baseHref` and `title` are not an injection channel and a caller passing
+// one through from user input should be safe.
 const escapeAttribute = (value: string) => {
     return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 };
@@ -99,6 +102,7 @@ const indent = (text: string, spaces: number) => {
 };
 
 const BOOTSTRAP = /<script type="application\/json" id="sse-bootstrap">[\s\S]*?<\/script>/;
+const TITLE = /<title>[\s\S]*?<\/title>/;
 const BASE_HREF = /<base\b[^>]*>/;
 const STYLESHEET = /<link\b[^>]*href="\.\/index\.css"[^>]*>/;
 const MODULE_IMPORT = /import \{ createViewer \} from '\.\/index\.js';/;
@@ -115,7 +119,7 @@ const BODY_OPEN = /<body\b[^>]*>/;
  * @returns The rendered html document.
  */
 const renderViewerHtml = (options: RenderViewerHtmlOptions = {}) => {
-    const { bootstrap, baseHref, backgroundColor, headExtras, bodyStartExtras, inlineCss, inlineJs } = options;
+    const { bootstrap, title, baseHref, backgroundColor, headExtras, bodyStartExtras, inlineCss, inlineJs } = options;
 
     let result = html;
 
@@ -124,6 +128,10 @@ const renderViewerHtml = (options: RenderViewerHtmlOptions = {}) => {
     // can contain text that looks like a seam. Settings carry user-authored annotation text,
     // so treat that as hostile. Every seam is therefore replaced before any caller content is
     // inserted, and the two insertions go last, in document order.
+
+    if (title !== undefined) {
+        result = replaceOnce(result, TITLE, () => `<title>${escapeAttribute(title)}</title>`);
+    }
 
     if (baseHref !== undefined) {
         result = replaceOnce(result, BASE_HREF, () => `<base href="${escapeAttribute(baseHref)}">`);

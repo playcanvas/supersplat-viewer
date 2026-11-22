@@ -16,6 +16,7 @@ const document = renderViewerHtml({
         contentUrl: 'scene.sog',
         posterUrl: 'poster.jpg'
     },
+    title: 'My scene',                 // the browser tab's title
     baseHref: '/viewer/',              // serving from a sub-path
     backgroundColor: [0, 0, 0],        // components are 0..1, not 0..255
     headExtras: '<script src="analytics.js"></script>',
