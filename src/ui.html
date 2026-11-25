@@ -17,33 +17,6 @@
 <div class="sse-ui">
     <div class="sse-poster"></div>
 
-    <!-- SuperSplat Branding -->
-    <a class="sse-viewerBranding sse-hidden" target="_blank" rel="noopener noreferrer">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="64 64 384 384" role="img" aria-label="SuperSplat">
-            <path
-                fill="#F26722"
-                d="M129.83,217c9.75,0,17.64-7.9,17.64-17.64s-7.9-17.64-17.64-17.64-17.64,7.9-17.64,17.64,7.9,17.64,17.64,17.64Z"
-            />
-            <path
-                fill="#F26722"
-                d="M388.74,253.94c-12.46,0-22.57,10.11-22.57,22.57s10.11,22.57,22.57,22.57,22.57-10.11,22.57-22.57-10.11-22.57-22.57-22.57h0Z"
-            />
-            <path
-                fill="#F26722"
-                d="M345.26,161.1h.02c.37-.05.65-.22.97-.33,16.78-2.32,29.75-16.57,29.75-33.99,0-19.04-15.43-34.46-34.46-34.46s-34.46,15.43-34.46,34.46c0,4.29.88,8.35,2.32,12.14.04.12-.01.25.04.38,10.55,29.18-22.33,23.62-39.07,20.74-.49-.09-.88-.07-1.32-.11-4.27-.56-8.59-.97-13.03-.97-53.93,0-97.64,43.71-97.64,97.64,0,9.84,1.48,19.32,4.2,28.28.04.1,0,.17.05.27,8.97,30.15-14.83,25.49-25.52,25.69-1.04-.13-2.09-.32-3.18-.32-13.51,0-24.45,10.94-24.45,24.45s10.94,24.45,24.45,24.45c11.69,0,21.44-8.22,23.85-19.19h.02c6.31-26.57,25.9-18.02,31.15-12.67.2.2.4.26.59.42,17.44,16.25,40.75,26.26,66.47,26.26.67,0,1.34-.09,2.01-.1.66.01,1.31.04,2.04.04,9.7-.04,17.82,10.91,4.94,29.68h.13c-4.42,6.01-7.1,13.36-7.1,21.41,0,20.09,16.29,36.39,36.39,36.39s36.39-16.29,36.39-36.39c0-15.4-9.61-28.49-23.12-33.81-.32-.15-.61-.29-.98-.45-12.28-4.94-25.43-17.69-6.89-27.1l-.04-.1c31.93-16.06,53.88-49.02,53.88-87.2,0-21.15-6.8-40.68-18.23-56.66-.13-.23-.23-.47-.44-.74-23.15-31.67-2.37-36.07,10.3-38.09h-.01Z"
-            />
-            <path
-                fill="#fff"
-                d="M230.79,284.71c0,7.95-6.44,14.38-14.38,14.38s-14.38-6.44-14.38-14.38v-22.95c0-7.95,6.44-14.38,14.38-14.38s14.38,6.44,14.38,14.38v22.95Z"
-            />
-            <path
-                fill="#fff"
-                d="M309.78,284.71c0,7.95-6.44,14.38-14.38,14.38s-14.38-6.44-14.38-14.38v-22.95c0-7.95,6.44-14.38,14.38-14.38s14.38,6.44,14.38,14.38v22.95Z"
-            />
-        </svg>
-        <span>SuperSplat</span>
-    </a>
-
     <!-- Loading Indicator -->
     <div class="sse-loadingWrap">
         <div class="sse-loadingText"></div>
@@ -171,21 +144,40 @@
         </button>
     </div>
 
-    <!-- Controls Panel: the current camera mode and its controls, toggled from the toolbar -->
+    <!-- Controls Panel: the current camera mode and its controls, or the global keyboard shortcuts,
+         toggled from the toolbar -->
     <div class="sse-controlsHint sse-hidden">
-        <div class="sse-controlsHintHeader">
+        <div class="sse-controlsHintRows"></div>
+        <!-- the footer, so the switch and close button stay put as the rows above change -->
+        <div class="sse-controlsHintFooter">
+            <!-- the mode's icon beside the title on touch; on desktop each side of the switch carries its own -->
             <svg class="sse-controlsHintIcon" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                 <use href="#orbitIcon" />
             </svg>
             <div class="sse-controlsHintTitles">
+                <!-- the title on touch; on desktop a switch between the camera mode's controls and the
+                     global keyboard shortcuts takes its place -->
                 <span class="sse-controlsHintTitle"></span>
+                <div class="sse-controlsHintTabs">
+                    <button class="sse-controlsHintTab sse-controlsHintCameraTab">
+                        <svg class="sse-controlsHintTabIcon" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <use href="#orbitIcon" />
+                        </svg>
+                        <span class="sse-controlsHintCameraLabel"></span>
+                    </button>
+                    <button class="sse-controlsHintTab sse-controlsHintGlobalTab">
+                        <svg class="sse-controlsHintTabIcon" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <use href="#keyboardIcon" />
+                        </svg>
+                        <span data-i18n="help.tab.global">Global</span>
+                    </button>
+                </div>
                 <span class="sse-controlsHintSubtitle"></span>
             </div>
             <button class="sse-controlsHintClose sse-panelButton">
                 <svg xmlns="http://www.w3.org/2000/svg"><use href="#closeIcon" /></svg>
             </button>
         </div>
-        <div class="sse-controlsHintRows"></div>
     </div>
 
     <!-- Settings Panel -->
@@ -250,7 +242,7 @@
     <!-- Tooltip -->
     <div class="sse-tooltip"></div>
 
-    <!-- Info Panel: what is running, and the global shortcuts the controls hint does not show -->
+    <!-- Info Panel: what is running. A host with CreateViewerOptions.onInfo shows its own instead -->
     <div class="sse-infoPanel sse-hidden">
         <div class="sse-infoPanelContent" onpointerdown="event.stopPropagation()" onwheel="event.stopPropagation()">
             <button class="sse-infoClose sse-panelButton">
@@ -282,45 +274,6 @@
                     <span>PlayCanvas Engine</span>
                     <span class="sse-infoLinkVersion">v<span class="sse-engineVersionLabel"></span></span>
                 </a>
-            </div>
-            <div class="sse-infoShortcuts">
-                <h1 data-i18n="help.section.modes">Mode Switching</h1>
-                <div class="sse-infoShortcut">
-                    <span data-i18n="help.action.orbit-mode">Orbit Mode</span>
-                    <kbd class="sse-key">1</kbd>
-                </div>
-                <div class="sse-infoShortcut">
-                    <span data-i18n="help.action.fly-mode">Fly Mode</span>
-                    <kbd class="sse-key">2</kbd>
-                </div>
-                <div class="sse-walkShortcut sse-infoShortcut">
-                    <span data-i18n="help.action.toggle-walk">Toggle Walk</span>
-                    <kbd class="sse-key">3</kbd>
-                </div>
-                <div class="sse-infoShortcut">
-                    <span data-i18n="help.action.toggle-gaming">Toggle Gaming Controls</span>
-                    <kbd class="sse-key">G</kbd>
-                </div>
-                <div class="sse-showCollisionShortcut sse-infoShortcut sse-hidden">
-                    <span data-i18n="help.action.show-collision">Show Collision</span>
-                    <kbd class="sse-key">V</kbd>
-                </div>
-                <div class="sse-playShortcut sse-infoShortcut">
-                    <span data-i18n="help.action.play-pause">Play / Pause</span>
-                    <kbd class="sse-key" data-i18n="help.key.space">Space</kbd>
-                </div>
-                <div class="sse-infoShortcut">
-                    <span data-i18n="help.action.toggle-controls">Toggle Controls</span>
-                    <kbd class="sse-key">H</kbd>
-                </div>
-                <div class="sse-infoShortcut">
-                    <span data-i18n="help.action.toggle-help">Toggle Info</span>
-                    <span class="sse-keys"><kbd class="sse-key">Shift</kbd><kbd class="sse-key">H</kbd></span>
-                </div>
-                <div class="sse-infoShortcut">
-                    <span data-i18n="help.action.exit-cancel">Exit / Cancel</span>
-                    <kbd class="sse-key" data-i18n="help.key.esc">Esc</kbd>
-                </div>
             </div>
         </div>
     </div>

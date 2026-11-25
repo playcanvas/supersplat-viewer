@@ -24,7 +24,7 @@
     "help.section.fly": "Mode vol",
     "help.section.walk": "Mode marche",
     "help.section.anim": "Animation",
-    "help.section.modes": "Changement de mode",
+    "help.tab.global": "Général",
 
     "help.action.orbit": "Orbiter",
     "help.action.pan": "Panoramique",
@@ -48,7 +48,7 @@
     "help.action.show-collision": "Afficher les collisions",
     "help.action.play-pause": "Lecture / Pause",
     "help.action.toggle-controls": "Basculer les commandes",
-    "help.action.toggle-help": "Basculer les infos",
+    "help.action.global-controls": "Commandes générales",
     "help.action.exit-cancel": "Quitter / Annuler",
     "help.action.release-mouse": "Libérer la souris",
     "help.action.exit-walk": "Quitter la marche",

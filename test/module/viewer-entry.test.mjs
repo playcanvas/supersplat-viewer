@@ -94,6 +94,7 @@ describe('the /viewer entry', () => {
         // Only JSDoc survives the declaration bundler, so a `//` comment on an exported type is
         // documentation a consumer never sees. These two are the ones worth having in an editor.
         assert.match(types, /\/\*\*[\s\S]*?The element the viewer builds its subtree in/);
+        assert.match(types, /\/\*\*[\s\S]*?instead of opening the viewer's own[\s\S]*?\*\/\s*onInfo\?: \(\) => void;/);
         assert.match(types, /\/\*\*[\s\S]*?Observable state/);
         assert.match(types, /\/\*\*\s*\* Seek the animation in seconds[\s\S]*?\*\/\s*seek\(time: number\): void;/);
         assert.match(types, /\/\*\*\s*\* Reset the active camera[\s\S]*?\*\/\s*resetCamera\(\): void;/);

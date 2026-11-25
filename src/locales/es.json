@@ -24,7 +24,7 @@
     "help.section.fly": "Modo vuelo",
     "help.section.walk": "Modo caminar",
     "help.section.anim": "Animación",
-    "help.section.modes": "Cambio de modo",
+    "help.tab.global": "General",
 
     "help.action.orbit": "Orbitar",
     "help.action.pan": "Desplazar",
@@ -48,7 +48,7 @@
     "help.action.show-collision": "Mostrar colisión",
     "help.action.play-pause": "Reproducir / Pausar",
     "help.action.toggle-controls": "Alternar controles",
-    "help.action.toggle-help": "Alternar información",
+    "help.action.global-controls": "Controles generales",
     "help.action.exit-cancel": "Salir / Cancelar",
     "help.action.release-mouse": "Liberar ratón",
     "help.action.exit-walk": "Salir de caminar",

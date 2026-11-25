@@ -335,7 +335,8 @@ const resolveConfig = (options: CreateViewerOptions): Config => ({
     heatmap: options.heatmap ?? false,
     debug: options.debug ?? false,
     lang: options.lang,
-    exposeGlobals: options.exposeGlobals ?? false
+    exposeGlobals: options.exposeGlobals ?? false,
+    onInfo: options.onInfo
 });
 
 const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle> => {
@@ -425,6 +426,7 @@ const createViewer = async (options: CreateViewerOptions): Promise<ViewerHandle>
         camera,
         renderer,
         root,
+        container,
         localize,
         quality
     };
