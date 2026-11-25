@@ -182,29 +182,8 @@
 
     <!-- Settings Panel -->
     <div class="sse-settingsPanel sse-hidden">
-        <!-- what is drawn over the scene -->
-        <div class="sse-settingsGroup">
-            <div class="sse-annotationsRow sse-settingsRow">
-                <div class="sse-annotationsOption" data-i18n="settings.show-annotations">Show Annotations</div>
-                <div class="sse-annotationsCheck sse-toggleSwitch sse-active">
-                    <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
-                </div>
-            </div>
-            <div class="sse-showCollisionRow sse-settingsRow sse-hidden">
-                <div class="sse-showCollisionOption" data-i18n="settings.show-collision">Show Collision</div>
-                <div class="sse-showCollisionCheck sse-toggleSwitch">
-                    <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
-                </div>
-            </div>
-        </div>
         <!-- how the viewer runs -->
         <div class="sse-settingsGroup">
-            <div class="sse-gamingControlsRow sse-settingsRow">
-                <div class="sse-gamingControlsOption" data-i18n="settings.gaming-controls">Gaming Controls</div>
-                <div class="sse-gamingControlsCheck sse-toggleSwitch">
-                    <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
-                </div>
-            </div>
             <!-- the Quality slider: the position and its budget, then a track with four stops, those the
                  device cannot hold disabled; the thumb drags and snaps to the nearest available stop -->
             <div class="sse-qualityRow sse-settingsRow">
@@ -230,8 +209,29 @@
                 </div>
             </div>
         </div>
-        <!-- camera actions -->
+        <!-- what is drawn over the scene -->
         <div class="sse-settingsGroup">
+            <div class="sse-annotationsRow sse-settingsRow">
+                <div class="sse-annotationsOption" data-i18n="settings.show-annotations">Show Annotations</div>
+                <div class="sse-annotationsCheck sse-toggleSwitch sse-active">
+                    <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
+                </div>
+            </div>
+            <div class="sse-showCollisionRow sse-settingsRow sse-hidden">
+                <div class="sse-showCollisionOption" data-i18n="settings.show-collision">Show Collision</div>
+                <div class="sse-showCollisionCheck sse-toggleSwitch">
+                    <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
+                </div>
+            </div>
+        </div>
+        <!-- the camera: how touch drives it (Gaming Controls, touch only), then framing and resetting it -->
+        <div class="sse-settingsGroup">
+            <div class="sse-gamingControlsRow sse-settingsRow">
+                <div class="sse-gamingControlsOption" data-i18n="settings.gaming-controls">Gaming Controls</div>
+                <div class="sse-gamingControlsCheck sse-toggleSwitch">
+                    <div class="sse-toggleTrack"><div class="sse-toggleThumb"></div></div>
+                </div>
+            </div>
             <div class="sse-settingsRow">
                 <button class="sse-frame" data-i18n="settings.frame">Frame</button>
                 <button class="sse-reset" data-i18n="settings.reset">Reset</button>
