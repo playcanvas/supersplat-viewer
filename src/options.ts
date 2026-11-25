@@ -147,6 +147,12 @@ type CreateViewerOptions = ViewerAssets &
         poster?: HTMLImageElement;
         /** A fetch of {@link ViewerAssets.contentUrl} already in flight, for the same reason. */
         contents?: Promise<Response>;
+        /**
+         * Called when the toolbar's info button is pressed, instead of opening the viewer's own
+         * info panel, so a host can show its own. Render it inside the container to keep it
+         * visible in fullscreen. Ignored when {@link ViewerFlags.ui} is `false`.
+         */
+        onInfo?: () => void;
     };
 
 export type { CreateViewerOptions, ViewerAssets, ViewerFlags };

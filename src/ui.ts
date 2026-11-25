@@ -89,7 +89,6 @@ const initUI = (
         'info',
         'infoPanel',
         'infoClose',
-        'infoShortcuts',
         'rendererName',
         'gpuName',
         'engineVersionLabel',
@@ -120,11 +119,7 @@ const initUI = (
         'loadingBar',
         'showCollisionRow',
         'showCollisionCheck',
-        'showCollisionShortcut',
-        'walkShortcut',
-        'playShortcut',
         'tooltip',
-        'viewerBranding',
         'appVersionLabel'
     ].reduce((acc: Record<string, HTMLElement>, name) => {
         acc[name] = root.querySelector<HTMLElement>(`.sse-${name}`);
@@ -137,9 +132,11 @@ const initUI = (
     dom.rendererName.textContent = global.renderer === 'webgpu' ? 'WebGPU' : 'WebGL 2';
     dom.gpuName.textContent = getGpuName(global.app.graphicsDevice);
 
-    // Remove focus from buttons after click so keyboard input isn't captured by the UI
+    // Remove focus from buttons after click so keyboard input isn't captured by the UI. Only
+    // focus inside the viewer: a host's onInfo may have just moved it to its own panel
     dom.ui.addEventListener('click', () => {
-        (document.activeElement as HTMLElement)?.blur();
+        const active = document.activeElement as HTMLElement | null;
+        if (active && root.contains(active)) active.blur();
     });
 
     // Forward wheel events from UI overlays to the canvas so the camera zooms
@@ -260,17 +257,19 @@ const initUI = (
     updateGamingControls();
 
     // The settings, controls and info buttons are toggles: each shows active while its panel is
-    // open. Every open and close goes through these so the two cannot disagree.
+    // open. Every open and close goes through these so the two cannot disagree. A host's onInfo
+    // replaces the info panel, so then the info button is a plain button.
     const isVisible = (panel: HTMLElement) => !panel.classList.contains('sse-hidden');
 
-    // The controls panel and the settings panel share the space above the toolbar. The controls
-    // panel's open state is the user's choice and persists: it stays open while the scene is used,
-    // and shows once the scene has loaded. Settings is a quick look, so while it is open it only
-    // stands in for the controls panel, which comes back when it closes.
+    // The controls panel and the settings panel share the space above the toolbar, and the last
+    // one opened takes it: opening either closes the other, and closing it leaves the space empty.
+    // The controls panel's open state persists as the user's own choice, from its button, its close
+    // button and H, and it shows once the scene has loaded. Settings closing it is not such a
+    // choice, so that is not persisted, and after a reload the panel shows again as before.
     let controlsOpen = readControlsOpen();
 
     const applyControls = () => {
-        const visible = controlsOpen && state.loaded && !isVisible(dom.settingsPanel);
+        const visible = controlsOpen && state.loaded;
         dom.controlsHint.classList.toggle('sse-hidden', !visible);
         dom.controlsButton.classList.toggle('sse-active', visible);
     };
@@ -278,15 +277,24 @@ const initUI = (
     const showSettings = (visible: boolean) => {
         dom.settingsPanel.classList.toggle('sse-hidden', !visible);
         dom.settings.classList.toggle('sse-active', visible);
+        if (visible) controlsOpen = false;
         applyControls();
     };
 
+    // the panel fills itself: the current camera mode's controls, or the global keyboard shortcuts
+    const controlsHint = initControlsHint(viewer, root, localize);
+    disposers.push(controlsHint.destroy);
+
     // the toolbar button toggles what it shows, so opening the panel from under settings
-    // closes settings rather than leaving the panel open and unseen
-    const showControls = (open: boolean) => {
+    // closes settings rather than leaving the panel open and unseen. It opens on the camera page
+    // unless Shift+H asked for the global page
+    const showControls = (open: boolean, page: 'camera' | 'global' = 'camera') => {
         controlsOpen = open;
         writeControlsOpen(open);
-        if (open) showSettings(false);
+        if (open) {
+            controlsHint.setPage(page);
+            showSettings(false);
+        }
         applyControls();
     };
 
@@ -295,6 +303,15 @@ const initUI = (
 
     // clicks rather than input events, so they restart the fade timer themselves
     const toggleControls = () => showControls(!isVisible(dom.controlsHint));
+
+    // Shift+H: the global page, opening the panel on it when closed, and back again when open
+    const toggleGlobal = () => {
+        if (!isVisible(dom.controlsHint)) {
+            showControls(true, 'global');
+        } else {
+            controlsHint.setPage(controlsHint.page() === 'global' ? 'camera' : 'global');
+        }
+    };
 
     dom.controlsButton.addEventListener('click', () => {
         toggleControls();
@@ -306,21 +323,18 @@ const initUI = (
     });
 
     const showInfo = (visible: boolean) => {
-        // the shortcuts are keyboard shortcuts, and list only what this scene offers, as the
-        // toolbar does: walk needs collision, play needs an animation
-        dom.infoShortcuts.classList.toggle('sse-hidden', state.inputMode !== 'desktop');
-        dom.walkShortcut.classList.toggle('sse-hidden', !state.walkAllowed);
-        dom.playShortcut.classList.toggle('sse-hidden', !state.hasAnimation);
         dom.infoPanel.classList.toggle('sse-hidden', !visible);
         dom.info.classList.toggle('sse-active', visible);
     };
 
-    // Info panel
-    const toggleHelp = () => showInfo(!isVisible(dom.infoPanel));
-
     // these close a panel without an input event, so they restart the fade timer themselves
+    const { onInfo } = global.config;
     dom.info.addEventListener('click', () => {
-        toggleHelp();
+        if (onInfo) {
+            onInfo();
+        } else {
+            showInfo(!isVisible(dom.infoPanel));
+        }
         showUI();
     });
 
@@ -337,7 +351,7 @@ const initUI = (
 
     on('inputEvent', (event) => {
         if (event === 'toggleHelp') {
-            toggleHelp();
+            toggleGlobal();
         } else if (event === 'toggleControls') {
             toggleControls();
         } else if (event === 'cancel') {
@@ -496,7 +510,6 @@ const initUI = (
 
     disposers.push(initPlayback(viewer, root, showUI));
     disposers.push(initCameraControls(viewer, root));
-    disposers.push(initControlsHint(viewer, root, localize));
     disposers.push(initFullscreenControls(viewer, root));
     disposers.push(initXrControls(viewer, root));
     if (visionPro) {
@@ -506,11 +519,10 @@ const initUI = (
         disposers.push(initVrPrompt(viewer, root, localize));
     }
 
-    // Collision overlay: a settings row and the matching info-panel shortcut, shown only when
-    // the scene ships an overlay
+    // Collision overlay: a settings row, shown only when the scene ships an overlay (the
+    // controls panel's global page follows it too)
     on('hasCollisionOverlay:changed', (value: boolean) => {
         dom.showCollisionRow.classList.toggle('sse-hidden', !value);
-        dom.showCollisionShortcut.classList.toggle('sse-hidden', !value);
     });
 
     dom.showCollisionRow.addEventListener('click', () => {
@@ -553,25 +565,6 @@ const initUI = (
     tooltip.register(dom.vrMode, localize('tooltip.enter-vr'), 'top');
     tooltip.register(dom.enterFullscreen, localize('tooltip.fullscreen'), 'top');
     tooltip.register(dom.exitFullscreen, localize('tooltip.fullscreen'), 'top');
-
-    const isThirdPartyEmbedded = () => {
-        try {
-            return window.location.hostname !== window.parent.location.hostname;
-        } catch (_e) {
-            // cross-origin iframe — parent location is inaccessible
-            return true;
-        }
-    };
-
-    if (window.parent !== window && isThirdPartyEmbedded()) {
-        const viewUrl = new URL(window.location.href);
-        if (viewUrl.pathname === '/s') {
-            viewUrl.pathname = '/view';
-        }
-
-        (dom.viewerBranding as HTMLAnchorElement).href = viewUrl.toString();
-        dom.viewerBranding.classList.remove('sse-hidden');
-    }
 
     return () => {
         for (const dispose of disposers) {

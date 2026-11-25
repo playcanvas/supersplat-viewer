@@ -630,6 +630,8 @@
                 }
                 const [viewer, other] = viewers;
                 const root = viewer.app.graphicsDevice.canvas.parentElement;
+                // native fullscreen takes the host's container, not the viewer's root
+                const container = root.parentElement;
                 const panel = document.createElement('div');
                 panel.style.cssText =
                     'position:absolute;top:8px;left:8px;z-index:1000;background:white;color:black;padding:8px';
@@ -652,12 +654,12 @@
                 button('Host fullscreen', async () => {
                     await viewer.requestFullscreen();
                     check(
-                        'native fullscreen owns this root',
-                        document.fullscreenElement === root && viewer.state.isFullscreen
+                        'native fullscreen owns this container',
+                        document.fullscreenElement === container && viewer.state.isFullscreen
                     );
                     check('other viewer stays out of fullscreen', !other.state.isFullscreen);
                     await other.exitFullscreen();
-                    check('other viewer cannot exit this fullscreen', document.fullscreenElement === root);
+                    check('other viewer cannot exit this fullscreen', document.fullscreenElement === container);
                     if (!url.searchParams.has('noui')) {
                         check(
                             'built-in buttons follow host fullscreen',
@@ -668,7 +670,10 @@
                 });
                 button('Host exit fullscreen', async () => {
                     await viewer.exitFullscreen();
-                    check('host exits fullscreen', !viewer.state.isFullscreen && document.fullscreenElement !== root);
+                    check(
+                        'host exits fullscreen',
+                        !viewer.state.isFullscreen && document.fullscreenElement !== container
+                    );
                 });
                 for (const mode of ['ar', 'vr']) {
                     button(`Host ${mode.toUpperCase()}`, async () => {
@@ -737,7 +742,7 @@
                     await timeout(200);
                     check(
                         'destroy removes fullscreen and subtree',
-                        !viewer.state.isFullscreen && document.fullscreenElement !== root && !root.isConnected
+                        !viewer.state.isFullscreen && document.fullscreenElement !== container && !root.isConnected
                     );
                     check('fullscreen destruction releases context', await released(gpu));
                     check(

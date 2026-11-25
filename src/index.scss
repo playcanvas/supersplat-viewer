@@ -9,7 +9,7 @@
     // hover fills from --sse-text-light, so a change carries through the whole ui.
     //
     // Overlays drawn straight over the scene (the toolbar, the timeline, the annotation
-    // hotspots, popup and nav, the loading text and the watermark) are themed the same way,
+    // hotspots, popup and nav, and the loading text) are themed the same way,
     // backing and text together: their backings and the outlines around their icons and text
     // follow --sse-bkg, and their text, lines and borders the text tokens. The backings are
     // translucent, so contrast still depends on the scene behind them, as it always has: a dark
@@ -104,6 +104,51 @@
         pointer-events: none;
     }
 
+    // Orbit and fly click-target pinpoint (radially symmetric dot + confirmation ripple).
+    // Motion is driven by Web Animations in CursorPinpoint (src/nav-cursor.ts) so viewer.css
+    // ships no unscoped keyframes. Walk mode keeps the surface-projected ring from CursorRing.
+    .sse-navCursor {
+        .sse-pinpoint {
+            will-change: transform;
+
+            > g {
+                transform-origin: 0 0;
+                transform-box: view-box;
+            }
+
+            .sse-pinpointFgStroke {
+                fill: none;
+                stroke: var(--sse-text-light);
+                stroke-width: 1.75px;
+                stroke-linecap: round;
+                stroke-linejoin: round;
+                opacity: 0.92;
+            }
+
+            .sse-pinpointHaloStroke {
+                fill: none;
+                stroke: color-mix(in srgb, var(--sse-bkg) 60%, transparent);
+                stroke-width: 4.15px;
+                stroke-linecap: round;
+                stroke-linejoin: round;
+            }
+
+            .sse-pinpointFgFill {
+                fill: var(--sse-text-light);
+                opacity: 0.92;
+            }
+
+            .sse-pinpointHaloFill {
+                fill: color-mix(in srgb, var(--sse-bkg) 60%, transparent);
+            }
+
+            .sse-pinpointDot,
+            .sse-pinpointWave {
+                opacity: 0;
+            }
+        }
+    }
+
     .sse-ui {
         position: absolute;
         top: 0;
@@ -117,7 +162,7 @@
         pointer-events: auto;
     }
 
-    // keycap, after the studio's navigation guide; the controls hint and the info panel share it
+    // keycap, after the studio's navigation guide, for the controls hint
     .sse-key {
         display: inline-flex;
         align-items: center;
@@ -177,14 +222,22 @@
 
     .sse-controlsHint {
         // above the toolbar at the right, where the settings panel also opens; the two take
-        // turns, so they never show together
+        // turns, so they never show together. 60px puts the panel as far above the timeline's line
+        // as the line is above the buttons (11px), and it stays put when the timeline hides
         position: absolute;
         right: max(16px, env(safe-area-inset-right));
-        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
+        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 60px);
         min-width: 200px;
         max-width: calc(100% - 32px);
+        // no taller than the space above the toolbar, so a short viewer scrolls the rows rather
+        // than pushing the top ones out of sight
+        max-height: calc(100% - max(16px, env(safe-area-inset-top)) - max(16px, env(safe-area-inset-bottom)) - 60px);
+        display: flex;
+        flex-direction: column;
         box-sizing: border-box;
-        padding: 8px 8px 8px 12px;
+        // the settings panel's frame: 12px all round, text 8px further in, inputs 4px in from
+        // the right, so the two panels match as they take turns in the same spot
+        padding: 12px;
         border-radius: 16px;
         border: 1px solid color-mix(in srgb, var(--sse-text-light) 8%, transparent);
 
@@ -195,8 +248,12 @@
         -webkit-backdrop-filter: blur(20px);
 
         // the title shares a line with the icon and close button, and the subtitle hangs below
-        // it, so the title stays put whether or not there is a subtitle
-        > .sse-controlsHintHeader {
+        // it, so the title stays put whether or not there is a subtitle. A footer rather than a
+        // header: the panel grows up from the toolbar, so its bottom edge is the one that stays
+        // put as the rows change between pages and modes
+        > .sse-controlsHintFooter {
+            flex-shrink: 0;
+            padding-left: 8px;
             display: flex;
             align-items: flex-start;
             gap: 8px;
@@ -223,6 +280,80 @@
                     color: var(--sse-text-light);
                 }
 
+                // desktop's switch between the camera mode's controls and the global shortcuts,
+                // in place of the title and on the same line. The two sides are the same width, so
+                // the highlight is one shape that slides from one to the other
+                > .sse-controlsHintTabs {
+                    position: relative;
+                    align-self: flex-start;
+                    display: grid;
+                    grid-auto-columns: 1fr;
+                    grid-auto-flow: column;
+                    height: 26px;
+                    padding: 2px;
+                    box-sizing: border-box;
+                    border-radius: 8px;
+                    background-color: color-mix(in srgb, var(--sse-text-light) 6%, transparent);
+
+                    // the highlight, under the active side: the camera side, or the global side
+                    // with sse-global on the switch
+                    &::before {
+                        content: '';
+                        position: absolute;
+                        top: 2px;
+                        bottom: 2px;
+                        left: 2px;
+                        width: calc(50% - 2px);
+                        border-radius: 6px;
+                        background-color: color-mix(in srgb, var(--sse-text-light) 14%, transparent);
+                        transition: transform 200ms ease;
+                    }
+
+                    &.sse-global::before {
+                        transform: translateX(100%);
+                    }
+
+                    // positioned, so they draw over the highlight, which comes first
+                    > .sse-controlsHintTab {
+                        position: relative;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 5px;
+                        padding: 0 10px;
+                        border: 0;
+                        background-color: transparent;
+                        color: var(--sse-text-dark);
+                        font-size: 12px;
+                        font-weight: bold;
+                        white-space: nowrap;
+                        cursor: pointer;
+                        transition: color 200ms ease;
+
+                        // the side's icon, in its text colour
+                        > .sse-controlsHintTabIcon {
+                            width: 14px;
+                            height: 14px;
+                            flex-shrink: 0;
+                            fill: currentColor;
+                        }
+
+                        &:hover,
+                        &.sse-active {
+                            color: var(--sse-text-light);
+                        }
+                    }
+
+                    // the switch has its own padding, so the subtitle need not tuck up under it
+                    & ~ .sse-controlsHintSubtitle {
+                        margin-top: 2px;
+                    }
+
+                    &.sse-hidden ~ .sse-controlsHintSubtitle {
+                        margin-top: -5px;
+                    }
+                }
+
                 > .sse-controlsHintSubtitle {
                     margin-top: -5px;
                     font-size: 11px;
@@ -236,9 +367,19 @@
         }
 
         > .sse-controlsHintRows {
-            margin-top: 8px;
-            padding: 4px 4px 0 0;
-            border-top: 1px solid color-mix(in srgb, var(--sse-text-light) 6%, transparent);
+            min-height: 0;
+            overflow-y: auto;
+            // the viewer turns touch panning off everywhere; the rows take vertical swipes back so
+            // a short viewer can scroll them, without the swipe scrolling the page behind
+            touch-action: pan-y;
+            overscroll-behavior: contain;
+
+            * {
+                touch-action: pan-y;
+            }
+            margin-bottom: 8px;
+            padding: 0 4px 4px 8px;
+            border-bottom: 1px solid color-mix(in srgb, var(--sse-text-light) 8%, transparent);
 
             &:empty {
                 display: none;
@@ -264,7 +405,7 @@
             > .sse-divider {
                 height: 1px;
                 margin: 4px 0;
-                background-color: color-mix(in srgb, var(--sse-text-light) 6%, transparent);
+                background-color: color-mix(in srgb, var(--sse-text-light) 8%, transparent);
             }
         }
 
@@ -329,46 +470,6 @@
         .sse-or {
             font-size: 11px;
             color: var(--sse-text-darkest);
-        }
-    }
-
-    /* branding link for third-party embeds */
-
-    .sse-viewerBranding {
-        position: absolute;
-        top: max(16px, env(safe-area-inset-top));
-        left: max(16px, env(safe-area-inset-left));
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        text-decoration: none;
-        white-space: nowrap;
-        cursor: pointer;
-        transition: color 150ms ease;
-
-        color: var(--sse-text);
-
-        &:hover {
-            color: var(--sse-text-light);
-        }
-
-        > svg {
-            height: 16px;
-            width: auto;
-            flex-shrink: 0;
-            padding: 8px;
-            border-radius: 6px;
-            background-color: color-mix(in srgb, var(--sse-bkg) 30%, transparent);
-        }
-
-        > span {
-            font-size: 14px;
-            font-weight: bold;
-            text-shadow:
-                -1px -1px 0 color-mix(in srgb, var(--sse-bkg) 40%, transparent),
-                1px -1px 0 color-mix(in srgb, var(--sse-bkg) 40%, transparent),
-                -1px 1px 0 color-mix(in srgb, var(--sse-bkg) 40%, transparent),
-                1px 1px 0 color-mix(in srgb, var(--sse-bkg) 40%, transparent);
         }
     }
 
@@ -603,7 +704,7 @@
     .sse-settingsPanel {
         position: absolute;
         right: max(16px, env(safe-area-inset-right));
-        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
+        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 60px);
         padding: 12px;
         border-radius: 16px;
         border: 1px solid color-mix(in srgb, var(--sse-text-light) 8%, transparent);
@@ -928,36 +1029,6 @@
                     &:hover {
                         color: var(--sse-text-light);
                         background-color: color-mix(in srgb, var(--sse-text-light) 6%, transparent);
-                    }
-                }
-            }
-
-            > .sse-infoShortcuts {
-                padding-top: 12px;
-                border-top: 1px solid color-mix(in srgb, var(--sse-text-light) 6%, transparent);
-
-                > h1 {
-                    font-size: 11px;
-                    font-weight: bold;
-                    text-transform: uppercase;
-                    letter-spacing: 1px;
-                    padding-bottom: 6px;
-                    color: var(--sse-accent);
-                }
-
-                > .sse-infoShortcut {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    gap: 16px;
-                    min-height: 28px;
-                    // the controls hint's row size
-                    font-size: 12px;
-
-                    // a combination such as Shift + H
-                    .sse-keys {
-                        display: flex;
-                        gap: 3px;
                     }
                 }
             }

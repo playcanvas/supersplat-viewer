@@ -34,6 +34,7 @@ type Config = ViewerAssets &
     Pick<ViewerFlags, 'hpr' | 'aa' | 'budget' | 'lang'> & {
         poster?: HTMLImageElement;
         contents: Promise<Response>;
+        onInfo?: () => void;
     };
 
 // observable state that can change at runtime
@@ -219,7 +220,8 @@ type ViewerHandle = {
      */
     setMoveInput(x: number, z: number): void;
     /**
-     * Request fullscreen for this viewer's root. Call from a user gesture; rejects on browser
+     * Request fullscreen for this viewer's container, so anything the host shows in it stays
+     * visible. Call from a user gesture; rejects on browser
      * refusal or destruction. Available before scene loading finishes. Without native support,
      * an iframe sends the legacy parent message and resolves without acknowledgement.
      */
@@ -251,8 +253,11 @@ type Global = {
     renderer: 'webgl' | 'webgpu'; // actual renderer in use (reflects engine fallback from WebGPU to WebGL2)
     // the element containing the canvas and the ui subtree; every dom lookup, attribute and
     // listener the viewer owns is scoped to it rather than to the document, so two instances
-    // can share a page (the standalone document's root is <body>)
+    // can share a page
     root: HTMLElement;
+    // the host's element the root is built in (the standalone document's is <body>). Only
+    // fullscreen uses it, so a host's own overlays in it stay visible there
+    container: HTMLElement;
     // ui string lookup in this instance's locale
     localize: Localize;
     // the budget, renderer and resolution decisions (quality.ts)

@@ -17,6 +17,28 @@ const readBootstrap = (document) => {
     return JSON.parse(match[1]);
 };
 
+// Run a document's head script, which turns the bootstrap and the page url into createViewer's
+// options, against just enough of a browser for it, and return those options. Its fetches never
+// settle, so nothing is left to reject once the test ends.
+const resolveOptions = (document, search = '') => {
+    const scripts = [...document.matchAll(/<script type="module">([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+    const source = scripts.find((script) => script.includes('window.sse = {'));
+    assert.ok(source, 'head script missing');
+    const bootstrapText = document.match(BOOTSTRAP_BLOCK)[1];
+    const window = {};
+    const browser = {
+        location: { href: `https://example.com/viewer/${search}` },
+        document: { getElementById: () => ({ textContent: bootstrapText }) },
+        Image: class {
+            src = '';
+        },
+        fetch: () => new Promise(() => undefined),
+        window
+    };
+    new Function(...Object.keys(browser), source)(...Object.values(browser));
+    return window.sse.options;
+};
+
 describe('renderViewerHtml', () => {
     it('returns the shipped document unmodified when given no options', () => {
         assert.strictEqual(renderViewerHtml(), html);
@@ -147,6 +169,61 @@ describe('renderViewerHtml', () => {
         // the gsaf decoder is code, so only the bootstrap names it, never a url param
         assert.ok(html.includes('const gsafDecoderUrl = bootstrap.gsafDecoderUrl ?? null;'));
         assert.doesNotMatch(html, /searchParams\.get\([^)]*\)[^;]*bootstrap\.gsafDecoderUrl/);
+    });
+
+    describe('bootstrap flags', () => {
+        const flags = {
+            renderer: 'webgl',
+            ui: false,
+            noanim: true,
+            aa: false,
+            hpr: true,
+            stochastic: 'mobile',
+            budget: 4,
+            framesInFlight: 1,
+            lang: 'de'
+        };
+
+        it('carries the flags through the bootstrap', () => {
+            const result = renderViewerHtml({ bootstrap: { contentUrl: 'scene.sog', flags } });
+            assert.deepStrictEqual(readBootstrap(result).flags, flags);
+        });
+
+        it('hands them to createViewer as the defaults for the document', () => {
+            const options = resolveOptions(renderViewerHtml({ bootstrap: { flags } }));
+            for (const [name, value] of Object.entries(flags)) {
+                assert.strictEqual(options[name], value, name);
+            }
+        });
+
+        it('lets a url param win over them', () => {
+            const document = renderViewerHtml({
+                bootstrap: { flags: { renderer: 'webgpu', aa: false, hpr: true, lang: 'de', budget: 4, noanim: false } }
+            });
+            const options = resolveOptions(document, '?webgl&aa=1&hpr=0&lang=fr&budget=8&noanim');
+            assert.strictEqual(options.renderer, 'webgl');
+            assert.strictEqual(options.aa, true);
+            assert.strictEqual(options.hpr, false);
+            assert.strictEqual(options.lang, 'fr');
+            assert.strictEqual(options.budget, 8);
+            assert.strictEqual(options.noanim, true);
+        });
+
+        it('cannot turn off the window hooks the document publishes', () => {
+            const options = resolveOptions(renderViewerHtml({ bootstrap: { flags: { exposeGlobals: false } } }));
+            assert.strictEqual(options.exposeGlobals, true);
+        });
+
+        it('leaves the shipped document reading its flags from the url alone', () => {
+            const options = resolveOptions(html, '?noui&nofx&stochastic=off');
+            assert.strictEqual(options.ui, false);
+            assert.strictEqual(options.nofx, true);
+            assert.strictEqual(options.stochastic, 'off');
+            assert.strictEqual(options.renderer, 'webgpu');
+            // left to createViewer's own defaults
+            assert.strictEqual(options.noanim, undefined);
+            assert.strictEqual(options.lang, undefined);
+        });
     });
 
     it('keeps both external references when inlining neither', () => {

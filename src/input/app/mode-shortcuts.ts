@@ -73,7 +73,7 @@ class ModeShortcuts {
             case 'g':
                 state.gamingControls = !state.gamingControls;
                 break;
-            // H the controls panel, Shift+H the info panel. Shift is read from the event, so
+            // H the controls panel, Shift+H its global page. Shift is read from the event, so
             // caps lock does not swap them
             case 'h':
             case 'H':

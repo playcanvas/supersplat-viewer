@@ -1,10 +1,10 @@
 import css from '../../public/index.css';
 import html from '../../public/index.html';
 import js from '../../public/index.js';
-import type { ViewerAssets } from '../options';
+import type { ViewerAssets, ViewerFlags } from '../options';
 
 /**
- * Asset urls and settings the embedder supplies to the viewer. The asset urls are the same
+ * Asset urls, settings and flag defaults the embedder supplies to the viewer. The asset urls are the same
  * fields `createViewer` takes in a page ({@link ViewerAssets}); here every one is optional,
  * because the document has a default for each.
  *
@@ -21,6 +21,13 @@ type ViewerBootstrap = Partial<ViewerAssets> & {
     settings?: unknown;
     /** Where to fetch settings from. Defaults to `./settings.json`. */
     settingsUrl?: string;
+    /**
+     * Defaults for the viewer's flags in this document, the same switches `createViewer` takes.
+     * A url param on the served page still wins: a switch param such as `?noanim` can turn its
+     * flag on but not off, while `?hpr` and `?aa` take a value either way. `exposeGlobals` is
+     * not among them, as the document always publishes the `window.*` hooks.
+     */
+    flags?: Omit<ViewerFlags, 'exposeGlobals'>;
 };
 
 /** Options for {@link renderViewerHtml}. */
