@@ -60,6 +60,7 @@ describe('renderViewerHtml', () => {
                 skyboxUrl: 'skybox?id=hash',
                 collisionUrl: 'https://cdn.example.com/hash/v2/scene.voxel.json'
             },
+            title: 'Acme 3D Viewer',
             baseHref: '/s/',
             backgroundColor: [0, 0.5, 1],
             headExtras: '<script data-test="sentry"></script>'
@@ -72,6 +73,8 @@ describe('renderViewerHtml', () => {
             skyboxUrl: 'skybox?id=hash',
             collisionUrl: 'https://cdn.example.com/hash/v2/scene.voxel.json'
         });
+        assert.ok(result.includes('<title>Acme 3D Viewer</title>'));
+        assert.strictEqual(result.match(/<title>/g)?.length, 1);
         assert.ok(result.includes('<base href="/s/">'));
         assert.ok(!result.includes('<base href=""'));
         // components are normalized 0..1, so 0.5 -> 128
@@ -276,6 +279,21 @@ describe('renderViewerHtml', () => {
             assert.strictEqual(result.match(/<base\b/g)?.length, 1);
         });
 
+        it('escapes title so it cannot break out of its element', () => {
+            const result = renderViewerHtml({ title: '</title><script>alert(1)</script><title>' });
+
+            assert.ok(!result.includes('<script>alert(1)</script>'));
+            assert.strictEqual(result.match(/<script/g).length, html.match(/<script/g).length);
+            assert.strictEqual(result.match(/<title>/g)?.length, 1);
+            assert.strictEqual(result.match(/<\/title>/g)?.length, 1);
+        });
+
+        it('escapes ampersands in title and inserts replacement patterns literally', () => {
+            const result = renderViewerHtml({ title: "Fish & Chips $& $' $`" });
+
+            assert.ok(result.includes("<title>Fish &amp; Chips $&amp; $' $`</title>"));
+        });
+
         // Each seam is matched with a non-global regex, so a caller-controlled payload that
         // looks like a seam must not be matched ahead of the real one. Annotation text is
         // user-authored, so settings are the hostile case.
@@ -316,6 +334,15 @@ describe('renderViewerHtml', () => {
             assert.strictEqual(readBootstrap(result).settings.a, '<base href="evil">');
         });
 
+        it('does not let headExtras spoof the title seam', () => {
+            const result = renderViewerHtml({ title: 'Real', headExtras: '<title>Spoof</title>' });
+
+            // the shipped title is replaced, and the caller's markup is left as it was
+            assert.ok(result.includes('<title>Real</title>'));
+            assert.ok(result.includes('<title>Spoof</title>'));
+            assert.ok(result.indexOf('<title>Real</title>') < result.indexOf('<title>Spoof</title>'));
+        });
+
         it('does not let headExtras be mangled by replacement patterns', () => {
             const result = renderViewerHtml({ headExtras: '<script>const a = "$&$\'";</script>' });
 
@@ -341,6 +368,7 @@ describe('renderViewerHtml', () => {
         assert.doesNotThrow(() =>
             renderViewerHtml({
                 bootstrap: { contentUrl: 'scene.sog' },
+                title: 'Scene',
                 baseHref: '/s/',
                 backgroundColor: [0, 0, 0],
                 headExtras: '<meta name="x" />',

@@ -26,6 +26,7 @@ const document = renderViewerHtml({
         posterUrl: 'poster.jpg',
         flags: { lang: 'de', noanim: true }   // defaults for the viewer's switches
     },
+    title: 'My scene',                 // the browser tab's title
     baseHref: '/viewer/',              // serving from a sub-path
     backgroundColor: [0, 0, 0],        // components are 0..1, not 0..255
     headExtras: '<script src="analytics.js"></script>',
