@@ -261,14 +261,15 @@ const initUI = (
     // replaces the info panel, so then the info button is a plain button.
     const isVisible = (panel: HTMLElement) => !panel.classList.contains('sse-hidden');
 
-    // The controls panel and the settings panel share the space above the toolbar. The controls
-    // panel's open state is the user's choice and persists: it stays open while the scene is used,
-    // and shows once the scene has loaded. Settings is a quick look, so while it is open it only
-    // stands in for the controls panel, which comes back when it closes.
+    // The controls panel and the settings panel share the space above the toolbar, and the last
+    // one opened takes it: opening either closes the other, and closing it leaves the space empty.
+    // The controls panel's open state persists as the user's own choice, from its button, its close
+    // button and H, and it shows once the scene has loaded. Settings closing it is not such a
+    // choice, so that is not persisted, and after a reload the panel shows again as before.
     let controlsOpen = readControlsOpen();
 
     const applyControls = () => {
-        const visible = controlsOpen && state.loaded && !isVisible(dom.settingsPanel);
+        const visible = controlsOpen && state.loaded;
         dom.controlsHint.classList.toggle('sse-hidden', !visible);
         dom.controlsButton.classList.toggle('sse-active', visible);
     };
@@ -276,6 +277,7 @@ const initUI = (
     const showSettings = (visible: boolean) => {
         dom.settingsPanel.classList.toggle('sse-hidden', !visible);
         dom.settings.classList.toggle('sse-active', visible);
+        if (visible) controlsOpen = false;
         applyControls();
     };
 
