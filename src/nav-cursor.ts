@@ -1,4 +1,4 @@
-import { PROJECTION_ORTHOGRAPHIC, Vec3 } from 'playcanvas';
+import { Vec3 } from 'playcanvas';
 import type { AppBase, Entity, EventHandler } from 'playcanvas';
 
 import type { Collision } from './collision';
@@ -8,14 +8,6 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 const NUM_SAMPLES = 12;
 const BASE_OUTER_RADIUS = 0.2;
 const INNER_OUTER_RATIO = 0.17 / 0.2;
-// Screen-space diameter (in CSS pixels) used for both hover and target
-// rings when the scene isn't walk-sized. Walk-sized scenes render
-// world-space (BASE_OUTER_RADIUS) so the ring orients to the surface and
-// reads as a physical footprint; smaller scenes (or no collision) fall
-// back to a fixed pixel size, which keeps the ring legible when 0.2 world
-// units would eat too much of the scene. Selection happens in
-// screenPixelsForRing(), keyed on state.walkAllowed.
-const SCREEN_OUTER_PIXELS = 48;
 const BEZIER_K = 1 / 6;
 const NORMAL_SMOOTH_FACTOR = 0.25;
 const NORMAL_SNAP_ANGLE = Math.PI / 4;
@@ -70,31 +62,25 @@ const snapNormal = (nx: number, ny: number, nz: number, out: Vec3) => {
     return out.copy(best);
 };
 
+const PINPOINT_RING_RADIUS = 14;
+const PINPOINT_DOT_RADIUS = 3.4;
+const PINPOINT_DOT_HALO_RADIUS = 4.9;
+const PINPOINT_ENTER_MS = 300;
+const PINPOINT_EXIT_MS = 200;
+const PINPOINT_EASE_OUT = 'cubic-bezier(0.23, 1, 0.32, 1)';
+const PINPOINT_EASE_IN = 'cubic-bezier(0.55, 0.055, 0.675, 0.19)';
+
+const prefersReducedMotion = () =>
+    typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+
 const tmpV = new Vec3();
+const tmpView = new Vec3();
 const tmpScreen = new Vec3();
 const tangent = new Vec3();
 const bitangent = new Vec3();
 const worldPt = new Vec3();
 const up = new Vec3(0, 1, 0);
 const right = new Vec3(1, 0, 0);
-
-// Compute the world-space radius such that a circle at `pos` projects to a
-// ring of `pixelDiameter` on screen. Used by the no-collision sizing path
-// (see screenPixelsForRing) to keep a constant on-screen diameter
-// regardless of camera distance.
-const worldRadiusForPixels = (camera: Entity, canvasHeight: number, pos: Vec3, pixelDiameter: number): number => {
-    const cam = camera.camera;
-    if (cam.projection === PROJECTION_ORTHOGRAPHIC) {
-        return (pixelDiameter * cam.orthoHeight) / canvasHeight;
-    }
-    const camPos = camera.getPosition();
-    const dx = pos.x - camPos.x;
-    const dy = pos.y - camPos.y;
-    const dz = pos.z - camPos.z;
-    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    const halfFovTan = Math.tan((cam.fov * Math.PI) / 360);
-    return (pixelDiameter * distance * halfFovTan) / canvasHeight;
-};
 
 type CursorTarget = {
     position: Vec3;
@@ -125,8 +111,6 @@ class CursorRing {
 
     private svg: SVGSVGElement;
 
-    private canvas: HTMLCanvasElement;
-
     private camera: Entity;
 
     private smoothing: boolean;
@@ -147,9 +131,8 @@ class CursorRing {
 
     private readonly innerY = new Float64Array(NUM_SAMPLES);
 
-    constructor(svg: SVGSVGElement, canvas: HTMLCanvasElement, camera: Entity, smoothing: boolean) {
+    constructor(svg: SVGSVGElement, camera: Entity, smoothing: boolean) {
         this.svg = svg;
-        this.canvas = canvas;
         this.camera = camera;
         this.smoothing = smoothing;
 
@@ -200,9 +183,7 @@ class CursorRing {
         }
     }
 
-    // screenPixels: null → world-space ring (fixed world radius, shrinks
-    // with distance); number → constant on-screen diameter in CSS pixels.
-    render(pos: Vec3, normal: Vec3, screenPixels: number | null) {
+    render(pos: Vec3, normal: Vec3) {
         snapNormal(normal.x, normal.y, normal.z, tmpV);
         let nx = tmpV.x;
         let ny = tmpV.y;
@@ -228,10 +209,7 @@ class CursorRing {
             this.hasSmoothedNormal = true;
         }
 
-        const outerRadius =
-            screenPixels !== null
-                ? worldRadiusForPixels(this.camera, this.canvas.clientHeight || 1, pos, screenPixels)
-                : BASE_OUTER_RADIUS;
+        const outerRadius = BASE_OUTER_RADIUS;
         const innerRadius = outerRadius * INNER_OUTER_RATIO;
 
         this.projectCircle(pos.x, pos.y, pos.z, nx, ny, nz, outerRadius, this.outerX, this.outerY);
@@ -251,6 +229,207 @@ class CursorRing {
     }
 }
 
+// Screen-space, radially symmetric focus/destination marker for orbit and fly modes.
+// Unlike walk mode's surface-projected footprint ring, this stays a fixed pixel size
+// so it neither dominates close-up geometry nor vanishes on distant fly targets.
+class CursorPinpoint {
+    private svg: SVGSVGElement;
+
+    private camera: Entity;
+
+    private root: SVGGElement;
+
+    private wave: SVGGElement;
+
+    private dot: SVGGElement;
+
+    private position = new Vec3();
+
+    private visible = false;
+
+    private exiting = false;
+
+    private dotAnim: Animation | null = null;
+
+    private waveAnim: Animation | null = null;
+
+    private exitTimer: ReturnType<typeof setTimeout> | null = null;
+
+    constructor(svg: SVGSVGElement, camera: Entity) {
+        this.svg = svg;
+        this.camera = camera;
+
+        const root = document.createElementNS(SVGNS, 'g');
+        root.classList.add('sse-pinpoint');
+        root.style.display = 'none';
+
+        const wave = document.createElementNS(SVGNS, 'g');
+        wave.classList.add('sse-pinpointWave');
+
+        const waveHalo = document.createElementNS(SVGNS, 'circle');
+        waveHalo.classList.add('sse-pinpointHaloStroke');
+        waveHalo.setAttribute('r', String(PINPOINT_RING_RADIUS));
+
+        const waveStroke = document.createElementNS(SVGNS, 'circle');
+        waveStroke.classList.add('sse-pinpointFgStroke');
+        waveStroke.setAttribute('r', String(PINPOINT_RING_RADIUS));
+
+        wave.append(waveHalo, waveStroke);
+
+        const dot = document.createElementNS(SVGNS, 'g');
+        dot.classList.add('sse-pinpointDot');
+
+        const dotHalo = document.createElementNS(SVGNS, 'circle');
+        dotHalo.classList.add('sse-pinpointHaloFill');
+        dotHalo.setAttribute('r', String(PINPOINT_DOT_HALO_RADIUS));
+
+        const dotCore = document.createElementNS(SVGNS, 'circle');
+        dotCore.classList.add('sse-pinpointFgFill');
+        dotCore.setAttribute('r', String(PINPOINT_DOT_RADIUS));
+
+        dot.append(dotHalo, dotCore);
+        root.append(wave, dot);
+        svg.appendChild(root);
+
+        this.root = root;
+        this.wave = wave;
+        this.dot = dot;
+    }
+
+    private clearAnimations() {
+        this.dotAnim?.cancel();
+        this.dotAnim = null;
+        this.waveAnim?.cancel();
+        this.waveAnim = null;
+        if (this.exitTimer !== null) {
+            clearTimeout(this.exitTimer);
+            this.exitTimer = null;
+        }
+    }
+
+    show(pos: Vec3, mode: 'orbit' | 'fly') {
+        this.clearAnimations();
+        this.position.copy(pos);
+        this.visible = true;
+        this.exiting = false;
+        this.svg.style.display = '';
+        this.root.style.display = '';
+        // project before starting animations so the first painted frame sits at the target
+        this.update();
+
+        if (prefersReducedMotion() || typeof this.dot.animate !== 'function') {
+            this.dot.style.opacity = '1';
+            this.dot.style.transform = 'none';
+            this.wave.style.opacity = '0';
+            return;
+        }
+
+        this.dot.style.opacity = '';
+        this.dot.style.transform = '';
+        this.wave.style.opacity = '';
+
+        this.dotAnim = this.dot.animate(
+            [
+                { opacity: 0, transform: 'scale(0.84)' },
+                { opacity: 1, transform: 'scale(1)' }
+            ],
+            {
+                duration: Math.round(PINPOINT_ENTER_MS * 0.65),
+                easing: PINPOINT_EASE_OUT,
+                fill: 'forwards'
+            }
+        );
+
+        if (mode === 'fly') {
+            this.waveAnim = this.wave.animate(
+                [
+                    { opacity: 0.9, transform: 'scale(0.62)', offset: 0 },
+                    { opacity: 0, transform: 'scale(1.44)', offset: 0.48 },
+                    { opacity: 0, transform: 'scale(1.44)', offset: 1 }
+                ],
+                {
+                    duration: Math.round(PINPOINT_ENTER_MS * 3.4),
+                    easing: PINPOINT_EASE_OUT,
+                    iterations: Infinity
+                }
+            );
+        } else {
+            this.waveAnim = this.wave.animate(
+                [
+                    { opacity: 0.95, transform: 'scale(0.64)' },
+                    { opacity: 0, transform: 'scale(1.42)' }
+                ],
+                {
+                    duration: Math.round(PINPOINT_ENTER_MS * 1.25),
+                    easing: PINPOINT_EASE_OUT,
+                    fill: 'forwards'
+                }
+            );
+        }
+    }
+
+    update() {
+        if (!this.visible) {
+            return;
+        }
+
+        const cam = this.camera.camera;
+        cam.viewMatrix.transformPoint(this.position, tmpView);
+        if (tmpView.z >= 0) {
+            this.root.style.visibility = 'hidden';
+            return;
+        }
+
+        cam.worldToScreen(this.position, tmpScreen);
+        this.root.style.visibility = 'visible';
+        this.root.style.transform = `translate3d(${tmpScreen.x.toFixed(2)}px, ${tmpScreen.y.toFixed(2)}px, 0)`;
+    }
+
+    release() {
+        if (!this.visible || this.exiting) {
+            return;
+        }
+        if (prefersReducedMotion() || typeof this.dot.animate !== 'function') {
+            this.hide();
+            return;
+        }
+
+        this.exiting = true;
+        this.waveAnim?.cancel();
+        this.waveAnim = null;
+        this.wave.style.opacity = '0';
+
+        this.dotAnim?.cancel();
+        this.dotAnim = this.dot.animate(
+            [
+                { opacity: 1, transform: 'scale(1)' },
+                { opacity: 0, transform: 'scale(0.84)' }
+            ],
+            {
+                duration: PINPOINT_EXIT_MS,
+                easing: PINPOINT_EASE_IN,
+                fill: 'forwards'
+            }
+        );
+
+        this.exitTimer = setTimeout(() => {
+            this.hide();
+        }, PINPOINT_EXIT_MS);
+    }
+
+    hide() {
+        this.clearAnimations();
+        this.visible = false;
+        this.exiting = false;
+        this.root.style.display = 'none';
+    }
+
+    destroy() {
+        this.clearAnimations();
+        this.root.remove();
+    }
+}
+
 class NavCursor {
     private svg: SVGSVGElement;
 
@@ -260,16 +439,15 @@ class NavCursor {
 
     private targetRing: CursorRing;
 
+    private targetPinpoint: CursorPinpoint;
+
     private camera: Entity;
 
     // Settable after construction: the viewer reveals the scene before the collision data has
-    // downloaded, so this arrives late. Ring sizing reads `state.walkAllowed` live, so only the
-    // pick path needs updating here.
+    // downloaded, so this arrives late.
     collision: Collision | null;
 
     private canvas: HTMLCanvasElement;
-
-    private state: State;
 
     private app: AppBase;
 
@@ -277,7 +455,7 @@ class NavCursor {
 
     // True when the hover ring should track the pointer. Only walk mode
     // (with mouse navigation, not gaming controls) shows the hover ring;
-    // fly/orbit only show the target ring on click.
+    // fly/orbit only show the target pinpoint on click.
     private hoverActive = false;
 
     private navigating = false;
@@ -308,10 +486,10 @@ class NavCursor {
         this.camera = camera;
         this.collision = collision;
         this.canvas = app.graphicsDevice.canvas as HTMLCanvasElement;
-        this.state = state;
         this.app = app;
 
         this.svg = document.createElementNS(SVGNS, 'svg');
+        this.svg.classList.add('sse-navCursor');
         this.svg.style.cssText =
             'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible';
         // in the scene layer, over the scene and beneath the ui, and first in it so the
@@ -330,8 +508,9 @@ class NavCursor {
         this.captureMarker.style.display = 'none';
         this.svg.appendChild(this.captureMarker);
 
-        this.hoverRing = new CursorRing(this.svg, this.canvas, camera, true);
-        this.targetRing = new CursorRing(this.svg, this.canvas, camera, false);
+        this.hoverRing = new CursorRing(this.svg, camera, true);
+        this.targetRing = new CursorRing(this.svg, camera, false);
+        this.targetPinpoint = new CursorPinpoint(this.svg, camera);
 
         this.svg.style.display = 'none';
 
@@ -367,7 +546,7 @@ class NavCursor {
             this.hoverRing.hide();
             if (this.targetMode && this.targetMode !== state.cameraMode) {
                 this.navigating = false;
-                this.clearTarget();
+                this.clearTarget(true);
             }
         };
 
@@ -418,29 +597,30 @@ class NavCursor {
         updateActive();
     }
 
-    // Ring sizing is per-scene: walk-sized scenes (collision present and
-    // bbox large enough — same predicate as walk mode) get world-space
-    // rings, which read as physical footprints on the surface with visible
-    // orientation. Smaller scenes or scenes without collision use a fixed
-    // screen-pixel ring — 0.2 world units would dominate a small scene,
-    // and the pick already falls back to splat depth without collision.
-    private screenPixelsForRing(): number | null {
-        return this.state.walkAllowed ? null : SCREEN_OUTER_PIXELS;
-    }
-
     private setTarget(pos: Vec3, normal: Vec3, mode: TargetMode) {
         this.targetPos = pos.clone();
         this.targetNormal = normal.clone();
         this.targetMode = mode;
         this.hoverRing.hide();
-        this.targetRing.hide();
+        if (mode === 'walk') {
+            this.targetPinpoint.hide();
+            this.targetRing.hide();
+        } else {
+            this.targetRing.hide();
+            this.targetPinpoint.show(pos, mode);
+        }
     }
 
-    private clearTarget() {
+    private clearTarget(immediate = false) {
         this.targetPos = null;
         this.targetNormal = null;
         this.targetMode = null;
         this.targetRing.hide();
+        if (immediate) {
+            this.targetPinpoint.hide();
+        } else {
+            this.targetPinpoint.release();
+        }
     }
 
     private pickCollision(offsetX: number, offsetY: number): CursorTarget | null {
@@ -490,28 +670,38 @@ class NavCursor {
             return;
         }
 
-        this.hoverRing.render(target.position, target.normal, this.screenPixelsForRing());
+        this.hoverRing.render(target.position, target.normal);
     }
 
     private updateTarget() {
         if (!this.targetPos || !this.targetNormal || !this.targetMode) {
+            // keep projecting the pinpoint during its exit fade so it stays locked to 3D space
+            this.targetPinpoint.update();
             return;
         }
 
         const camPos = this.camera.getPosition();
         const dist = camPos.distance(this.targetPos);
-        if (this.targetMode !== 'orbit' && dist < 2.0) {
-            this.targetRing.hide();
+        if (this.targetMode === 'walk') {
+            if (dist < 2.0) {
+                this.targetRing.hide();
+                return;
+            }
+            this.targetRing.render(this.targetPos, this.targetNormal);
             return;
         }
 
-        this.targetRing.render(this.targetPos, this.targetNormal, this.screenPixelsForRing());
+        if (this.targetMode === 'fly' && dist < 2.0) {
+            this.targetPinpoint.release();
+        }
+        this.targetPinpoint.update();
     }
 
     destroy() {
         this.app.off('prerender', this.onPrerender);
         this.canvas.removeEventListener('pointermove', this.onPointerMove);
         this.canvas.removeEventListener('pointerleave', this.onPointerLeave);
+        this.targetPinpoint.destroy();
         this.svg.remove();
     }
 }
