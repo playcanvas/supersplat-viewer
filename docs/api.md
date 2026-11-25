@@ -2,6 +2,15 @@
 
 Embedding, runtime control and settings for `@playcanvas/supersplat-viewer`.
 
+## Choosing how to instance the viewer
+
+There are two ways to put the viewer on a page. Both run the same viewer; they differ in who owns the page around it.
+
+- **`renderViewerHtml` returns a complete page**, the SuperSplat viewer as shipped, which you serve on its own, usually in an iframe. It runs anywhere that can call a function at build or serve time, needs no engine in your bundle, and is isolated from your page's styles, scripts and globals. It is configured with data only: asset URLs, settings, defaults for the viewer's flags, theme tokens in `headExtras` and URL parameters. Once served you have no handle on it.
+- **`createViewer` mounts the viewer in an element of your own page.** You bundle it with your app and the engine, and it returns a handle with observable state, events and commands. It is the way to integrate with the viewer and to own its surroundings: your own controls, overlays inside the container, your own info panel (`onInfo`), or no built-in UI at all (`ui: false`).
+
+Choose `renderViewerHtml` for an embed you hand over or drop into a page, such as a CMS, a static site, a single self-contained file or someone else's site. Choose `createViewer` for an app built around the viewer, or a product that wants its own look and identity around it. Options that customise or replace the built-in UI belong to `createViewer`; a generated page stays the SuperSplat viewer as shipped.
+
 ## Embedding the viewer
 
 If you generate a page around the viewer, use `renderViewerHtml`. It returns a complete
@@ -14,7 +23,8 @@ const document = renderViewerHtml({
     bootstrap: {
         settings,                      // an object, or omit and set settingsUrl
         contentUrl: 'scene.sog',
-        posterUrl: 'poster.jpg'
+        posterUrl: 'poster.jpg',
+        flags: { lang: 'de', noanim: true }   // defaults for the viewer's switches
     },
     baseHref: '/viewer/',              // serving from a sub-path
     backgroundColor: [0, 0, 0],        // components are 0..1, not 0..255
@@ -26,6 +36,8 @@ const document = renderViewerHtml({
 Called with no options it returns the document the package ships, unmodified. URL parameters
 on the served page override the bootstrap's asset URLs, so an embed stays overridable per
 instance — except an inline `settings` object, which takes precedence over `?settings=`.
+
+The bootstrap's `flags` are the document's defaults for the same switches `createViewer` takes (`ui`, `noanim`, `lang`, `aa`, `budget` and the rest), so a page that should always open in German or paused does not depend on every link carrying `?lang=de&noanim`. URL parameters still win: a switch parameter such as `?noanim` can turn its flag on but not off, while `?hpr` and `?aa` take a value and so work either way. `exposeGlobals` is not a bootstrap flag, as the document always publishes the `window.*` hooks.
 
 Set both `inlineCss` and `inlineJs` for a single self-contained file, with the splat passed as
 a `data:` URI in `contentUrl` and the settings supplied inline through the bootstrap's
