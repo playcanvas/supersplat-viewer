@@ -132,9 +132,11 @@ const initUI = (
     dom.rendererName.textContent = global.renderer === 'webgpu' ? 'WebGPU' : 'WebGL 2';
     dom.gpuName.textContent = getGpuName(global.app.graphicsDevice);
 
-    // Remove focus from buttons after click so keyboard input isn't captured by the UI
+    // Remove focus from buttons after click so keyboard input isn't captured by the UI. Only
+    // focus inside the viewer: a host's onInfo may have just moved it to its own panel
     dom.ui.addEventListener('click', () => {
-        (document.activeElement as HTMLElement)?.blur();
+        const active = document.activeElement as HTMLElement | null;
+        if (active && root.contains(active)) active.blur();
     });
 
     // Forward wheel events from UI overlays to the canvas so the camera zooms

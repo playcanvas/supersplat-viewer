@@ -352,6 +352,11 @@ const initControlsHint = (viewer: Pick<ViewerHandle, 'state' | 'events'>, root: 
     // released with the elements
     cameraTab.addEventListener('click', () => setPage('camera'));
     globalTab.addEventListener('click', () => setPage('global'));
+    // the ui forwards the wheel to the camera; while the rows overflow a short viewer, they keep
+    // it so it scrolls them
+    rowsElement.addEventListener('wheel', (event) => {
+        if (rowsElement.scrollHeight > rowsElement.clientHeight) event.stopPropagation();
+    });
 
     const subscriptions = [
         events.on('cameraMode:changed', update),

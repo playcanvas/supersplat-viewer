@@ -183,6 +183,11 @@
         bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
         min-width: 200px;
         max-width: calc(100% - 32px);
+        // no taller than the space above the toolbar, so a short viewer scrolls the rows rather
+        // than pushing the top ones out of sight
+        max-height: calc(100% - max(16px, env(safe-area-inset-top)) - max(16px, env(safe-area-inset-bottom)) - 70px);
+        display: flex;
+        flex-direction: column;
         box-sizing: border-box;
         padding: 8px 8px 8px 12px;
         border-radius: 16px;
@@ -199,6 +204,7 @@
         // header: the panel grows up from the toolbar, so its bottom edge is the one that stays
         // put as the rows change between pages and modes
         > .sse-controlsHintFooter {
+            flex-shrink: 0;
             display: flex;
             align-items: flex-start;
             gap: 8px;
@@ -312,6 +318,8 @@
         }
 
         > .sse-controlsHintRows {
+            min-height: 0;
+            overflow-y: auto;
             margin-bottom: 8px;
             padding: 0 4px 4px 0;
             border-bottom: 1px solid color-mix(in srgb, var(--sse-text-light) 6%, transparent);
