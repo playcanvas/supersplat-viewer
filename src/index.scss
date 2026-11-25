@@ -104,6 +104,51 @@
         pointer-events: none;
     }
 
+    // Orbit and fly click-target pinpoint (radially symmetric dot + confirmation ripple).
+    // Motion is driven by Web Animations in CursorPinpoint (src/nav-cursor.ts) so viewer.css
+    // ships no unscoped keyframes. Walk mode keeps the surface-projected ring from CursorRing.
+    .sse-navCursor {
+        .sse-pinpoint {
+            will-change: transform;
+
+            > g {
+                transform-origin: 0 0;
+                transform-box: view-box;
+            }
+
+            .sse-pinpointFgStroke {
+                fill: none;
+                stroke: var(--sse-text-light);
+                stroke-width: 1.75px;
+                stroke-linecap: round;
+                stroke-linejoin: round;
+                opacity: 0.92;
+            }
+
+            .sse-pinpointHaloStroke {
+                fill: none;
+                stroke: color-mix(in srgb, var(--sse-bkg) 60%, transparent);
+                stroke-width: 4.15px;
+                stroke-linecap: round;
+                stroke-linejoin: round;
+            }
+
+            .sse-pinpointFgFill {
+                fill: var(--sse-text-light);
+                opacity: 0.92;
+            }
+
+            .sse-pinpointHaloFill {
+                fill: color-mix(in srgb, var(--sse-bkg) 60%, transparent);
+            }
+
+            .sse-pinpointDot,
+            .sse-pinpointWave {
+                opacity: 0;
+            }
+        }
+    }
+
     .sse-ui {
         position: absolute;
         top: 0;
