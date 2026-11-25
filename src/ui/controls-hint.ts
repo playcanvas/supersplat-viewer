@@ -36,6 +36,10 @@ type Row = [action: string, ...tokens: Token[]] | null;
 
 type Hint = { title: string; subtitle: string; icon: string; rows: Row[] };
 
+// the panel's two pages: the current camera mode's controls, and the global keyboard shortcuts
+// that work in every mode. A switch in the header, or Shift+H, changes between them
+type Page = 'camera' | 'global';
+
 const key = (label: string): Token => ({ kind: 'key', label });
 const mouse = (button: MouseButton, suffix?: 'drag' | 'double'): Token => ({ kind: 'mouse', button, suffix });
 // one line of keycaps rather than the studio's two-row cluster, so every row is the same height
@@ -153,10 +157,6 @@ const describe = (state: ViewerHandle['state'], localize: Localize): Hint => {
                 ];
                 break;
         }
-        // not while the mouse is captured, where the ui closes the info box as soon as it opens
-        if (!gaming) {
-            rows.push(null, ['toggle-controls', key('H')], ['toggle-help', key('Shift'), key('H')]);
-        }
     } else {
         switch (cameraMode) {
             case 'orbit':
@@ -209,6 +209,26 @@ const describe = (state: ViewerHandle['state'], localize: Localize): Hint => {
     };
 };
 
+// the global keyboard shortcuts, that work in every camera mode, listing only what this scene
+// offers, as the toolbar does: walk needs collision, play needs an animation
+const describeGlobal = (state: ViewerHandle['state'], localize: Localize): Row[] => {
+    const rows: Row[] = [
+        ['orbit-mode', key('1')],
+        ['fly-mode', key('2')]
+    ];
+    if (state.walkAllowed) rows.push(['toggle-walk', key('3')]);
+    rows.push(['toggle-gaming', key('G')]);
+    if (state.hasCollisionOverlay) rows.push(['show-collision', key('V')]);
+    if (state.hasAnimation) rows.push(['play-pause', key(localize('help.key.space'))]);
+    rows.push(
+        ['exit-cancel', key(localize('help.key.esc'))],
+        null,
+        ['toggle-controls', key('H')],
+        ['global-controls', key('Shift'), key('H')]
+    );
+    return rows;
+};
+
 const renderToken = (token: Token): HTMLElement => {
     const span = (className: string, text?: string) => {
         const element = document.createElement('span');
@@ -243,24 +263,48 @@ const renderToken = (token: Token): HTMLElement => {
 
 /**
  * Fills the controls panel with the current camera mode and its controls, following the camera
- * mode, input mode and gaming controls (mouse capture on desktop). Opening and closing belong to
+ * mode, input mode and gaming controls (mouse capture on desktop), or with the global keyboard
+ * shortcuts that work in every mode. On desktop a switch in the header, or Shift+H, changes between
+ * the two; touch has only the camera page, under a plain title. Opening and closing belong to
  * ui.ts, which toggles it from the toolbar like the settings and info panels.
  */
 const initControlsHint = (viewer: Pick<ViewerHandle, 'state' | 'events'>, root: HTMLElement, localize: Localize) => {
     const { state, events } = viewer;
-    const icon = root.querySelector<SVGUseElement>('.sse-controlsHintIcon > use');
+    const iconElement = root.querySelector<SVGElement>('.sse-controlsHintIcon');
+    const icon = iconElement.querySelector<SVGUseElement>('use');
     const title = root.querySelector<HTMLElement>('.sse-controlsHintTitle');
+    const tabs = root.querySelector<HTMLElement>('.sse-controlsHintTabs');
+    const cameraTab = root.querySelector<HTMLElement>('.sse-controlsHintCameraTab');
+    const cameraTabIcon = cameraTab.querySelector<SVGUseElement>('use');
+    const cameraTabLabel = cameraTab.querySelector<HTMLElement>('.sse-controlsHintCameraLabel');
+    const globalTab = root.querySelector<HTMLElement>('.sse-controlsHintGlobalTab');
     const subtitle = root.querySelector<HTMLElement>('.sse-controlsHintSubtitle');
     const rowsElement = root.querySelector<HTMLElement>('.sse-controlsHintRows');
 
     let rendered = '';
+    let page: Page = 'camera';
+    // the page on show: a touch device has no keyboard to list
+    const shownPage = (): Page => (state.inputMode === 'desktop' ? page : 'camera');
 
-    const render = (hint: Hint) => {
-        icon.setAttribute('href', hint.icon);
-        title.textContent = hint.title;
-        subtitle.textContent = hint.subtitle;
+    // the header names the camera mode on either page: the plain title on touch, the camera side of
+    // the switch on desktop
+    const render = (camera: Hint, rows: Row[], shown: Page) => {
+        const desktop = state.inputMode === 'desktop';
+        icon.setAttribute('href', camera.icon);
+        cameraTabIcon.setAttribute('href', camera.icon);
+        title.textContent = camera.title;
+        cameraTabLabel.textContent = camera.title;
+        iconElement.classList.toggle('sse-hidden', desktop);
+        title.classList.toggle('sse-hidden', desktop);
+        tabs.classList.toggle('sse-hidden', !desktop);
+        cameraTab.classList.toggle('sse-active', shown === 'camera');
+        globalTab.classList.toggle('sse-active', shown === 'global');
+        // slides the highlight across
+        tabs.classList.toggle('sse-global', shown === 'global');
+        // on both pages, so the footer keeps its height as the pages switch
+        subtitle.textContent = camera.subtitle;
         rowsElement.replaceChildren(
-            ...hint.rows.map((row) => {
+            ...rows.map((row) => {
                 const element = document.createElement('div');
                 if (!row) {
                     element.className = 'sse-divider';
@@ -280,25 +324,57 @@ const initControlsHint = (viewer: Pick<ViewerHandle, 'state' | 'events'>, root: 
         );
     };
 
-    // re-render when the page changes; a state change that leaves it as it was (G in orbit)
+    // re-render when what is shown changes; a state change that leaves it as it was (G in orbit)
     // renders nothing
     const update = () => {
-        const signature = `${state.cameraMode}:${state.inputMode}:${isGaming(state)}`;
+        const shown = shownPage();
+        const signature = [
+            shown,
+            state.cameraMode,
+            state.inputMode,
+            isGaming(state),
+            state.walkAllowed,
+            state.hasCollisionOverlay,
+            state.hasAnimation
+        ].join(':');
         if (signature !== rendered) {
             rendered = signature;
-            render(describe(state, localize));
+            const camera = describe(state, localize);
+            render(camera, shown === 'global' ? describeGlobal(state, localize) : camera.rows, shown);
         }
     };
+
+    const setPage = (next: Page) => {
+        page = next;
+        update();
+    };
+
+    // released with the elements
+    cameraTab.addEventListener('click', () => setPage('camera'));
+    globalTab.addEventListener('click', () => setPage('global'));
+    // the ui forwards the wheel to the camera; while the rows overflow a short viewer, they keep
+    // it so it scrolls them
+    rowsElement.addEventListener('wheel', (event) => {
+        if (rowsElement.scrollHeight > rowsElement.clientHeight) event.stopPropagation();
+    });
 
     const subscriptions = [
         events.on('cameraMode:changed', update),
         events.on('inputMode:changed', update),
-        events.on('gamingControls:changed', update)
+        events.on('gamingControls:changed', update),
+        events.on('walkAllowed:changed', update),
+        events.on('hasCollisionOverlay:changed', update),
+        events.on('hasAnimation:changed', update)
     ];
     update();
 
-    return () => {
-        for (const subscription of subscriptions) subscription.off();
+    return {
+        /** The page on show. */
+        page: shownPage,
+        setPage,
+        destroy: () => {
+            for (const subscription of subscriptions) subscription.off();
+        }
     };
 };
 

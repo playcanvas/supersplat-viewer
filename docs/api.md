@@ -2,6 +2,15 @@
 
 Embedding, runtime control and settings for `@playcanvas/supersplat-viewer`.
 
+## Choosing how to instance the viewer
+
+There are two ways to put the viewer on a page. Both run the same viewer; they differ in who owns the page around it.
+
+- **`renderViewerHtml` returns a complete page**, the SuperSplat viewer as shipped, which you serve on its own, usually in an iframe. It runs anywhere that can call a function at build or serve time, needs no engine in your bundle, and is isolated from your page's styles, scripts and globals. It is configured with data only: asset URLs, settings, defaults for the viewer's flags, theme tokens in `headExtras` and URL parameters. Once served you have no handle on it.
+- **`createViewer` mounts the viewer in an element of your own page.** You bundle it with your app and the engine, and it returns a handle with observable state, events and commands. It is the way to integrate with the viewer and to own its surroundings: your own controls, overlays inside the container, your own info panel (`onInfo`), or no built-in UI at all (`ui: false`).
+
+Choose `renderViewerHtml` for an embed you hand over or drop into a page, such as a CMS, a static site, a single self-contained file or someone else's site. Choose `createViewer` for an app built around the viewer, or a product that wants its own look and identity around it. Options that customise or replace the built-in UI belong to `createViewer`; a generated page stays the SuperSplat viewer as shipped.
+
 ## Embedding the viewer
 
 If you generate a page around the viewer, use `renderViewerHtml`. It returns a complete
@@ -14,7 +23,8 @@ const document = renderViewerHtml({
     bootstrap: {
         settings,                      // an object, or omit and set settingsUrl
         contentUrl: 'scene.sog',
-        posterUrl: 'poster.jpg'
+        posterUrl: 'poster.jpg',
+        flags: { lang: 'de', noanim: true }   // defaults for the viewer's switches
     },
     baseHref: '/viewer/',              // serving from a sub-path
     backgroundColor: [0, 0, 0],        // components are 0..1, not 0..255
@@ -26,6 +36,8 @@ const document = renderViewerHtml({
 Called with no options it returns the document the package ships, unmodified. URL parameters
 on the served page override the bootstrap's asset URLs, so an embed stays overridable per
 instance — except an inline `settings` object, which takes precedence over `?settings=`.
+
+The bootstrap's `flags` are the document's defaults for the same switches `createViewer` takes (`ui`, `noanim`, `lang`, `aa`, `budget` and the rest), so a page that should always open in German or paused does not depend on every link carrying `?lang=de&noanim`. URL parameters still win: a switch parameter such as `?noanim` can turn its flag on but not off, while `?hpr` and `?aa` take a value and so work either way. `exposeGlobals` is not a bootstrap flag, as the document always publishes the `window.*` hooks.
 
 Set both `inlineCss` and `inlineJs` for a single self-contained file, with the splat passed as
 a `data:` URI in `contentUrl` and the settings supplied inline through the bootstrap's
@@ -210,7 +222,7 @@ viewer.events.on('isFullscreen:changed', updateControls);
 viewer.events.on('xrMode:changed', updateControls);
 ```
 
-Native fullscreen targets this viewer's root. Read-only `state.isFullscreen` follows browser entry and exit, including Escape, and the built-in buttons follow host commands. `exitFullscreen()` is a no-op when another element owns fullscreen. Without native fullscreen support, an iframe retains the legacy `requestFullscreen` / `exitFullscreen` parent messages: the promise resolves when sent and `isFullscreen` reports the requested state, because that bridge has no acknowledgement. An unsupported top-level page rejects entry. Automatic entry/exit on orientation changes remains a built-in UI policy; replacement controls choose their own policy.
+Native fullscreen targets the container you passed to `createViewer`, so anything you show over the viewer inside it, such as your own info panel, stays visible. Read-only `state.isFullscreen` follows browser entry and exit, including Escape, and the built-in buttons follow host commands. `exitFullscreen()` is a no-op when another element owns fullscreen. Without native fullscreen support, an iframe retains the legacy `requestFullscreen` / `exitFullscreen` parent messages: the promise resolves when sent and `isFullscreen` reports the requested state, because that bridge has no acknowledgement. An unsupported top-level page rejects entry. Automatic entry/exit on orientation changes remains a built-in UI policy; replacement controls choose their own policy.
 
 `state.canStartAR` and `state.canStartVR` report availability on the current renderer. `hasAR` and `hasVR` also include sessions that could work after a WebGL reload. Subscribe to their change events because capability checks can finish after creation. The built-in UI offers the reload prompt; `startXR()` itself never reloads the page and rejects when the current renderer cannot host the session. Browser permission and device availability can still prevent entry.
 
@@ -240,9 +252,24 @@ These properties are the supported styling API. The built-in layout, its interna
 For more than a retheme, pass `ui: false`. The viewer creates the canvas and retains core input handling, including keyboard/gamepad input gated by `state.inputEnabled`. It omits the overlay, annotation presentation and built-in controls; render your own controls through the viewer handle. Note that the touch joystick, the fullscreen button and
 the AR/VR fallback prompt are part of the UI you are replacing, so those affordances become
 yours too. Everything between the two, replacing some of the UI but keeping the rest, is not
-supported yet.
+supported yet, apart from the info panel below.
 
-[The custom UI example](https://github.com/playcanvas/supersplat-viewer/blob/main/src/dev/custom-ui.html) demonstrates loading, playback, camera modes, directional movement, annotations, preferences and fullscreen/XR using only the handle and documented state events. Run it locally at `/custom-ui?content=./scene.ply&settings=./settings.json` (`&webgl` selects WebGL). It is a development example, not a React package or a published UI component. Its controls live outside the fullscreen viewer root, so use Escape or the browser's exit affordance to leave fullscreen.
+### Your own info panel
+
+The toolbar's info button opens the viewer's info panel: what is running, its version and the GPU. Pass `onInfo` to show your own panel instead. The viewer then calls it when the button is pressed and never opens its own.
+
+```ts
+const viewer = await createViewer({
+    container,
+    settings,
+    contentUrl,
+    onInfo: () => myInfoPanel.toggle()
+});
+```
+
+Render the panel inside `container` so it stays visible in fullscreen. Its contents, open state and closing are yours; the keyboard shortcuts stay in the viewer's controls panel, on its Global page (Shift+H). `onInfo` is a `createViewer` option only: a document from `renderViewerHtml` cannot carry a function.
+
+[The custom UI example](https://github.com/playcanvas/supersplat-viewer/blob/main/src/dev/custom-ui.html) demonstrates loading, playback, camera modes, directional movement, annotations, preferences and fullscreen/XR using only the handle and documented state events. Run it locally at `/custom-ui?content=./scene.ply&settings=./settings.json` (`&webgl` selects WebGL). It is a development example, not a React package or a published UI component. Its controls live outside the fullscreen container, so use Escape or the browser's exit affordance to leave fullscreen.
 
 ## Settings
 

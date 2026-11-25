@@ -24,7 +24,7 @@
     "help.section.fly": "Flugmodus",
     "help.section.walk": "Gehmodus",
     "help.section.anim": "Animation",
-    "help.section.modes": "Modus wechseln",
+    "help.tab.global": "Allgemein",
 
     "help.action.orbit": "Umkreisen",
     "help.action.pan": "Schwenken",
@@ -48,7 +48,7 @@
     "help.action.show-collision": "Kollision anzeigen",
     "help.action.play-pause": "Wiedergabe / Pause",
     "help.action.toggle-controls": "Steuerung umschalten",
-    "help.action.toggle-help": "Info umschalten",
+    "help.action.global-controls": "Allgemeine Steuerung",
     "help.action.exit-cancel": "Beenden / Abbrechen",
     "help.action.release-mouse": "Maus freigeben",
     "help.action.exit-walk": "Gehmodus beenden",

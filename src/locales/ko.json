@@ -24,7 +24,7 @@
     "help.section.fly": "플라이 모드",
     "help.section.walk": "워크 모드",
     "help.section.anim": "애니메이션",
-    "help.section.modes": "모드 전환",
+    "help.tab.global": "공통",
 
     "help.action.orbit": "오빗",
     "help.action.pan": "팬",
@@ -48,7 +48,7 @@
     "help.action.show-collision": "충돌 표시",
     "help.action.play-pause": "재생 / 일시 정지",
     "help.action.toggle-controls": "조작 전환",
-    "help.action.toggle-help": "정보 전환",
+    "help.action.global-controls": "공통 조작",
     "help.action.exit-cancel": "나가기 / 취소",
     "help.action.release-mouse": "마우스 해제",
     "help.action.exit-walk": "워크 종료",

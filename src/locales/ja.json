@@ -24,7 +24,7 @@
     "help.section.fly": "フライモード",
     "help.section.walk": "ウォークモード",
     "help.section.anim": "アニメーション",
-    "help.section.modes": "モード切り替え",
+    "help.tab.global": "共通",
 
     "help.action.orbit": "オービット",
     "help.action.pan": "パン",
@@ -48,7 +48,7 @@
     "help.action.show-collision": "コリジョンを表示",
     "help.action.play-pause": "再生 / 一時停止",
     "help.action.toggle-controls": "操作の切り替え",
-    "help.action.toggle-help": "情報を切り替え",
+    "help.action.global-controls": "共通操作",
     "help.action.exit-cancel": "終了 / キャンセル",
     "help.action.release-mouse": "マウスを解放",
     "help.action.exit-walk": "ウォークを終了",
