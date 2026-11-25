@@ -222,15 +222,16 @@
 
     .sse-controlsHint {
         // above the toolbar at the right, where the settings panel also opens; the two take
-        // turns, so they never show together
+        // turns, so they never show together. 60px puts the panel as far above the timeline's line
+        // as the line is above the buttons (11px), and it stays put when the timeline hides
         position: absolute;
         right: max(16px, env(safe-area-inset-right));
-        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
+        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 60px);
         min-width: 200px;
         max-width: calc(100% - 32px);
         // no taller than the space above the toolbar, so a short viewer scrolls the rows rather
         // than pushing the top ones out of sight
-        max-height: calc(100% - max(16px, env(safe-area-inset-top)) - max(16px, env(safe-area-inset-bottom)) - 70px);
+        max-height: calc(100% - max(16px, env(safe-area-inset-top)) - max(16px, env(safe-area-inset-bottom)) - 60px);
         display: flex;
         flex-direction: column;
         box-sizing: border-box;
@@ -703,7 +704,7 @@
     .sse-settingsPanel {
         position: absolute;
         right: max(16px, env(safe-area-inset-right));
-        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 70px);
+        bottom: calc(max(16px, env(safe-area-inset-bottom)) + 60px);
         padding: 12px;
         border-radius: 16px;
         border: 1px solid color-mix(in srgb, var(--sse-text-light) 8%, transparent);
