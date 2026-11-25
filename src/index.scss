@@ -189,7 +189,9 @@
         display: flex;
         flex-direction: column;
         box-sizing: border-box;
-        padding: 8px 8px 8px 12px;
+        // the settings panel's frame: 12px all round, text 8px further in, inputs 4px in from
+        // the right, so the two panels match as they take turns in the same spot
+        padding: 12px;
         border-radius: 16px;
         border: 1px solid color-mix(in srgb, var(--sse-text-light) 8%, transparent);
 
@@ -205,6 +207,7 @@
         // put as the rows change between pages and modes
         > .sse-controlsHintFooter {
             flex-shrink: 0;
+            padding-left: 8px;
             display: flex;
             align-items: flex-start;
             gap: 8px;
@@ -329,8 +332,8 @@
                 touch-action: pan-y;
             }
             margin-bottom: 8px;
-            padding: 0 4px 4px 0;
-            border-bottom: 1px solid color-mix(in srgb, var(--sse-text-light) 6%, transparent);
+            padding: 0 4px 4px 8px;
+            border-bottom: 1px solid color-mix(in srgb, var(--sse-text-light) 8%, transparent);
 
             &:empty {
                 display: none;
@@ -356,7 +359,7 @@
             > .sse-divider {
                 height: 1px;
                 margin: 4px 0;
-                background-color: color-mix(in srgb, var(--sse-text-light) 6%, transparent);
+                background-color: color-mix(in srgb, var(--sse-text-light) 8%, transparent);
             }
         }
 
