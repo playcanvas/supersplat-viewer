@@ -320,6 +320,14 @@
         > .sse-controlsHintRows {
             min-height: 0;
             overflow-y: auto;
+            // the viewer turns touch panning off everywhere; the rows take vertical swipes back so
+            // a short viewer can scroll them, without the swipe scrolling the page behind
+            touch-action: pan-y;
+            overscroll-behavior: contain;
+
+            * {
+                touch-action: pan-y;
+            }
             margin-bottom: 8px;
             padding: 0 4px 4px 0;
             border-bottom: 1px solid color-mix(in srgb, var(--sse-text-light) 6%, transparent);
