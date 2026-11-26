@@ -10,18 +10,33 @@ const QUADS_PER_INSTANCE = 128;
 /** The raster's far clamp in normalised depth: just inside 1, which the compose reads as empty. */
 const FAR_CLIP_Z = 0.999999;
 
-// the raster's varyings, shared by both stages: the opacity sits in packedAlpha's low 8 bits
-// and the splat's seed, hashed once per vertex, in the high 24, so no splat id needs to reach
-// the fragment
+// the raster's per-splat varyings, shared by both stages: the colour, and for per-pixel
+// coverage the opacity in w and the splat's seed, hashed once per vertex, as a rotation in
+// [0, 1), so no splat id needs to reach the fragment. Interpolated, alike at every corner, rather
+// than flat: flat varyings cost Apple GPUs before the A17 / M3 about a fifth of the raster pass,
+// more than they save elsewhere (playcanvas/engine#10085; measured 2026-11-26: iPhone 13 Pro Max
+// per-pixel raster -17 to -19 %, Pixel 7 Pro frame up to +7 %, M4, RTX 4090 and Quest 3 within a
+// few percent)
 const varyingsWGSL = /* wgsl */ `
 varying @interpolate(linear) gaussianUV: vec2f;
-varying @interpolate(flat, either) packedColor: u32;
-varying @interpolate(flat, either) packedAlpha: u32;
+#ifdef SSE_COVERAGE_SPLAT
+    varying @interpolate(linear) splatColor: vec3f;
+#else
+    varying @interpolate(linear) splatColor: vec4f;
+    varying @interpolate(linear) splatSeed: f32;
+#endif
 #ifdef SSE_JITTER
     // variant jitter, as floats so the fragment converts nothing: x the stratum's base
     // threshold, y the entry's key for the jitter pattern, z the opacity
-    varying @interpolate(flat, either) jitterVary: vec4f;
+    varying @interpolate(linear) jitterVary: vec4f;
 #endif
+`;
+
+// the cache's colour word: 10 bits a channel and a 2-bit exponent
+const colorWGSL = /* wgsl */ `
+fn decodeColor(bits: u32) -> vec3f {
+    return vec3f(vec3u(bits, bits >> 10u, bits >> 20u) & vec3u(1023u)) * (f32(1u << (bits >> 30u)) / 1023.0);
+}
 `;
 
 // integer hash (Wellons' prospector mix)
@@ -81,6 +96,7 @@ ${varyingsWGSL}
 uniform frameSeed: u32;
 ${hashWGSL}
 ${cacheAlphaWGSL}
+${colorWGSL}
 
 const discardPosition = vec4f(0.0, 0.0, 2.0, 1.0);
 
@@ -187,16 +203,20 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
         );
     #endif
     output.gaussianUV = corner;
-    output.packedColor = splatCache[base + 4u];
+    #ifdef SSE_COVERAGE_SPLAT
+        output.splatColor = decodeColor(splatCache[base + 4u]);
+    #else
+        output.splatColor = vec4f(decodeColor(splatCache[base + 4u]), decodeCacheAlpha(word3 >> 16u));
+    #endif
     #ifdef SSE_JITTER
         // the stratum's base threshold for the fragment's test, and a per-entry key that rotates
         // its jitter pattern, so overlapping splats' jitters are independent
         let entryKey = hashU32(order ^ uniform.frameSeed);
         output.jitterVary = vec4f(strataIndex * uniform.jitterParams.z, f32(entryKey >> 8u) * (1.0 / 16777216.0), opacityS, 0.0);
-        output.packedAlpha = word3 >> 16u;
-    #else
+    #endif
+    #ifndef SSE_COVERAGE_SPLAT
         let seed = hashU32(((splatCache[base + 5u] + 1u) * 26699u) ^ uniform.frameSeed);
-        output.packedAlpha = ((word3 >> 16u) & 0xffu) | (seed & 0xffffff00u);
+        output.splatSeed = f32(seed >> 8u) * (1.0 / 16777216.0);
     #endif
     return output;
 }
@@ -212,6 +232,7 @@ uniform sseAlphaClip: f32;
 #endif
 
 ${cacheAlphaWGSL}
+${colorWGSL}
 
 @fragment
 fn fragmentMain(input: FragmentInput) -> FragmentOutput {
@@ -231,13 +252,12 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
             }
         #endif
         // the square is the kept coverage, so every fragment is kept
-        let bits = packedColor;
     #else
         let radius = dot(gaussianUV, gaussianUV);
         if (radius > 1.0) {
             discard;
         }
-        let alpha = splatAlpha(radius, decodeCacheAlpha(packedAlpha));
+        let alpha = splatAlpha(radius, splatColor.w);
         if (alpha < uniform.sseAlphaClip) {
             discard;
         }
@@ -246,14 +266,13 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         // splat's seed, float only, with no integer multiplies, which mobile gpus run at a
         // fraction of the float rate; the rotation changes every frame with the seed
         let ign = fract(52.9829189 * fract(dot(pcPosition.xy, vec2f(0.06711056, 0.00583715))));
-        let rnd = fract(ign + f32(packedAlpha >> 8u) * (1.0 / 16777216.0));
+        let rnd = fract(ign + splatSeed);
         if (rnd >= alpha) {
             discard;
         }
-        let bits = packedColor;
     #endif
 
-    let color = vec3f(vec3u(bits, bits >> 10u, bits >> 20u) & vec3u(1023u)) * (f32(1u << (bits >> 30u)) / 1023.0);
+    let color = splatColor.rgb;
     // opaque coverage: the compose reads alpha 1 as "a sample landed here"
     output.color = vec4f(color, 1.0);
     return output;
