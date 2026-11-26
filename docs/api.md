@@ -7,7 +7,7 @@ Embedding, runtime control and settings for `@playcanvas/supersplat-viewer`.
 There are two ways to put the viewer on a page. Both run the same viewer; they differ in who owns the page around it.
 
 - **`renderViewerHtml` returns a complete page**, the SuperSplat viewer as shipped, which you serve on its own, usually in an iframe. It runs anywhere that can call a function at build or serve time, needs no engine in your bundle, and is isolated from your page's styles, scripts and globals. It is configured with data only: asset URLs, settings, defaults for the viewer's flags, theme tokens in `headExtras` and URL parameters. Once served you have no handle on it.
-- **`createViewer` mounts the viewer in an element of your own page.** You bundle it with your app and the engine, and it returns a handle with observable state, events and commands. It is the way to integrate with the viewer and to own its surroundings: your own controls, overlays inside the container, your own info panel (`onInfo`), or no built-in UI at all (`ui: false`).
+- **`createViewer` mounts the viewer in an element of your own page.** You bundle it with your app and the engine, and it returns a handle with observable state, events and commands. It is the way to integrate with the viewer and to own its surroundings: your own controls, overlays inside the container, your own info panel or none (`onInfo`), or no built-in UI at all (`ui: false`).
 
 Choose `renderViewerHtml` for an embed you hand over or drop into a page, such as a CMS, a static site, a single self-contained file or someone else's site. Choose `createViewer` for an app built around the viewer, or a product that wants its own look and identity around it. Options that customise or replace the built-in UI belong to `createViewer`; a generated page stays the SuperSplat viewer as shipped.
 
@@ -268,7 +268,11 @@ const viewer = await createViewer({
 });
 ```
 
-Render the panel inside `container` so it stays visible in fullscreen. Its contents, open state and closing are yours; the keyboard shortcuts stay in the viewer's controls panel, on its Global page (Shift+H). `onInfo` is a `createViewer` option only: a document from `renderViewerHtml` cannot carry a function.
+Render the panel inside `container` so it stays visible in fullscreen. Its contents, open state and closing are yours; the keyboard shortcuts stay in the viewer's controls panel, on its Global page (Shift+H).
+
+Pass `onInfo: false` for no info at all. The info button is removed from the toolbar and the viewer's info panel never opens, however the built-in UI changes in future.
+
+`onInfo` is a `createViewer` option only: a document from `renderViewerHtml` cannot carry a function, and is the viewer as shipped, info panel included.
 
 [The custom UI example](https://github.com/playcanvas/supersplat-viewer/blob/main/src/dev/custom-ui.html) demonstrates loading, playback, camera modes, directional movement, annotations, preferences and fullscreen/XR using only the handle and documented state events. Run it locally at `/custom-ui?content=./scene.ply&settings=./settings.json` (`&webgl` selects WebGL). It is a development example, not a React package or a published UI component. Its controls live outside the fullscreen container, so use Escape or the browser's exit affordance to leave fullscreen.
 

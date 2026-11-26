@@ -34,7 +34,7 @@ type Config = ViewerAssets &
     Pick<ViewerFlags, 'hpr' | 'aa' | 'budget' | 'lang'> & {
         poster?: HTMLImageElement;
         contents: Promise<Response>;
-        onInfo?: () => void;
+        onInfo?: (() => void) | false;
     };
 
 // observable state that can change at runtime

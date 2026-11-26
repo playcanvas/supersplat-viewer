@@ -258,7 +258,7 @@ const initUI = (
 
     // The settings, controls and info buttons are toggles: each shows active while its panel is
     // open. Every open and close goes through these so the two cannot disagree. A host's onInfo
-    // replaces the info panel, so then the info button is a plain button.
+    // replaces the info panel, so then the info button is a plain button; onInfo false removes it.
     const isVisible = (panel: HTMLElement) => !panel.classList.contains('sse-hidden');
 
     // The controls panel and the settings panel share the space above the toolbar, and the last
@@ -329,6 +329,7 @@ const initUI = (
 
     // these close a panel without an input event, so they restart the fade timer themselves
     const { onInfo } = global.config;
+    dom.info.classList.toggle('sse-hidden', onInfo === false);
     dom.info.addEventListener('click', () => {
         if (onInfo) {
             onInfo();
