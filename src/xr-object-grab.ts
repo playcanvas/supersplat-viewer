@@ -15,8 +15,8 @@ const DIORAMA_REACH = 0.6;
 // Changes in the hands' separation within SPREAD_DEAD_ZONE of the grab's do not scale (as the
 // two-hand grab's elsewhere), and the object stays from MIN_SCALE to MAX_SCALE of its placed size
 const SPREAD_DEAD_ZONE = 0.15;
-const MIN_SCALE = 0.25;
-const MAX_SCALE = 4;
+const MIN_SCALE = 0.1;
+const MAX_SCALE = 10;
 // below these the hands' separation, and its length across the floor, give no spread or heading
 const EPS_SEPARATION = 1e-3;
 const EPS_XZ = 1e-4;

@@ -15,8 +15,8 @@ const SPREAD_DEAD_ZONE = 0.15;
 const MIN_HEIGHT = 0.1;
 
 // how small and large the scene can look, which the user's scale is the inverse of
-const MIN_SCENE_SCALE = 0.25;
-const MAX_SCENE_SCALE = 4;
+const MIN_SCENE_SCALE = 0.1;
+const MAX_SCENE_SCALE = 10;
 
 const left = new Vec3();
 const right = new Vec3();
