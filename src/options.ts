@@ -150,9 +150,10 @@ type CreateViewerOptions = ViewerAssets &
         /**
          * Called when the toolbar's info button is pressed, instead of opening the viewer's own
          * info panel, so a host can show its own. Render it inside the container to keep it
-         * visible in fullscreen. Ignored when {@link ViewerFlags.ui} is `false`.
+         * visible in fullscreen. Pass `false` for no info at all: the button is hidden and the
+         * viewer's own info panel never opens. Ignored when {@link ViewerFlags.ui} is `false`.
          */
-        onInfo?: () => void;
+        onInfo?: (() => void) | false;
     };
 
 export type { CreateViewerOptions, ViewerAssets, ViewerFlags };
