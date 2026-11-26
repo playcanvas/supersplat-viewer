@@ -73,6 +73,7 @@
     "xr-menu.exit-vr": "Salir de VR",
     "xr-menu.exit-ar": "Salir de AR",
     "xr-menu.ice-cream": "Modo helado",
+    "xr-menu.grid": "Cuadrícula del suelo",
     "xr-hint.place": "Pellizca, apunta al suelo o a una mesa y suelta",
     "xr-hint.place-controller": "Mantén el gatillo, apunta al suelo o a una mesa y suelta",
     "xr-hint.place-screen": "Toca el suelo o una mesa para colocar, dos dedos para escalar y rotar",

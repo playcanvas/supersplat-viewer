@@ -183,7 +183,7 @@ The value stays active until replaced. The viewer clears it on camera/XR mode ch
 
 ### Saved preferences
 
-`performanceMode`, `gamingControls` and `showAnnotations` load from and write changes to the existing origin-wide local-storage keys, with or without the built-in UI. Creation does not write defaults; the legacy `retinaDisplay` migration is preserved. A new viewer reads the saved values; already-mounted viewers keep their own state rather than synchronizing through storage. The host can change these preferences through the corresponding writable state fields. Storage denial or quota errors leave the viewer usable, and destruction removes its persistence subscriptions. The built-in UI also remembers whether its controls panel is open, under the origin-wide key `controlsPanelOpen`; it is open for a new visitor until they close it.
+`performanceMode`, `gamingControls` and `showAnnotations` load from and write changes to the existing origin-wide local-storage keys, with or without the built-in UI. Creation does not write defaults; the legacy `retinaDisplay` migration is preserved. A new viewer reads the saved values; already-mounted viewers keep their own state rather than synchronizing through storage. The host can change these preferences through the corresponding writable state fields. Storage denial or quota errors leave the viewer usable, and destruction removes its persistence subscriptions. The built-in UI also remembers whether its controls panel is open, under the origin-wide key `controlsPanelOpen`; it is open for a new visitor until they close it. The XR menu remembers whether the floor grid shows in a scene without collision, under `xrGrid`; it shows until the user turns it off.
 
 ### Controlling annotations
 
