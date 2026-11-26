@@ -43,6 +43,26 @@ const CAPSULE_HOVER = 0.2;
 const FLOOR_SETTLE = 500;
 // how often, at most, a lost XR projection layer is made again (see layerLost)
 const LAYER_RETRY_MS = 1000;
+// Whether the grid around the user's feet shows (XrGroundDisc), a switch in the menu kept under this
+// origin-wide key: on until the user turns it off
+const GRID_KEY = 'xrGrid';
+
+const readGrid = () => {
+    try {
+        return localStorage.getItem(GRID_KEY) !== 'false';
+    } catch {
+        // Embedded documents can be denied storage.
+        return true;
+    }
+};
+
+const writeGrid = (show: boolean) => {
+    try {
+        localStorage.setItem(GRID_KEY, String(show));
+    } catch {
+        // Storage may be blocked or full; the choice still holds for this viewer.
+    }
+};
 
 // the device tests live with the quality decisions they drive (quality.ts); re-exported below
 // for the ui
@@ -319,6 +339,7 @@ const initXr = (global: Global) => {
     let arPlacement: XrArPlacement | null = null;
     let grabMove: XrGrabMove | null = null;
     let groundDisc: XrGroundDisc | null = null;
+    let showGrid = readGrid();
     let objectShadow: XrObjectShadow | null = null;
     // whether the session's splat is the user's to handle, which the session's type decides
     let holding = false;
@@ -405,7 +426,7 @@ const initXr = (global: Global) => {
         if (grabMove) grabMove.enabled = !holding;
         navigation.enableTeleport = !holding;
         placeAtStart();
-        if (groundDisc) groundDisc.visible = !holding;
+        if (groundDisc) groundDisc.visible = !holding && showGrid;
         // without collision, the start stands on the splats' floor in front of the user, picked once
         // the session's first frames have posed the eyes and settled the scene (between frames, as
         // the picker needs)
@@ -632,6 +653,17 @@ const initXr = (global: Global) => {
             visible: () => !!iceCream && xr.input.inputSources.some((source) => !!source.hand || source.grip),
             action: () => {
                 state.iceCream = !state.iceCream;
+            }
+        },
+        {
+            // only where the grid is: a VR scene without collision
+            label: () => localize('xr-menu.grid'),
+            checked: () => showGrid,
+            visible: () => !!groundDisc && !holding,
+            action: () => {
+                showGrid = !showGrid;
+                writeGrid(showGrid);
+                if (groundDisc) groundDisc.visible = showGrid;
             }
         },
         ...(config.debug ? [{ label: () => 'Debug  ›', submenu: debugItems }] : []),
